@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.mu/.gitignore
+.mu/objects/
+.mu/sessions/
+.mu/current-session
+.mu/.current-session.*
