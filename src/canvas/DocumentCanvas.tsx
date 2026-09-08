@@ -10,6 +10,8 @@ import type { ViewSettings } from '../app/GlobalSettings'
 
 interface Point { x: number; y: number }
 
+const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
+
 interface Props {
   doc: MoteDocument
   editable: boolean
@@ -85,11 +87,17 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       <p className="page-footer">MOTE <span>·</span> A place for text and space</p>
     </div>
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
-    {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => event.preventDefault()}>
+    {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => {
+      if ((event.target as HTMLElement).closest('button')) event.preventDefault()
+    }}>
       <button aria-label="Zoom out" disabled={scale <= minScale} onClick={() => zoomTo(scale / 1.1)}>−</button>
-      <output aria-label="Document zoom level">{Math.round(scale * 100)}%</output>
+      <select aria-label="Document zoom level" value={String(scale)}
+        onChange={event => event.target.value === 'fit' ? reset() : zoomTo(Number(event.target.value))}>
+        {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
+        {!editable && <option value="fit">Fit</option>}
+        {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
+      </select>
       <button aria-label="Zoom in" disabled={scale >= 3} onClick={() => zoomTo(scale * 1.1)}>+</button>
-      <button onClick={reset} title="Reset document zoom (Ctrl/⌘ 0)">{editable ? '100%' : 'Fit'}</button>
     </div>, zoomHost)}
   </div>
 }
