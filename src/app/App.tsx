@@ -6,16 +6,17 @@ import { DocumentCanvas } from '../canvas/DocumentCanvas'
 import { blockClasses, createDocument, inlineClasses, paragraph, replaceMainContent, type MoteDocument } from '../document/model'
 import { loadDraft, saveDraft } from '../document/storage'
 import { ThemePanel } from '../theme/ThemePanel'
+import { GlobalSettings, useViewSettings } from './GlobalSettings'
 
-function useMobile() {
-  const [mobile, setMobile] = useState(() => matchMedia('(max-width: 767px)').matches)
+function useMedia(query: string) {
+  const [matches, setMatches] = useState(() => matchMedia(query).matches)
   useEffect(() => {
-    const query = matchMedia('(max-width: 767px)')
-    const update = () => setMobile(query.matches)
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
-  return mobile
+    const media = matchMedia(query)
+    const update = () => setMatches(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [query])
+  return matches
 }
 
 export function App() {
@@ -25,10 +26,16 @@ export function App() {
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')
-  const mobile = useMobile()
+  const mobile = useMedia('(max-width: 767px)')
+  const smallScreen = useMedia('(max-width: 1050px)')
   const editable = !mobile && mode === 'edit'
+  const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings()
+  const [viewSettingsOpen, setViewSettingsOpen] = useState(false)
+  const showInspector = editable || viewSettingsOpen
+  const showMinimap = settings.minimap === 'show' || (settings.minimap === 'auto' && !smallScreen)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
+  const [zoomHost, setZoomHost] = useState<HTMLDivElement | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -101,9 +108,12 @@ export function App() {
       <a className="brand" href="./" aria-label="Mote home"><span className="brand-mark">m</span>Mote</a>
       <div className="document-label">Untitled notebook <span className="version">V0</span></div>
       <div className={`save-status ${status}`} role="status"><span className="status-dot" />
-        {status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}
+        <span className="save-message">{status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}</span>
         {status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
       </div>
+      <div className="header-zoom" ref={setZoomHost} />
+      {!editable && <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
+        aria-controls="view-settings" onClick={() => setViewSettingsOpen(!viewSettingsOpen)}>View</button>}
       {!mobile ? <div className="mode-switch" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
@@ -137,8 +147,8 @@ export function App() {
       <span className="editing-context">{activeEditor === mainEditor ? 'Main text' : 'Floating text'}</span>
     </div>}
 
-    <main className={`workspace ${editable ? '' : 'reader'}`}>
-      <DocumentCanvas key={doc.id} doc={doc} editable={editable}
+    <main className={`workspace ${showInspector ? '' : 'reader'}`}>
+      <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={content => setDoc(current => current && replaceMainContent(current, content))}
         onNoteChange={(id, patch) => setDoc(current => current && ({ ...current, floating: current.floating.map(note => note.id === id ? { ...note, ...patch } : note) }))}
@@ -146,8 +156,12 @@ export function App() {
           setActiveEditor(mainEditor)
           setDoc(current => current && ({ ...current, floating: current.floating.filter(note => note.id !== id) }))
         }} />
-      {editable && <aside className="inspector" aria-label="Document settings">
-        <div className="inspector-heading">NOTEBOOK SETTINGS</div>
+      {showInspector && <aside className="inspector" id="view-settings" aria-label={editable ? 'Document and global settings' : 'View settings'}>
+        <div className="inspector-heading">{editable ? 'NOTEBOOK SETTINGS' : 'VIEW SETTINGS'}
+          {!editable && <button aria-label="Close view settings" onClick={() => setViewSettingsOpen(false)}>×</button>}
+        </div>
+        <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />
+        {editable && <>
         <section className="panel-section">
           <h2>Document</h2>
           <label>Page width <output>{doc.width}px</output>
@@ -173,6 +187,7 @@ export function App() {
             setMainEditor(null); setActiveEditor(null); setDoc(createDocument())
           }}>Reset to example</button>
         </section>
+        </>}
       </aside>}
     </main>
   </div>

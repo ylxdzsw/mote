@@ -47,11 +47,31 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .history { border: 0; gap: 0; }
 .history button { padding: 3px 10px; font-size: 22px; line-height: 1; }
 .editing-context { margin-left: auto; font-size: 11px; color: #8b9188; }
-.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 248px; flex: 1; min-height: 0; overflow: hidden; }
+.workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 248px; flex: 1; min-height: 0; overflow: hidden; }
 .workspace.reader { display: block; }
-.canvas-pane { position: relative; min-width: 0; height: 100%; min-height: 0; }
-.stage { height: 100%; overflow: auto; overscroll-behavior: contain; overflow-anchor: none; padding: 32px 24px 64px; min-width: 0; }
-.zoom-controls { position: absolute; right: 18px; bottom: 14px; display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; background: #f8f8f3; box-shadow: 0 2px 8px #303b3310; font-size: 11px; }
+.canvas-pane { --minimap-width: 100px; --bookmark-width: 64px; position: relative; min-width: 0; height: 100%; min-height: 0; }
+.canvas-pane.has-minimap { display: grid; grid-template-columns: calc(var(--minimap-width) + var(--bookmark-width)) minmax(0, 1fr); }
+.has-minimap .stage { grid-column: 2; grid-row: 1; }
+.stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 32px 24px 64px; min-width: 0; }
+.stage::-webkit-scrollbar { display: none; }
+.minimap-pane { grid-column: 1; grid-row: 1; display: grid; grid-template-columns: var(--minimap-width) var(--bookmark-width); min-height: 0; }
+.minimap { position: relative; overflow: hidden; min-height: 0; background: #f3f3ed; border-right: 1px solid var(--border); touch-action: none; user-select: none; cursor: pointer; }
+.minimap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.minimap-image { position: absolute; inset: 0; pointer-events: none; }
+.minimap .minimap-sheet { position: absolute; top: 0; left: 0; margin: 0; transform-origin: top left; box-shadow: none; pointer-events: none; }
+.minimap-viewport { position: absolute; top: 0; left: 0; right: 0; min-height: 2px; border-block: 1px solid #54795f66; border-right: 2px solid #54795f99; background: #54795f14; pointer-events: none; }
+.minimap-hit { position: absolute; top: 0; left: 0; right: 0; cursor: grab; }
+.minimap:hover .minimap-viewport, .minimap:focus-visible .minimap-viewport { background: #54795f24; border-color: #54795fa6; }
+.minimap.is-dragging, .minimap.is-dragging .minimap-hit { cursor: grabbing; }
+.minimap.is-dragging .minimap-viewport { background: #54795f30; }
+.minimap[data-scrollable='false'], .minimap[data-scrollable='false'] .minimap-hit { cursor: default; }
+.minimap-bookmarks { position: relative; min-height: 0; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; }
+.minimap-bookmarks::-webkit-scrollbar { display: none; }
+.minimap-bookmark { position: absolute; left: 0; max-width: calc(100% - 4px); height: 18px; padding: 1px 4px; border: 1px solid #d6ddcf; border-left: 2px solid #95a98b; border-radius: 0 4px 4px 0; background: #f6f7f0; color: #6a7665; font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.minimap-bookmark[aria-current='location'] { color: #35543e; background: #e2eadb; border-color: #9eb392; }
+.minimap-bookmark:focus-visible { outline-offset: -2px; }
+.header-zoom { flex-shrink: 0; }
+.zoom-controls { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; }
 .zoom-controls button { padding: 4px 8px; }
 .zoom-controls output { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
 .sheet { position: relative; margin: 0 auto; background: #fffefa; border: 1px solid #dedfd5; box-shadow: 0 3px 12px #3c472c06; }
@@ -59,7 +79,9 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .page-footer { margin: 24px 0 0; text-align: center; font-size: 10px; color: #8d9287; letter-spacing: 1px; }
 .page-footer span { margin: 0 8px; }
 .inspector { background: #f8f8f3; border-left: 1px solid var(--border); min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 26px 20px; }
-.inspector-heading { color: #8a9185; font-size: 9px; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 24px; }
+.inspector-heading { display: flex; align-items: center; justify-content: space-between; color: #8a9185; font-size: 9px; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 24px; }
+.inspector-heading button { font-size: 18px; padding: 0 5px; }
+.view-settings-toggle { font-size: 11px; border-color: var(--border); padding: 5px 8px; }
 .panel-section { padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--border); }
 .panel-section:last-child { border: 0; margin-bottom: 0; }
 .panel-section h2 { font-size: 13px; font-weight: 600; margin: 0 0 15px; }
@@ -101,6 +123,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (max-width: 1050px) {
+  .app-header { gap: 12px; padding-inline: 18px; }
   .document-label { display: none; }
   .editing-context { display: none; }
   .toolbar { padding-inline: 18px; gap: 8px; }
@@ -111,11 +134,23 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 }
 
 @media (max-width: 767px) {
-  .app-header { height: 45px; padding-inline: 18px; gap: 14px; }
+  .app-header { height: 45px; padding-inline: 14px; gap: 10px; }
   .brand { font-size: 21px; }
   .brand-mark { width: 29px; height: 29px; font-size: 24px; }
   .save-status { font-size: 10px; }
+  .save-message { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .zoom-controls { gap: 1px; padding: 2px; }
+  .zoom-controls button { padding: 4px 5px; }
+  .zoom-controls output { min-width: 34px; }
   .stage { padding-top: 24px; }
   .sheet { box-shadow: none; }
   .page-footer { font-size: 9px; letter-spacing: .4px; }
+  .workspace { display: block; }
+  .inspector { position: absolute; top: 0; right: 0; bottom: 0; width: min(280px, 85vw); z-index: 2; box-shadow: -4px 0 16px #303b3310; }
+  .canvas-pane { --minimap-width: 72px; --bookmark-width: 44px; }
+}
+
+@media (max-width: 360px) {
+  .app-header { padding-inline: 10px; gap: 7px; }
+  .mobile-mode { display: none; }
 }

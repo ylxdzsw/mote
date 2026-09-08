@@ -44,6 +44,8 @@ export function paragraph(text: string, semantic: BlockClass = 'body'): JSONCont
 
 export function createDocument(): MoteDocument {
   const spaceId = crypto.randomUUID()
+  const sketchSpaceId = crypto.randomUUID()
+  const reviewSpaceId = crypto.randomUUID()
   return {
     version: 'V0',
     id: crypto.randomUUID(),
@@ -79,6 +81,24 @@ export function createDocument(): MoteDocument {
         paragraph('Try it out', 'heading'),
         paragraph('Write above the floating note and watch it follow its anchor. Select a phrase to give it emphasis, or insert a spacer to leave room for something new.'),
         paragraph('This draft lives in this browser. No account, no cloud.', 'caption'),
+        paragraph('Ideas need different shapes', 'heading'),
+        paragraph('A small field guide to arranging a note', 'caption'),
+        paragraph('Start with the thought, not the layout. A paragraph can carry an argument, while a nearby box holds a question that deserves to stay open. Both belong to the same page.'),
+        { type: 'spacer', attrs: { id: sketchSpaceId, height: 410 } },
+        paragraph('Keep the thread', 'heading'),
+        paragraph('Use the main text for the path you want to follow. Put a definition, a reminder, or an alternative in a floating box, close to the passage that gives it meaning.'),
+        paragraph('Leave room for later', 'heading'),
+        paragraph('An empty area can be an invitation rather than a gap to fill. Insert a space, place a thought inside it, and return when the connection becomes clearer. Nothing needs a final position yet.'),
+        paragraph('Space is part of the composition, just as a pause is part of a sentence.', 'caption'),
+        paragraph('Returning with fresh eyes', 'heading'),
+        paragraph('A second pass through the same landscape', 'caption'),
+        paragraph('A longer note should still feel easy to explore. Its headings are landmarks; its open spaces give the eye a rest. The minimap keeps the shape of the whole nearby as you move.'),
+        { type: 'spacer', attrs: { id: reviewSpaceId, height: 410 } },
+        paragraph('Read for the shape', 'heading'),
+        paragraph('Switch to reading mode and look at the page as a composition. Zoom out to see the relationships, then move closer to a passage. Text and floating thoughts keep their places together.'),
+        paragraph('Make it your own', 'heading'),
+        paragraph('Replace a paragraph, rename a heading, or move a box to a better spot. Try a different theme and watch the whole note respond. The structure is a starting point, not a template to obey.'),
+        paragraph('Keep what helps you think. Leave a little room for what comes next.', 'caption'),
       ],
     },
     floating: [{
@@ -88,6 +108,20 @@ export function createDocument(): MoteDocument {
       y: 22,
       width: 300,
       content: { type: 'doc', content: [paragraph('A thought in the margin', 'heading'), paragraph('I move with the space I’m anchored to.', 'caption')] },
+    }, {
+      id: crypto.randomUUID(),
+      anchorId: sketchSpaceId,
+      x: 64,
+      y: 56,
+      width: 300,
+      content: { type: 'doc', content: [paragraph('A question to keep', 'heading'), paragraph('What belongs in the main thread, and what deserves its own small place?', 'caption')] },
+    }, {
+      id: crypto.randomUUID(),
+      anchorId: reviewSpaceId,
+      x: 280,
+      y: 64,
+      width: 300,
+      content: { type: 'doc', content: [paragraph('A note for next time', 'heading'), paragraph('Leave one useful question for the person who returns to this page. That person may be you.', 'caption')] },
     }],
   }
 }

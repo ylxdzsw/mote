@@ -1,15 +1,21 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type PointerEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { FloatingText, MoteDocument } from '../document/model'
 import { TextEditor } from '../editor/TextEditor'
 import { themeVariables } from '../theme/ThemePanel'
 import { useDocumentZoom } from './useDocumentZoom'
+import { Minimap } from './Minimap'
+import type { ViewSettings } from '../app/GlobalSettings'
 
 interface Point { x: number; y: number }
 
 interface Props {
   doc: MoteDocument
   editable: boolean
+  minimap: boolean
+  minimapSize: ViewSettings['minimapSize']
+  zoomHost: HTMLDivElement | null
   onMainChange: (content: JSONContent) => void
   onNoteChange: (id: string, patch: Partial<FloatingText>) => void
   onNoteRemove: (id: string) => void
@@ -17,12 +23,13 @@ interface Props {
   onMainReady: (editor: Editor) => void
 }
 
-export function DocumentCanvas({ doc, editable, onMainChange, onNoteChange, onNoteRemove, onActive, onMainReady }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, onMainChange, onNoteChange, onNoteRemove, onActive, onMainReady }: Props) {
+  const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null)
   const sheet = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
   const [anchors, setAnchors] = useState<Record<string, Point>>({})
-  const { scale, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.width, editable)
+  const { scale, minScale, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.width, editable)
   const [minHeight, setMinHeight] = useState(900)
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -58,8 +65,8 @@ export function DocumentCanvas({ doc, editable, onMainChange, onNoteChange, onNo
     return () => observer.disconnect()
   }, [doc, editable, scale])
 
-  return <div className="canvas-pane">
-    <div className="stage" ref={stage} aria-label="Document canvas" onPointerDown={event => {
+  return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''}`}>
+    <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDown={event => {
       if (!(event.target as HTMLElement).closest('.floating-note')) setSelected(null)
     }}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selected ? 'has-selected-note' : ''}`} ref={sheet}
@@ -77,12 +84,13 @@ export function DocumentCanvas({ doc, editable, onMainChange, onNoteChange, onNo
       </div>
       <p className="page-footer">MOTE <span>·</span> A place for text and space</p>
     </div>
-    <div className="zoom-controls" aria-label="Document zoom">
-      <button aria-label="Zoom out" disabled={scale <= .25} onClick={() => zoomTo(scale / 1.1)}>−</button>
+    {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
+    {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => event.preventDefault()}>
+      <button aria-label="Zoom out" disabled={scale <= minScale} onClick={() => zoomTo(scale / 1.1)}>−</button>
       <output aria-label="Document zoom level">{Math.round(scale * 100)}%</output>
       <button aria-label="Zoom in" disabled={scale >= 3} onClick={() => zoomTo(scale * 1.1)}>+</button>
       <button onClick={reset} title="Reset document zoom (Ctrl/⌘ 0)">{editable ? '100%' : 'Fit'}</button>
-    </div>
+    </div>, zoomHost)}
   </div>
 }
 

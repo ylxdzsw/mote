@@ -6,6 +6,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   const [fit, setFit] = useState(1)
   const [zoom, setZoom] = useState(1)
   const scale = fit * zoom
+  const minScale = Math.min(.25, fit)
   const focal = useRef<{ document: Point; client: Point } | null>(null)
 
   useLayoutEffect(() => { setZoom(1) }, [editable])
@@ -20,7 +21,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   }, [stage, width, editable])
 
   function zoomTo(next: number, client?: Point) {
-    next = Math.max(.25, Math.min(3, next))
+    next = Math.max(minScale, Math.min(3, next))
     if (next === scale) return
     const viewport = stage.current!
     const rect = viewport.getBoundingClientRect()
@@ -76,5 +77,5 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     }
   }, [])
 
-  return { scale, zoomTo, reset: () => zoomTo(fit) }
+  return { scale, minScale, zoomTo, reset: () => zoomTo(fit) }
 }
