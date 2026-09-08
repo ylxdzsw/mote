@@ -6,6 +6,8 @@ import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor, UndoRedo } from '@tiptap/extensions'
 import { blockClasses, inlineClasses } from '../document/model'
+import { TableParagraph, tableExtensions } from './table'
+import { SegmentSizing } from './segmentSizing'
 
 const SemanticParagraph = Paragraph.extend({
   addAttributes() {
@@ -50,7 +52,7 @@ export const Spacer = Node.create({
       height: {
         default: 120,
         parseHTML: element => Number(element.getAttribute('data-height')),
-        renderHTML: attrs => ({ 'data-height': attrs.height, style: `height: ${attrs.height}px` }),
+        renderHTML: attrs => ({ 'data-height': attrs.height, style: `--spacer-height: ${attrs.height}px` }),
       },
     }
   },
@@ -58,10 +60,12 @@ export const Spacer = Node.create({
   renderHTML: ({ HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-spacer': '', 'aria-label': 'Vertical space' })],
 })
 
-export function extensions(spatial: boolean) {
+export function extensions(spatial: boolean, table = false) {
   return [
-    Document, SemanticParagraph, Text, HardBreak, SemanticText, UndoRedo, Gapcursor,
+    table ? Document.extend({ content: 'table' }) : Document,
+    table ? TableParagraph : SemanticParagraph, Text, HardBreak, SemanticText, UndoRedo, Gapcursor,
     UniqueID.configure({ types: spatial ? ['paragraph', 'spacer'] : ['paragraph'] }),
-    ...(spatial ? [Spacer] : []),
+    ...(spatial ? [Spacer, SegmentSizing] : []),
+    ...(table ? tableExtensions : []),
   ]
 }

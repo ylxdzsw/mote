@@ -16,14 +16,32 @@ export interface Theme {
   inline: Record<InlineClass, { color: string; background: string }>
 }
 
-export interface FloatingText {
+interface FloatingGeometry {
   id: string
   anchorId: string
   x: number
   y: number
   width: number
+}
+
+export interface FloatingText extends FloatingGeometry {
+  kind?: 'text'
   content: JSONContent
 }
+
+export interface FloatingTable extends FloatingGeometry {
+  kind: 'table'
+  content: JSONContent
+}
+
+export interface FloatingImage extends FloatingGeometry {
+  kind: 'image'
+  src: string
+  alt: string
+}
+
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage
+export type FloatingPatch = Partial<Pick<FloatingGeometry, 'x' | 'y' | 'width'>> & { content?: JSONContent; src?: string; alt?: string }
 
 export interface MoteDocument {
   version: 'V0'
@@ -31,7 +49,7 @@ export interface MoteDocument {
   width: number
   theme: Theme
   content: JSONContent
-  floating: FloatingText[]
+  floating: FloatingObject[]
 }
 
 export function paragraph(text: string, semantic: BlockClass = 'body'): JSONContent {
@@ -41,6 +59,14 @@ export function paragraph(text: string, semantic: BlockClass = 'body'): JSONCont
     content: text ? [{ type: 'text', text }] : [],
   }
 }
+
+export function tableContent(rows = [['Idea', 'Next step'], ['A little space', 'Try something new'], ['', '']]): JSONContent {
+  return { type: 'doc', content: [{ type: 'table', content: rows.map(row => ({
+    type: 'tableRow', content: row.map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }] })),
+  })) }] }
+}
+
+const landscape = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360"><rect width="600" height="360" fill="#e8ecdf"/><circle cx="450" cy="86" r="40" fill="#d9b678"/><path d="M0 238Q145 76 320 224T600 164V360H0Z" fill="#9aaa89"/><path d="M0 292Q156 196 340 278T600 228V360H0Z" fill="#54725b"/><path d="M240 360Q410 290 330 238" fill="none" stroke="#eee5c9" stroke-width="20"/><path d="M95 285V150m0 70q-65-8-53-54 53 7 53 54m0-26q59-4 49-49-49 6-49 49" fill="#35543e" stroke="#35543e" stroke-width="5"/></svg>')}`
 
 export function createDocument(): MoteDocument {
   const spaceId = crypto.randomUUID()
@@ -111,17 +137,25 @@ export function createDocument(): MoteDocument {
     }, {
       id: crypto.randomUUID(),
       anchorId: sketchSpaceId,
-      x: 64,
-      y: 56,
+      x: 360,
+      y: 72,
       width: 300,
       content: { type: 'doc', content: [paragraph('A question to keep', 'heading'), paragraph('What belongs in the main thread, and what deserves its own small place?', 'caption')] },
     }, {
       id: crypto.randomUUID(),
       anchorId: reviewSpaceId,
-      x: 280,
-      y: 64,
+      x: 360,
+      y: 80,
       width: 300,
       content: { type: 'doc', content: [paragraph('A note for next time', 'heading'), paragraph('Leave one useful question for the person who returns to this page. That person may be you.', 'caption')] },
+    }, {
+      id: crypto.randomUUID(), kind: 'image', anchorId: sketchSpaceId,
+      x: 0, y: 48, width: 340, src: landscape,
+      alt: 'A winding path between green hills beneath a golden sun.',
+    }, {
+      id: crypto.randomUUID(), kind: 'table', anchorId: reviewSpaceId,
+      x: 0, y: 48, width: 340,
+      content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Room to think', 'One useful question']]),
     }],
   }
 }

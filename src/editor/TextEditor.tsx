@@ -7,14 +7,15 @@ interface Props {
   content: JSONContent
   editable: boolean
   spatial?: boolean
+  table?: boolean
   label: string
   onChange: (content: JSONContent) => void
   onActive: (editor: Editor) => void
   onReady?: (editor: Editor) => void
 }
 
-export function TextEditor({ content, editable, spatial = false, label, onChange, onActive, onReady }: Props) {
-  const schema = useMemo(() => extensions(spatial), [spatial])
+export function TextEditor({ content, editable, spatial = false, table = false, label, onChange, onActive, onReady }: Props) {
+  const schema = useMemo(() => extensions(spatial, table), [spatial, table])
   const editor = useEditor({
     extensions: schema,
     content,

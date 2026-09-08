@@ -54,12 +54,12 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         miniature.className = 'sheet is-reading minimap-sheet'
         miniature.style.zoom = '1'
         miniature.style.height = `${source.offsetHeight}px`
-        miniature.querySelectorAll('.note-delete, .resize-handle').forEach(node => node.remove())
+        miniature.querySelectorAll('.floating-border-right, .segment-boundaries').forEach(node => node.remove())
         miniature.querySelectorAll<HTMLElement>('*').forEach(node => {
           for (const name of node.getAttributeNames()) {
             if (name === 'id' || name === 'tabindex' || name === 'contenteditable' || name === 'role' || name.startsWith('aria-')) node.removeAttribute(name)
           }
-          node.classList.remove('ProseMirror-selectednode', 'ProseMirror-focused', 'is-selected')
+          node.classList.remove('ProseMirror-selectednode', 'ProseMirror-focused', 'is-selected', 'selectedCell')
         })
         const rect = source.getBoundingClientRect()
         const zoom = rect.width / source.offsetWidth
