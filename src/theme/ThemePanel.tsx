@@ -6,7 +6,8 @@ export function themeVariables(theme: Theme): CSSProperties {
   const variables: Record<string, string> = { '--page-background': theme.defaults.background }
   for (const name of blockClasses) {
     const style = { ...theme.defaults, ...theme.blocks[name] }
-    variables[`--${name}-family`] = style.family === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif'
+    variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, monospace'
+      : style.family === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif'
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${style[property]}px`
     for (const property of ['color', 'weight', 'lineHeight'] as const) variables[`--${name}-${property}`] = String(style[property])
   }
@@ -106,7 +107,7 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
       <h2>{classLabel(selected)}</h2>
       <p className="hint">{defaults ? 'The shared baseline for paragraph styles.' : isBlock ? 'Every paragraph with this meaning follows this style.' : 'Applied within any paragraph, including table cells.'}</p>
       {(defaults || isBlock) && <>
-        {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
+        {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
         {number('size', 'Font size', 8, 96, .5)}
       </>}
       {choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
@@ -122,7 +123,9 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
         {choose('decoration', 'Decoration', [['none', 'None'], ['underline', 'Underline'], ['line-through', 'Strikethrough']], String(values.decoration ?? 'inherit'))}
       </>}
       <div className="theme-sample text-content" style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme), background: theme.defaults.background }} aria-label="Style sample">
-        <p data-semantic={isBlock ? selected : 'body'}>{defaults || isBlock ? 'A little room to think.' : <>A thought with <span data-inline-semantic={selected}>something to remember</span>.</>}</p>
+        {selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "to think"\n}'}</code></pre>
+          : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}>A little more detail</p></>
+          : <p data-semantic={isBlock ? selected : 'body'}>{defaults || isBlock ? 'A little room to think.' : <>A thought with <span data-inline-semantic={selected}>something to remember</span>.</>}</p>}
       </div>
       {!defaults && <button disabled={!Object.keys(styles).length} onClick={() => {
         history.boundary()

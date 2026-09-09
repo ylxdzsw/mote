@@ -95,17 +95,23 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .panel-section .text-button { border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; color: #777f70; }
 .local-note h2 { color: #777f70; font-size: 11px; margin-bottom: 4px; }
 .text-content .tiptap { outline: none; min-height: 24px; overflow-wrap: anywhere; }
-.text-content p { margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
-.text-content p:last-child { margin-bottom: 0; }
+.text-content :is(p, pre) { margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
+.text-content :is(p, pre):last-child { margin-bottom: 0; }
 .main-paragraph { display: flow-root; box-sizing: content-box; }
 .paragraph-content { display: block; }
 .main-paragraph[data-repel] { height: var(--text-height); }
 .main-paragraph[data-repel]::before { content: ''; float: right; width: 100%; height: var(--repel-height); shape-outside: var(--repel-shape); pointer-events: none; }
-.text-content p { --text-family: var(--body-family); --text-size: var(--body-size); --text-color: var(--body-color); --text-weight: var(--body-weight); --text-lineHeight: var(--body-lineHeight); --text-spaceBefore: var(--body-spaceBefore); --text-spaceAfter: var(--body-spaceAfter); --text-letterSpacing: var(--body-letterSpacing); }
+.text-content :is(p, pre) { --text-family: var(--body-family); --text-size: var(--body-size); --text-color: var(--body-color); --text-weight: var(--body-weight); --text-lineHeight: var(--body-lineHeight); --text-spaceBefore: var(--body-spaceBefore); --text-spaceAfter: var(--body-spaceAfter); --text-letterSpacing: var(--body-letterSpacing); }
 .text-content [data-semantic='title'] { --text-family: var(--title-family); --text-size: var(--title-size); --text-color: var(--title-color); --text-weight: var(--title-weight); --text-lineHeight: var(--title-lineHeight); --text-spaceBefore: var(--title-spaceBefore); --text-spaceAfter: var(--title-spaceAfter); --text-letterSpacing: var(--title-letterSpacing); }
 .text-content [data-semantic='heading'] { --text-family: var(--heading-family); --text-size: var(--heading-size); --text-color: var(--heading-color); --text-weight: var(--heading-weight); --text-lineHeight: var(--heading-lineHeight); --text-spaceBefore: var(--heading-spaceBefore); --text-spaceAfter: var(--heading-spaceAfter); --text-letterSpacing: var(--heading-letterSpacing); }
 .text-content [data-semantic='caption'] { --text-family: var(--caption-family); --text-size: var(--caption-size); --text-color: var(--caption-color); --text-weight: var(--caption-weight); --text-lineHeight: var(--caption-lineHeight); --text-spaceBefore: var(--caption-spaceBefore); --text-spaceAfter: var(--caption-spaceAfter); --text-letterSpacing: var(--caption-letterSpacing); }
-.text-content p:first-child { margin-top: 0; }
+.text-content :is(p, pre):first-child { margin-top: 0; }
+.text-content [data-semantic='code'] { --text-family: var(--code-family); --text-size: var(--code-size); --text-color: var(--code-color); --text-weight: var(--code-weight); --text-lineHeight: var(--code-lineHeight); --text-spaceBefore: var(--code-spaceBefore); --text-spaceAfter: var(--code-spaceAfter); --text-letterSpacing: var(--code-letterSpacing); }
+.text-content [data-semantic='list'] { --text-family: var(--list-family); --text-size: var(--list-size); --text-color: var(--list-color); --text-weight: var(--list-weight); --text-lineHeight: var(--list-lineHeight); --text-spaceBefore: var(--list-spaceBefore); --text-spaceAfter: var(--list-spaceAfter); --text-letterSpacing: var(--list-letterSpacing); }
+.text-content pre { white-space: pre-wrap; tab-size: 2; }
+.text-content pre code { display: block; font: inherit; color: inherit; letter-spacing: inherit; }
+.text-content [data-semantic='list'] { display: flow-root list-item; margin-left: calc((var(--list-level, 0) + 1) * 24px); list-style-type: disc; }
+.text-content [data-semantic='list'][data-list-level]:not([data-list-level='0']) { list-style-type: circle; }
 .text-content [data-inline-semantic='emphasis'] { color: var(--emphasis-color); background: var(--emphasis-background); font-weight: var(--emphasis-weight); font-style: var(--emphasis-italic); text-decoration: var(--emphasis-decoration); border-radius: 2px; box-decoration-break: clone; }
 .text-content [data-inline-semantic='term'] { color: var(--term-color); background: var(--term-background); font-weight: var(--term-weight); font-style: var(--term-italic); text-decoration: var(--term-decoration); border-radius: 2px; box-decoration-break: clone; }
 .text-content [data-spacer] { position: relative; margin: 0 calc(-1 * var(--margin-right)) 0 calc(-1 * var(--margin-left)); height: var(--spacer-preview-height, var(--spacer-height)); }

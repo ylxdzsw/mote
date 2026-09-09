@@ -5,13 +5,14 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addColumnAfter, addRowAfter, deleteColumn, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas } from '../canvas/DocumentCanvas'
-import { blockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch } from '../document/model'
+import { blockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type BlockClass, type FloatingObject, type FloatingPatch } from '../document/model'
 import { readImage } from '../document/image'
 import { loadDraft, saveDraft } from '../document/storage'
 import { type ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
+import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 
 function useMedia(query: string) {
   const [matches, setMatches] = useState(() => matchMedia(query).matches)
@@ -68,6 +69,7 @@ export function App() {
             for (const name of blockClasses) draft.theme.blocks[name] = { ...defaultTheme.blocks[name], ...draft.theme.blocks[name] }
             draft.theme.defaults = { ...defaultTheme.defaults }
           }
+          for (const name of blockClasses) draft.theme.blocks[name] ??= { ...defaultTheme.blocks[name] }
         }
         setDoc(draft ?? createDocument())
       }
@@ -91,10 +93,11 @@ export function App() {
   }, [status])
 
   useEffect(() => {
-    if (!editable) return
     function keydown(event: KeyboardEvent) {
-      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.isComposing) return
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return
       const key = event.key.toLowerCase()
+      if (key === 's') { event.preventDefault(); event.stopPropagation(); return }
+      if (!editable || event.isComposing) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
       if (target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox])')) return
@@ -114,6 +117,7 @@ export function App() {
       return {
         paragraph: editor?.isActive('paragraph') ?? false,
         semantic: editor?.getAttributes('paragraph').semantic ?? 'body',
+        listLevel: editor?.getAttributes('paragraph').listLevel ?? 0,
         inline: editor?.getAttributes('semanticText').semantic ?? '',
         spacer: editor?.isActive('spacer') ?? false,
         height: editor?.getAttributes('spacer').height ?? 120,
@@ -221,17 +225,23 @@ export function App() {
       <div className="tool-group">
         <label className="sr-only" htmlFor="paragraph-class">Paragraph class</label>
         <select id="paragraph-class" value={selection?.semantic ?? 'body'} disabled={!selection?.paragraph || selection.table}
-          onChange={event => activeEditor?.chain().focus().updateAttributes('paragraph', { semantic: event.target.value }).run()}>
+          onChange={event => activeEditor && setParagraphClass(activeEditor, event.target.value as BlockClass)}>
           {blockClasses.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}
         </select>
         <label className="sr-only" htmlFor="phrase-class">Phrase class</label>
-        <select id="phrase-class" value={selection?.inline ?? ''} disabled={!selection?.paragraph && !selection?.tableRect}
+        <select id="phrase-class" value={selection?.inline ?? ''} disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
           onChange={event => event.target.value
             ? activeEditor?.chain().focus().setMark('semanticText', { semantic: event.target.value }).run()
             : activeEditor?.chain().focus().unsetMark('semanticText').run()}>
           <option value="">Plain phrase</option>
           {inlineClasses.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}
         </select>
+        {selection?.semantic === 'list' && <>
+          <button aria-label="Decrease list level" title="Decrease list level · Shift+Tab" onMouseDown={event => event.preventDefault()}
+            onClick={() => { if (activeEditor) { activeEditor.view.focus(); changeListLevel(activeEditor, -1) } }}>⇤</button>
+          <button aria-label="Increase list level" title="Increase list level · Tab" onMouseDown={event => event.preventDefault()}
+            onClick={() => { if (activeEditor) { activeEditor.view.focus(); changeListLevel(activeEditor, 1) } }}>⇥</button>
+        </>}
         <button disabled={!selection?.paragraph} onMouseDown={event => event.preventDefault()} onClick={() => {
           history.boundary(); setThemeClass((selection?.inline || selection?.semantic || 'body') as ThemeClass)
           setSettingsTab('theme'); setDocumentSettingsOpen(true); setViewSettingsOpen(false)
@@ -271,7 +281,9 @@ export function App() {
         </div>
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
         {editable && !viewSettingsOpen && <>
-        {!selectedObject && !selection?.spacer && <section className="panel-section"><h2>Text & space</h2><p className="hint">Select an object or a space to adjust it here. Open Document to edit page layout and semantic styles.</p></section>}
+        {!selectedObject && !selection?.spacer && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Select an object or a space to adjust it here. Open Document to edit page layout and semantic styles.</p></section>}
+        {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
+        {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
         {selectedObject && <section className="panel-section">
           <h2>Selected object</h2>
           <label>Main text flow

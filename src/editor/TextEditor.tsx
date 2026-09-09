@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
-import { Selection, TextSelection } from '@tiptap/pm/state'
+import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import { extensions } from './extensions'
 import { useHistory } from '../document/history'
@@ -30,7 +30,15 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
     editable,
     editorProps: {
       attributes: { 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
-      handleDOMEvents: { beforeinput: (_view, event) => {
+      handleDOMEvents: { pointerdown: (view, event) => {
+        const space = (event.target as HTMLElement).closest('[data-spacer]')
+        if (!editable || event.button !== 0 || !space) return false
+        event.preventDefault()
+        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, view.posAtDOM(space, 0))))
+        view.focus()
+        onActive(editor)
+        return true
+      }, beforeinput: (_view, event) => {
         if (!editable || !['historyUndo', 'historyRedo'].includes(event.inputType)) return false
         event.preventDefault()
         if (event.inputType === 'historyUndo') history.undo(); else history.redo()

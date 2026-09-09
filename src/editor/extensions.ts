@@ -8,6 +8,7 @@ import { Gapcursor } from '@tiptap/extensions'
 import { blockClasses, inlineClasses } from '../document/model'
 import { TableParagraph, tableExtensions } from './table'
 import { SegmentSizing } from './segmentSizing'
+import { ParagraphBehavior } from './paragraphBehavior'
 
 const SemanticParagraph = Paragraph.extend({
   addAttributes() {
@@ -16,32 +17,49 @@ const SemanticParagraph = Paragraph.extend({
         default: 'body',
         keepOnSplit: false,
         parseHTML: element => {
+          if (element.tagName === 'PRE') return 'code'
           const value = element.getAttribute('data-semantic')
           return blockClasses.find(name => name === value) ?? 'body'
         },
         renderHTML: attrs => ({ 'data-semantic': attrs.semantic }),
       },
+      listLevel: {
+        default: 0,
+        parseHTML: element => Math.max(0, parseInt(element.getAttribute('data-list-level') ?? '0') || 0),
+        renderHTML: attrs => attrs.semantic === 'list' ? { 'data-list-level': attrs.listLevel, style: `--list-level: ${attrs.listLevel}` } : {},
+      },
     }
   },
+  parseHTML: () => [{ tag: 'pre', preserveWhitespace: 'full' }, { tag: 'p' }],
+  renderHTML: ({ node, HTMLAttributes }) => node.attrs.semantic === 'code'
+    ? ['pre', HTMLAttributes, ['code', 0]] : ['p', HTMLAttributes, 0],
 })
 
 const MainParagraph = SemanticParagraph.extend({
   addNodeView() {
     return ({ node }) => {
-      const dom = document.createElement('p')
+      const code = node.attrs.semantic === 'code'
+      const dom = document.createElement(code ? 'pre' : 'p')
       dom.className = 'main-paragraph'
-      const contentDOM = document.createElement('span')
+      const contentDOM = document.createElement(code ? 'code' : 'span')
       contentDOM.className = 'paragraph-content'
       dom.append(contentDOM)
       const attributes = (value: typeof node) => {
         dom.dataset.id = value.attrs.id
         dom.dataset.semantic = value.attrs.semantic
+        if (value.attrs.semantic === 'list') {
+          dom.dataset.listLevel = value.attrs.listLevel
+          dom.style.setProperty('--list-level', value.attrs.listLevel)
+        } else {
+          delete dom.dataset.listLevel
+          dom.style.removeProperty('--list-level')
+        }
       }
       attributes(node)
       return {
         dom, contentDOM,
         update(next) {
-          if (next.type !== node.type) return false
+          if (next.type !== node.type || (next.attrs.semantic === 'code') !== code) return false
           attributes(next)
           return true
         },
@@ -93,6 +111,6 @@ export function extensions(spatial: boolean, table = false) {
     table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, SemanticText, Gapcursor,
     UniqueID.configure({ types: spatial ? ['paragraph', 'spacer'] : ['paragraph'] }),
     ...(spatial ? [Spacer, SegmentSizing] : []),
-    ...(table ? tableExtensions : []),
+    ...(table ? tableExtensions : [ParagraphBehavior]),
   ]
 }

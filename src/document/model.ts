@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 
-export const blockClasses = ['title', 'heading', 'body', 'caption'] as const
+export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
 export const inlineClasses = ['emphasis', 'term'] as const
 export type BlockClass = typeof blockClasses[number]
 export type InlineClass = typeof inlineClasses[number]
@@ -8,7 +8,7 @@ export type InlineClass = typeof inlineClasses[number]
 export interface BlockStyle {
   size: number
   color: string
-  family: 'sans' | 'serif'
+  family: 'sans' | 'serif' | 'mono'
   weight: number
   lineHeight: number
   spaceBefore: number
@@ -37,6 +37,8 @@ export const defaultTheme: Theme = {
     heading: { size: 26, color: '#262b27', family: 'serif', lineHeight: 1.3, spaceBefore: 25, spaceAfter: 12, letterSpacing: -.4 },
     body: {},
     caption: { size: 13, color: '#737b72', lineHeight: 1.65 },
+    code: { family: 'mono', size: 15, lineHeight: 1.55 },
+    list: { spaceAfter: 6 },
   },
   inline: {
     emphasis: { color: '#355b43', background: '#e9efdf' },
