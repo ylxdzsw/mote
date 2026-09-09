@@ -1,19 +1,21 @@
 import type { JSONContent } from '@tiptap/core'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
-export const inlineClasses = ['emphasis', 'term'] as const
+export const inlineClasses = ['primary', 'secondary', 'bold', 'term'] as const
 export type BlockClass = typeof blockClasses[number]
 export type InlineClass = typeof inlineClasses[number]
 
+export type ThemeLength = number | `${number}px` | `${number}em`
+
 export interface BlockStyle {
-  size: number
+  size: ThemeLength
   color: string
   family: 'sans' | 'serif' | 'mono'
   weight: number
-  lineHeight: number
-  spaceBefore: number
-  spaceAfter: number
-  letterSpacing: number
+  lineHeight: ThemeLength
+  spaceBefore: ThemeLength
+  spaceAfter: ThemeLength
+  letterSpacing: ThemeLength
 }
 
 export interface PhraseStyle {
@@ -25,23 +27,25 @@ export interface PhraseStyle {
 }
 
 export interface Theme {
-  defaults: BlockStyle & { background: string }
+  defaults: Omit<BlockStyle, 'size'> & { size: number; background: string }
   blocks: Record<BlockClass, Partial<BlockStyle>>
   inline: Record<InlineClass, Partial<PhraseStyle>>
 }
 
 export const defaultTheme: Theme = {
-  defaults: { family: 'sans', size: 17, color: '#414841', background: '#fffefa', weight: 400, lineHeight: 1.7, spaceBefore: 0, spaceAfter: 18, letterSpacing: 0 },
+  defaults: { family: 'sans', size: 17, color: '#414841', background: '#fffefa', weight: 400, lineHeight: '1.7em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
-    title: { size: 48, color: '#262b27', family: 'serif', lineHeight: 1.16, letterSpacing: -1.8 },
-    heading: { size: 26, color: '#262b27', family: 'serif', lineHeight: 1.3, spaceBefore: 25, spaceAfter: 12, letterSpacing: -.4 },
-    body: {},
-    caption: { size: 13, color: '#737b72', lineHeight: 1.65 },
-    code: { family: 'mono', size: 15, lineHeight: 1.55 },
-    list: { spaceAfter: 6 },
+    title: { size: '3em', color: '#262b27', family: 'serif', lineHeight: '3.5em', letterSpacing: '-0.1em' },
+    heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em', letterSpacing: '-0.025em' },
+    body: { size: '1em' },
+    caption: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
+    code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
+    list: { size: '1em', spaceAfter: '0.375em' },
   },
   inline: {
-    emphasis: { color: '#355b43', background: '#e9efdf' },
+    primary: { color: '#355b43', background: '#e9efdf' },
+    secondary: { color: '#425f87', background: '#e8eef7' },
+    bold: { weight: 700 },
     term: { color: '#875a35', background: '#f6edde' },
   },
 }
@@ -119,7 +123,7 @@ export function createDocument(): MoteDocument {
           ...paragraph(''),
           content: [
             { type: 'text', text: 'Some thoughts want a line. Others need ' },
-            { type: 'text', text: 'a little space', marks: [{ type: 'semanticText', attrs: { semantic: 'emphasis' } }] },
+            { type: 'text', text: 'a little space', marks: [{ type: 'semanticText', attrs: { semantic: 'primary' } }] },
             { type: 'text', text: '. Mote brings both into the same document.' },
           ],
         },
@@ -127,7 +131,7 @@ export function createDocument(): MoteDocument {
         paragraph('Meaning before appearance', 'heading'),
         paragraph('Give a paragraph or a phrase a role, then let the theme take care of how it looks. Change the theme once, and every use follows.'),
         paragraph('Try it out', 'heading'),
-        paragraph('Write above the floating note and watch it follow its anchor. Select a phrase to give it emphasis, or insert a spacer to leave room for something new.'),
+        paragraph('Write above the floating note and watch it follow its anchor. Select a phrase to highlight a key idea, or insert a spacer to leave room for something new.'),
         paragraph('This draft lives in this browser. No account, no cloud.', 'caption'),
         paragraph('Ideas need different shapes', 'heading'),
         paragraph('A small field guide to arranging a note', 'caption'),

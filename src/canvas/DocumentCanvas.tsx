@@ -66,7 +66,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           onChange={patch => onNoteChange(note.id, patch)} onRemove={() => onNoteRemove(note.id)}
           onActive={editor => { select(note.id); onActive(editor) }} />)}
       </div>
-      <p className="page-footer">MOTE <span>·</span> A place for text and space</p>
     </div>
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => {
@@ -148,6 +147,7 @@ function FloatingNote({ note, top, preview, scale, editable, selected, onChange,
   }
 
   return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''}`} data-note-id={note.id}
+    data-anchor-id={note.anchorId ?? ''}
     data-text-flow={note.textFlow ?? 'overlap'}
     style={{ left: display.x, top: preview?.top ?? top, width: display.width }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${label}`}

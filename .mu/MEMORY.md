@@ -139,3 +139,45 @@ Clipboard unordered lists flatten into independent paragraph items with indentat
 
 
 Verified the before/after space-click transaction trace: the old heading TextSelection on mouse-down is gone, with only the spacer NodeSelection from pointer-down through release. Scoped browser checks covered list splitting at a cursor, empty-item Enter, stable/new IDs, independent level changes, soft Enter alignment, Backspace/outdent and undo, unordered clipboard flattening, ordered-to-Body normalization, Code whitespace/mark stripping/class conversion, main/floating theme sharing, Body-only tables, repulsion, reload persistence, and absence of idle document mutations. Ctrl/⌘S is prevented in editors, configuration fields, and mobile reading without changing content. Production preview and live smoke checks passed; 768px headers fit and 390px/320px remain reading-only. Build/type and whitespace checks pass, no browser errors observed, and no dependencies or regression suite were added. Deployed HTML/JS/CSS match the final build and retain no-store with Cloudflare DYNAMIC/BYPASS; only the existing bundle-size advisory remains (about 608 kB JS / 188 kB gzip).
+
+## 2026-09-09 — Segment-local hover borders
+
+Page hover no longer reveals every text/space boundary. Only the hovered segment's shared top/bottom boundaries appear, including hover in the page's text margins; floating objects do not reveal underlying segment borders. Selection alone no longer keeps space borders visible. Keyboard-focused and actively dragged boundaries remain visible for interaction feedback. Boundary positions are snapped to the zoom/device-pixel grid so fractional text layout does not make one space edge appear thicker than the other; document geometry remains unchanged.
+
+Build/type checks and scoped Chromium checks passed for text/space hover, pointer exit, matching 1px lines, and spacer border dragging. Redeployed the demo; live hover works, public HTML matches the build, no browser errors, and no-store/DYNAMIC headers remain in place. The existing bundle-size advisory remains.
+
+## 2026-09-09 — Floating hover reveals anchor segment
+
+Hovering a floating text box, image, or table now reveals the boundaries of the segment containing its anchor block, not the segment geometrically beneath the object. This supersedes the previous exclusion of floating objects from segment highlighting. Every paragraph in a continuous text run maps to that same segment; spacer anchors map to their space segment. Document-top/null anchors have no segment to highlight. The object's own hover border is unchanged.
+
+Build/type and whitespace checks passed. Browser checks covered all three floating kinds, pointer exit, a text anchor in a different segment from the object's position, and null anchors. Redeployed and confirmed live floating hover, matching public HTML, and no-store/DYNAMIC headers.
+
+## 2026-09-09 — Softer segment boundaries
+
+Segment boundary lines now render at 40% opacity instead of fully opaque green, retaining equal 1px top/bottom lines and the existing 8px resize hit area. Hover/anchor mapping is unchanged. Build and live browser checks passed; deployed with no-store headers.
+
+## 2026-09-09 — No automatic document bottom margin
+
+Removed the main text's 96px bottom padding, the 900px page-height floor, and the 64px trailing allowance below floating objects. The page now ends at the last main block or lowest floating object's bottom, with only its border remaining. Top padding, explicit spacer nodes, user-reserved text-segment heights, and the footer outside the document are unchanged. This supersedes the fixed bottom-padding decision.
+
+Build/type and whitespace checks passed. Browser checks confirmed no trailing padding on the example, an 83px short document rather than a forced 900px page, and a low floating object extending the page without extra bottom space. Mobile remains read-only and contains the floating object. Redeployed and confirmed live bottom geometry, matching public HTML, and no-store/DYNAMIC headers.
+
+## 2026-09-09 — Stable viewport while editing a reserved final segment
+
+Reproduced before modifying code: drag the example's final text boundary down 80px, put the caret at the end, and scroll to the bottom. Enter temporarily dropped the paragraph padding and shrank the page by 33px; Backspace/join dropped it by 80px. Chromium clamped scrollTop from 1988 to 1955/1908 before ProseMirror's selection scrolling ran. The next animation-frame measure restored the same final document height but not the lost scroll position. This was transient node-decoration loss during split/join, not intended caret scrolling or minimum release.
+
+The main editor now also retains the final segment's measured minimum at its container level, independent of replaceable paragraph decorations. This prevents temporary document collapse while padding is recalculated, without restoring scroll after the fact or suppressing normal caret scrolling. The floor follows resizing and is removed when the final segment returns to automatic sizing; no automatic bottom margin or page-height floor was reintroduced.
+
+The original insert/delete flow now keeps scrollTop 1988 and scrollHeight 2801 throughout. Checked soft line breaks, paragraph splits/joins at 75%/150%, content growth releasing the minimum, subsequent automatic shrinking, Home reset, and zero idle transactions. Type/build and whitespace checks passed; live drag-and-edit reproduction also remains stable. Deployed HTML matches the build with no-store/DYNAMIC headers; no browser errors.
+
+## 2026-09-09 — Relative theme lengths, inline classes, and inspector style actions
+
+Removed the branding footer below the document. The document retains its content-sized bottom; surrounding canvas padding is unchanged.
+
+Theme font sizes, letter spacing, paragraph spacing, and line heights now support em/px selection. Every em explicitly resolves against Defaults font size, including spacing and line height—not against the local paragraph font. The Defaults font size remains an absolute pixel baseline (17px initially) to avoid a circular reference. Line height additionally supports the existing unitless × local-font multiplier. Unit changes preserve the current rendered length and participate in shared history. The new presets use em for all applicable lengths (Title 3em, Heading 1.5em, Body/List 1em, Caption .75em, Code .875em), with readable proportional line heights/spacing. Existing numeric lengths keep their pixel meaning, except numeric line heights remain multipliers; existing custom themes are not replaced. CSS variables resolve theme lengths to document pixels centrally so main text, floating content, table Body text, previews, and minimap share identical default-relative semantics.
+
+Emphasis is replaced by Primary (green) and Secondary (blue); Term remains. Bold is another semantic inline class whose preset only sets weight 700, without a color/highlight override. The single-inline-class model remains: switching to Bold replaces another inline class rather than nesting direct formatting. Ctrl/⌘B toggles it in main/floating/table text and rectangular table selections; Code consumes the shortcut without formatting. Pasted strong/b maps to Bold. Saved Emphasis marks/styles become Primary, retaining customized colors and content.
+
+Removed the toolbar's combined style-edit button. The selection inspector now has separate Paragraph style… and Inline styles… actions, preserving the editor selection. Paragraph opens its actual class, or Body for table cells; inline opens the active class or Primary for plain text. Nontext/image/space selections disable both; Code disables only inline. The existing panel close action returns to the inspector, and selecting content while theme settings are open still does not retarget the panel.
+
+Verified px/em and line-height × conversions, default 17→20 scaling (including spacing, floating headings, table Body and preview), unit undo/redo and inheritance reset, primary/secondary colors, Bold toggle/undo/plain appearance, code exclusion, floating/table and rectangular-cell Ctrl+B, bold HTML parsing, inspector selection retention and targets, reload persistence, and old Emphasis draft loading. 390px/320px remain reading-only with no footer. Build/type and whitespace checks pass; no browser errors. Deployed HTML/JS/CSS match the final build and retain no-store with DYNAMIC/BYPASS. Live checks confirm em presets, footer removal, Ctrl+B, and inspector style routing. No new dependencies or regression suite; the existing bundle-size advisory remains.

@@ -5,6 +5,8 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor } from '@tiptap/extensions'
+import { NodeSelection } from '@tiptap/pm/state'
+import { CellSelection } from '@tiptap/pm/tables'
 import { blockClasses, inlineClasses } from '../document/model'
 import { TableParagraph, tableExtensions } from './table'
 import { SegmentSizing } from './segmentSizing'
@@ -75,16 +77,32 @@ const SemanticText = Mark.create({
   addAttributes() {
     return {
       semantic: {
-        default: 'emphasis',
+        default: 'primary',
         parseHTML: element => {
+          if (element.matches('strong, b')) return 'bold'
           const value = element.getAttribute('data-inline-semantic')
-          return inlineClasses.find(name => name === value) ?? 'emphasis'
+          const semantic = value === 'emphasis' ? 'primary' : value
+          return inlineClasses.find(name => name === semantic) ?? 'primary'
         },
         renderHTML: attrs => ({ 'data-inline-semantic': attrs.semantic }),
       },
     }
   },
-  parseHTML: () => [{ tag: 'span[data-inline-semantic]' }],
+  parseHTML: () => [
+    { tag: 'span[data-inline-semantic]' },
+    { tag: 'strong', getAttrs: () => ({ semantic: 'bold' }) },
+    { tag: 'b', getAttrs: () => ({ semantic: 'bold' }) },
+  ],
+  addKeyboardShortcuts() {
+    return {
+      'Mod-b': ({ editor }) => {
+        const { selection } = editor.state
+        if (!editor.isEditable || selection instanceof NodeSelection || (!selection.$from.parent.isTextblock && !(selection instanceof CellSelection))) return false
+        if (selection.$from.parent.attrs.semantic === 'code') return true
+        return editor.commands.toggleMark('semanticText', { semantic: 'bold' })
+      },
+    }
+  },
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
 

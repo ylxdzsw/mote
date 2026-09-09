@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorState } from '@tiptap/react'
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addColumnAfter, addRowAfter, deleteColumn, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
@@ -70,6 +70,15 @@ export function App() {
             draft.theme.defaults = { ...defaultTheme.defaults }
           }
           for (const name of blockClasses) draft.theme.blocks[name] ??= { ...defaultTheme.blocks[name] }
+          const inline = draft.theme.inline as typeof draft.theme.inline & { emphasis?: typeof draft.theme.inline.primary }
+          if (inline.emphasis) { inline.primary ??= inline.emphasis; delete inline.emphasis }
+          for (const name of inlineClasses) inline[name] ??= { ...defaultTheme.inline[name] }
+          function renameEmphasis(node: JSONContent) {
+            for (const mark of node.marks ?? []) if (mark.type === 'semanticText' && mark.attrs?.semantic === 'emphasis') mark.attrs.semantic = 'primary'
+            node.content?.forEach(renameEmphasis)
+          }
+          renameEmphasis(draft.content)
+          for (const object of draft.floating) if (object.kind !== 'image') renameEmphasis(object.content)
         }
         setDoc(draft ?? createDocument())
       }
@@ -199,6 +208,14 @@ export function App() {
     command(activeEditor.state, activeEditor.view.dispatch)
   }
 
+  function openThemeClass(className: string) {
+    history.boundary()
+    setThemeClass(className as ThemeClass)
+    setSettingsTab('theme')
+    setDocumentSettingsOpen(true)
+    setViewSettingsOpen(false)
+  }
+
   if (loadError) return <main className="loading"><h1>Mote</h1><p>Couldn’t open the local draft. Check that browser storage is available.</p><button onClick={() => location.reload()}>Try again</button></main>
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
@@ -242,10 +259,6 @@ export function App() {
           <button aria-label="Increase list level" title="Increase list level · Tab" onMouseDown={event => event.preventDefault()}
             onClick={() => { if (activeEditor) { activeEditor.view.focus(); changeListLevel(activeEditor, 1) } }}>⇥</button>
         </>}
-        <button disabled={!selection?.paragraph} onMouseDown={event => event.preventDefault()} onClick={() => {
-          history.boundary(); setThemeClass((selection?.inline || selection?.semantic || 'body') as ThemeClass)
-          setSettingsTab('theme'); setDocumentSettingsOpen(true); setViewSettingsOpen(false)
-        }}>Edit class style…</button>
       </div>
       <div className="tool-group">
         <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={addSpacer}>＋ Space</button>
@@ -284,6 +297,14 @@ export function App() {
         {!selectedObject && !selection?.spacer && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Select an object or a space to adjust it here. Open Document to edit page layout and semantic styles.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
+        <section className="panel-section">
+          <h2>Selection styles</h2>
+          <div className="style-actions" onMouseDown={event => event.preventDefault()}>
+            <button disabled={!selection?.paragraph && !selection?.tableRect} onClick={() => openThemeClass(selection?.semantic || 'body')}>Paragraph style…</button>
+            <button disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
+              onClick={() => openThemeClass(selection?.inline || 'primary')}>Inline styles…</button>
+          </div>
+        </section>
         {selectedObject && <section className="panel-section">
           <h2>Selected object</h2>
           <label>Main text flow

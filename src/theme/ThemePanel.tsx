@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { blockClasses, inlineClasses, type BlockClass, type InlineClass, type Theme } from '../document/model'
+import { blockClasses, inlineClasses, type BlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
+
+function pixels(value: ThemeLength, base: number) {
+  return typeof value === 'number' ? value : parseFloat(value) * (value.endsWith('em') ? base : 1)
+}
 
 export function themeVariables(theme: Theme): CSSProperties {
   const variables: Record<string, string> = { '--page-background': theme.defaults.background }
@@ -8,8 +12,9 @@ export function themeVariables(theme: Theme): CSSProperties {
     const style = { ...theme.defaults, ...theme.blocks[name] }
     variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, monospace'
       : style.family === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif'
-    for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${style[property]}px`
-    for (const property of ['color', 'weight', 'lineHeight'] as const) variables[`--${name}-${property}`] = String(style[property])
+    for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
+    variables[`--${name}-lineHeight`] = typeof style.lineHeight === 'number' ? String(style.lineHeight) : `${pixels(style.lineHeight, theme.defaults.size)}px`
+    for (const property of ['color', 'weight'] as const) variables[`--${name}-${property}`] = String(style[property])
   }
   for (const name of inlineClasses) {
     const style = theme.inline[name]
@@ -25,8 +30,9 @@ export function themeVariables(theme: Theme): CSSProperties {
 export const classLabel = (name: string) => name[0].toUpperCase() + name.slice(1)
 export type ThemeClass = 'defaults' | BlockClass | InlineClass
 
-export function NumberField({ label, value, onChange, min, max, step = 1, unit = 'px' }: {
+export function NumberField({ label, value, onChange, min, max, step = 1, unit = 'px', units, onUnitChange }: {
   label: string; value: number; onChange: (value: number) => void; min: number; max: number; step?: number; unit?: string
+  units?: string[]; onUnitChange?: (unit: string) => void
 }) {
   const history = useHistory()
   const [draft, setDraft] = useState(String(value))
@@ -41,7 +47,9 @@ export function NumberField({ label, value, onChange, min, max, step = 1, unit =
       setDraft(event.target.value)
       const number = event.target.valueAsNumber
       if (Number.isFinite(number) && number >= min && number <= max) { history.begin(label); onChange(number) }
-    }} /><span>{unit}</span></div>{invalid && <p className="field-error">Use {min}–{max}{unit === 'px' ? 'px' : ''}.</p>}</>
+    }} />{units ? <select aria-label={`${label} unit`} value={unit} onChange={event => {
+      history.boundary(); onUnitChange!(event.target.value)
+    }}>{units.map(unit => <option key={unit}>{unit}</option>)}</select> : <span>{unit}</span>}</div>{invalid && <p className="field-error">Use {Number(min.toFixed(3))}–{Number(max.toFixed(3))}{unit === '×' ? '' : unit}.</p>}</>
 }
 
 function ColorField({ label, value, onChange, optional = false }: { label: string; value: string; onChange: (value: string) => void; optional?: boolean }) {
@@ -85,6 +93,22 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
     return field(property, label, <NumberField label={label} value={resolved[property] as number} min={min} max={max} step={step} unit={unit}
       onChange={value => update(property, value)} />)
   }
+  function length(property: 'size' | 'lineHeight' | 'letterSpacing' | 'spaceBefore' | 'spaceAfter', label: string, min: number, max: number, step = 1) {
+    const value = resolved[property]
+    const base = theme.defaults.size
+    const fontSize = pixels(resolved.size, base)
+    const unit = typeof value === 'number' ? property === 'lineHeight' ? '×' : 'px' : value.endsWith('em') ? 'em' : 'px'
+    const divisor = unit === 'em' ? base : unit === '×' ? fontSize : 1
+    return field(property, label, <NumberField label={label} value={typeof value === 'number' ? value : parseFloat(value)}
+      min={min / divisor} max={max / divisor} step={unit === 'px' ? step : .025} unit={unit}
+      units={property === 'lineHeight' ? ['em', 'px', '×'] : ['em', 'px']}
+      onChange={value => update(property, unit === '×' ? value : `${value}${unit}`)}
+      onUnitChange={nextUnit => {
+        const absolute = unit === '×' ? Number(value) * fontSize : pixels(value, base)
+        const next = Number((absolute / (nextUnit === 'em' ? base : nextUnit === '×' ? fontSize : 1)).toFixed(6))
+        update(property, nextUnit === '×' ? next : `${next}${nextUnit}`)
+      }} />)
+  }
   function choose(property: string, label: string, choices: [string, string][], value: string, parse: (value: string) => string | number | boolean = value => value) {
     const inherited = choices.find(([value]) => value === String(resolved[property as keyof typeof resolved]))?.[1]
     return field(property, label, <select aria-label={label} value={value} onChange={event => {
@@ -105,18 +129,19 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
     </nav>
     <section className="panel-section class-properties" key={selected}>
       <h2>{classLabel(selected)}</h2>
-      <p className="hint">{defaults ? 'The shared baseline for paragraph styles.' : isBlock ? 'Every paragraph with this meaning follows this style.' : 'Applied within any paragraph, including table cells.'}</p>
+      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isBlock ? 'Every paragraph with this meaning follows this style.' : 'Applied within any paragraph, including table cells.'}</p>
+      {(defaults || isBlock) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px), including spacing and line height. × line height follows this paragraph’s font size.</p>}
       {(defaults || isBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
-        {number('size', 'Font size', 8, 96, .5)}
+        {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
       {choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
       {field('color', 'Text color', <ColorField label="Text color" value={resolved.color} onChange={value => update('color', value)} />)}
       {defaults && field('background', 'Page background', <ColorField label="Page background" value={theme.defaults.background} onChange={value => update('background', value)} />)}
       {(defaults || isBlock) ? <>
-        {number('lineHeight', 'Line height', .8, 3, .05, '×')}
-        {number('letterSpacing', 'Letter spacing', -3, 10, .1)}
-        <div className="paired-fields">{number('spaceBefore', 'Space before', 0, 200)}{number('spaceAfter', 'Space after', 0, 200)}</div>
+        {length('lineHeight', 'Line height', 1, 1024, .5)}
+        {length('letterSpacing', 'Letter spacing', -64, 64, .1)}
+        <div className="paired-fields">{length('spaceBefore', 'Space before', 0, 2000)}{length('spaceAfter', 'Space after', 0, 2000)}</div>
       </> : <>
         {field('background', 'Highlight', <ColorField label="Highlight" value={String(values.background ?? 'transparent')} optional onChange={value => update('background', value)} />)}
         {choose('italic', 'Slant', [['false', 'Normal'], ['true', 'Italic']], values.italic === undefined ? 'inherit' : String(values.italic), value => value === 'true')}

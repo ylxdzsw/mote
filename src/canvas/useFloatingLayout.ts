@@ -8,7 +8,7 @@ interface Anchor { id: string; top: number }
 interface Obstacle { left: number; right: number; top: number; bottom: number }
 interface Layout { anchors: Anchor[]; tops: Record<string, number>; minHeight: number }
 const gap = 8
-const origin: Layout = { anchors: [], tops: {}, minHeight: 900 }
+const origin: Layout = { anchors: [], tops: {}, minHeight: 0 }
 
 function property(element: HTMLElement, name: string, value: string) {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
@@ -96,7 +96,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       })
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
-      const next = { anchors, tops, minHeight: Math.max(900, ...doc.floating.map(note => (tops[note.id] ?? 0) + (heights.get(note.id) ?? 0) + 64)) }
+      const next = { anchors, tops, minHeight: Math.max(0, ...doc.floating.map(note => (tops[note.id] ?? 0) + (heights.get(note.id) ?? 0))) + surface.clientTop * 2 }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       return next
     }

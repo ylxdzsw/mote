@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import { NodeSelection } from '@tiptap/pm/state'
 import { heightTolerance, segmentLayoutKey, type SegmentStyle } from '../editor/segmentSizing'
 
 interface Segment {
   id: string
+  blockIds: string[]
   from: number
   owner: number | null
   kind: 'text' | 'space'
@@ -12,7 +12,6 @@ interface Segment {
   height: number
   natural: number
   minimum: number | null
-  selected: boolean
 }
 
 interface Props {
@@ -27,9 +26,39 @@ interface Props {
 
 export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floatingPreview, onActive }: Props) {
   const [segments, setSegments] = useState<Segment[]>([])
+  const [hovered, setHovered] = useState<string | null>(null)
   const current = useRef<Segment[]>([])
   const drag = useRef<{ id: string; clientY: number; height: number; target: number } | null>(null)
   const refresh = useRef(() => {})
+  const refreshHover = useRef(() => {})
+
+  useLayoutEffect(() => {
+    if (!editable) return
+    const surface = sheet.current!
+    let pointer: { x: number; y: number } | null = null
+    function update() {
+      const rect = surface.getBoundingClientRect()
+      const target = pointer && document.elementFromPoint(pointer.x, pointer.y)
+      const y = pointer ? (pointer.y - rect.top) / scale - surface.clientTop : -1
+      const floating = target?.closest<HTMLElement>('.floating-note')
+      setHovered(target && surface.contains(target)
+        ? current.current.find(segment => floating
+          ? segment.blockIds.includes(floating.dataset.anchorId!)
+          : y >= segment.top && y < segment.top + segment.height)?.id ?? null : null)
+    }
+    function move(event: PointerEvent) { pointer = { x: event.clientX, y: event.clientY }; update() }
+    function leave() { pointer = null; setHovered(null) }
+    refreshHover.current = update
+    surface.addEventListener('pointermove', move)
+    surface.addEventListener('pointerleave', leave)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      refreshHover.current = () => {}
+      surface.removeEventListener('pointermove', move)
+      surface.removeEventListener('pointerleave', leave)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [editable, scale, sheet])
 
   useLayoutEffect(() => {
     drag.current = null
@@ -57,8 +86,8 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
 
       const next: Segment[] = []
       const styles: SegmentStyle[] = []
+      let editorMinimum = 24
       const transaction = editor.state.tr
-      const selection = editor.state.selection
       if (blocks[0]?.kind !== 'text' && editor.state.doc.attrs.minSegmentHeight !== null) {
         transaction.setDocAttribute('minSegmentHeight', null)
       }
@@ -80,6 +109,9 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
         if (first.kind === 'text') {
           const padding = target !== null && target > natural + heightTolerance ? target - natural : 0
           if (padding > 0) styles.push({ from: last.from, to: last.to, property: 'padding-bottom', value: padding })
+          if (padding > 0 && index === blocks.length - 1) {
+            editorMinimum = Math.max(24, top + target! - y(editor.view.dom.getBoundingClientRect().top))
+          }
           if (!pending && !surface.hasAttribute('data-floating-preview') && minimum !== null && natural >= minimum - heightTolerance) {
             if (owner === null) transaction.setDocAttribute('minSegmentHeight', null)
             else transaction.setNodeAttribute(owner, 'minSegmentHeight', null)
@@ -88,10 +120,16 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
           if (pending) styles.push({ from: first.from, to: first.to, property: '--spacer-preview-height', value: target! })
           if (blocks[index + 1]?.kind !== 'text' && first.minimum !== null) transaction.setNodeAttribute(first.from, 'minSegmentHeight', null)
         }
-        next.push({ id: first.id, from: first.from, owner, kind: first.kind, top, height, natural,
-          minimum, selected: selection instanceof NodeSelection && selection.from === first.from })
+        next.push({ id: first.id, blockIds: blocks.slice(startIndex, index + 1).map(block => block.id), from: first.from, owner, kind: first.kind, top, height, natural,
+          minimum })
       }
 
+      // Paragraph splits/joins can drop padding decorations until the next measure.
+      // Keep the trailing minimum outside those nodes so scroll height never collapses.
+      const minimumHeight = `${editorMinimum}px`
+      if (surface.style.getPropertyValue('--main-text-min-height') !== minimumHeight) {
+        surface.style.setProperty('--main-text-min-height', minimumHeight)
+      }
       const previous = segmentLayoutKey.getState(editor.state)!.styles
       const changed = previous === null || styles.length !== previous.length || styles.some((style, index) => {
         const old = previous[index]
@@ -104,6 +142,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
       }
       current.current = next
       setSegments(next)
+      refreshHover.current()
     }
 
     refresh.current = schedule
@@ -115,6 +154,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
       observer.disconnect()
       editor.off('transaction', schedule)
       document.fonts.removeEventListener('loadingdone', schedule)
+      sheet.current?.style.removeProperty('--main-text-min-height')
     }
   }, [editor, sheet, scale, editable, reflow])
 
@@ -136,14 +176,14 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
   function cancel() { drag.current = null; refresh.current() }
 
   return editable && <div className="segment-boundaries">
-    {segments.map((segment, index) => <div key={segment.id} className={`segment-boundary ${segment.selected || segments[index + 1]?.selected ? 'is-selected' : ''}`}
+    {segments.map((segment, index) => <div key={segment.id} className={`segment-boundary ${segment.id === hovered || segments[index + 1]?.id === hovered ? 'is-hovered' : ''} ${drag.current?.id === segment.id ? 'is-dragging' : ''}`}
       data-segment-id={segment.id} data-segment-kind={segment.kind}
       role="separator" aria-orientation="horizontal" tabIndex={0}
       aria-label={`Resize ${segment.kind === 'text' ? 'text segment' : 'space'} ${index + 1}`}
       aria-valuemin={Math.round(segment.natural)} aria-valuenow={Math.round(segment.height)}
       aria-valuetext={segment.kind === 'text' && segment.minimum === null ? 'Automatic height' : `${Math.round(segment.height)} pixels`}
       title={`${segment.kind === 'text' ? 'Text segment' : 'Space'} height · drag or use up/down arrows; Home resets${segment.kind === 'text' ? ' to automatic' : ''}`}
-      style={{ top: segment.top + segment.height }}
+      style={{ top: Math.round((segment.top + segment.height) * scale * devicePixelRatio) / (scale * devicePixelRatio) }}
       onPointerDown={event => {
         if (event.button !== 0) return
         event.preventDefault()
@@ -151,6 +191,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
         event.currentTarget.focus({ preventScroll: true })
         event.currentTarget.setPointerCapture(event.pointerId)
         drag.current = { id: segment.id, clientY: event.clientY, height: segment.height, target: segment.height }
+        refresh.current()
         onActive()
       }}
       onPointerMove={event => {
