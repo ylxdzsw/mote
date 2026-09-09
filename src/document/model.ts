@@ -9,19 +9,48 @@ export interface BlockStyle {
   size: number
   color: string
   family: 'sans' | 'serif'
+  weight: number
+  lineHeight: number
+  spaceBefore: number
+  spaceAfter: number
+  letterSpacing: number
+}
+
+export interface PhraseStyle {
+  color: string
+  background: string
+  weight: number
+  italic: boolean
+  decoration: 'none' | 'underline' | 'line-through'
 }
 
 export interface Theme {
-  blocks: Record<BlockClass, BlockStyle>
-  inline: Record<InlineClass, { color: string; background: string }>
+  defaults: BlockStyle & { background: string }
+  blocks: Record<BlockClass, Partial<BlockStyle>>
+  inline: Record<InlineClass, Partial<PhraseStyle>>
+}
+
+export const defaultTheme: Theme = {
+  defaults: { family: 'sans', size: 17, color: '#414841', background: '#fffefa', weight: 400, lineHeight: 1.7, spaceBefore: 0, spaceAfter: 18, letterSpacing: 0 },
+  blocks: {
+    title: { size: 48, color: '#262b27', family: 'serif', lineHeight: 1.16, letterSpacing: -1.8 },
+    heading: { size: 26, color: '#262b27', family: 'serif', lineHeight: 1.3, spaceBefore: 25, spaceAfter: 12, letterSpacing: -.4 },
+    body: {},
+    caption: { size: 13, color: '#737b72', lineHeight: 1.65 },
+  },
+  inline: {
+    emphasis: { color: '#355b43', background: '#e9efdf' },
+    term: { color: '#875a35', background: '#f6edde' },
+  },
 }
 
 interface FloatingGeometry {
   id: string
-  anchorId: string
+  anchorId: string | null
   x: number
   y: number
   width: number
+  textFlow: 'overlap' | 'repel'
 }
 
 export interface FloatingText extends FloatingGeometry {
@@ -41,12 +70,13 @@ export interface FloatingImage extends FloatingGeometry {
 }
 
 export type FloatingObject = FloatingText | FloatingTable | FloatingImage
-export type FloatingPatch = Partial<Pick<FloatingGeometry, 'x' | 'y' | 'width'>> & { content?: JSONContent; src?: string; alt?: string }
+export type FloatingPatch = Partial<Pick<FloatingGeometry, 'anchorId' | 'x' | 'y' | 'width' | 'textFlow'>> & { content?: JSONContent; src?: string; alt?: string }
 
 export interface MoteDocument {
   version: 'V0'
   id: string
   width: number
+  margins: { left: number; right: number }
   theme: Theme
   content: JSONContent
   floating: FloatingObject[]
@@ -76,18 +106,8 @@ export function createDocument(): MoteDocument {
     version: 'V0',
     id: crypto.randomUUID(),
     width: 800,
-    theme: {
-      blocks: {
-        title: { size: 48, color: '#262b27', family: 'serif' },
-        heading: { size: 26, color: '#262b27', family: 'serif' },
-        body: { size: 17, color: '#414841', family: 'sans' },
-        caption: { size: 13, color: '#737b72', family: 'sans' },
-      },
-      inline: {
-        emphasis: { color: '#355b43', background: '#e9efdf' },
-        term: { color: '#875a35', background: '#f6edde' },
-      },
-    },
+    margins: { left: 55, right: 55 },
+    theme: structuredClone(defaultTheme),
     content: {
       type: 'doc',
       content: [
@@ -130,31 +150,34 @@ export function createDocument(): MoteDocument {
     floating: [{
       id: crypto.randomUUID(),
       anchorId: spaceId,
-      x: 306,
+      x: 361,
       y: 22,
       width: 300,
+      textFlow: 'overlap',
       content: { type: 'doc', content: [paragraph('A thought in the margin', 'heading'), paragraph('I move with the space I’m anchored to.', 'caption')] },
     }, {
       id: crypto.randomUUID(),
       anchorId: sketchSpaceId,
-      x: 360,
+      x: 415,
       y: 72,
       width: 300,
+      textFlow: 'overlap',
       content: { type: 'doc', content: [paragraph('A question to keep', 'heading'), paragraph('What belongs in the main thread, and what deserves its own small place?', 'caption')] },
     }, {
       id: crypto.randomUUID(),
       anchorId: reviewSpaceId,
-      x: 360,
+      x: 415,
       y: 80,
       width: 300,
+      textFlow: 'overlap',
       content: { type: 'doc', content: [paragraph('A note for next time', 'heading'), paragraph('Leave one useful question for the person who returns to this page. That person may be you.', 'caption')] },
     }, {
       id: crypto.randomUUID(), kind: 'image', anchorId: sketchSpaceId,
-      x: 0, y: 48, width: 340, src: landscape,
+      x: 55, y: 48, width: 340, textFlow: 'overlap', src: landscape,
       alt: 'A winding path between green hills beneath a golden sun.',
     }, {
       id: crypto.randomUUID(), kind: 'table', anchorId: reviewSpaceId,
-      x: 0, y: 48, width: 340,
+      x: 55, y: 48, width: 340, textFlow: 'overlap',
       content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Room to think', 'One useful question']]),
     }],
   }
@@ -165,9 +188,10 @@ export function replaceMainContent(doc: MoteDocument, content: JSONContent): Mot
   const oldIds = doc.content.content!.map(node => node.attrs!.id as string)
   const newIds = content.content!.map(node => node.attrs!.id as string)
   const floating = doc.floating.map(note => {
-    if (newIds.includes(note.anchorId)) return note
+    const y = Math.max(0, note.y)
+    if (note.anchorId === null || newIds.includes(note.anchorId)) return y === note.y ? note : { ...note, y }
     const preceding = oldIds.slice(0, oldIds.indexOf(note.anchorId)).reverse()
-    return { ...note, anchorId: preceding.find(id => newIds.includes(id)) ?? newIds[0] }
+    return { ...note, anchorId: preceding.find(id => newIds.includes(id)) ?? null, y }
   })
   return { ...doc, content, floating }
 }

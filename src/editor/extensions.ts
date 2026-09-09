@@ -4,7 +4,7 @@ import HardBreak from '@tiptap/extension-hard-break'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
-import { Gapcursor, UndoRedo } from '@tiptap/extensions'
+import { Gapcursor } from '@tiptap/extensions'
 import { blockClasses, inlineClasses } from '../document/model'
 import { TableParagraph, tableExtensions } from './table'
 import { SegmentSizing } from './segmentSizing'
@@ -21,6 +21,33 @@ const SemanticParagraph = Paragraph.extend({
         },
         renderHTML: attrs => ({ 'data-semantic': attrs.semantic }),
       },
+    }
+  },
+})
+
+const MainParagraph = SemanticParagraph.extend({
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement('p')
+      dom.className = 'main-paragraph'
+      const contentDOM = document.createElement('span')
+      contentDOM.className = 'paragraph-content'
+      dom.append(contentDOM)
+      const attributes = (value: typeof node) => {
+        dom.dataset.id = value.attrs.id
+        dom.dataset.semantic = value.attrs.semantic
+      }
+      attributes(node)
+      return {
+        dom, contentDOM,
+        update(next) {
+          if (next.type !== node.type) return false
+          attributes(next)
+          return true
+        },
+        // Exclusion geometry belongs to the view, not to editable document content.
+        ignoreMutation: mutation => mutation.type !== 'selection' && mutation.target === dom,
+      }
     }
   },
 })
@@ -63,7 +90,7 @@ export const Spacer = Node.create({
 export function extensions(spatial: boolean, table = false) {
   return [
     table ? Document.extend({ content: 'table' }) : Document,
-    table ? TableParagraph : SemanticParagraph, Text, HardBreak, SemanticText, UndoRedo, Gapcursor,
+    table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, SemanticText, Gapcursor,
     UniqueID.configure({ types: spatial ? ['paragraph', 'spacer'] : ['paragraph'] }),
     ...(spatial ? [Spacer, SegmentSizing] : []),
     ...(table ? tableExtensions : []),

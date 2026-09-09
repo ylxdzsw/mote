@@ -7,6 +7,7 @@ import { themeVariables } from '../theme/ThemePanel'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { SegmentBoundaries } from './SegmentBoundaries'
+import { useFloatingLayout, type FloatingPreview, type Placement } from './useFloatingLayout'
 import type { ViewSettings } from '../app/GlobalSettings'
 
 interface Point { x: number; y: number }
@@ -31,63 +32,37 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null)
   const sheet = useRef<HTMLDivElement>(null)
-  const main = useRef<HTMLDivElement>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
-  const [anchors, setAnchors] = useState<Record<string, Point>>({})
   const { scale, minScale, zoomTo, zoomBy, reset } = useDocumentZoom(stage, sheet, doc.width, editable)
-  const [minHeight, setMinHeight] = useState(900)
+  const [preview, setPreview] = useState<FloatingPreview | null>(null)
+  const { tops, minHeight, reflow, attach } = useFloatingLayout(doc, mainEditor, sheet, scale, preview)
   const [selected, setSelected] = useState<string | null>(null)
   function select(id: string | null) { setSelected(id); onSelect(id) }
 
   useLayoutEffect(() => {
-    const surface = sheet.current!
-    const measure = () => {
-      const rect = surface.getBoundingClientRect()
-      const zoom = rect.width / surface.offsetWidth
-      const textLeft = (main.current!.getBoundingClientRect().left - rect.left) / zoom - surface.clientLeft
-        + parseFloat(getComputedStyle(main.current!).paddingLeft)
-      const positions: Record<string, Point> = {}
-      main.current!.querySelectorAll<HTMLElement>('[data-id]').forEach(element => {
-        const block = element.getBoundingClientRect()
-        positions[element.dataset.id!] = {
-          x: textLeft,
-          y: (block.top - rect.top) / zoom - surface.clientTop,
-        }
-      })
-      setAnchors(positions)
-      let bottom = 900
-      surface.querySelectorAll<HTMLElement>('.floating-note').forEach(element => {
-        const note = doc.floating.find(note => note.id === element.dataset.noteId)!
-        const anchor = positions[note.anchorId]
-        if (anchor) bottom = Math.max(bottom, anchor.y + note.y + element.offsetHeight + 64)
-      })
-      setMinHeight(bottom)
-    }
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(stage.current!)
-    observer.observe(main.current!)
-    main.current!.querySelectorAll('[data-id]').forEach(element => observer.observe(element))
-    surface.querySelectorAll('.floating-note').forEach(element => observer.observe(element))
-    return () => observer.disconnect()
-  }, [doc, editable, scale])
+    if (selected && !doc.floating.some(note => note.id === selected)) select(null)
+  }, [doc.floating, selected])
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''}`}>
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDown={event => {
       if (!(event.target as HTMLElement).closest('.floating-note')) select(null)
     }}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selected ? 'has-selected-note' : ''}`} ref={sheet}
-        style={{ ...themeVariables(doc.theme), width: doc.width, zoom: scale, minHeight }}>
-        <div className="main-text" ref={main}>
-          <TextEditor content={doc.content} editable={editable} spatial label="Main text"
+        data-floating-preview={preview ? '' : undefined}
+        style={{ ...themeVariables(doc.theme), '--margin-left': `${doc.margins.left}px`, '--margin-right': `${doc.margins.right}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
+        <div className="main-text">
+          <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main"
             onChange={onMainChange} onReady={editor => { setMainEditor(editor); onMainReady(editor) }}
             onActive={editor => { select(null); onActive(editor) }} />
         </div>
         {mainEditor && <SegmentBoundaries editor={mainEditor} sheet={sheet} editable={editable} scale={scale}
+          reflow={reflow} floatingPreview={!!preview}
           onActive={() => { select(null); onActive(mainEditor) }} />}
-        {doc.floating.map(note => anchors[note.anchorId] && <FloatingNote key={note.id}
-          note={note} anchor={anchors[note.anchorId]} scale={scale} editable={editable}
+        {doc.floating.map(note => <FloatingNote key={note.id}
+          note={note} top={tops[note.id] ?? 0} preview={preview?.id === note.id ? preview : null} scale={scale} editable={editable}
           selected={selected === note.id}
+          onPreview={value => setPreview(value ? { id: note.id, ...value } : null)}
+          onMove={placement => onNoteChange(note.id, attach(note, placement))}
           onChange={patch => onNoteChange(note.id, patch)} onRemove={() => onNoteRemove(note.id)}
           onActive={editor => { select(note.id); onActive(editor) }} />)}
       </div>
@@ -111,20 +86,22 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
 interface NoteProps {
   note: FloatingObject
-  anchor: Point
+  top: number
+  preview: FloatingPreview | null
   scale: number
   editable: boolean
   selected: boolean
   onChange: (patch: FloatingPatch) => void
+  onPreview: (preview: Omit<FloatingPreview, 'id'> | null) => void
+  onMove: (placement: Placement) => void
   onRemove: () => void
   onActive: (editor: Editor | null) => void
 }
 
-function FloatingNote({ note, anchor, scale, editable, selected, onChange, onRemove, onActive }: NoteProps) {
+function FloatingNote({ note, top, preview, scale, editable, selected, onChange, onPreview, onMove, onRemove, onActive }: NoteProps) {
   const editor = useRef<Editor | null>(null)
-  const [preview, setPreview] = useState<FloatingPatch | null>(null)
-  const pending = useRef<FloatingPatch | null>(null)
-  const drag = useRef<{ client: Point; x: number; y: number; width: number; resize: boolean } | null>(null)
+  const pending = useRef<Omit<FloatingPreview, 'id'> | null>(null)
+  const drag = useRef<{ client: Point; x: number; top: number; width: number; resize: boolean } | null>(null)
   const display = { ...note, ...preview }
   const kind = note.kind ?? 'text'
   const label = kind === 'text' ? 'text box' : kind
@@ -135,7 +112,7 @@ function FloatingNote({ note, anchor, scale, editable, selected, onChange, onRem
     event.stopPropagation()
     event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
-    drag.current = { client: { x: event.clientX, y: event.clientY }, x: note.x, y: note.y, width: note.width, resize }
+    drag.current = { client: { x: event.clientX, y: event.clientY }, x: note.x, top, width: note.width, resize }
     onActive(editor.current)
   }
 
@@ -146,22 +123,23 @@ function FloatingNote({ note, anchor, scale, editable, selected, onChange, onRem
     const dy = (event.clientY - start.client.y) / scale
     const sheetWidth = event.currentTarget.closest<HTMLElement>('.sheet')!.clientWidth
     pending.current = start.resize
-      ? { width: Math.round(Math.max(120, Math.min(sheetWidth - anchor.x - note.x - 16, start.width + dx))) }
+      ? { width: Math.round(Math.max(120, Math.min(sheetWidth - note.x - 16, start.width + dx))) }
       : {
-        x: Math.round(Math.max(16 - anchor.x, Math.min(sheetWidth - anchor.x - note.width - 16, start.x + dx))),
-        y: Math.round(Math.max(16 - anchor.y, start.y + dy)),
+        x: Math.round(Math.max(16, Math.min(sheetWidth - note.width - 16, start.x + dx))),
+        top: Math.round(Math.max(0, start.top + dy)),
       }
-    setPreview(pending.current)
+    onPreview(pending.current)
   }
 
   function finish() {
-    if (pending.current) onChange(pending.current)
+    if (pending.current?.top !== undefined) onMove(pending.current as Placement)
+    else if (pending.current) onChange({ width: pending.current.width })
     drag.current = null
     pending.current = null
-    setPreview(null)
+    onPreview(null)
   }
 
-  function cancel() { drag.current = null; pending.current = null; setPreview(null) }
+  function cancel() { drag.current = null; pending.current = null; onPreview(null) }
 
   useLayoutEffect(cancel, [editable, scale])
 
@@ -170,7 +148,8 @@ function FloatingNote({ note, anchor, scale, editable, selected, onChange, onRem
   }
 
   return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''}`} data-note-id={note.id}
-    style={{ left: anchor.x + display.x, top: anchor.y + display.y, width: display.width }}
+    data-text-flow={note.textFlow ?? 'overlap'}
+    style={{ left: display.x, top: preview?.top ?? top, width: display.width }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${label}`}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(editor.current) }}
     onPointerDown={event => {
@@ -192,10 +171,10 @@ function FloatingNote({ note, anchor, scale, editable, selected, onChange, onRem
       if (!direction) return
       event.preventDefault()
       const step = event.shiftKey ? 1 : 8
-      onChange({ x: note.x + direction.x * step, y: note.y + direction.y * step })
+      onMove({ x: Math.max(0, note.x + direction.x * step), top: Math.max(0, top + direction.y * step) })
     }}>
     {note.kind === 'image' ? <img src={note.src} alt={note.alt} draggable={false} />
-      : <TextEditor content={note.content} editable={editable} table={note.kind === 'table'} label={`Floating ${kind}`}
+      : <TextEditor content={note.content} editable={editable} table={note.kind === 'table'} label={`Floating ${kind}`} historyId={note.id}
         onChange={content => onChange({ content })} onActive={onActive} onReady={value => { editor.current = value }} />}
     {editable && <div className="floating-border-right" role="separator" aria-orientation="vertical" tabIndex={0}
       aria-label={`Resize floating ${kind} width`} aria-valuemin={120} aria-valuenow={Math.round(display.width)}

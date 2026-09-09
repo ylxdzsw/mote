@@ -1,6 +1,5 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import { closeHistory } from '@tiptap/pm/history'
 import { NodeSelection } from '@tiptap/pm/state'
 import { heightTolerance, segmentLayoutKey, type SegmentStyle } from '../editor/segmentSizing'
 
@@ -21,10 +20,12 @@ interface Props {
   sheet: RefObject<HTMLDivElement | null>
   editable: boolean
   scale: number
+  reflow: () => unknown
+  floatingPreview: boolean
   onActive: () => void
 }
 
-export function SegmentBoundaries({ editor, sheet, editable, scale, onActive }: Props) {
+export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floatingPreview, onActive }: Props) {
   const [segments, setSegments] = useState<Segment[]>([])
   const current = useRef<Segment[]>([])
   const drag = useRef<{ id: string; clientY: number; height: number; target: number } | null>(null)
@@ -40,6 +41,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, onActive }: 
 
     function measure() {
       frame = 0
+      reflow()
       const surface = sheet.current!
       const rect = surface.getBoundingClientRect()
       const y = (value: number) => (value - rect.top) / scale - surface.clientTop
@@ -78,7 +80,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, onActive }: 
         if (first.kind === 'text') {
           const padding = target !== null && target > natural + heightTolerance ? target - natural : 0
           if (padding > 0) styles.push({ from: last.from, to: last.to, property: 'padding-bottom', value: padding })
-          if (!pending && minimum !== null && natural >= minimum - heightTolerance) {
+          if (!pending && !surface.hasAttribute('data-floating-preview') && minimum !== null && natural >= minimum - heightTolerance) {
             if (owner === null) transaction.setDocAttribute('minSegmentHeight', null)
             else transaction.setNodeAttribute(owner, 'minSegmentHeight', null)
           }
@@ -114,7 +116,9 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, onActive }: 
       editor.off('transaction', schedule)
       document.fonts.removeEventListener('loadingdone', schedule)
     }
-  }, [editor, sheet, scale, editable])
+  }, [editor, sheet, scale, editable, reflow])
+
+  useLayoutEffect(() => { refresh.current() }, [floatingPreview])
 
   function commit(segment: Segment, target: number) {
     const height = Math.max(segment.natural, target)
@@ -123,11 +127,10 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, onActive }: 
     const position = segment.kind === 'text' ? segment.owner : segment.from
     const previous = (position === null ? editor.state.doc : editor.state.doc.nodeAt(position)!).attrs[attribute]
     if (value === previous || (value !== null && previous !== null && Math.abs(value - previous) <= heightTolerance)) return
-    const transaction = closeHistory(editor.state.tr)
+    const transaction = editor.state.tr.setMeta('historyBoundary', true)
     if (position === null) transaction.setDocAttribute(attribute, value)
     else transaction.setNodeAttribute(position, attribute, value)
     editor.view.dispatch(transaction)
-    editor.view.dispatch(closeHistory(editor.state.tr))
   }
 
   function cancel() { drag.current = null; refresh.current() }
