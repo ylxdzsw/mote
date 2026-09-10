@@ -223,10 +223,18 @@ export function App() {
   if (loadError) return <main className="loading"><h1>Mote</h1><p>Couldn’t open the local draft. Check that browser storage is available.</p><button onClick={() => location.reload()}>Try again</button></main>
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
+  const itemType = selectedObject
+    ? selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : 'Floating text'
+    : selection?.spacer ? 'Space' : 'Main text'
+
   return <HistoryContext value={history}><div className="app">
     <header className="app-header">
       <a className="brand" href="./" aria-label="Mote home"><span className="brand-mark">m</span>Mote</a>
       <div className="document-label">Untitled notebook <span className="version">V0</span></div>
+      {editable && <button className="reset-example" onClick={() => {
+        if (!window.confirm('Replace your local draft with the example? This cannot be undone.')) return
+        setMainEditor(null); setActiveEditor(null); setSelectedId(null); setImageError(''); setDoc(createDocument())
+      }}>Reset to example</button>}
       <div className={`save-status ${status}`} role="status"><span className="status-dot" />
         <span className="save-message">{status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}</span>
         {status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
@@ -269,14 +277,13 @@ export function App() {
       <div className="tool-group">
         <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={addSpacer}>＋ Space</button>
         <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={() => addObject('text')}>＋ Text</button>
-        <button disabled={!mainEditor || activeEditor !== mainEditor || imageLoading} onMouseDown={event => event.preventDefault()} onClick={() => chooseImage()}>＋ Image</button>
+        <button disabled={!mainEditor || activeEditor !== mainEditor || imageLoading} onMouseDown={event => event.preventDefault()} onClick={() => chooseImage()}>{imageLoading ? 'Opening image…' : '＋ Image'}</button>
         <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={() => addObject('table')}>＋ Table</button>
       </div>
       <div className="tool-group history">
         <button aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}>↶</button>
         <button aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}>↷</button>
       </div>
-      <span className="editing-context">{imageLoading ? 'Opening image…' : selectedObject?.kind === 'image' ? 'Floating image' : selection?.table ? 'Table text' : activeEditor === mainEditor ? 'Main text' : 'Floating text'}</span>
     </div>}
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file) }} />
@@ -295,7 +302,7 @@ export function App() {
       {editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
       : showInspector && <aside className="inspector" id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
-        <div className="inspector-heading">{viewSettingsOpen || !editable ? 'VIEW SETTINGS' : 'INSPECTOR'}
+        <div className="inspector-heading">{viewSettingsOpen || !editable ? 'VIEW SETTINGS' : itemType}
           {viewSettingsOpen && <button aria-label="Close view settings" onClick={() => setViewSettingsOpen(false)}>×</button>}
         </div>
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
@@ -303,14 +310,6 @@ export function App() {
         {!selectedObject && !selection?.spacer && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Select an object or a space to adjust it here. Open Document to edit page layout and semantic styles.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
-        <section className="panel-section">
-          <h2>Selection styles</h2>
-          <div className="style-actions" onMouseDown={event => event.preventDefault()}>
-            <button disabled={!selection?.paragraph && !selection?.tableRect} onClick={() => openThemeClass(selection?.semantic || 'body')}>{classLabel(selection?.semantic || 'body')} style…</button>
-            <button disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
-              onClick={() => openThemeClass(selection?.inline || 'primary')}>{classLabel(selection?.inline || 'primary')} style…</button>
-          </div>
-        </section>
         {selectedObject && <section className="panel-section">
           <h2>Selected object</h2>
           <label>Main text flow
@@ -327,7 +326,7 @@ export function App() {
             <input type="text" value={selectedObject.alt} onFocus={() => history.begin(`description:${selectedObject.id}`)} onBlur={history.boundary}
               onChange={event => updateObject(selectedObject.id, { alt: event.target.value })} />
           </label>
-          <button disabled={imageLoading} onClick={() => chooseImage(selectedObject)}>Replace image</button>
+          <button disabled={imageLoading} onClick={() => chooseImage(selectedObject)}>{imageLoading ? 'Opening image…' : 'Replace image'}</button>
           <p className="hint">Drag the top, left, or bottom border to move; the right border resizes. Proportions stay intact. Focus the object and press Delete to remove it. Image files stay in this browser. Up to 10 MB.</p>
         </section>}
         {selection?.table && <section className="panel-section">
@@ -355,13 +354,13 @@ export function App() {
           </label>
           <button onClick={() => activeEditor?.chain().focus().deleteSelection().run()}>Remove space</button>
         </section>}
-        <section className="panel-section local-note">
-          <h2>Only on this device</h2>
-          <p className="hint">Your draft is stored in this browser’s IndexedDB. Clearing site data removes it. There’s no cloud backup.</p>
-          <button className="text-button" onClick={() => {
-            if (!window.confirm('Replace your local draft with the example? This cannot be undone.')) return
-            setMainEditor(null); setActiveEditor(null); setSelectedId(null); setImageError(''); setDoc(createDocument())
-          }}>Reset to example</button>
+        <section className="panel-section">
+          <h2>Edit style</h2>
+          <div className="style-actions" onMouseDown={event => event.preventDefault()}>
+            <button disabled={!selection?.paragraph && !selection?.tableRect} onClick={() => openThemeClass(selection?.semantic || 'body')}>{classLabel(selection?.semantic || 'body')} style…</button>
+            <button disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
+              onClick={() => openThemeClass(selection?.inline || 'primary')}>{classLabel(selection?.inline || 'primary')} style…</button>
+          </div>
         </section>
         </>}
       </aside>}

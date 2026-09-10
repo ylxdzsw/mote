@@ -30,6 +30,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .brand-mark { display: grid; place-items: center; font: italic 28px Georgia, serif; width: 34px; height: 34px; background: #e2e8d8; border-radius: 11px 11px 11px 3px; padding-bottom: 4px; }
 .document-label { display: flex; align-items: center; gap: 12px; font-size: 13px; color: #777e74; padding-left: 24px; border-left: 1px solid var(--border); }
 .version { font-size: 9px; border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; letter-spacing: 1px; }
+.reset-example { flex-shrink: 0; padding: 5px 7px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .save-status { margin-left: auto; display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--muted); }
 .status-dot { width: 5px; height: 5px; background: #749469; border-radius: 50%; }
 .saving .status-dot { background: #b5994e; }
@@ -47,7 +48,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .toolbar button { white-space: nowrap; }
 .history { border: 0; gap: 0; }
 .history button { padding: 3px 10px; font-size: 22px; line-height: 1; }
-.editing-context { margin-left: auto; font-size: 11px; color: #8b9188; }
 .workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 248px; flex: 1; min-height: 0; overflow: hidden; }
 .workspace.reader { display: block; }
 .canvas-pane { --minimap-width: 100px; --bookmark-width: 64px; position: relative; min-width: 0; height: 100%; min-height: 0; }
@@ -91,8 +91,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .hint { font-size: 11px; line-height: 1.75; color: #81897d; margin: 10px 0 0; }
 .panel-section .color-field { display: flex; align-items: center; justify-content: space-between; }
 .panel-section button { font-size: 11px; border-color: var(--border); margin-top: 12px; }
-.panel-section .text-button { border: 0; padding: 0; text-decoration: underline; text-underline-offset: 3px; color: #777f70; }
-.local-note h2 { color: #777f70; font-size: 11px; margin-bottom: 4px; }
 .text-content .tiptap { outline: none; min-height: 24px; overflow-wrap: anywhere; }
 .main-text .tiptap { min-height: var(--main-text-min-height, 24px); }
 .text-content :is(p, pre) { margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
@@ -165,7 +163,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 @media (max-width: 1050px) {
   .app-header { gap: 12px; padding-inline: 18px; }
   .document-label { display: none; }
-  .editing-context { display: none; }
   .toolbar { padding-inline: 18px; gap: 8px; }
   .toolbar select { min-width: 105px; }
   .tool-group { padding-right: 8px; }
