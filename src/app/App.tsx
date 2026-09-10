@@ -3,9 +3,11 @@ import { useEditorState } from '@tiptap/react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
-import { addColumnAfter, addRowAfter, deleteColumn, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
+import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas } from '../canvas/DocumentCanvas'
-import { blockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type BlockClass, type FloatingObject, type FloatingPatch } from '../document/model'
+import { blockClasses, themeBlockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type BlockClass, type FloatingObject, type FloatingPatch } from '../document/model'
+import { normalizeTableContent } from '../document/table'
+import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { loadDraft, saveDraft } from '../document/storage'
 import { classLabel, type ThemeClass } from '../theme/ThemePanel'
@@ -66,10 +68,10 @@ export function App() {
         if (draft) {
           draft.margins ??= { left: 55, right: 55 }
           if (!draft.theme.defaults) {
-            for (const name of blockClasses) draft.theme.blocks[name] = { ...defaultTheme.blocks[name], ...draft.theme.blocks[name] }
+            for (const name of themeBlockClasses) draft.theme.blocks[name] = { ...defaultTheme.blocks[name], ...draft.theme.blocks[name] }
             draft.theme.defaults = { ...defaultTheme.defaults }
           }
-          for (const name of blockClasses) draft.theme.blocks[name] ??= { ...defaultTheme.blocks[name] }
+          for (const name of themeBlockClasses) draft.theme.blocks[name] ??= { ...defaultTheme.blocks[name] }
           const inline = draft.theme.inline as typeof draft.theme.inline & { emphasis?: typeof draft.theme.inline.primary }
           if (inline.emphasis) { inline.primary ??= inline.emphasis; delete inline.emphasis }
           for (const name of inlineClasses) inline[name] ??= { ...defaultTheme.inline[name] }
@@ -79,6 +81,7 @@ export function App() {
           }
           renameEmphasis(draft.content)
           for (const object of draft.floating) if (object.kind !== 'image') renameEmphasis(object.content)
+          for (const object of draft.floating) if (object.kind === 'table') object.content = normalizeTableContent(object.content)
         }
         setDoc(draft ?? createDocument())
       }
@@ -125,12 +128,13 @@ export function App() {
       const rect = editor && isInTable(editor.state) ? selectedRect(editor.state) : null
       return {
         paragraph: editor?.isActive('paragraph') ?? false,
-        semantic: editor?.getAttributes('paragraph').semantic ?? 'body',
+        semantic: editor?.schema.nodes.table ? 'table' : editor?.getAttributes('paragraph').semantic ?? 'body',
         listLevel: editor?.getAttributes('paragraph').listLevel ?? 0,
         inline: editor?.getAttributes('semanticText').semantic ?? '',
         spacer: editor?.isActive('spacer') ?? false,
         height: editor?.getAttributes('spacer').height ?? 120,
         table: !!editor?.schema.nodes.table,
+        columnAlignment: rect && columnAlignment(editor!.state),
         tableRect: rect && { removeRow: rect.bottom - rect.top < rect.map.height, removeColumn: rect.right - rect.left < rect.map.width },
       }
     },
@@ -240,11 +244,13 @@ export function App() {
 
     {editable && <div className="toolbar" aria-label="Text editing tools">
       <div className="tool-group">
+        {selection?.table ? <span className="fixed-paragraph-class" aria-label="Paragraph class: Table">Table</span> : <>
         <label className="sr-only" htmlFor="paragraph-class">Paragraph class</label>
         <select id="paragraph-class" value={selection?.semantic ?? 'body'} disabled={!selection?.paragraph || selection.table}
           onChange={event => activeEditor && setParagraphClass(activeEditor, event.target.value as BlockClass)}>
           {blockClasses.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}
         </select>
+        </>}
         <label className="sr-only" htmlFor="phrase-class">Phrase class</label>
         <select id="phrase-class" value={selection?.inline ?? ''} disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
           onChange={event => event.target.value
@@ -270,7 +276,7 @@ export function App() {
         <button aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}>↶</button>
         <button aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}>↷</button>
       </div>
-      <span className="editing-context">{imageLoading ? 'Opening image…' : selectedObject?.kind === 'image' ? 'Floating image' : selection?.table ? 'Table · Body text' : activeEditor === mainEditor ? 'Main text' : 'Floating text'}</span>
+      <span className="editing-context">{imageLoading ? 'Opening image…' : selectedObject?.kind === 'image' ? 'Floating image' : selection?.table ? 'Table text' : activeEditor === mainEditor ? 'Main text' : 'Floating text'}</span>
     </div>}
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file) }} />
@@ -328,11 +334,16 @@ export function App() {
           <h2>Selected table</h2>
           <div className="table-tools" onMouseDown={event => event.preventDefault()}>
             <button disabled={!selection.tableRect} onClick={() => tableCommand(addRowAfter)}>Add row below</button>
-            <button disabled={!selection.tableRect} onClick={() => tableCommand(addColumnAfter)}>Add column after</button>
+            <button disabled={!selection.tableRect} onClick={() => tableCommand(changeColumns())}>Add column after</button>
             <button disabled={!selection.tableRect?.removeRow} onClick={() => tableCommand(deleteRow)}>Remove row</button>
-            <button disabled={!selection.tableRect?.removeColumn} onClick={() => tableCommand(deleteColumn)}>Remove column</button>
+            <button disabled={!selection.tableRect?.removeColumn} onClick={() => tableCommand(changeColumns(true))}>Remove column</button>
           </div>
-          <p className="hint">Click a cell to edit. Tab / Shift+Tab moves between cells. All paragraphs use Body; select a phrase to apply an inline class. Drag the top, left, or bottom border to move; the right border resizes. Focus the outer border and press Delete to remove the table.</p>
+          <div className="column-alignment" role="group" aria-label="Column alignment" onMouseDown={event => event.preventDefault()}>
+            {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={!selection.tableRect}
+              aria-pressed={selection.columnAlignment === align} onClick={() => tableCommand(alignColumns(align))}>{classLabel(align)}</button>)}
+          </div>
+          <p className="hint">Alignment applies to entire selected columns. Enter / Shift+Enter adds a newline within a cell; Tab / Shift+Tab moves between cells. All cells use the Table style; inline classes remain available.</p>
+          <p className="hint">Drag an internal divider to resize adjacent columns without changing table width. The outer right border resizes the whole table proportionally; the top, left, and bottom borders move it. Focus the outer border and press Delete to remove the table.</p>
         </section>}
         {selection?.spacer && <section className="panel-section">
           <h2>Selected space</h2>

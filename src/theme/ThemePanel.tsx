@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { blockClasses, inlineClasses, type BlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
+import { themeBlockClasses, inlineClasses, type ThemeBlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
 
 function pixels(value: ThemeLength, base: number) {
@@ -8,7 +8,7 @@ function pixels(value: ThemeLength, base: number) {
 
 export function themeVariables(theme: Theme): CSSProperties {
   const variables: Record<string, string> = { '--page-background': theme.defaults.background }
-  for (const name of blockClasses) {
+  for (const name of themeBlockClasses) {
     const style = { ...theme.defaults, ...theme.blocks[name] }
     variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, monospace'
       : style.family === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif'
@@ -28,7 +28,7 @@ export function themeVariables(theme: Theme): CSSProperties {
 }
 
 export const classLabel = (name: string) => name[0].toUpperCase() + name.slice(1)
-export type ThemeClass = 'defaults' | BlockClass | InlineClass
+export type ThemeClass = 'defaults' | ThemeBlockClass | InlineClass
 
 export function NumberField({ label, value, onChange, min, max, step = 1, unit = 'px', units, onUnitChange }: {
   label: string; value: number; onChange: (value: number) => void; min: number; max: number; step?: number; unit?: string
@@ -68,8 +68,8 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
 }) {
   const history = useHistory()
   const defaults = selected === 'defaults'
-  const isBlock = blockClasses.includes(selected as BlockClass)
-  const styles = defaults ? theme.defaults : isBlock ? theme.blocks[selected as BlockClass] : theme.inline[selected as InlineClass]
+  const isBlock = themeBlockClasses.includes(selected as ThemeBlockClass)
+  const styles = defaults ? theme.defaults : isBlock ? theme.blocks[selected as ThemeBlockClass] : theme.inline[selected as InlineClass]
   const resolved = { ...theme.defaults, ...styles }
   const values = styles as Record<string, string | number | boolean>
 
@@ -121,7 +121,7 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
 
   return <>
     <nav className="theme-classes" aria-label="Theme classes">
-      {([['', ['defaults']], ['Paragraphs', blockClasses], ['Phrases', inlineClasses]] as const).map(([label, names]) => <div key={label}>
+      {([['', ['defaults']], ['Paragraphs', themeBlockClasses], ['Phrases', inlineClasses]] as const).map(([label, names]) => <div key={label}>
         {label && <h3>{label}</h3>}
         <div className="class-buttons">{names.map(name => <button key={name} aria-pressed={selected === name}
           onClick={() => { history.boundary(); onSelect(name) }}>{classLabel(name)}</button>)}</div>

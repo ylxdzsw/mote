@@ -1,8 +1,10 @@
 import type { JSONContent } from '@tiptap/core'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
+export const themeBlockClasses = [...blockClasses, 'table'] as const
 export const inlineClasses = ['primary', 'secondary', 'bold', 'term'] as const
 export type BlockClass = typeof blockClasses[number]
+export type ThemeBlockClass = typeof themeBlockClasses[number]
 export type InlineClass = typeof inlineClasses[number]
 
 export type ThemeLength = number | `${number}px` | `${number}em`
@@ -28,7 +30,7 @@ export interface PhraseStyle {
 
 export interface Theme {
   defaults: Omit<BlockStyle, 'size'> & { size: number; background: string }
-  blocks: Record<BlockClass, Partial<BlockStyle>>
+  blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
   inline: Record<InlineClass, Partial<PhraseStyle>>
 }
 
@@ -38,6 +40,7 @@ export const defaultTheme: Theme = {
     title: { size: '3em', color: '#262b27', family: 'serif', lineHeight: '3.5em', letterSpacing: '-0.1em' },
     heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em', letterSpacing: '-0.025em' },
     body: { size: '1em' },
+    table: { size: '1em' },
     caption: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
     code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
