@@ -33,7 +33,7 @@ export interface Theme {
 }
 
 export const defaultTheme: Theme = {
-  defaults: { family: 'sans', size: 17, color: '#414841', background: '#fffefa', weight: 400, lineHeight: '1.7em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
+  defaults: { family: 'sans', size: 16, color: '#414841', background: '#fffefa', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
     title: { size: '3em', color: '#262b27', family: 'serif', lineHeight: '3.5em', letterSpacing: '-0.1em' },
     heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em', letterSpacing: '-0.025em' },

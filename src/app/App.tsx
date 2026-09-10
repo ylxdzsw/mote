@@ -8,7 +8,7 @@ import { DocumentCanvas } from '../canvas/DocumentCanvas'
 import { blockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type BlockClass, type FloatingObject, type FloatingPatch } from '../document/model'
 import { readImage } from '../document/image'
 import { loadDraft, saveDraft } from '../document/storage'
-import { type ThemeClass } from '../theme/ThemePanel'
+import { classLabel, type ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
@@ -250,7 +250,7 @@ export function App() {
           onChange={event => event.target.value
             ? activeEditor?.chain().focus().setMark('semanticText', { semantic: event.target.value }).run()
             : activeEditor?.chain().focus().unsetMark('semanticText').run()}>
-          <option value="">Plain phrase</option>
+          <option value="">Plain</option>
           {inlineClasses.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}
         </select>
         {selection?.semantic === 'list' && <>
@@ -300,9 +300,9 @@ export function App() {
         <section className="panel-section">
           <h2>Selection styles</h2>
           <div className="style-actions" onMouseDown={event => event.preventDefault()}>
-            <button disabled={!selection?.paragraph && !selection?.tableRect} onClick={() => openThemeClass(selection?.semantic || 'body')}>Paragraph style…</button>
+            <button disabled={!selection?.paragraph && !selection?.tableRect} onClick={() => openThemeClass(selection?.semantic || 'body')}>{classLabel(selection?.semantic || 'body')} style…</button>
             <button disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
-              onClick={() => openThemeClass(selection?.inline || 'primary')}>Inline styles…</button>
+              onClick={() => openThemeClass(selection?.inline || 'primary')}>{classLabel(selection?.inline || 'primary')} style…</button>
           </div>
         </section>
         {selectedObject && <section className="panel-section">
