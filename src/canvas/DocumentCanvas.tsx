@@ -186,8 +186,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (floating || target.closest('.segment-boundary')) return
     const start = point(event), space = spaceAt(start)
     if (space) {
-      capture(event); setEditingLabel(null); onActive(null)
+      capture(event); setEditingLabel(null)
       drag.current = { part: 'marquee', id: '', ids: [], start, objects: doc.floating, geometry, patches: {}, moved: false, additive: event.shiftKey ? selectedIds : [] }
+      if (mainEditor && !drag.current.additive.length) {
+        select([])
+        mainEditor.view.dispatch(mainEditor.state.tr.setSelection(NodeSelection.create(mainEditor.state.doc, mainEditor.view.posAtDOM(space.element, 0))))
+        mainEditor.view.focus(); onActive(mainEditor)
+      } else onActive(null)
     } else select([])
   }
   function shifted(objects: FloatingObject[], boxes: Geometries, ids: string[], dx: number, dy: number): FloatingPreviews {
@@ -210,6 +215,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (!d) return
     const p = point(event)
     if (!d.moved && distance(p, d.start) * scale < 3) return
+    if (!d.moved && d.part === 'marquee') onActive(null)
     d.moved = true
     if (d.part === 'marquee') {
       const box = rectangle(d.start, p)
@@ -275,14 +281,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (!d) return
     if (d.part === 'marquee') {
       if (d.moved && selectedIds.length) focusObject(selectedIds[0])
-      if (!d.moved) {
-        select(d.additive)
-        const space = spaceAt(d.start)
-        if (space && mainEditor && !d.additive.length) {
-          mainEditor.view.dispatch(mainEditor.state.tr.setSelection(NodeSelection.create(mainEditor.state.doc, mainEditor.view.posAtDOM(space.element, 0))))
-          mainEditor.view.focus(); onActive(mainEditor)
-        }
-      }
     } else if (d.created) {
       let object = d.created
       if (!d.moved && object.kind === 'line') object = { ...object, end: anchorPoint(boundedPoint({ x: d.start.x + 160, y: d.start.y }, 0, 16), anchors) }
