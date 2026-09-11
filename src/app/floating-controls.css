@@ -1,0 +1,5 @@
+.object-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.object-actions button { margin-top: 0; flex: 1 1 calc(50% - 6px); }
+.check-label { display: flex !important; align-items: center; gap: 8px; }
+.check-label input { accent-color: var(--accent); }
+.floating-inspector .color-control button { margin: 0; }

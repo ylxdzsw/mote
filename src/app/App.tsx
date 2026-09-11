@@ -4,7 +4,7 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
-import { DocumentCanvas } from '../canvas/DocumentCanvas'
+import { DocumentCanvas, type CanvasActions } from '../canvas/DocumentCanvas'
 import { blockClasses, themeBlockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type BlockClass, type FloatingObject, type FloatingPatch } from '../document/model'
 import { normalizeTableContent } from '../document/table'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
@@ -15,6 +15,8 @@ import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
+import { FloatingInspector } from './FloatingInspector'
+import './floating-controls.css'
 
 function useMedia(query: string) {
   const [matches, setMatches] = useState(() => matchMedia(query).matches)
@@ -48,18 +50,20 @@ export function App() {
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
   const [zoomHost, setZoomHost] = useState<HTMLDivElement | null>(null)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selectedObject = doc?.floating.find(object => object.id === selectedId)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [tool, setTool] = useState<'rectangle' | 'ellipse' | 'line' | 'label' | null>(null)
+  const actions = useRef<CanvasActions | null>(null)
+  const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string } | null>(null)
   const [imageError, setImageError] = useState('')
   const [imageLoading, setImageLoading] = useState(false)
 
   useEffect(() => {
-    if (selectedId && !doc?.floating.some(object => object.id === selectedId)) {
-      setSelectedId(null); setActiveEditor(mainEditor)
+    if (selectedIds.some(id => !doc?.floating.some(object => object.id === id))) {
+      setSelectedIds(ids => ids.filter(id => doc?.floating.some(object => object.id === id))); setActiveEditor(mainEditor)
     }
-  }, [doc?.floating, selectedId, mainEditor])
+  }, [doc?.floating, selectedIds, mainEditor])
 
   useEffect(() => {
     let cancelled = false
@@ -80,7 +84,7 @@ export function App() {
             node.content?.forEach(renameEmphasis)
           }
           renameEmphasis(draft.content)
-          for (const object of draft.floating) if (object.kind !== 'image') renameEmphasis(object.content)
+          for (const object of draft.floating) if ('content' in object) renameEmphasis(object.content)
           for (const object of draft.floating) if (object.kind === 'table') object.content = normalizeTableContent(object.content)
         }
         setDoc(draft ?? createDocument())
@@ -173,8 +177,15 @@ export function App() {
     }))
   }
 
+  function updateFloating(floating: FloatingObject[]) { setDoc(current => current && ({ ...current, floating })) }
+
   function updateObject(id: string, patch: FloatingPatch) {
     setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? { ...object, ...patch } : object) }))
+  }
+
+  function reorder(front: boolean) {
+    if (selectedIds.length < 1) return
+    setDoc(current => { if (!current) return current; const chosen = current.floating.filter(object => selectedIds.includes(object.id)); const rest = current.floating.filter(object => !selectedIds.includes(object.id)); return { ...current, floating: front ? [...rest, ...chosen] : [...chosen, ...rest] } })
   }
 
   function chooseImage(object?: FloatingObject) {
@@ -223,8 +234,8 @@ export function App() {
   if (loadError) return <main className="loading"><h1>Mote</h1><p>Couldn’t open the local draft. Check that browser storage is available.</p><button onClick={() => location.reload()}>Try again</button></main>
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
-  const itemType = selectedObject
-    ? selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : 'Floating text'
+  const itemType = selectedIds.length > 1 ? `${selectedIds.length} floating objects` : selectedObject
+    ? selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : selectedObject.kind === 'rectangle' ? 'Rectangle' : selectedObject.kind === 'ellipse' ? 'Ellipse' : selectedObject.kind === 'line' ? 'Line' : selectedObject.kind === 'label' ? 'Label' : 'Floating text'
     : selection?.spacer ? 'Space' : 'Main text'
 
   return <HistoryContext value={history}><div className="app">
@@ -233,7 +244,7 @@ export function App() {
       <div className="document-label">Untitled notebook <span className="version">V0</span></div>
       {editable && <button className="reset-example" onClick={() => {
         if (!window.confirm('Replace your local draft with the example? This cannot be undone.')) return
-        setMainEditor(null); setActiveEditor(null); setSelectedId(null); setImageError(''); setDoc(createDocument())
+        setMainEditor(null); setActiveEditor(null); setSelectedIds([]); setTool(null); setImageError(''); setDoc(createDocument())
       }}>Reset to example</button>}
       <div className={`save-status ${status}`} role="status"><span className="status-dot" />
         <span className="save-message">{status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}</span>
@@ -252,7 +263,7 @@ export function App() {
 
     {editable && <div className="toolbar" aria-label="Text editing tools">
       <div className="tool-group">
-        {selection?.table ? <span className="fixed-paragraph-class" aria-label="Paragraph class: Table">Table</span> : <>
+        {selectedObject?.kind === 'label' ? <span className="fixed-paragraph-class" aria-label="Paragraph class: Label">Label</span> : selection?.table ? <span className="fixed-paragraph-class" aria-label="Paragraph class: Table">Table</span> : <>
         <label className="sr-only" htmlFor="paragraph-class">Paragraph class</label>
         <select id="paragraph-class" value={selection?.semantic ?? 'body'} disabled={!selection?.paragraph || selection.table}
           onChange={event => activeEditor && setParagraphClass(activeEditor, event.target.value as BlockClass)}>
@@ -260,7 +271,7 @@ export function App() {
         </select>
         </>}
         <label className="sr-only" htmlFor="phrase-class">Phrase class</label>
-        <select id="phrase-class" value={selection?.inline ?? ''} disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
+        <select id="phrase-class" value={selection?.inline ?? ''} disabled={!activeEditor?.isEditable || selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
           onChange={event => event.target.value
             ? activeEditor?.chain().focus().setMark('semanticText', { semantic: event.target.value }).run()
             : activeEditor?.chain().focus().unsetMark('semanticText').run()}>
@@ -279,6 +290,7 @@ export function App() {
         <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={() => addObject('text')}>＋ Text</button>
         <button disabled={!mainEditor || activeEditor !== mainEditor || imageLoading} onMouseDown={event => event.preventDefault()} onClick={() => chooseImage()}>{imageLoading ? 'Opening image…' : '＋ Image'}</button>
         <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={() => addObject('table')}>＋ Table</button>
+        {(['rectangle', 'ellipse', 'line', 'label'] as const).map(kind => <button key={kind} aria-pressed={tool === kind} onMouseDown={event => event.preventDefault()} onClick={() => { setTool(tool === kind ? null : kind); setSelectedIds([]) }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}
       </div>
       <div className="tool-group history">
         <button aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}>↶</button>
@@ -291,14 +303,11 @@ export function App() {
 
     <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
-        onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor} onSelect={setSelectedId}
+        tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
+        onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
+        onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={content => setDoc(current => current && replaceMainContent(current, content))}
-        onNoteChange={updateObject}
-        onNoteRemove={id => {
-          setActiveEditor(mainEditor)
-          setSelectedId(null)
-          setDoc(current => current && ({ ...current, floating: current.floating.filter(note => note.id !== id) }))
-        }} />
+        onNoteChange={updateObject} />
       {editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
       : showInspector && <aside className="inspector" id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
@@ -310,24 +319,18 @@ export function App() {
         {!selectedObject && !selection?.spacer && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Select an object or a space to adjust it here. Open Document to edit page layout and semantic styles.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
-        {selectedObject && <section className="panel-section">
-          <h2>Selected object</h2>
-          <label>Main text flow
-            <select value={selectedObject.textFlow ?? 'overlap'} onChange={event => updateObject(selectedObject.id, { textFlow: event.target.value as 'overlap' | 'repel' })}>
-              <option value="overlap">Overlap</option>
-              <option value="repel">Repel</option>
-            </select>
-          </label>
-          <p className="hint">Repel keeps main-text lines from passing through this object; floating objects do not repel each other.</p>
-        </section>}
-        {selectedObject?.kind === 'image' && <section className="panel-section">
+        {selectedObject && <FloatingInspector object={selectedObject} count={selectedIds.length} themeColor={doc.theme.defaults.color}
+          targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
+          onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
+          onHistoryBegin={history.begin} onHistoryEnd={history.boundary} />}
+        {selectedIds.length === 1 && selectedObject?.kind === 'image' && <section className="panel-section">
           <h2>Selected image</h2>
           <label>Image description
             <input type="text" value={selectedObject.alt} onFocus={() => history.begin(`description:${selectedObject.id}`)} onBlur={history.boundary}
               onChange={event => updateObject(selectedObject.id, { alt: event.target.value })} />
           </label>
           <button disabled={imageLoading} onClick={() => chooseImage(selectedObject)}>{imageLoading ? 'Opening image…' : 'Replace image'}</button>
-          <p className="hint">Drag the top, left, or bottom border to move; the right border resizes. Proportions stay intact. Focus the object and press Delete to remove it. Image files stay in this browser. Up to 10 MB.</p>
+          <p className="hint">Drag the image or its top, left, or bottom border to move; the right border resizes. Proportions stay intact. Double-click to select or create a label. Image files stay in this browser. Up to 10 MB.</p>
         </section>}
         {selection?.table && <section className="panel-section">
           <h2>Selected table</h2>
@@ -357,8 +360,8 @@ export function App() {
         <section className="panel-section">
           <h2>Edit style</h2>
           <div className="style-actions" onMouseDown={event => event.preventDefault()}>
-            <button disabled={!selection?.paragraph && !selection?.tableRect} onClick={() => openThemeClass(selection?.semantic || 'body')}>{classLabel(selection?.semantic || 'body')} style…</button>
-            <button disabled={selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
+            <button disabled={selectedIds.length > 1 || (selectedObject?.kind !== 'label' && !selection?.paragraph && !selection?.tableRect)} onClick={() => openThemeClass(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')}>{classLabel(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')} style…</button>
+            <button disabled={!activeEditor?.isEditable || selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
               onClick={() => openThemeClass(selection?.inline || 'primary')}>{classLabel(selection?.inline || 'primary')} style…</button>
           </div>
         </section>

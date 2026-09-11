@@ -1,0 +1,22 @@
+.text-content.label-editor .tiptap {
+  min-height: 0;
+  width: max-content;
+  max-width: none;
+  overflow: visible;
+}
+
+.text-content [data-semantic='label'] {
+  --text-family: var(--label-family);
+  --text-size: var(--label-size);
+  --text-color: var(--label-color);
+  --text-weight: var(--label-weight);
+  --text-lineHeight: var(--label-lineHeight);
+  --text-letterSpacing: var(--label-letterSpacing);
+  --text-spaceBefore: var(--label-spaceBefore);
+  --text-spaceAfter: var(--label-spaceAfter);
+}
+.text-content.label-editor [data-semantic='label'] {
+  margin: 0;
+  white-space: pre;
+  overflow-wrap: normal;
+}

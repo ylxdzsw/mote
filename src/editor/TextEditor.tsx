@@ -4,6 +4,7 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import { extensions } from './extensions'
+import './label.css'
 import { useHistory } from '../document/history'
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   editable: boolean
   spatial?: boolean
   table?: boolean
+  singleLabel?: boolean
+  onFinish?: () => void
   label: string
   historyId: string
   onChange: (content: JSONContent) => void
@@ -18,12 +21,12 @@ interface Props {
   onReady?: (editor: Editor) => void
 }
 
-export function TextEditor({ content, editable, spatial = false, table = false, label, historyId, onChange, onActive, onReady }: Props) {
+export function TextEditor({ content, editable, spatial = false, table = false, singleLabel = false, onFinish, label, historyId, onChange, onActive, onReady }: Props) {
   const history = useHistory()
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
   const syncing = useRef(false)
   const syncedRevision = useRef(-1)
-  const schema = useMemo(() => extensions(spatial, table), [spatial, table])
+  const schema = useMemo(() => extensions(spatial, table, singleLabel, onFinish), [spatial, table, singleLabel, onFinish])
   const editor = useEditor({
     extensions: schema,
     content,
@@ -93,5 +96,5 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   useEffect(() => { ready() }, [editor])
   useEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
 
-  return <EditorContent className="text-content" editor={editor} />
+  return <EditorContent className={`text-content${singleLabel ? ' label-editor' : ''}`} editor={editor} />
 }

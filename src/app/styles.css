@@ -117,7 +117,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .text-content [data-inline-semantic='term'] { color: var(--term-color); background: var(--term-background); font-weight: var(--term-weight); font-style: var(--term-italic); text-decoration: var(--term-decoration); border-radius: 2px; box-decoration-break: clone; }
 .text-content [data-spacer] { position: relative; margin: 0 calc(-1 * var(--margin-right)) 0 calc(-1 * var(--margin-left)); height: var(--spacer-preview-height, var(--spacer-height)); }
 .text-content [data-spacer].ProseMirror-selectednode { outline: none; }
-.is-editing [data-spacer] { cursor: pointer; }
+.is-editing [data-spacer] { cursor: default; }
 .segment-boundaries { position: absolute; inset: 0; pointer-events: none; }
 .segment-boundary { position: absolute; left: 0; right: 0; height: 8px; margin-top: -4px; pointer-events: auto; cursor: ns-resize; touch-action: none; }
 .segment-boundary::after { content: ''; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: #d9decb; opacity: 0; pointer-events: none; }

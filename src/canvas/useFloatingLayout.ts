@@ -1,14 +1,15 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { FloatingObject, FloatingPatch, MoteDocument } from '../document/model'
+import { resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 
 export interface Placement { x: number; top: number }
-export interface FloatingPreview { id: string; x?: number; top?: number; width?: number }
-interface Anchor { id: string; top: number }
+export type FloatingPreview = FloatingPatch & { top?: number }
+export type FloatingPreviews = Record<string, FloatingPreview>
 interface Obstacle { left: number; right: number; top: number; bottom: number }
-interface Layout { anchors: Anchor[]; tops: Record<string, number>; minHeight: number }
+interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number }
 const gap = 8
-const origin: Layout = { anchors: [], tops: {}, minHeight: 0 }
+const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0 }
 
 function property(element: HTMLElement, name: string, value: string) {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
@@ -31,9 +32,9 @@ function exclusion(obstacles: Obstacle[], top: number, left: number, width: numb
   return { height, shape: `polygon(${points.join(',')})` }
 }
 
-export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, scale: number, preview: FloatingPreview | null) {
+export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, scale: number, preview: FloatingPreviews) {
   const [layout, setLayout] = useState(origin)
-  const measureRef = useRef<(override?: FloatingPreview | null) => Layout>(() => origin)
+  const measureRef = useRef<(override?: FloatingPreviews) => Layout>(() => origin)
   const reflow = useCallback(() => measureRef.current(), [])
 
   useLayoutEffect(() => {
@@ -48,15 +49,17 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
       const elements = new Set<Element>([editor!.view.dom, surface.parentElement!])
       const heights = new Map<string, number>()
+      const sizes: Record<string, { width: number; height: number }> = {}
       surface.querySelectorAll<HTMLElement>('.floating-note').forEach(element => {
         heights.set(element.dataset.noteId!, element.getBoundingClientRect().height / scale)
+        sizes[element.dataset.noteId!] = { width: element.getBoundingClientRect().width / scale, height: element.getBoundingClientRect().height / scale }
         elements.add(element)
       })
       const anchors: Anchor[] = []
       const tops: Record<string, number> = {}
       const obstacles: Obstacle[] = []
       const activate = (note: FloatingObject, anchorTop: number) => {
-        const moving = override?.id === note.id ? override : null
+        const moving = override[note.id]
         const top = moving?.top ?? anchorTop + note.y
         const left = moving?.x ?? note.x
         const width = moving?.width ?? note.width
@@ -67,13 +70,13 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         })
       }
       // A dragged object has a fixed document-space position until release.
-      for (const note of doc.floating) if (note.anchorId === null || (override?.id === note.id && override.top !== undefined)) activate(note, 0)
+      for (const note of doc.floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
       editor!.state.doc.forEach((node, from) => {
         const element = editor!.view.nodeDOM(from) as HTMLElement
         const top = localTop(element)
         anchors.push({ id: node.attrs.id, top })
         elements.add(element)
-        for (const note of doc.floating) if (note.anchorId === node.attrs.id && !(override?.id === note.id && override.top !== undefined)) activate(note, top)
+        for (const note of doc.floating) if (note.anchorId === node.attrs.id && override[note.id]?.top === undefined) activate(note, top)
         if (node.type.name !== 'paragraph') return
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
@@ -96,7 +99,9 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       })
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
-      const next = { anchors, tops, minHeight: Math.max(0, ...doc.floating.map(note => (tops[note.id] ?? 0) + (heights.get(note.id) ?? 0))) + surface.clientTop * 2 }
+      const objects = doc.floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
+      const geometry = resolveGeometry(objects, anchors, sizes, tops)
+      const next = { anchors, tops, geometry, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + surface.clientTop * 2 }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       return next
     }
@@ -113,10 +118,13 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
   }, [doc, editor, sheet, scale, preview])
 
   function attach(note: FloatingObject, placement: Placement): FloatingPatch {
-    const { anchors } = measureRef.current({ id: note.id, ...placement })
+    const { anchors } = measureRef.current({ ...preview, [note.id]: placement })
     const anchor = anchors.findLast(anchor => anchor.top <= placement.top - (note.textFlow === 'repel' ? gap : 0))
     return { x: placement.x, y: Math.max(0, placement.top - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
   }
 
-  return { ...layout, reflow, attach }
+  const objects = doc.floating.map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
+  const tops = Object.fromEntries(objects.map(note => [note.id, preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
+  const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops)
+  return { ...layout, tops, geometry, reflow, attach }
 }

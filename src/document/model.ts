@@ -1,7 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
-export const themeBlockClasses = [...blockClasses, 'table'] as const
+export const themeBlockClasses = [...blockClasses, 'table', 'label'] as const
 export const inlineClasses = ['primary', 'secondary', 'bold', 'term'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
@@ -41,6 +41,7 @@ export const defaultTheme: Theme = {
     heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em', letterSpacing: '-0.025em' },
     body: { size: '1em' },
     table: { size: '1em' },
+    label: { size: '1em' },
     caption: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
     code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
@@ -78,8 +79,44 @@ export interface FloatingImage extends FloatingGeometry {
   alt: string
 }
 
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage
-export type FloatingPatch = Partial<Pick<FloatingGeometry, 'anchorId' | 'x' | 'y' | 'width' | 'textFlow'>> & { content?: JSONContent; src?: string; alt?: string }
+export type AttachmentSide = 'auto' | 'top' | 'bottom' | 'left' | 'right'
+export interface ObjectConnection { targetId: string; side: AttachmentSide }
+export interface LineEnd { x: number; y: number; anchorId: string | null; connection?: ObjectConnection }
+export type LabelPosition = 'center' | 'top-inside' | 'top-outside' | 'bottom-inside' | 'bottom-outside' | 'left' | 'right' | 'above' | 'below'
+export interface LabelAttachment { targetId: string; position: LabelPosition }
+export interface Stroke { stroke: string | null; strokeWidth: number; dashed: boolean }
+export interface FloatingShape extends FloatingGeometry, Stroke {
+  kind: 'rectangle' | 'ellipse'
+  height: number
+  fill: string | null
+  rounded: boolean
+}
+export interface FloatingLine extends FloatingGeometry, Stroke {
+  kind: 'line'
+  start: LineEnd
+  end: LineEnd
+  route: 'straight' | 'elbow'
+  // Horizontal offset from the endpoints' midpoint, in document pixels.
+  bend: number
+  arrowStart: boolean
+  arrowEnd: boolean
+}
+export interface FloatingLabel extends FloatingGeometry {
+  kind: 'label'
+  content: JSONContent
+  attachment: LabelAttachment | null
+}
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingLabel
+export type FloatingKind = NonNullable<FloatingObject['kind']>
+export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stroke> & {
+  content?: JSONContent; src?: string; alt?: string; height?: number; fill?: string | null; rounded?: boolean
+  start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
+  attachment?: LabelAttachment | null
+}
+
+export function labelContent(text = ''): JSONContent {
+  return { type: 'doc', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }] }
+}
 
 export interface MoteDocument {
   version: 'V0'
@@ -111,6 +148,8 @@ export function createDocument(): MoteDocument {
   const spaceId = crypto.randomUUID()
   const sketchSpaceId = crypto.randomUUID()
   const reviewSpaceId = crypto.randomUUID()
+  const rectangleId = crypto.randomUUID(), ellipseId = crypto.randomUUID()
+  const imageId = crypto.randomUUID()
   return {
     version: 'V0',
     id: crypto.randomUUID(),
@@ -181,13 +220,33 @@ export function createDocument(): MoteDocument {
       textFlow: 'overlap',
       content: { type: 'doc', content: [paragraph('A note for next time', 'heading'), paragraph('Leave one useful question for the person who returns to this page. That person may be you.', 'caption')] },
     }, {
-      id: crypto.randomUUID(), kind: 'image', anchorId: sketchSpaceId,
+      id: imageId, kind: 'image', anchorId: sketchSpaceId,
       x: 55, y: 48, width: 340, textFlow: 'overlap', src: landscape,
       alt: 'A winding path between green hills beneath a golden sun.',
     }, {
       id: crypto.randomUUID(), kind: 'table', anchorId: reviewSpaceId,
       x: 55, y: 48, width: 340, textFlow: 'overlap',
       content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Room to think', 'One useful question']]),
+    }, {
+      id: rectangleId, kind: 'rectangle', anchorId: spaceId, x: 55, y: 48, width: 112, height: 80,
+      textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: true,
+    }, {
+      id: ellipseId, kind: 'ellipse', anchorId: spaceId, x: 224, y: 48, width: 96, height: 80,
+      textFlow: 'overlap', fill: '#e9efdf', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
+    }, {
+      id: crypto.randomUUID(), kind: 'line', anchorId: spaceId, x: 167, y: 88, width: 57,
+      textFlow: 'overlap', stroke: null, strokeWidth: 1, dashed: true, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true,
+      start: { x: 167, y: 88, anchorId: spaceId, connection: { targetId: rectangleId, side: 'right' } },
+      end: { x: 224, y: 88, anchorId: spaceId, connection: { targetId: ellipseId, side: 'left' } },
+    }, {
+      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 55, y: 48, width: 12, textFlow: 'overlap',
+      content: labelContent('Idea'), attachment: { targetId: rectangleId, position: 'center' },
+    }, {
+      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 224, y: 48, width: 12, textFlow: 'overlap',
+      content: labelContent('Explore'), attachment: { targetId: ellipseId, position: 'center' },
+    }, {
+      id: crypto.randomUUID(), kind: 'label', anchorId: sketchSpaceId, x: 55, y: 270, width: 12, textFlow: 'overlap',
+      content: labelContent('A different path'), attachment: { targetId: imageId, position: 'bottom-outside' },
     }],
   }
 }
@@ -196,11 +255,16 @@ export function createDocument(): MoteDocument {
 export function replaceMainContent(doc: MoteDocument, content: JSONContent): MoteDocument {
   const oldIds = doc.content.content!.map(node => node.attrs!.id as string)
   const newIds = content.content!.map(node => node.attrs!.id as string)
+  function survivingAnchor(anchorId: string | null) {
+    if (anchorId === null || newIds.includes(anchorId)) return anchorId
+    return oldIds.slice(0, oldIds.indexOf(anchorId)).reverse().find(id => newIds.includes(id)) ?? null
+  }
   const floating = doc.floating.map(note => {
     const y = Math.max(0, note.y)
-    if (note.anchorId === null || newIds.includes(note.anchorId)) return y === note.y ? note : { ...note, y }
-    const preceding = oldIds.slice(0, oldIds.indexOf(note.anchorId)).reverse()
-    return { ...note, anchorId: preceding.find(id => newIds.includes(id)) ?? null, y }
+    const anchorId = survivingAnchor(note.anchorId)
+    if (note.kind === 'line') return { ...note, anchorId, y,
+      start: { ...note.start, anchorId: survivingAnchor(note.start.anchorId) }, end: { ...note.end, anchorId: survivingAnchor(note.end.anchorId) } }
+    return anchorId === note.anchorId && y === note.y ? note : { ...note, anchorId, y }
   })
   return { ...doc, content, floating }
 }

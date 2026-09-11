@@ -1,0 +1,29 @@
+.sheet.show-floating-grid .main-text [data-spacer], .sheet.is-editing:has(.table-column-divider.is-dragging) .main-text [data-spacer] { background-image: radial-gradient(circle, #84947a66 .8px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; }
+.sheet.has-creation-tool { cursor: crosshair; }
+.sheet.has-creation-tool .main-text { cursor: crosshair; }
+.sheet.has-creation-tool [data-spacer] { cursor: crosshair; }
+.sheet.is-floating-dragging { user-select: none; }
+.sheet.is-editing .floating-image img { cursor: move; }
+.floating-note:is(.floating-rectangle, .floating-ellipse, .floating-line, .floating-label) { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.floating-rectangle, .floating-ellipse, .floating-line { pointer-events: none; }
+.floating-vector { display: block; pointer-events: none; }
+.vector-ink { pointer-events: visiblePainted; }
+.vector-hit { fill: none; stroke: transparent; stroke-width: 10px; pointer-events: stroke; cursor: move; }
+.is-editing :is(.floating-rectangle, .floating-ellipse, .floating-line).is-selected { outline: 1px dashed #86a47b99; outline-offset: 4px; }
+.floating-label { min-width: 12px; min-height: 24px; text-align: center; }
+.floating-label .text-content { width: max-content; min-width: 12px; }
+.is-editing .floating-label:not(.is-label-editing) .text-content { pointer-events: none; }
+.is-editing .floating-label.is-selected { outline: 1px dashed #86a47b; outline-offset: 3px; }
+.floating-label .tiptap { min-width: 12px; }
+.object-handle { position: absolute; width: 9px; height: 9px; min-width: 0; padding: 0; margin: -4.5px 0 0 -4.5px; border: 1px solid #54795f; border-radius: 2px; background: #fffefa; pointer-events: auto; touch-action: none; cursor: crosshair; }
+.handle-nw { left: 0; top: 0; cursor: nwse-resize; }
+.handle-ne { left: 100%; top: 0; cursor: nesw-resize; }
+.handle-sw { left: 0; top: 100%; cursor: nesw-resize; }
+.handle-se { left: 100%; top: 100%; cursor: nwse-resize; }
+.bend-handle { background: #dce8d6; cursor: ew-resize; }
+.marquee-selection { position: absolute; pointer-events: none; border: 1px solid #54795f; background: #54795f16; z-index: 10000; }
+.attachment-guides { position: absolute; inset: 0; pointer-events: none; z-index: 10001; overflow: visible; }
+.attachment-guides circle { fill: #fffefa; stroke: #54795f; stroke-width: 1; }
+.attachment-guides .active { fill: #54795f; }
+.attachment-guides rect { fill: none; stroke: #54795f; stroke-dasharray: 3 3; }
+.is-reading :is(.object-handle, .vector-hit, .marquee-selection, .attachment-guides) { display: none; }
