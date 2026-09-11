@@ -1,0 +1,27 @@
+.toolbar { position: relative; z-index: 6; display: flex; flex-shrink: 0; gap: 10px; align-items: center; height: 37px; padding: 3px 28px; border-bottom: 1px solid var(--border); background: #f8f8f3; font-size: 12px; }
+.toolbar .tool-group { display: flex; align-items: center; gap: 3px; padding-right: 10px; border-right: 1px solid var(--border); flex-shrink: 0; }
+.toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 29px; padding: 4px 6px; white-space: nowrap; }
+.toolbar button[aria-pressed='true'], .toolbar .armed { background: #e2eadb; border-color: #9eb392; color: #294d34; }
+.toolbar .tool-quick { min-width: 30px; }
+.tool-icon { display: block; width: 18px; height: 18px; flex-shrink: 0; }
+.tool-menu { position: relative; }
+.toolbar .tool-menu-trigger { gap: 5px; }
+.tool-menu-trigger > .tool-icon:last-child { width: 12px; height: 12px; color: var(--muted); }
+.class-menu-value { width: 72px; text-align: left; }
+.tool-menu-panel { position: absolute; top: calc(100% + 5px); left: 0; min-width: 240px; padding: 5px; border: 1px solid var(--border); border-radius: 9px; background: #fcfcf9; box-shadow: 0 8px 24px #303b3326; max-height: calc(100dvh - 100px); overflow-y: auto; }
+.toolbar .tool-menu-panel button { display: flex; width: 100%; height: 34px; gap: 10px; padding-inline: 8px; text-align: left; }
+.tool-menu-panel button:focus-visible { outline-offset: -2px; background: #e7eae1; }
+.tool-menu-panel button[aria-checked='true'] { background: #edf1e7; }
+.tool-menu-label { flex: 1; }
+.tool-menu-hint { font-size: 10px; color: var(--muted); }
+.tool-menu-check { width: 12px; color: var(--accent); }
+.tool-menu-separator { height: 1px; background: var(--border); margin: 5px 3px; }
+.inline-badge { display: inline-block; padding: 2px 4px; border-radius: 3px; line-height: 16px; font-size: 11px; }
+.inline-badge.sample { width: 22px; padding-inline: 1px; text-align: center; }
+.toolbar .badge-button { padding-inline: 3px; }
+.toolbar .toolbar-history { border: 0; padding-right: 0; margin-left: auto; }
+.toolbar .tier-core, .toolbar .tier-medium, .toolbar .tier-wide { display: none; }
+@media (min-width: 850px) { .toolbar .tier-core { display: inline-flex; } }
+@media (min-width: 1050px) { .toolbar .tier-medium { display: inline-flex; } }
+@media (min-width: 1250px) { .toolbar .tier-wide { display: inline-flex; } }
+@media (max-width: 1050px) { .toolbar { padding-inline: 18px; gap: 8px; } }

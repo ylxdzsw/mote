@@ -62,14 +62,20 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
 
   useLayoutEffect(() => {
     drag.current = null
-    let frame = 0
+    let queued = false
+    let disposed = false
     const observed = new Set<HTMLElement>()
-    const schedule = () => { if (!frame) frame = requestAnimationFrame(measure) }
+    // Edits can replace the padded paragraph. Settle that padding before paint,
+    // rather than exposing the temporary layout for an animation frame.
+    const schedule = () => {
+      if (queued) return
+      queued = true
+      queueMicrotask(() => { queued = false; if (!disposed) measure() })
+    }
     const observer = new ResizeObserver(schedule)
     observer.observe(editor.view.dom)
 
     function measure() {
-      frame = 0
       reflow()
       const surface = sheet.current!
       const rect = surface.getBoundingClientRect()
@@ -86,7 +92,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
 
       const next: Segment[] = []
       const styles: SegmentStyle[] = []
-      let editorMinimum = 24
+      let reserved = false
       const transaction = editor.state.tr
       if (blocks[0]?.kind !== 'text' && editor.state.doc.attrs.minSegmentHeight !== null) {
         transaction.setDocAttribute('minSegmentHeight', null)
@@ -109,9 +115,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
         if (first.kind === 'text') {
           const padding = target !== null && target > natural + heightTolerance ? target - natural : 0
           if (padding > 0) styles.push({ from: last.from, to: last.to, property: 'padding-bottom', value: padding })
-          if (padding > 0 && index === blocks.length - 1) {
-            editorMinimum = Math.max(24, top + target! - y(editor.view.dom.getBoundingClientRect().top))
-          }
+          if (padding > 0) reserved = true
           if (!pending && !surface.hasAttribute('data-floating-preview') && minimum !== null && natural >= minimum - heightTolerance) {
             if (owner === null) transaction.setDocAttribute('minSegmentHeight', null)
             else transaction.setNodeAttribute(owner, 'minSegmentHeight', null)
@@ -124,12 +128,6 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
           minimum })
       }
 
-      // Paragraph splits/joins can drop padding decorations until the next measure.
-      // Keep the trailing minimum outside those nodes so scroll height never collapses.
-      const minimumHeight = `${editorMinimum}px`
-      if (surface.style.getPropertyValue('--main-text-min-height') !== minimumHeight) {
-        surface.style.setProperty('--main-text-min-height', minimumHeight)
-      }
       const previous = segmentLayoutKey.getState(editor.state)!.styles
       const changed = previous === null || styles.length !== previous.length || styles.some((style, index) => {
         const old = previous[index]
@@ -139,6 +137,15 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
       if (transaction.docChanged || changed) {
         editor.view.dispatch(transaction.setMeta('addToHistory', false))
         schedule()
+        return
+      }
+      // Protect scroll extent while any reserved segment's paragraph is replaced.
+      // Derive the floor from settled blocks, never from the floor itself.
+      const editorMinimum = reserved && blocks.length
+        ? Math.max(24, y(blocks.at(-1)!.element.getBoundingClientRect().bottom) - y(editor.view.dom.getBoundingClientRect().top)) : 24
+      const minimumHeight = `${editorMinimum}px`
+      if (surface.style.getPropertyValue('--main-text-min-height') !== minimumHeight) {
+        surface.style.setProperty('--main-text-min-height', minimumHeight)
       }
       current.current = next
       setSegments(next)
@@ -150,7 +157,7 @@ export function SegmentBoundaries({ editor, sheet, editable, scale, reflow, floa
     editor.on('transaction', schedule)
     document.fonts.addEventListener('loadingdone', schedule)
     return () => {
-      cancelAnimationFrame(frame)
+      disposed = true
       observer.disconnect()
       editor.off('transaction', schedule)
       document.fonts.removeEventListener('loadingdone', schedule)

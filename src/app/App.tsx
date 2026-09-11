@@ -5,7 +5,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions } from '../canvas/DocumentCanvas'
-import { blockClasses, themeBlockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type BlockClass, type FloatingObject, type FloatingPatch } from '../document/model'
+import { themeBlockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch } from '../document/model'
 import { normalizeTableContent } from '../document/table'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
@@ -14,7 +14,7 @@ import { classLabel, type ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
-import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
+import { Toolbar } from './Toolbar'
 import { FloatingInspector } from './FloatingInspector'
 import './floating-controls.css'
 
@@ -261,42 +261,18 @@ export function App() {
       </div> : <span className="mobile-mode">Reading</span>}
     </header>
 
-    {editable && <div className="toolbar" aria-label="Text editing tools">
-      <div className="tool-group">
-        {selectedObject?.kind === 'label' ? <span className="fixed-paragraph-class" aria-label="Paragraph class: Label">Label</span> : selection?.table ? <span className="fixed-paragraph-class" aria-label="Paragraph class: Table">Table</span> : <>
-        <label className="sr-only" htmlFor="paragraph-class">Paragraph class</label>
-        <select id="paragraph-class" value={selection?.semantic ?? 'body'} disabled={!selection?.paragraph || selection.table}
-          onChange={event => activeEditor && setParagraphClass(activeEditor, event.target.value as BlockClass)}>
-          {blockClasses.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}
-        </select>
-        </>}
-        <label className="sr-only" htmlFor="phrase-class">Phrase class</label>
-        <select id="phrase-class" value={selection?.inline ?? ''} disabled={!activeEditor?.isEditable || selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
-          onChange={event => event.target.value
-            ? activeEditor?.chain().focus().setMark('semanticText', { semantic: event.target.value }).run()
-            : activeEditor?.chain().focus().unsetMark('semanticText').run()}>
-          <option value="">Plain</option>
-          {inlineClasses.map(name => <option key={name} value={name}>{name[0].toUpperCase() + name.slice(1)}</option>)}
-        </select>
-        {selection?.semantic === 'list' && <>
-          <button aria-label="Decrease list level" title="Decrease list level · Shift+Tab" onMouseDown={event => event.preventDefault()}
-            onClick={() => { if (activeEditor) { activeEditor.view.focus(); changeListLevel(activeEditor, -1) } }}>⇤</button>
-          <button aria-label="Increase list level" title="Increase list level · Tab" onMouseDown={event => event.preventDefault()}
-            onClick={() => { if (activeEditor) { activeEditor.view.focus(); changeListLevel(activeEditor, 1) } }}>⇥</button>
-        </>}
-      </div>
-      <div className="tool-group">
-        <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={addSpacer}>＋ Space</button>
-        <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={() => addObject('text')}>＋ Text</button>
-        <button disabled={!mainEditor || activeEditor !== mainEditor || imageLoading} onMouseDown={event => event.preventDefault()} onClick={() => chooseImage()}>{imageLoading ? 'Opening image…' : '＋ Image'}</button>
-        <button disabled={!mainEditor || activeEditor !== mainEditor} onMouseDown={event => event.preventDefault()} onClick={() => addObject('table')}>＋ Table</button>
-        {(['rectangle', 'ellipse', 'line', 'label'] as const).map(kind => <button key={kind} aria-pressed={tool === kind} onMouseDown={event => event.preventDefault()} onClick={() => { setTool(tool === kind ? null : kind); setSelectedIds([]) }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}
-      </div>
-      <div className="tool-group history">
-        <button aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}>↶</button>
-        <button aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}>↷</button>
-      </div>
-    </div>}
+    {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor && activeEditor === mainEditor} imageLoading={imageLoading}
+      theme={doc.theme} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
+      onInsert={kind => {
+        if (kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
+          setTool(tool === kind ? null : kind); setSelectedIds([])
+        } else {
+          setTool(null)
+          if (kind === 'space') addSpacer()
+          else if (kind === 'image') chooseImage()
+          else addObject(kind)
+        }
+      }} />}
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file) }} />
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>×</button></div>}

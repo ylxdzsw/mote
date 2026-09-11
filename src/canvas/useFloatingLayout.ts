@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { FloatingObject, FloatingPatch, MoteDocument } from '../document/model'
+import { segmentLayoutKey } from '../editor/segmentSizing'
 import { resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 
 export interface Placement { x: number; top: number }
@@ -102,7 +103,11 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const objects = doc.floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
       const geometry = resolveGeometry(objects, anchors, sizes, tops)
       const next = { anchors, tops, geometry, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + surface.clientTop * 2 }
-      setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+      // Repulsion must be measured while padding settles, but those temporary
+      // anchor positions must never reach the floating-object render.
+      if (segmentLayoutKey.getState(editor!.state)?.styles !== null) {
+        setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+      }
       return next
     }
     measureRef.current = measure

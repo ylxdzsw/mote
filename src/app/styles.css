@@ -40,14 +40,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .mode-switch button { min-width: 56px; padding: 5px 12px; }
 .mode-switch [aria-pressed='true'] { background: #3f5f49; color: #fff; }
 .mode-switch [aria-pressed='true']:hover { background: #34513d; }
-.toolbar { display: flex; flex-shrink: 0; gap: 12px; align-items: center; height: 37px; padding: 3px 28px; border-bottom: 1px solid var(--border); background: #f8f8f3; font-size: 12px; overflow-x: auto; }
-.toolbar button, .toolbar select { padding-block: 4px; }
-.tool-group { display: flex; gap: 6px; padding-right: 14px; border-right: 1px solid var(--border); }
-.toolbar select { min-width: 126px; background: transparent; border-color: transparent; }
-.fixed-paragraph-class { min-width: 126px; padding: 5px 10px; }
-.toolbar button { white-space: nowrap; }
-.history { border: 0; gap: 0; }
-.history button { padding: 3px 10px; font-size: 22px; line-height: 1; }
 .workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 248px; flex: 1; min-height: 0; overflow: hidden; }
 .workspace.reader { display: block; }
 .canvas-pane { --minimap-width: 100px; --bookmark-width: 64px; position: relative; min-width: 0; height: 100%; min-height: 0; }
@@ -163,9 +155,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 @media (max-width: 1050px) {
   .app-header { gap: 12px; padding-inline: 18px; }
   .document-label { display: none; }
-  .toolbar { padding-inline: 18px; gap: 8px; }
-  .toolbar select { min-width: 105px; }
-  .tool-group { padding-right: 8px; }
   .workspace { grid-template-columns: minmax(0, 1fr) 220px; }
   .inspector { padding-inline: 16px; }
 }
