@@ -10,7 +10,7 @@ import { Fragment, Slice } from '@tiptap/pm/model'
 import { CellSelection } from '@tiptap/pm/tables'
 import { blockClasses, inlineClasses } from '../document/model'
 import { TableParagraph, tableExtensions } from './table'
-import { SegmentSizing } from './segmentSizing'
+import { Spaces } from './spaces'
 import { ParagraphBehavior } from './paragraphBehavior'
 
 const SemanticParagraph = Paragraph.extend({
@@ -170,6 +170,7 @@ export const Spacer = Node.create({
   name: 'spacer',
   group: 'block',
   atom: true,
+  selectable: false,
   addAttributes() {
     return {
       height: {
@@ -192,7 +193,7 @@ export function extensions(spatial: boolean, table = false, singleLabel = false,
     table ? Document.extend({ content: 'table' }) : Document,
     table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, SemanticText, Gapcursor,
     UniqueID.configure({ types: spatial ? ['paragraph', 'spacer'] : ['paragraph'] }),
-    ...(spatial ? [Spacer, SegmentSizing] : []),
+    ...(spatial ? [Spacer, Spaces] : []),
     ...(table ? tableExtensions : [ParagraphBehavior]),
   ]
 }

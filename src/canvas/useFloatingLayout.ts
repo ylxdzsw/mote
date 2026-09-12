@@ -1,7 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
 import type { FloatingObject, FloatingPatch, MoteDocument } from '../document/model'
-import { segmentLayoutKey } from '../editor/segmentSizing'
 import { resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 
 export interface Placement { x: number; top: number }
@@ -48,6 +47,12 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     function measure(override = preview) {
       const rect = surface.getBoundingClientRect()
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
+      // A spacer separates margins that would otherwise collapse to their maximum.
+      editor!.view.dom.querySelectorAll<HTMLElement>('[data-spacer]').forEach(element => {
+        const before = element.previousElementSibling, after = element.nextElementSibling
+        const overlap = Math.min(before ? parseFloat(getComputedStyle(before).marginBottom) : 0, after ? parseFloat(getComputedStyle(after).marginTop) : 0)
+        property(element, '--space-overlap', `${overlap}px`)
+      })
       const elements = new Set<Element>([editor!.view.dom, surface.parentElement!])
       const heights = new Map<string, number>()
       const sizes: Record<string, { width: number; height: number }> = {}
@@ -103,11 +108,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const objects = doc.floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
       const geometry = resolveGeometry(objects, anchors, sizes, tops)
       const next = { anchors, tops, geometry, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + surface.clientTop * 2 }
-      // Repulsion must be measured while padding settles, but those temporary
-      // anchor positions must never reach the floating-object render.
-      if (segmentLayoutKey.getState(editor!.state)?.styles !== null) {
-        setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
-      }
+      setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       return next
     }
     measureRef.current = measure

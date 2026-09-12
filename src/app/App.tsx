@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorState } from '@tiptap/react'
-import type { Editor, JSONContent } from '@tiptap/core'
+import { getSchema, type Editor, type JSONContent } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
@@ -8,6 +8,7 @@ import { DocumentCanvas, type CanvasActions } from '../canvas/DocumentCanvas'
 import { themeBlockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch } from '../document/model'
 import { normalizeTableContent } from '../document/table'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
+import { extensions } from '../editor/extensions'
 import { readImage } from '../document/image'
 import { loadDraft, saveDraft } from '../document/storage'
 import { classLabel, type ThemeClass } from '../theme/ThemePanel'
@@ -70,6 +71,7 @@ export function App() {
     loadDraft().then(draft => {
       if (!cancelled) {
         if (draft) {
+          if (draft.version !== 'V0') throw new Error('Unsupported document version')
           draft.margins ??= { left: 55, right: 55 }
           if (!draft.theme.defaults) {
             for (const name of themeBlockClasses) draft.theme.blocks[name] = { ...defaultTheme.blocks[name], ...draft.theme.blocks[name] }
@@ -86,10 +88,20 @@ export function App() {
           renameEmphasis(draft.content)
           for (const object of draft.floating) if ('content' in object) renameEmphasis(object.content)
           for (const object of draft.floating) if (object.kind === 'table') object.content = normalizeTableContent(object.content)
+          const content = getSchema(extensions(true)).nodeFromJSON(draft.content)
+          content.check()
+          draft.content = content.toJSON()
+          for (const object of draft.floating) if ('content' in object) {
+            getSchema(extensions(false, object.kind === 'table', object.kind === 'label')).nodeFromJSON(object.content).check()
+          }
         }
         setDoc(draft ?? createDocument())
       }
-    }).catch(() => { if (!cancelled) setLoadError(true) })
+    }).catch(() => {
+      if (cancelled) return
+      if (window.confirm('This local draft could not be opened. Replace it with the example?')) setDoc(createDocument())
+      else setLoadError(true)
+    })
     return () => { cancelled = true }
   }, [])
 
@@ -135,8 +147,6 @@ export function App() {
         semantic: editor?.schema.nodes.table ? 'table' : editor?.getAttributes('paragraph').semantic ?? 'body',
         listLevel: editor?.getAttributes('paragraph').listLevel ?? 0,
         inline: editor?.getAttributes('semanticText').semantic ?? '',
-        spacer: editor?.isActive('spacer') ?? false,
-        height: editor?.getAttributes('spacer').height ?? 120,
         table: !!editor?.schema.nodes.table,
         columnAlignment: rect && columnAlignment(editor!.state),
         tableRect: rect && { removeRow: rect.bottom - rect.top < rect.map.height, removeColumn: rect.right - rect.left < rect.map.width },
@@ -150,8 +160,8 @@ export function App() {
     const position = selection instanceof NodeSelection ? selection.to
       : selection.$from.depth ? selection.$from.after(1) : selection.from
     const node = mainEditor.schema.nodes.spacer.create({ id: crypto.randomUUID(), height: 120 })
-    const transaction = mainEditor.state.tr.insert(position, node)
-    mainEditor.view.dispatch(transaction.setSelection(NodeSelection.create(transaction.doc, position)))
+    const transaction = mainEditor.state.tr.insert(position, node).setMeta('historyBoundary', true)
+    mainEditor.view.dispatch(transaction)
     mainEditor.commands.focus()
     setActiveEditor(mainEditor)
   }
@@ -236,7 +246,7 @@ export function App() {
 
   const itemType = selectedIds.length > 1 ? `${selectedIds.length} floating objects` : selectedObject
     ? selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : selectedObject.kind === 'rectangle' ? 'Rectangle' : selectedObject.kind === 'ellipse' ? 'Ellipse' : selectedObject.kind === 'line' ? 'Line' : selectedObject.kind === 'label' ? 'Label' : 'Floating text'
-    : selection?.spacer ? 'Space' : 'Main text'
+    : 'Main text'
 
   return <HistoryContext value={history}><div className="app">
     <header className="app-header">
@@ -282,7 +292,7 @@ export function App() {
         tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
-        onMainChange={content => setDoc(current => current && replaceMainContent(current, content))}
+        onMainChange={(content, merges) => setDoc(current => current && replaceMainContent(current, content, merges))}
         onNoteChange={updateObject} />
       {editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
@@ -292,7 +302,7 @@ export function App() {
         </div>
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
         {editable && !viewSettingsOpen && <>
-        {!selectedObject && !selection?.spacer && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Select an object or a space to adjust it here. Open Document to edit page layout and semantic styles.</p></section>}
+        {!selectedObject && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag empty space or either side gutter to select objects.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
         {selectedObject && <FloatingInspector object={selectedObject} count={selectedIds.length} themeColor={doc.theme.defaults.color}
@@ -322,16 +332,6 @@ export function App() {
           </div>
           <p className="hint">Alignment applies to entire selected columns. Enter / Shift+Enter adds a newline within a cell; Tab / Shift+Tab moves between cells. All cells use the Table style; inline classes remain available.</p>
           <p className="hint">Drag an internal divider to resize adjacent columns without changing table width. The outer right border resizes the whole table proportionally; the top, left, and bottom borders move it. Focus the outer border and press Delete to remove the table.</p>
-        </section>}
-        {selection?.spacer && <section className="panel-section">
-          <h2>Selected space</h2>
-          <label>Height <output>{Math.round(selection.height)}px</output>
-            <input aria-label="Spacer height" type="range" min="24" max={Math.max(480, selection.height)} step="1" value={selection.height}
-              onPointerDown={() => history.begin('spacer-height')} onPointerUp={history.boundary} onBlur={history.boundary}
-              onKeyDown={() => history.begin('spacer-height')} onKeyUp={history.boundary}
-              onChange={event => activeEditor?.commands.updateAttributes('spacer', { height: Number(event.target.value) })} />
-          </label>
-          <button onClick={() => activeEditor?.chain().focus().deleteSelection().run()}>Remove space</button>
         </section>}
         <section className="panel-section">
           <h2>Edit style</h2>

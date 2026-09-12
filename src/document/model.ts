@@ -1,4 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
+import type { SpaceMerge } from '../editor/spaces'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'label'] as const
@@ -252,18 +253,21 @@ export function createDocument(): MoteDocument {
 }
 
 // Keep notes when their anchor is removed: prefer the nearest surviving predecessor.
-export function replaceMainContent(doc: MoteDocument, content: JSONContent): MoteDocument {
+export function replaceMainContent(doc: MoteDocument, content: JSONContent, merges: SpaceMerge[] = []): MoteDocument {
   const oldIds = doc.content.content!.map(node => node.attrs!.id as string)
   const newIds = content.content!.map(node => node.attrs!.id as string)
   function survivingAnchor(anchorId: string | null) {
     if (anchorId === null || newIds.includes(anchorId)) return anchorId
     return oldIds.slice(0, oldIds.indexOf(anchorId)).reverse().find(id => newIds.includes(id)) ?? null
   }
+  function remap(point: { anchorId: string | null; y: number }) {
+    const merge = point.anchorId === null ? undefined : merges.find(merge => merge.id === point.anchorId)
+    return { anchorId: merge?.anchorId ?? survivingAnchor(point.anchorId), y: Math.max(0, point.y + (merge?.offset ?? 0)) }
+  }
   const floating = doc.floating.map(note => {
-    const y = Math.max(0, note.y)
-    const anchorId = survivingAnchor(note.anchorId)
+    const { anchorId, y } = remap(note)
     if (note.kind === 'line') return { ...note, anchorId, y,
-      start: { ...note.start, anchorId: survivingAnchor(note.start.anchorId) }, end: { ...note.end, anchorId: survivingAnchor(note.end.anchorId) } }
+      start: { ...note.start, ...remap(note.start) }, end: { ...note.end, ...remap(note.end) } }
     return anchorId === note.anchorId && y === note.y ? note : { ...note, anchorId, y }
   })
   return { ...doc, content, floating }

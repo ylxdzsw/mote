@@ -1,11 +1,12 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
-import { NodeSelection, Selection, TextSelection } from '@tiptap/pm/state'
+import { Selection, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import { extensions } from './extensions'
 import './label.css'
 import { useHistory } from '../document/history'
+import { spaceLayoutKey, type SpaceMerge } from './spaces'
 
 interface Props {
   content: JSONContent
@@ -16,7 +17,7 @@ interface Props {
   onFinish?: () => void
   label: string
   historyId: string
-  onChange: (content: JSONContent) => void
+  onChange: (content: JSONContent, merges?: SpaceMerge[]) => void
   onActive: (editor: Editor) => void
   onReady?: (editor: Editor) => void
 }
@@ -31,15 +32,15 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
     extensions: schema,
     content,
     editable,
+    onCreate: ({ editor }) => {
+      if (spatial) editor.view.dispatch(editor.state.tr.setMeta('normalizeSpaces', true).setMeta('addToHistory', false))
+    },
     editorProps: {
       attributes: { 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
-      handleDOMEvents: { pointerdown: (view, event) => {
+      handleDOMEvents: { pointerdown: (_view, event) => {
         const space = (event.target as HTMLElement).closest('[data-spacer]')
         if (!editable || event.button !== 0 || !space) return false
         event.preventDefault()
-        view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, view.posAtDOM(space, 0))))
-        view.focus()
-        onActive(editor)
         return true
       }, beforeinput: (_view, event) => {
         if (!editable || !['historyUndo', 'historyRedo'].includes(event.inputType)) return false
@@ -60,7 +61,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         && (!transaction.steps[0].slice.content.firstChild || transaction.steps[0].slice.content.firstChild.isText)
       history.edit({ editorId: historyId, before: before.current,
         group: typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
-      () => onChange(editor.getJSON()))
+      () => onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges))
     },
   })
 

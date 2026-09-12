@@ -6,7 +6,7 @@ Mote
 The project is in early deveoplment phase.
 
 1. Editing can be made directly without any backward compatibility;
-2. Use V0 as document format version, which also does not maintain any compatibility;
+2. Use V0 as document format version, which also does not maintain any compatibility; If saved draft failed to parse, pop up a dialog to reset to example
 3. Disable caching on the deployment;
 4. Redploy the demo after each task; no need to backup.
 

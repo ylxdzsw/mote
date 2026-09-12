@@ -1,4 +1,4 @@
-.sheet.show-floating-grid .main-text [data-spacer], .sheet.is-editing:has(.table-column-divider.is-dragging) .main-text [data-spacer] { background-image: radial-gradient(circle, #84947a66 .8px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; }
+.sheet.show-floating-grid, .sheet.is-editing:has(.table-column-divider.is-dragging) { background-image: radial-gradient(circle, #84947a66 .8px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; background-origin: padding-box; }
 .sheet.has-creation-tool { cursor: crosshair; }
 .sheet.has-creation-tool .main-text { cursor: crosshair; }
 .sheet.has-creation-tool [data-spacer] { cursor: crosshair; }

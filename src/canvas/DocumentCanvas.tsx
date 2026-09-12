@@ -1,14 +1,14 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { NodeSelection } from '@tiptap/pm/state'
 import { labelContent, type FloatingObject, type FloatingPatch, type LabelAttachment, type LineEnd, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { TextEditor } from '../editor/TextEditor'
 import { themeVariables } from '../theme/ThemePanel'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
-import { SegmentBoundaries } from './SegmentBoundaries'
+import { useSpaceGesture } from './useSpaceGesture'
+import { spaceRemovalThreshold, type SpaceMerge } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
 import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, gridSize, labelPlacement, lineLabelPositions, objectIntersects, type Box, type Geometries, type Point } from './floatingGeometry'
@@ -22,7 +22,7 @@ interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
   selectedIds: string[]; onSelect: (ids: string[]) => void
   tool: CreationTool; onToolChange: (tool: CreationTool) => void
-  onMainChange: (content: JSONContent) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
+  onMainChange: (content: JSONContent, merges?: SpaceMerge[]) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
   onActive: (editor: Editor | null) => void; onMainReady: (editor: Editor) => void
 }
@@ -49,6 +49,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const layoutDoc = useMemo(() => creating ? { ...doc, floating: [...doc.floating, creating] } : doc, [doc, creating])
   const { geometry, anchors, minHeight, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, scale, previews)
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
+  const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
 
   function select(ids: string[]) {
     onSelect(ids)
@@ -90,8 +91,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     })).find(space => contains(space, p))
   }
   function snap(p: Point, alt: boolean): Point {
-    const space = !alt && spaceAt(p)
-    return space ? { x: Math.round(p.x / gridSize) * gridSize, y: space.y + Math.round((p.y - space.y) / gridSize) * gridSize } : p
+    return alt ? p : { x: Math.round(p.x / gridSize) * gridSize, y: Math.round(p.y / gridSize) * gridSize }
   }
   function pageWidth() {
     const style = getComputedStyle(sheet.current!)
@@ -163,8 +163,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
     const target = event.target as Element
-    if (tool) {
-      if (target.closest('.object-handle, .segment-boundary, .floating-border-right, .table-column-divider')) return
+    const inside = !!target.closest('.sheet')
+    if (inside && spaces.begin(event)) return
+    if (tool && inside) {
+      if (target.closest('.object-handle, .floating-border-right, .table-column-divider')) return
       capture(event); select([]); onActive(null); setEditingLabel(null); history.boundary()
       const start = boundedPoint(snap(point(event), event.altKey), 16, .5)
       const base = { id: crypto.randomUUID(), ...anchorPoint(start, anchors), width: boundedWidth(start.x, 128, 16, .5), textFlow: 'overlap' as const }
@@ -183,16 +185,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       select(ids); onActive(null); if (ids.length) focusObject(ids.at(-1)!)
       return
     }
-    if (floating || target.closest('.segment-boundary')) return
+    if (floating) return
     const start = point(event), space = spaceAt(start)
-    if (space) {
+    const gutter = !inside && (start.x < 0 || start.x > pageWidth())
+    if (space || gutter) {
       capture(event); setEditingLabel(null)
       drag.current = { part: 'marquee', id: '', ids: [], start, objects: doc.floating, geometry, patches: {}, moved: false, additive: event.shiftKey ? selectedIds : [] }
-      if (mainEditor && !drag.current.additive.length) {
-        select([])
-        mainEditor.view.dispatch(mainEditor.state.tr.setSelection(NodeSelection.create(mainEditor.state.doc, mainEditor.view.posAtDOM(space.element, 0))))
-        mainEditor.view.focus(); onActive(mainEditor)
-      } else onActive(null)
+      if (!drag.current.additive.length) select([])
     } else select([])
   }
   function shifted(objects: FloatingObject[], boxes: Geometries, ids: string[], dx: number, dy: number): FloatingPreviews {
@@ -366,19 +365,19 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''}`}>
-    <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDown={event => {
-      if (!(event.target as Element).closest('.sheet')) select([])
-    }}>
-      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && Object.keys(previews).length > 0 ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''}`}
-        ref={sheet} data-floating-preview={active ? '' : undefined} onPointerDownCapture={blankDown}
-        onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}
+    <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
+      onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
+      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && Object.keys(previews).length > 0 ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
+        ref={sheet} data-floating-preview={active ? '' : undefined}
         style={{ ...themeVariables(doc.theme), '--margin-left': `${doc.margins.left}px`, '--margin-right': `${doc.margins.right}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
         </div>
-        {mainEditor && <SegmentBoundaries editor={mainEditor} sheet={sheet} editable={editable} scale={scale} reflow={reflow} floatingPreview={active}
-          onActive={() => { select([]); onActive(mainEditor) }} />}
+        {editable && spaces.hint && <div className={`space-hint ${spaces.hint.dragging ? 'is-dragging' : ''}`} aria-hidden="true"
+          style={{ top: spaces.hint.top + (spaces.hint.dragging ? spaces.hint.height : 0) }}>
+          {spaces.hint.dragging ? spaces.hint.height < spaceRemovalThreshold ? 'Release to remove' : `${Math.round(spaces.hint.height)}px` : !spaces.hint.existing ? '↕' : null}
+        </div>}
         {layoutDoc.floating.map(original => {
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
