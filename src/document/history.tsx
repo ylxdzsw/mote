@@ -7,8 +7,8 @@ interface Snapshot { doc: MoteDocument; selections: Record<string, SelectionJSON
 interface EditOptions { group?: string; normalize?: boolean; editorId?: string; before?: SelectionJSON }
 type Update = MoteDocument | null | ((doc: MoteDocument | null) => MoteDocument | null)
 
-export function useDocumentHistory() {
-  const [doc, render] = useState<MoteDocument | null>(null)
+export function useDocumentHistory(initial: MoteDocument) {
+  const [doc, render] = useState<MoteDocument | null>(initial)
   const [revision, setRevision] = useState(0)
   const state = useRef({ doc, past: [] as Snapshot[], future: [] as Snapshot[],
     editors: new Map<string, Editor>(), restored: {} as Snapshot['selections'],

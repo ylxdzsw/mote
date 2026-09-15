@@ -8,15 +8,17 @@ function openDatabase() {
     request.onupgradeneeded = () => request.result.createObjectStore('drafts')
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(request.error)
-  })
+  }).catch(error => { database = undefined; throw error })
 }
 
 export async function loadDraft(): Promise<MoteDocument | undefined> {
   const db = await openDatabase()
   return new Promise((resolve, reject) => {
-    const request = db.transaction('drafts').objectStore('drafts').get('current')
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    const transaction = db.transaction('drafts')
+    const request = transaction.objectStore('drafts').get('current')
+    transaction.oncomplete = () => resolve(request.result)
+    transaction.onabort = () => reject(transaction.error)
+    transaction.onerror = () => reject(transaction.error)
   })
 }
 

@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useEditorState } from '@tiptap/react'
-import { getSchema, type Editor, type JSONContent } from '@tiptap/core'
+import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions } from '../canvas/DocumentCanvas'
-import { themeBlockClasses, createDocument, defaultTheme, inlineClasses, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch } from '../document/model'
-import { normalizeTableContent } from '../document/table'
+import { createDocument, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
-import { extensions } from '../editor/extensions'
 import { readImage } from '../document/image'
-import { loadDraft, saveDraft } from '../document/storage'
+import { saveDraft } from '../document/storage'
+import { useLocalDraft } from '../document/useLocalDraft'
 import { classLabel, type ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
@@ -31,16 +30,41 @@ function useMedia(query: string) {
 }
 
 export function App() {
-  const history = useDocumentHistory()
+  const mobile = useMedia('(max-width: 767px)')
+  const session = useLocalDraft(!mobile)
+  useEffect(() => {
+    function saveShortcut(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
+        event.preventDefault(); event.stopPropagation()
+      }
+    }
+    window.addEventListener('keydown', saveShortcut, true)
+    return () => window.removeEventListener('keydown', saveShortcut, true)
+  }, [])
+  if (session.state !== 'ready') return <main className="loading"><h1>Mote</h1>
+    <p>{session.state === 'loading' ? 'Opening your local draft…'
+      : session.state === 'storage-error' ? 'Local storage could not be opened. Check that browser storage is available.'
+      : session.state === 'lock-error' ? 'Editing access could not be acquired.'
+      : 'This local draft could not be opened. The saved draft has not been changed.'}</p>
+    {session.access === 'blocked' && <p>This draft is being edited in another tab.</p>}
+    {session.state !== 'loading' && <button onClick={() => session.retry()}>Retry</button>}
+    {session.state === 'document-error' && session.access !== 'writer' && !mobile && <button onClick={session.tryEditing}>Try editing</button>}
+  </main>
+  return <DraftApp initial={session.doc} writable={session.access === 'writer'} blocked={session.access === 'blocked'} onTryEditing={session.tryEditing} />
+}
+
+function DraftApp({ initial, writable, blocked, onTryEditing }: {
+  initial: MoteDocument; writable: boolean; blocked: boolean; onTryEditing: () => void
+}) {
+  const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
-  const [loadError, setLoadError] = useState(false)
   const [status, setStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')
   const mobile = useMedia('(max-width: 767px)')
   const smallScreen = useMedia('(max-width: 1050px)')
-  const editable = !mobile && mode === 'edit'
+  const editable = writable && !mobile && mode === 'edit'
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings()
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false)
   const [documentSettingsOpen, setDocumentSettingsOpen] = useState(false)
@@ -67,64 +91,24 @@ export function App() {
   }, [doc?.floating, selectedIds, mainEditor])
 
   useEffect(() => {
-    let cancelled = false
-    loadDraft().then(draft => {
-      if (!cancelled) {
-        if (draft) {
-          if (draft.version !== 'V0') throw new Error('Unsupported document version')
-          draft.margins ??= { left: 55, right: 55 }
-          if (!draft.theme.defaults) {
-            for (const name of themeBlockClasses) draft.theme.blocks[name] = { ...defaultTheme.blocks[name], ...draft.theme.blocks[name] }
-            draft.theme.defaults = { ...defaultTheme.defaults }
-          }
-          for (const name of themeBlockClasses) draft.theme.blocks[name] ??= { ...defaultTheme.blocks[name] }
-          const inline = draft.theme.inline as typeof draft.theme.inline & { emphasis?: typeof draft.theme.inline.primary }
-          if (inline.emphasis) { inline.primary ??= inline.emphasis; delete inline.emphasis }
-          for (const name of inlineClasses) inline[name] ??= { ...defaultTheme.inline[name] }
-          function renameEmphasis(node: JSONContent) {
-            for (const mark of node.marks ?? []) if (mark.type === 'semanticText' && mark.attrs?.semantic === 'emphasis') mark.attrs.semantic = 'primary'
-            node.content?.forEach(renameEmphasis)
-          }
-          renameEmphasis(draft.content)
-          for (const object of draft.floating) if ('content' in object) renameEmphasis(object.content)
-          for (const object of draft.floating) if (object.kind === 'table') object.content = normalizeTableContent(object.content)
-          const content = getSchema(extensions(true)).nodeFromJSON(draft.content)
-          content.check()
-          draft.content = content.toJSON()
-          for (const object of draft.floating) if ('content' in object) {
-            getSchema(extensions(false, object.kind === 'table', object.kind === 'label')).nodeFromJSON(object.content).check()
-          }
-        }
-        setDoc(draft ?? createDocument())
-      }
-    }).catch(() => {
-      if (cancelled) return
-      if (window.confirm('This local draft could not be opened. Replace it with the example?')) setDoc(createDocument())
-      else setLoadError(true)
-    })
-    return () => { cancelled = true }
-  }, [])
-
-  useEffect(() => {
-    if (!doc) return
+    if (!writable || !doc) return
     setStatus('saving')
     saveDraft(doc).then(() => {
       if (latest.current === doc) setStatus('saved')
     }).catch(() => { if (latest.current === doc) setStatus('error') })
-  }, [doc])
+  }, [doc, writable])
 
   useEffect(() => {
-    if (status === 'saved') return
+    if (!writable || status === 'saved') return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [status])
+  }, [status, writable])
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return
       const key = event.key.toLowerCase()
-      if (key === 's') { event.preventDefault(); event.stopPropagation(); return }
       if (!editable || event.isComposing) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
@@ -241,7 +225,6 @@ export function App() {
     setViewSettingsOpen(false)
   }
 
-  if (loadError) return <main className="loading"><h1>Mote</h1><p>Couldn’t open the local draft. Check that browser storage is available.</p><button onClick={() => location.reload()}>Try again</button></main>
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
   const itemType = selectedIds.length > 1 ? `${selectedIds.length} floating objects` : selectedObject
@@ -256,20 +239,25 @@ export function App() {
         if (!window.confirm('Replace your local draft with the example? This cannot be undone.')) return
         setMainEditor(null); setActiveEditor(null); setSelectedIds([]); setTool(null); setImageError(''); setDoc(createDocument())
       }}>Reset to example</button>}
-      <div className={`save-status ${status}`} role="status"><span className="status-dot" />
-        <span className="save-message">{status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}</span>
-        {status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
+      <div className={`save-status ${writable ? status : 'reading'}`} role="status"><span className="status-dot" />
+        <span className="save-message">{!writable ? 'Reading local draft' : status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}</span>
+        {writable && status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
       </div>
       <div className="header-zoom" ref={setZoomHost} />
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
         aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
         aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen) }}>View</button>
-      {!mobile ? <div className="mode-switch" aria-label="Document mode">
+      {!mobile && writable ? <div className="mode-switch" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
       </div> : <span className="mobile-mode">Reading</span>}
     </header>
+
+    {!writable && (blocked || !mobile) && <div className="draft-notice" role="status">
+      <span>{blocked ? 'This draft is being edited in another tab.' : 'This tab is reading the local draft.'}</span>
+      {!mobile && <button onClick={onTryEditing}>Try editing</button>}
+    </div>}
 
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor && activeEditor === mainEditor} imageLoading={imageLoading}
       theme={doc.theme} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}

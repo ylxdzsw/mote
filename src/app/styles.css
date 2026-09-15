@@ -147,6 +147,8 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .loading h1 { font-family: Georgia, serif; }
 .loading p { color: var(--muted); font-size: 14px; line-height: 1.7; }
 .loading button { border-color: var(--border); }
+.draft-notice { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 6px 14px; background: #e9efdf; color: #35543e; font-size: 12px; }
+.draft-notice button { border-color: #bbc7b4; font-size: 11px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 @media (max-width: 1050px) {
