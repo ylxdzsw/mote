@@ -5,7 +5,13 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 export const spaceRemovalThreshold = 12
 export interface SpaceMerge { id: string; anchorId: string; offset: number }
 export interface SpacePreview { from: number; height: number; existing: boolean }
-interface SpaceLayout { decorations: DecorationSet; merges: SpaceMerge[] }
+export interface SpaceShift {
+  anchors: { id: string | null; top: number }[]
+  from: number
+  delta: number
+  removed?: { id: string; anchorId: string | null; offset: number }
+}
+interface SpaceLayout { decorations: DecorationSet; merges: SpaceMerge[]; shift?: SpaceShift | null }
 export const spaceLayoutKey = new PluginKey<SpaceLayout>('spaceLayout')
 
 export const Spaces = Extension.create({
@@ -15,7 +21,7 @@ export const Spaces = Extension.create({
     state: {
       init: () => ({ decorations: DecorationSet.empty, merges: [] }),
       apply(transaction, previous) {
-        const meta = transaction.getMeta(spaceLayoutKey) as { preview?: SpacePreview | null; merges?: SpaceMerge[] } | undefined
+        const meta = transaction.getMeta(spaceLayoutKey) as { preview?: SpacePreview | null; merges?: SpaceMerge[]; shift?: SpaceShift | null } | undefined
         let decorations = previous.decorations.map(transaction.mapping, transaction.doc)
         if (meta && 'preview' in meta) {
           const preview = meta.preview
@@ -30,7 +36,8 @@ export const Spaces = Extension.create({
             }, { side: -1 })])
         }
         const merges = transaction.docChanged && !transaction.getMeta('appendedTransaction') ? [] : previous.merges
-        return { decorations, merges: [...merges, ...(meta?.merges ?? [])] }
+        const shift = meta && 'shift' in meta ? meta.shift : transaction.docChanged ? null : previous.shift
+        return { decorations, merges: [...merges, ...(meta?.merges ?? [])], shift }
       },
     },
     appendTransaction(transactions, _old, state) {

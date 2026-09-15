@@ -6,7 +6,7 @@ import { ReplaceStep } from '@tiptap/pm/transform'
 import { extensions } from './extensions'
 import './label.css'
 import { useHistory } from '../document/history'
-import { spaceLayoutKey, type SpaceMerge } from './spaces'
+import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
 
 interface Props {
   content: JSONContent
@@ -17,7 +17,7 @@ interface Props {
   onFinish?: () => void
   label: string
   historyId: string
-  onChange: (content: JSONContent, merges?: SpaceMerge[]) => void
+  onChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void
   onActive: (editor: Editor) => void
   onReady?: (editor: Editor) => void
 }
@@ -61,7 +61,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         && (!transaction.steps[0].slice.content.firstChild || transaction.steps[0].slice.content.firstChild.isText)
       history.edit({ editorId: historyId, before: before.current,
         group: typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
-      () => onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges))
+      () => onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift')))
     },
   })
 

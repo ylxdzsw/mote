@@ -8,7 +8,7 @@ import { themeVariables } from '../theme/ThemePanel'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
-import { spaceRemovalThreshold, type SpaceMerge } from '../editor/spaces'
+import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
 import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, gridSize, labelPlacement, lineLabelPositions, objectIntersects, type Box, type Geometries, type Point } from './floatingGeometry'
@@ -22,7 +22,7 @@ interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
   selectedIds: string[]; onSelect: (ids: string[]) => void
   tool: CreationTool; onToolChange: (tool: CreationTool) => void
-  onMainChange: (content: JSONContent, merges?: SpaceMerge[]) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
+  onMainChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
   onActive: (editor: Editor | null) => void; onMainReady: (editor: Editor) => void
   widgetRuns?: Record<string, number>; staticWidgets?: boolean

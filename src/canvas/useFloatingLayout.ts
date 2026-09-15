@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import type { FloatingObject, FloatingPatch, MoteDocument } from '../document/model'
+import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { spaceLayoutKey } from '../editor/spaces'
 import { resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 
 export interface Placement { x: number; top: number }
@@ -45,6 +46,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; measure() }) }
     const observer = new ResizeObserver(schedule)
     function measure(override = preview) {
+      const floating = shiftSpaceObjects(doc.floating, spaceLayoutKey.getState(editor!.state)?.shift)
       const rect = surface.getBoundingClientRect()
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
       // A spacer separates margins that would otherwise collapse to their maximum.
@@ -76,13 +78,13 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         })
       }
       // A dragged object has a fixed document-space position until release.
-      for (const note of doc.floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
+      for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
       editor!.state.doc.forEach((node, from) => {
         const element = editor!.view.nodeDOM(from) as HTMLElement
         const top = localTop(element)
         anchors.push({ id: node.attrs.id, top })
         elements.add(element)
-        for (const note of doc.floating) if (note.anchorId === node.attrs.id && override[note.id]?.top === undefined) activate(note, top)
+        for (const note of floating) if (note.anchorId === node.attrs.id && override[note.id]?.top === undefined) activate(note, top)
         if (node.type.name !== 'paragraph') return
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
@@ -105,7 +107,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       })
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
-      const objects = doc.floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
+      const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
       const geometry = resolveGeometry(objects, anchors, sizes, tops)
       const next = { anchors, tops, geometry, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + surface.clientTop * 2 }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
@@ -129,7 +131,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     return { x: placement.x, y: Math.max(0, placement.top - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
   }
 
-  const objects = doc.floating.map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
+  const objects = shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null)
+    .map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
   const tops = Object.fromEntries(objects.map(note => [note.id, preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
   const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops)
   return { ...layout, tops, geometry, reflow, attach }

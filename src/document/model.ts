@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import type { SpaceMerge } from '../editor/spaces'
+import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math'] as const
@@ -267,8 +267,21 @@ export function createDocument(): MoteDocument {
   }
 }
 
+export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift | null): FloatingObject[] {
+  if (!shift) return objects
+  // Later anchors already move with the text flow; only earlier anchors need offsets.
+  function move<T extends { anchorId: string | null; y: number }>(point: T): T {
+    const anchor = shift!.anchors.find(anchor => anchor.id === point.anchorId)
+    const y = anchor && anchor.top + point.y >= shift!.from ? Math.max(0, point.y + shift!.delta) : point.y
+    const removed = shift!.removed
+    if (removed && point.anchorId === removed.id) return { ...point, anchorId: removed.anchorId, y: y + removed.offset }
+    return y === point.y ? point : { ...point, y }
+  }
+  return objects.map(note => note.kind === 'line' ? { ...move(note), start: move(note.start), end: move(note.end) } : move(note))
+}
+
 // Keep notes when their anchor is removed: prefer the nearest surviving predecessor.
-export function replaceMainContent(doc: MoteDocument, content: JSONContent, merges: SpaceMerge[] = []): MoteDocument {
+export function replaceMainContent(doc: MoteDocument, content: JSONContent, merges: SpaceMerge[] = [], shift?: SpaceShift): MoteDocument {
   const oldIds = doc.content.content!.map(node => node.attrs!.id as string)
   const newIds = content.content!.map(node => node.attrs!.id as string)
   function survivingAnchor(anchorId: string | null) {
@@ -279,7 +292,7 @@ export function replaceMainContent(doc: MoteDocument, content: JSONContent, merg
     const merge = point.anchorId === null ? undefined : merges.find(merge => merge.id === point.anchorId)
     return { anchorId: merge?.anchorId ?? survivingAnchor(point.anchorId), y: Math.max(0, point.y + (merge?.offset ?? 0)) }
   }
-  const floating = doc.floating.map(note => {
+  const floating = shiftSpaceObjects(doc.floating, shift).map(note => {
     const { anchorId, y } = remap(note)
     if (note.kind === 'line') return { ...note, anchorId, y,
       start: { ...note.start, ...remap(note.start) }, end: { ...note.end, ...remap(note.end) } }

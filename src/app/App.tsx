@@ -328,7 +328,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         widgetRuns={widgetRuns} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
-        onMainChange={(content, merges) => setDoc(current => current && replaceMainContent(current, content, merges))}
+        onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} />
       {editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />

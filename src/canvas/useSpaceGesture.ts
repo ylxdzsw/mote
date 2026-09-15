@@ -2,10 +2,10 @@ import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEve
 import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import { useHistory } from '../document/history'
-import { spaceLayoutKey, spaceRemovalThreshold, type SpacePreview } from '../editor/spaces'
+import { spaceLayoutKey, spaceRemovalThreshold, type SpacePreview, type SpaceShift } from '../editor/spaces'
 
 interface Target extends SpacePreview { top: number }
-interface Drag { target: Target; y: number; height: number; moved: boolean; pointerId: number }
+interface Drag { target: Target; y: number; height: number; moved: boolean; pointerId: number; shift?: SpaceShift }
 
 export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, editable: boolean, scale: number, reflow: () => unknown, onActive: () => void) {
   const history = useHistory()
@@ -18,8 +18,8 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
     const surface = sheet.current!
     let pointer: { x: number; y: number } | null = null
     let alt = false
-    function preview(value: SpacePreview | null) {
-      editor!.view.dispatch(editor!.state.tr.setMeta(spaceLayoutKey, { preview: value }))
+    function preview(value: SpacePreview | null, shift: SpaceShift | null = null) {
+      editor!.view.dispatch(editor!.state.tr.setMeta(spaceLayoutKey, { preview: value, shift }))
       reflow()
     }
     function target(x: number, y: number): Target | null {
@@ -74,18 +74,26 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       if (!current.moved && Math.abs(event.clientY - current.y) < 3) return
       current.moved = true
       current.height = Math.max(0, current.target.height + (event.clientY - current.y) / scale)
-      preview({ ...current.target, height: current.height })
+      preview({ ...current.target, height: current.height }, current.shift ? { ...current.shift, delta: current.height - current.target.height } : null)
       setHint({ top: current.target.top, height: current.height, existing: current.target.existing, dragging: true })
     }
     function finish(event: PointerEvent) {
       const current = drag.current
       if (!current || event.pointerId !== current.pointerId) return
       drag.current = null
-      const transaction = editor!.state.tr.setMeta(spaceLayoutKey, { preview: null }).setMeta('historyBoundary', true)
+      const transaction = editor!.state.tr.setMeta(spaceLayoutKey, { preview: null, shift: null }).setMeta('historyBoundary', true)
       if (current.moved) {
         const height = Math.round(current.height * 10) / 10
         const { from, existing } = current.target
         if (existing) {
+          if (current.shift) {
+            const shift = { ...current.shift, delta: (height < spaceRemovalThreshold ? 0 : height) - current.target.height }
+            if (height < spaceRemovalThreshold) {
+              const anchor = shift.anchors.at(-1)!, previous = shift.anchors.at(-2)!
+              shift.removed = { id: anchor.id!, anchorId: previous.id, offset: anchor.top - previous.top }
+            }
+            transaction.setMeta('spaceShift', shift)
+          }
           if (height < spaceRemovalThreshold) transaction.delete(from, from + 1)
           else if (height !== current.target.height) transaction.setNodeAttribute(from, 'height', height)
         } else if (height >= spaceRemovalThreshold) transaction.insert(from, editor!.schema.nodes.spacer.create({ id: crypto.randomUUID(), height }))
@@ -134,7 +142,18 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
     const target = findTarget.current(event.clientX, event.clientY)
     if (!target) return false
     event.preventDefault(); event.stopPropagation()
-    drag.current = { target, y: event.clientY, height: target.height, moved: false, pointerId: event.pointerId }
+    let shift: SpaceShift | undefined
+    if (target.existing) {
+      const surface = sheet.current!, rect = surface.getBoundingClientRect()
+      const anchors: SpaceShift['anchors'] = [{ id: null, top: 0 }]
+      editor.state.doc.forEach((node, from) => {
+        if (from > target.from) return
+        const element = editor.view.nodeDOM(from) as HTMLElement
+        anchors.push({ id: node.attrs.id, top: (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop })
+      })
+      shift = { anchors, from: Math.max(target.top, Math.min(target.top + target.height, (event.clientY - rect.top) / scale - surface.clientTop)), delta: 0 }
+    }
+    drag.current = { target, y: event.clientY, height: target.height, moved: false, pointerId: event.pointerId, shift }
     sheet.current!.setPointerCapture(event.pointerId)
     setHint({ top: target.top, height: target.height, existing: target.existing, dragging: true })
     history.boundary(); onActive()
