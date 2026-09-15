@@ -22,6 +22,7 @@ npm run preview
 ## First working slice
 
 - One V0 document, initially an example with three text-and-space sections, text notes, an image, a table, connected shapes, and attached labels. The small **Reset to example** button in the editing top bar loads the current demo after confirmation.
+- **File** exports PNG, standalone offline HTML, or a compressed **.mote** document. Exports use the current in-memory document, even when saving locally fails. Desktop writers can import `.mote` files after confirming replacement; readers and mobile can export without writing the draft. See [Document files](#document-files).
 - Selectable semantic paragraph classes (`title`, `heading`, `body`, `caption`, `code`, `list`), an automatic table-only `table` class, and phrase classes (`primary`, `secondary`, `bold`, `term`). Primary and Secondary use distinct green and blue emphasis colors; Bold only overrides weight by default. Ctrl/⌘B toggles Bold in main text, floating text, and tables, but not Code. Bold HTML paste maps to this same semantic class. No direct selection styling.
 - The editing toolbar has three persistent menus: current paragraph class, current inline class, and **+** for all insertable elements. Wider screens add Heading/List/Code, Bold/Primary/Secondary/Term, and Text box/Image/Rectangle/Line shortcuts. Paragraph shortcuts toggle back to Body; inline shortcuts toggle back to Plain. A mixed selection receives the chosen class throughout; menu choices always apply explicitly. Menus show icons or theme samples, support arrow keys/Home/End/type-ahead, and close with Escape or an outside click. List indentation commands are in the paragraph menu as well as on Tab/Shift+Tab. Shortcuts disappear in fixed width tiers, with Bold retained longest; 768–849px shows just the three menus and Undo/Redo. Table and Label have fixed paragraph indicators and disabled paragraph shortcuts; Code disables inline controls. Armed drawing tools highlight both **+** and their shortcut.
 - A **Document** button opens a live right-side panel with Layout and Theme tabs, replacing the selection inspector while open. The inspector heading names the selected item type (Main text or the selected floating-object kind), rather than repeating it in the toolbar. Its bottom **Edit style** section has separate paragraph and inline style buttons labeled for their target class (for example, **Heading style…** or **Bold style…**); they open the current paragraph class (Table in tables) or inline class (Primary for plain text) without changing the selection. There is no style-edit button in the toolbar. Selecting text does not switch or close the theme panel. **View** keeps browser-local preferences separate.
@@ -62,9 +63,23 @@ Desktop tabs request an exclusive `mote-local-draft` Web Lock before loading for
 
 Storage-access failures show Retry, never a reset prompt. Failed database opens are retried rather than cached permanently. Save failures retain the in-memory document and offer Retry for its latest state; “Saved in this browser” appears only after the write transaction completes. Pending or failed saves retain the unload warning.
 
-IndexedDB (`mote-local` → `drafts` → `current`) is origin-specific local storage, not a backup. Another browser, port, hostname, or device has a different draft. Clearing site data removes it, and browsers may evict it. There is no cloud sync, multi-tab conflict resolution, import/export, or document library.
+IndexedDB (`mote-local` → `drafts` → `current`) is origin-specific local storage, not a backup. Another browser, port, hostname, or device has a different draft. Clearing site data removes it, and browsers may evict it. Export `.mote` files to keep editable copies outside the browser. There is no cloud sync, multi-tab conflict resolution, or document library.
 
 The floating layer deliberately permits overlap. Pointer and keyboard movement, duplication, and resizing stop at the document's horizontal edges; group movement preserves relative positions and accounts for attached labels. Changing document width does not rewrite saved offsets, and shrinking the page or growing unwrapped label text can still leave existing content outside its bounds. This demo does not yet have collision avoidance or a full spatial layout inspector.
+
+## Document files
+
+**File** opens a modal with three exports and, for desktop tabs with editing ownership, **Import .mote…**. All processing is local. Export takes a snapshot of the latest in-memory content, not the last IndexedDB save. It does not alter selection, history, mode, or zoom. Ctrl/⌘S retains its existing no-op behavior.
+
+The **Filename** field supplies the export name, with the selected extension added automatically (an existing PNG/HTML/Mote extension is replaced, not duplicated). Where `showSaveFilePicker()` is available, export opens the browser's native Save As dialog with that suggested name and format filter. The picker is invoked directly from the click before export preparation; canceling does not generate or download a file. Bytes are written only after generation succeeds, and success is reported after the writable stream closes. Elsewhere, Mote uses an ordinary download with the chosen filename; browser preferences determine whether it prompts for a location. The filename is session-local UI state, not part of the document.
+
+- **PNG:** one full-length image at one bitmap pixel per document CSS pixel, independent of display density, scroll position, and view zoom. It captures the shared reader at native size after images/fonts/layout settle, including the theme background, spaces, tables, labels, shapes, lines, and floating text. The page's horizontal edges crop overflowing content; the width never grows to accommodate objects. Fractional pixel extents round upward. No app chrome, page shadow, selection controls, or added bottom padding. Animated images become a still frame. The initial implementation caps height at 32,767px and area at 32 million pixels; smaller browser limits can also prevent export. It checks rasterization support and reports failures rather than silently shrinking/truncating the document. HTML and `.mote` remain alternatives. Scoped raster checks use Chromium; other engines' HTML-in-SVG raster support varies.
+- **HTML:** a single file that opens directly from disk, offline, with inline CSS/JavaScript and embedded document/images. It mounts the same `DocumentCanvas` through `ReadDocument`, sharing text schemas, theme styles, anchor/repulsion measurement, floating-object layout, fit/zoom, minimap, and heading navigation. The shell includes only reader controls and in-memory View preferences. It does not access IndexedDB, localStorage, Web Locks, or a server. The page and minimap crop horizontal overflow just like app reading mode; zoom still permits horizontal navigation within the page. Text stays selectable and searchable. JavaScript is required; system fonts remain system fonts, so typography can vary across devices and the shared layout recalculates accordingly. HTML is a published copy, not an import format.
+- **Mote document (`.mote`):** binary gzip of UTF-8 JSON containing the existing `MoteDocument`, including `version: "V0"`, IDs, theme, geometry, rich text, and embedded assets. There is no archive manifest, custom binary header, encryption, or base64 wrapper around the file. Session history, selection, zoom, and browser preferences are excluded. Both compressed and decompressed data are capped at 128 MiB. Only the current V0 schema is supported; V0 does not promise compatibility with older builds. Ordinary gzip tools can inspect the JSON.
+
+Import decompresses and checks the file before requesting replacement. External file checks cover its envelope, finite geometry, current field shapes, and safe embedded image/style values; rich-text content uses the same schema initialization as local drafts. No migration or repair layer is introduced. Corrupt gzip/UTF-8/JSON, unsupported versions, unsafe sources, schema failures, oversized files, and canceled replacement leave the existing draft untouched, without a reset-to-example prompt. Confirmed import remounts the editing session and clears undo history even if the document ID is unchanged, then uses ordinary local autosave and its visible retry behavior.
+
+PDF export is deferred. PNG and HTML cannot be imported back.
 
 ## Structure
 
@@ -74,7 +89,10 @@ src/document/   V0 data model, example, IndexedDB
 src/editor/     constrained Tiptap schema and editor component
 src/canvas/     anchor measurement, floating text interaction, zoom, minimap
 src/theme/      shared semantic theme variables and controls
+src/reader/     offline reader entry and single-file HTML export
 ```
+
+The Vite configuration builds the offline reader as a production IIFE and stylesheet behind `virtual:mote-reader-bundle`. The HTML exporter embeds those build outputs; it has no handwritten alternate document renderer. Export codecs and the reader bundle load lazily from the main application. No export dependencies were added.
 
 The minimap shares the rendered page through an inert, noneditable DOM snapshot, with editing controls and accessibility duplicates removed. Both sizing modes share this renderer and navigation geometry. Proportional mode keeps the page's aspect ratio and scrolls the miniature for long notes; fit mode compresses only the vertical axis as needed. Main-document zoom changes the viewport indicator, not miniature content scale. Scroll-only updates translate the existing snapshot and indicator; layout/content changes refresh the snapshot once per animation frame.
 
@@ -89,6 +107,10 @@ Vite development and preview responses also send `Cache-Control: no-store`. `pub
 Review the early-development decisions in `.mu/AGENTS.md` before a release.
 
 ## Verification
+
+### Current document-file checks
+
+Scoped Chromium checks cover gzip round-trips with empty image descriptions and preserved IDs, malformed/unsupported/oversized-file rejection, canceled replacement, fresh history on same-ID imports, and export of unsaved content during quota failure. Reader-tab exports do not write and cannot import. PNG checks cover byte-identical output at 100%/150% zoom, fixed-width overflow cropping, high-density displays, theme/margin changes, text repulsion, all floating kinds, cleanup, and explicit long-document limits. Offline `file://` checks compare native layout geometry against app reading mode and exercise heading navigation, zoom/horizontal scrolling, system-font layout, safe embedded text, and 390/320px mobile layouts while storage access is trapped and network access is disabled. No regression framework was added.
 
 ### Current local-draft checks
 

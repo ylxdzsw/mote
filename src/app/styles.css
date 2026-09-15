@@ -69,6 +69,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .zoom-controls button { padding: 4px 8px; }
 .zoom-controls select { width: 66px; padding: 4px 2px; border-color: transparent; background: transparent; cursor: pointer; font-variant-numeric: tabular-nums; }
 .sheet { position: relative; margin: 0 auto; background: var(--page-background); border: 1px solid #dedfd5; box-shadow: 0 3px 12px #3c472c06; }
+.sheet.is-reading { overflow-x: clip; }
 .main-text { padding: 52px var(--margin-right) 0 var(--margin-left); }
 .inspector { background: #f8f8f3; border-left: 1px solid var(--border); min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 26px 20px; }
 .inspector-heading { display: flex; align-items: center; justify-content: space-between; color: #8a9185; font-size: 9px; letter-spacing: 1.5px; font-weight: 600; margin-bottom: 24px; }

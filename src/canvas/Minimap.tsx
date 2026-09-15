@@ -64,7 +64,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         const rect = source.getBoundingClientRect()
         const zoom = rect.width / source.offsetWidth
         const pageTop = (rect.top - viewport.getBoundingClientRect().top - viewport.clientTop + viewport.scrollTop) / zoom
-        const width = Math.max(source.offsetWidth, source.scrollWidth)
+        const width = source.classList.contains('is-reading') ? source.offsetWidth : Math.max(source.offsetWidth, source.scrollWidth)
         const x = (rail.clientWidth - 12) / width
         const height = viewport.scrollHeight / zoom
         const y = sizing === 'fit' ? Math.min(x, rail.clientHeight / height) : x

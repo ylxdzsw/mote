@@ -1,0 +1,21 @@
+.document-files { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: #f8f8f3; color: inherit; box-shadow: 0 16px 80px #25332633; }
+.document-files::backdrop { background: #26312855; }
+.files-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+.files-heading h1 { margin: 0; font-size: 18px; }
+.files-heading button { font-size: 22px; padding: 0 7px; }
+.document-files h2 { margin: 0 0 8px; font-size: 13px; }
+.document-files p { font-size: 12px; line-height: 1.65; color: #6b7567; margin: 8px 0 16px; }
+.export-filename { display: grid; gap: 7px; font-size: 12px; }
+.export-filename input { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--border); border-radius: 5px; background: #fffefa; color: inherit; }
+.export-filename input[aria-invalid=true] { border-color: #b87160; }
+.export-formats { display: grid; gap: 8px; }
+.export-formats button { display: grid; gap: 6px; text-align: left; border-color: var(--border); padding: 13px; }
+.export-formats strong { font-size: 13px; font-weight: 600; }
+.export-formats small { font-weight: 400; color: var(--muted); }
+.export-formats span { font-size: 11px; color: #6b7567; line-height: 1.5; }
+.files-import { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 20px; }
+.files-import button { border-color: var(--border); font-size: 12px; }
+.document-files .files-status { margin: 16px 0 0; }
+.document-files .error { color: #9f4533; }
+@media (max-width: 430px) { .app-header .brand { font-size: 0; gap: 0; } }
+@media (min-width: 1051px) and (max-width: 1450px) { .app-header .document-label { display: none; } }

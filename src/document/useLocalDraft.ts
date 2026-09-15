@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { getSchema } from '@tiptap/core'
-import { extensions } from '../editor/extensions'
 import { createDocument, type MoteDocument } from './model'
 import { loadDraft } from './storage'
+import { initializeDocument } from './initialize'
 
 type Access = 'writer' | 'blocked' | 'reader'
 type Session = { state: 'ready'; doc: MoteDocument; access: Access }
@@ -27,15 +26,7 @@ export function useLocalDraft(startEditing: boolean) {
       }
       if (cancelled) return
       try {
-        if (draft) {
-          if (draft.version !== 'V0') throw new Error('Unsupported document version')
-          const content = getSchema(extensions(true)).nodeFromJSON(draft.content)
-          content.check()
-          draft.content = content.toJSON()
-          for (const object of draft.floating) if ('content' in object) {
-            getSchema(extensions(false, object.kind === 'table', object.kind === 'label')).nodeFromJSON(object.content).check()
-          }
-        }
+        if (draft) draft = initializeDocument(draft)
       } catch {
         if (access !== 'writer' || !window.confirm('This local draft could not be opened. Replace it with the example?')) {
           setSession({ state: 'document-error', access })

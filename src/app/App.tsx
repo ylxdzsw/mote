@@ -16,18 +16,9 @@ import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { Toolbar } from './Toolbar'
 import { FloatingInspector } from './FloatingInspector'
+import { DocumentFiles } from './DocumentFiles'
+import { useMedia } from './useMedia'
 import './floating-controls.css'
-
-function useMedia(query: string) {
-  const [matches, setMatches] = useState(() => matchMedia(query).matches)
-  useEffect(() => {
-    const media = matchMedia(query)
-    const update = () => setMatches(media.matches)
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
-  }, [query])
-  return matches
-}
 
 export function App() {
   const mobile = useMedia('(max-width: 767px)')
@@ -50,12 +41,20 @@ export function App() {
     {session.state !== 'loading' && <button onClick={() => session.retry()}>Retry</button>}
     {session.state === 'document-error' && session.access !== 'writer' && !mobile && <button onClick={session.tryEditing}>Try editing</button>}
   </main>
-  return <DraftApp initial={session.doc} writable={session.access === 'writer'} blocked={session.access === 'blocked'} onTryEditing={session.tryEditing} />
+  return <DraftSession initial={session.doc} writable={session.access === 'writer'} blocked={session.access === 'blocked'} onTryEditing={session.tryEditing} />
 }
 
-function DraftApp({ initial, writable, blocked, onTryEditing }: {
+interface DraftProps {
   initial: MoteDocument; writable: boolean; blocked: boolean; onTryEditing: () => void
-}) {
+}
+
+function DraftSession(props: DraftProps) {
+  const [replacement, setReplacement] = useState({ doc: props.initial, revision: 0 })
+  return <DraftApp {...props} key={replacement.revision} initial={replacement.doc}
+    onImport={doc => setReplacement(current => ({ doc, revision: current.revision + 1 }))} />
+}
+
+function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftProps & { onImport: (doc: MoteDocument) => void }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
   const [status, setStatus] = useState<'saving' | 'saved' | 'error'>('saving')
@@ -244,6 +243,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing }: {
         {writable && status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
       </div>
       <div className="header-zoom" ref={setZoomHost} />
+      <DocumentFiles doc={doc} onImport={writable && !mobile ? onImport : undefined} />
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
         aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}

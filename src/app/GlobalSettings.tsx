@@ -8,8 +8,9 @@ export interface ViewSettings {
 const storageKey = 'mote-view-settings'
 const defaults: ViewSettings = { minimap: 'auto', minimapSize: 'proportional' }
 
-export function useViewSettings() {
+export function useViewSettings(persist = true) {
   const [settings, setSettings] = useState<ViewSettings>(() => {
+    if (!persist) return defaults
     try {
       const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}')
       return {
@@ -22,6 +23,7 @@ export function useViewSettings() {
 
   function update(next: ViewSettings) {
     setSettings(next)
+    if (!persist) return
     try { localStorage.setItem(storageKey, JSON.stringify(next)); setSaveError(false) }
     catch { setSaveError(true) }
   }
@@ -29,10 +31,11 @@ export function useViewSettings() {
   return { settings, update, saveError }
 }
 
-export function GlobalSettings({ settings, onChange, saveError }: {
+export function GlobalSettings({ settings, onChange, saveError, persist = true }: {
   settings: ViewSettings
   onChange: (settings: ViewSettings) => void
   saveError: boolean
+  persist?: boolean
 }) {
   return <section className="panel-section">
     <h2>Global settings</h2>
@@ -54,7 +57,7 @@ export function GlobalSettings({ settings, onChange, saveError }: {
     <p className="hint">{settings.minimapSize === 'proportional'
       ? 'Keeps page proportions; the miniature scrolls with the document.'
       : 'Shows the whole document, compressing long notes vertically.'}</p>
-    <p className="hint">Automatic hides on small screens. Settings stay in this browser.</p>
+    <p className="hint">Automatic hides on small screens. {persist ? 'Settings stay in this browser.' : 'Settings apply only until this reader is closed.'}</p>
     {saveError && <p className="hint error" role="status">Couldn’t save these settings. They still apply until you reload.</p>}
   </section>
 }
