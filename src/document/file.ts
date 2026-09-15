@@ -91,7 +91,11 @@ function checkTheme(value: unknown): void {
   themeStyle(defaults, 'theme.defaults')
   if (!['sans', 'serif', 'mono'].includes(defaults.family as string)) invalid('theme.defaults.family is unsupported')
   finite(defaults.size, 'theme.defaults.size', Number.MIN_VALUE)
-  for (const name of themeBlockClasses) themeStyle(record(theme.blocks && isRecord(theme.blocks) ? theme.blocks[name] : undefined, `theme.blocks.${name}`), `theme.blocks.${name}`)
+  const blocks = isRecord(theme.blocks) ? theme.blocks : undefined
+  for (const name of themeBlockClasses) {
+    if (name === 'math' && (!blocks || !(name in blocks))) continue
+    themeStyle(record(blocks?.[name], `theme.blocks.${name}`), `theme.blocks.${name}`)
+  }
   for (const name of inlineClasses) themeStyle(record(theme.inline && isRecord(theme.inline) ? theme.inline[name] : undefined, `theme.inline.${name}`), `theme.inline.${name}`)
 }
 
@@ -194,6 +198,17 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   if (kind === 'image') {
     embeddedImageSource(object.src, `${path}.src`)
     text(object.alt, `${path}.alt`)
+    return
+  }
+  if (kind === 'katex') {
+    text(object.latex, `${path}.latex`)
+    return
+  }
+  if (kind === 'html') {
+    text(object.html, `${path}.html`)
+    embeddedImageSource(object.screenshot, `${path}.screenshot`)
+    text(object.alt, `${path}.alt`)
+    finite(object.height, `${path}.height`, Number.MIN_VALUE)
     return
   }
   if (kind === 'rectangle' || kind === 'ellipse') {

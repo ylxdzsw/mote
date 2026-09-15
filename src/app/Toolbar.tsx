@@ -7,7 +7,7 @@ import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { classLabel } from '../theme/ThemePanel'
 import './toolbar.css'
 
-type InsertKind = 'space' | 'text' | 'image' | 'table' | 'rectangle' | 'ellipse' | 'line' | 'label'
+type InsertKind = 'space' | 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
 type DrawingTool = 'rectangle' | 'ellipse' | 'line' | 'label' | null
 type IconName = BlockClass | InsertKind | 'plain' | 'bold' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
@@ -25,6 +25,8 @@ function Icon({ name }: { name: IconName }) {
     text: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M8 9V8h8v1M12 8v8M10 16h4" /></>,
     image: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 6-5 4 4 3-3 5 4" /></>,
     table: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 10h18M3 15h18M11 4v16" /></>,
+    katex: <><path d="M5 5h14M5 19h14M7 5v14M17 5v14" /><path d="m10 9 4 3-4 3" /></>,
+    html: <><path d="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /></>,
     rectangle: <rect x="3" y="5" width="18" height="14" rx="1" />,
     ellipse: <ellipse cx="12" cy="12" rx="9" ry="7" />,
     line: <path d="M4 20 20 4M12 4h8v8" />,
@@ -126,8 +128,8 @@ function selectedClasses(editor: Editor | null) {
 
 const paragraphQuick = ['heading', 'list', 'code'] as const
 const inlineQuick = ['bold', 'primary', 'secondary', 'term'] as const
-const insertKinds: InsertKind[] = ['space', 'text', 'label', 'image', 'table', 'rectangle', 'ellipse', 'line']
-const insertLabels: Record<InsertKind, string> = { space: 'Space', text: 'Text box', image: 'Image', table: 'Table', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
+const insertKinds: InsertKind[] = ['space', 'text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
+const insertLabels: Record<InsertKind, string> = { space: 'Space', text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
 
 interface Props {
   editor: Editor | null; canInsert: boolean; imageLoading: boolean; theme: Theme; tool: DrawingTool
@@ -150,8 +152,8 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onInsert
     return <span className={`inline-badge${sample ? ' sample' : ''}`} style={{ color: style.color ?? theme.defaults.color, background: style.background,
       fontWeight: style.weight, fontStyle: style.italic ? 'italic' : undefined, textDecoration: style.decoration }}>{sample ? 'Aa' : classLabel(name)}</span>
   }
-  const insertionDisabled = (kind: InsertKind) => ['space', 'text', 'image', 'table'].includes(kind) && (!canInsert || (kind === 'image' && imageLoading))
-  const insertionLabel = (kind: InsertKind) => kind === 'image' && imageLoading ? 'Opening image…' : `${['rectangle', 'ellipse', 'line'].includes(kind) ? 'Draw' : 'Insert'} ${insertLabels[kind].toLowerCase()}`
+  const insertionDisabled = (kind: InsertKind) => ['space', 'text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
+  const insertionLabel = (kind: InsertKind) => kind === 'image' && imageLoading ? 'Opening image…' : kind === 'html' && imageLoading ? 'Opening screenshot…' : `${['rectangle', 'ellipse', 'line'].includes(kind) ? 'Draw' : 'Insert'} ${insertLabels[kind].toLowerCase()}`
 
   return <div className="toolbar" role="group" aria-label="Editing tools">
     <div className="tool-group" role="group" aria-label="Paragraph">
@@ -181,7 +183,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onInsert
       <ToolMenu label={tool ? `Insert · ${classLabel(tool)} tool active` : 'Insert'} armed={!!tool} items={insertKinds.map(kind => ({
         id: kind, label: insertLabels[kind], icon: <Icon name={kind} />, action: () => onInsert(kind), disabled: insertionDisabled(kind),
         separator: ['text', 'image', 'rectangle'].includes(kind), checked: ['rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
-        hint: kind === 'image' && imageLoading ? 'Opening…' : undefined,
+        hint: ['image', 'html'].includes(kind) && imageLoading ? 'Opening…' : undefined,
       }))}><Icon name="plus" /></ToolMenu>
       {(['text', 'image', 'rectangle', 'line'] as const).map(kind => <button key={kind} className={`tool-quick tier-${kind === 'text' || kind === 'image' ? 'medium' : 'wide'}`}
         aria-label={insertionLabel(kind)} title={insertionLabel(kind)} disabled={insertionDisabled(kind)} aria-pressed={kind === 'rectangle' || kind === 'line' ? tool === kind : undefined}

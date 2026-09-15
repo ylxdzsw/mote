@@ -19,6 +19,18 @@ import { FloatingInspector } from './FloatingInspector'
 import { DocumentFiles } from './DocumentFiles'
 import { useMedia } from './useMedia'
 import './floating-controls.css'
+import './embeds.css'
+
+const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
+<style>
+  #counter { border: 1px solid #9eb392; border-radius: 6px; padding: 8px 12px; background: #e9efdf; color: #355b43; cursor: pointer; }
+</style>
+<script>
+  const button = document.querySelector('#counter');
+  const count = button.querySelector('span');
+  let value = 0;
+  button.addEventListener('click', () => { count.textContent = String(++value); });
+</script>`
 
 export function App() {
   const mobile = useMedia('(max-width: 767px)')
@@ -76,10 +88,11 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   const [zoomHost, setZoomHost] = useState<HTMLDivElement | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [tool, setTool] = useState<'rectangle' | 'ellipse' | 'line' | 'label' | null>(null)
+  const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
   const actions = useRef<CanvasActions | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
   const imageInput = useRef<HTMLInputElement>(null)
-  const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string } | null>(null)
+  const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
   const [imageError, setImageError] = useState('')
   const [imageLoading, setImageLoading] = useState(false)
 
@@ -157,17 +170,23 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     return block.attrs.id as string
   }
 
-  function addObject(kind: 'text' | 'table') {
+  function addObject(kind: 'text' | 'table' | 'katex') {
     const anchor = anchorId()
     if (!anchor) return
-    setDoc(current => current && ({
-      ...current,
-      floating: [...current.floating, {
-        id: crypto.randomUUID(), anchorId: anchor, kind,
-        x: Math.max(current.margins.left, current.width - current.margins.right - 340), y: 32, width: 340, textFlow: 'overlap',
-        content: kind === 'table' ? tableContent() : { type: 'doc', content: [paragraph('A new thought', 'heading'), paragraph('Write something here.', 'caption')] },
-      }],
-    }))
+    const id = crypto.randomUUID()
+    const object = kind === 'katex' ? {
+      id, kind, anchorId: anchor, x: 0, y: 32, width: 340, textFlow: 'overlap' as const, latex: 'E = mc^2',
+    } : {
+      id, anchorId: anchor, kind,
+      x: 0, y: 32, width: 340, textFlow: 'overlap' as const,
+      content: kind === 'table' ? tableContent() : { type: 'doc', content: [paragraph('A new thought', 'heading'), paragraph('Write something here.', 'caption')] },
+    }
+    setDoc(current => {
+      if (!current) return current
+      const width = kind === 'katex' ? Math.min(340, current.width - current.margins.left - current.margins.right) : 340
+      return { ...current, floating: [...current.floating, { ...object, width, x: Math.max(current.margins.left, current.width - current.margins.right - width) }] }
+    })
+    if (kind === 'katex') { setSelectedIds([id]); setActiveEditor(null) }
   }
 
   function updateFloating(floating: FloatingObject[]) { setDoc(current => current && ({ ...current, floating })) }
@@ -184,28 +203,50 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   function chooseImage(object?: FloatingObject) {
     const anchor = object ? object.anchorId : anchorId()
     if (!doc || (!object && anchor === undefined)) return
-    imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id }
+    imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id, kind: 'image' }
+    setImageError('')
+    imageInput.current!.click()
+  }
+
+  function chooseWidgetScreenshot(object?: FloatingObject) {
+    const anchor = object ? object.anchorId : anchorId()
+    if (!doc || (!object && anchor === undefined)) return
+    imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id, kind: 'widget' }
     setImageError('')
     imageInput.current!.click()
   }
 
   async function uploadImage(file: File) {
     const target = imageTarget.current!
+    let createdWidgetId = ''
     setImageLoading(true)
     setImageError('')
     try {
       const src = await readImage(file)
       setDoc(current => {
         if (!current || current.id !== target.documentId) return current
-        if (target.objectId) return { ...current, floating: current.floating.map(object => object.id === target.objectId ? { ...object, src } : object) }
+        if (target.objectId) return { ...current, floating: current.floating.map(object => object.id === target.objectId
+          ? target.kind === 'widget' && object.kind === 'html' ? { ...object, screenshot: src } : { ...object, src }
+          : object) }
         const anchor = target.anchorId === null || current.content.content!.some(node => node.attrs?.id === target.anchorId)
           ? target.anchorId : current.content.content![0].attrs!.id as string
+        if (target.kind === 'widget') {
+          const id = crypto.randomUUID()
+          const width = Math.min(340, current.width - current.margins.left - current.margins.right)
+          createdWidgetId = id
+          return { ...current, floating: [...current.floating, {
+            id, kind: 'html', anchorId: anchor,
+            x: Math.max(current.margins.left, current.width - current.margins.right - width), y: 32, width, height: 220, textFlow: 'overlap' as const,
+            html: DEFAULT_WIDGET_HTML, screenshot: src, alt: file.name.replace(/\.[^.]+$/, ''),
+          }] }
+        }
         return { ...current, floating: [...current.floating, {
           id: crypto.randomUUID(), kind: 'image', anchorId: anchor,
-          x: Math.max(current.margins.left, current.width - current.margins.right - 340), y: 32, width: 340, textFlow: 'overlap',
+          x: Math.max(current.margins.left, current.width - current.margins.right - 340), y: 32, width: 340, textFlow: 'overlap' as const,
           src, alt: file.name.replace(/\.[^.]+$/, ''),
         }] }
       })
+      if (createdWidgetId) { setSelectedIds([createdWidgetId]); setActiveEditor(null); setTool(null) }
     } catch (error) { setImageError((error as Error).message) }
     finally { setImageLoading(false) }
   }
@@ -224,10 +265,15 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     setViewSettingsOpen(false)
   }
 
+  function runWidget(id: string) {
+    history.boundary()
+    setWidgetRuns(current => ({ ...current, [id]: (current[id] ?? 0) + 1 }))
+  }
+
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
   const itemType = selectedIds.length > 1 ? `${selectedIds.length} floating objects` : selectedObject
-    ? selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : selectedObject.kind === 'rectangle' ? 'Rectangle' : selectedObject.kind === 'ellipse' ? 'Ellipse' : selectedObject.kind === 'line' ? 'Line' : selectedObject.kind === 'label' ? 'Label' : 'Floating text'
+    ? selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : selectedObject.kind === 'rectangle' ? 'Rectangle' : selectedObject.kind === 'ellipse' ? 'Ellipse' : selectedObject.kind === 'line' ? 'Line' : selectedObject.kind === 'label' ? 'Label' : selectedObject.kind === 'katex' ? 'KaTeX' : selectedObject.kind === 'html' ? 'HTML widget' : 'Floating text'
     : 'Main text'
 
   return <HistoryContext value={history}><div className="app">
@@ -268,6 +314,8 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
           setTool(null)
           if (kind === 'space') addSpacer()
           else if (kind === 'image') chooseImage()
+          else if (kind === 'html') chooseWidgetScreenshot()
+          else if (kind === 'katex') addObject(kind)
           else addObject(kind)
         }
       }} />}
@@ -277,7 +325,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
 
     <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
-        tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
+        widgetRuns={widgetRuns} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={(content, merges) => setDoc(current => current && replaceMainContent(current, content, merges))}
@@ -296,7 +344,8 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         {selectedObject && <FloatingInspector object={selectedObject} count={selectedIds.length} themeColor={doc.theme.defaults.color}
           targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
           onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
-          onHistoryBegin={history.begin} onHistoryEnd={history.boundary} />}
+          onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
+          maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)} />}
         {selectedIds.length === 1 && selectedObject?.kind === 'image' && <section className="panel-section">
           <h2>Selected image</h2>
           <label>Image description
@@ -321,14 +370,14 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
           <p className="hint">Alignment applies to entire selected columns. Enter / Shift+Enter adds a newline within a cell; Tab / Shift+Tab moves between cells. All cells use the Table style; inline classes remain available.</p>
           <p className="hint">Drag an internal divider to resize adjacent columns without changing table width. The outer right border resizes the whole table proportionally; the top, left, and bottom borders move it. Focus the outer border and press Delete to remove the table.</p>
         </section>}
-        <section className="panel-section">
+        {selectedObject?.kind !== 'katex' && selectedObject?.kind !== 'html' && <section className="panel-section">
           <h2>Edit style</h2>
           <div className="style-actions" onMouseDown={event => event.preventDefault()}>
             <button disabled={selectedIds.length > 1 || (selectedObject?.kind !== 'label' && !selection?.paragraph && !selection?.tableRect)} onClick={() => openThemeClass(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')}>{classLabel(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')} style…</button>
             <button disabled={!activeEditor?.isEditable || selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
               onClick={() => openThemeClass(selection?.inline || 'primary')}>{classLabel(selection?.inline || 'primary')} style…</button>
           </div>
-        </section>
+        </section>}
         </>}
       </aside>}
     </main>

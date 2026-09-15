@@ -1,5 +1,8 @@
-import type { FloatingObject, FloatingShape, FloatingLine, FloatingLabel, FloatingPatch, LabelPosition } from '../document/model'
+import { useEffect, useState } from 'react'
+import type { FloatingObject, FloatingShape, FloatingLine, FloatingLabel, FloatingKaTeX, FloatingHTMLWidget, FloatingPatch, LabelPosition } from '../document/model'
 import type { CanvasActions } from '../canvas/DocumentCanvas'
+import { WidgetEditor } from './WidgetEditor'
+import { NumberField } from '../theme/ThemePanel'
 
 interface Props {
   object: FloatingObject
@@ -11,28 +14,80 @@ interface Props {
   onBack: () => void
   onHistoryBegin: (name: string) => void
   onHistoryEnd: () => void
+  imageLoading: boolean
+  maxWidth: number
   targetKind?: FloatingObject['kind']
+  onTheme: (className: string) => void
+  onWidgetRun: (id: string) => void
+  onReplaceScreenshot: (object: FloatingHTMLWidget) => void
 }
 
-const kindName = (object: FloatingObject) => object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'label' ? 'Label' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : 'Text'
+const kindName = (object: FloatingObject) => object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'label' ? 'Label' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text'
 const colorValue = (value: string | null, fallback: string) => value ?? fallback
 
-export function FloatingInspector({ object, count, themeColor, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, targetKind }: Props) {
+export function FloatingInspector({ object, count, themeColor, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, targetKind, onTheme, onWidgetRun, onReplaceScreenshot }: Props) {
   const shape = object.kind === 'rectangle' || object.kind === 'ellipse' ? object as FloatingShape : null
   const line = object.kind === 'line' ? object as FloatingLine : null
   const label = object.kind === 'label' ? object as FloatingLabel : null
+  const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
+  const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   return <>
     <section className="panel-section floating-inspector">
       <h2>{count > 1 ? `${count} objects` : kindName(object)}</h2>
       {count > 1 ? <div className="object-actions"><button onClick={() => onAction('remove')}>Delete</button><button onClick={() => onAction('duplicate')}>Duplicate</button><button onClick={onFront}>Bring front</button><button onClick={onBack}>Send back</button></div> : <>
-        {(!object.kind || ['text', 'image', 'table'].includes(object.kind)) && <label>Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>}
+        {(!object.kind || ['text', 'image', 'table', 'katex', 'html'].includes(object.kind)) && <label>Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>}
         {object.kind === 'image' && <p className="hint">Drag the image interior to move it; drag the right edge to resize.</p>}
         {shape && <ShapeControls shape={shape} themeColor={themeColor} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
         {line && <LineControls line={line} themeColor={themeColor} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
         {label && <LabelControls label={label} targetKind={targetKind} onAction={onAction} onChange={onChange} />}
+        {katex && <KaTeXControls value={katex} onChange={onChange} onTheme={onTheme} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
+        {widget && <HTMLWidgetControls value={widget} onChange={onChange} imageLoading={imageLoading} maxWidth={maxWidth} onReplaceScreenshot={onReplaceScreenshot}
+          onRun={() => onWidgetRun(widget.id)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
         <div className="object-actions"><button onClick={() => onAction('remove')}>Delete</button><button onClick={() => onAction('duplicate')}>Duplicate</button>{object.kind !== 'label' && <button onClick={() => onAction('label')}>Add label</button>}<button onClick={onFront}>Bring front</button><button onClick={onBack}>Send back</button></div>
       </>}
     </section>
+  </>
+}
+
+function KaTeXControls({ value, onChange, onTheme, onHistoryBegin, onHistoryEnd }: { value: FloatingKaTeX; onChange: (patch: FloatingPatch) => void; onTheme: (className: string) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
+  return <>
+    <label>LaTeX
+      <textarea className="embed-source" rows={5} spellCheck={false} value={value.latex}
+        onFocus={() => onHistoryBegin(`katex-source:${value.id}`)} onBlur={onHistoryEnd}
+        onChange={event => onChange({ latex: event.target.value })} />
+    </label>
+    <p className="hint">Enter LaTeX without delimiters.</p>
+    <div className="style-actions embed-style-action"><button onClick={() => onTheme('math')}>Math style…</button></div>
+  </>
+}
+
+function HTMLWidgetControls({ value, onChange, imageLoading, maxWidth, onReplaceScreenshot, onRun, onHistoryBegin, onHistoryEnd }: {
+  value: FloatingHTMLWidget; onChange: (patch: FloatingPatch) => void; imageLoading: boolean; maxWidth: number
+  onReplaceScreenshot: (object: FloatingHTMLWidget) => void; onRun: () => void
+  onHistoryBegin: (name: string) => void; onHistoryEnd: () => void
+}) {
+  const [editorId, setEditorId] = useState<string | null>(null)
+  useEffect(() => { if (editorId !== value.id) setEditorId(null) }, [editorId, value.id])
+  const editorOpen = editorId === value.id
+
+  return <>
+    <div className="widget-preview"><img src={value.screenshot} alt={value.alt} /></div>
+    <label>Image description
+      <input type="text" value={value.alt} onFocus={() => onHistoryBegin(`html-widget-alt:${value.id}`)} onBlur={onHistoryEnd}
+        onChange={event => onChange({ alt: event.target.value })} />
+    </label>
+    <button disabled={imageLoading} onClick={() => onReplaceScreenshot(value)}>{imageLoading ? 'Opening screenshot…' : 'Replace screenshot'}</button>
+    <div className="embed-dimensions">
+      <div><div className="field-heading">Width</div><NumberField label="Widget width" value={value.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></div>
+      <div><div className="field-heading">Height</div><NumberField label="Widget height" value={value.height} min={16} max={4000} onChange={height => onChange({ height })} /></div>
+    </div>
+    <div className="object-actions widget-actions">
+      <button onClick={() => setEditorId(value.id)}>Edit code…</button>
+      <button onClick={onRun}>Run / Restart</button>
+    </div>
+    <p className="hint">CDN references are used as-is; online resources may not work offline. The screenshot is a manual preview and is not checked against the widget.</p>
+    {editorOpen && <WidgetEditor widget={value} onChange={html => onChange({ html })} onRun={onRun}
+      onClose={() => setEditorId(null)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
   </>
 }
 

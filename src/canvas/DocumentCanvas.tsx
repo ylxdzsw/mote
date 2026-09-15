@@ -25,6 +25,7 @@ interface Props {
   onMainChange: (content: JSONContent, merges?: SpaceMerge[]) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
   onActive: (editor: Editor | null) => void; onMainReady: (editor: Editor) => void
+  widgetRuns?: Record<string, number>; staticWidgets?: boolean
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -33,7 +34,7 @@ interface Drag {
 interface Guide { point: Point; active?: boolean; box?: Box }
 const rectangle = (a: Point, b: Point): Box => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) })
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -163,6 +164,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
     const target = event.target as Element
+    if (target.closest('[data-widget-control]')) return
     const inside = !!target.closest('.sheet')
     if (inside && spaces.begin(event)) return
     if (tool && inside) {
@@ -249,7 +251,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       setPreviews(d.patches); return
     } else if (d.part === 'width') {
       const edge = snap({ x: box.x + box.width + p.x - d.start.x, y: box.y }, event.altKey)
-      patch = { width: boundedWidth(box.x, edge.x - box.x, 120) }
+      patch = { width: boundedWidth(box.x, edge.x - box.x, object.kind === 'html' ? 16 : 120) }
     } else if (d.part === 'start' || d.part === 'end') patch = { [d.part]: snapEndpoint(p, event.altKey, [object.id]) }
     else if (d.part === 'bend') {
       const start = box.path![0], end = box.path!.at(-1)!
@@ -347,7 +349,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const step = event.shiftKey ? 1 : event.altKey ? 8 : gridSize
     const part = (event.target as HTMLElement).dataset.floatingControl
     const object = doc.floating.find(object => object.id === id)!
-    if (part === 'width') { onNoteChange(id, { width: boundedWidth(object.x, object.width + direction.x * step, 120) }); return }
+    if (part === 'width') { onNoteChange(id, { width: boundedWidth(object.x, object.width + direction.x * step, object.kind === 'html' ? 16 : 120) }); return }
     if ((part === 'start' || part === 'end') && object.kind === 'line') {
       const p = part === 'start' ? geometry[id].path![0] : geometry[id].path!.at(-1)!
       onNoteChange(id, { [part]: snapEndpoint({ x: p.x + direction.x * step, y: p.y + direction.y * step }, event.altKey, [id]) }); setGuides([]); return
@@ -356,8 +358,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const path = geometry[id].path!, middle = (path[0].x + path.at(-1)!.x) / 2
       onNoteChange(id, { bend: boundedPoint({ x: middle + object.bend + direction.x * step, y: 0 }, 0, object.strokeWidth / 2).x - middle }); return
     }
-    if (part && (object.kind === 'rectangle' || object.kind === 'ellipse')) {
-      onNoteChange(id, { width: boundedWidth(object.x, object.width + direction.x * step, 16, object.strokeWidth / 2), height: Math.max(16, object.height + direction.y * step) }); return
+    if (part && (object.kind === 'rectangle' || object.kind === 'ellipse' || object.kind === 'html')) {
+      onNoteChange(id, { width: boundedWidth(object.x, object.width + direction.x * step, 16, 'strokeWidth' in object ? object.strokeWidth / 2 : 0), height: Math.max(16, object.height + direction.y * step) }); return
     }
     const ids = selectedIds.includes(id) ? selectedIds : [id]
     const patches = shifted(doc.floating, geometry, ids, direction.x * step, direction.y * step)
@@ -378,11 +380,12 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           style={{ top: spaces.hint.top + (spaces.hint.dragging ? spaces.hint.height : 0) }}>
           {spaces.hint.dragging ? spaces.hint.height < spaceRemovalThreshold ? 'Release to remove' : `${Math.round(spaces.hint.height)}px` : !spaces.hint.existing ? '↕' : null}
         </div>}
-        {layoutDoc.floating.map(original => {
+        {/* Stable DOM order keeps iframe browsing contexts alive when stacking changes. */}
+        {layoutDoc.floating.toSorted((a, b) => a.id.localeCompare(b.id)).map(original => {
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} selected={selectedIds.includes(note.id) || creating?.id === note.id}
-            editingLabel={editingLabel === note.id} defaultColor={doc.theme.defaults.color}
+            editingLabel={editingLabel === note.id} defaultColor={doc.theme.defaults.color} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
             onChange={patch => onNoteChange(note.id, patch)} onLabel={() => label(note.id)} onFinishLabel={() => { setEditingLabel(null); focusObject(note.id) }} onKey={event => key(note.id, event)} />
         })}

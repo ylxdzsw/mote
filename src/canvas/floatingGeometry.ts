@@ -93,7 +93,7 @@ export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], si
   const byId = new Map(objects.map(object => [object.id, object]))
   for (const object of objects) {
     result[object.id] = { x: object.x, y: tops[object.id] ?? object.y, width: object.kind === 'label' ? sizes[object.id]?.width ?? 16 : object.width,
-      height: object.kind === 'rectangle' || object.kind === 'ellipse' ? object.height : sizes[object.id]?.height ?? 24 }
+      height: object.kind === 'rectangle' || object.kind === 'ellipse' || object.kind === 'html' ? object.height : sizes[object.id]?.height ?? 24 }
   }
   const free = (end: LineEnd): Point => ({ x: end.x, y: (anchors.find(a => a.id === end.anchorId)?.top ?? 0) + end.y })
   for (const object of objects) {

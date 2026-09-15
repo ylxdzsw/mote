@@ -3,6 +3,8 @@ import type { Editor } from '@tiptap/core'
 import type { FloatingObject, FloatingPatch } from '../document/model'
 import { TextEditor } from '../editor/TextEditor'
 import { arrowPoints, type Geometry, type Point } from './floatingGeometry'
+import { MathView } from './MathView'
+import { HTMLWidgetView } from './HTMLWidgetView'
 
 export type DragPart = 'move' | 'width' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end' | 'bend'
 interface Props {
@@ -13,13 +15,14 @@ interface Props {
   onLabel: () => void
   onFinishLabel: () => void
   onKey: (event: React.KeyboardEvent) => void
+  widgetRun: number; staticWidgets: boolean; order: number
 }
 
 function arrow(tip: Point, from: Point, width: number) {
   return arrowPoints(tip, from, width).map(p => `${p.x},${p.y}`).join(' ')
 }
 
-export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey }: Props) {
+export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const geometric = kind === 'rectangle' || kind === 'ellipse' || kind === 'line'
@@ -29,13 +32,13 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
   const path = box.path?.map(point => ({ x: point.x - box.x, y: point.y - box.y }))
   return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''} ${editingLabel ? 'is-label-editing' : ''}`}
     data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-text-flow={note.textFlow}
-    style={{ left: box.x, top: box.y, width: kind === 'label' ? 'max-content' : Math.max(1, box.width), height: geometric ? Math.max(1, box.height) : undefined }}
+    style={{ zIndex: order + 1, left: box.x, top: box.y, width: kind === 'label' ? 'max-content' : Math.max(1, box.width), height: geometric || kind === 'html' ? Math.max(1, box.height) : undefined }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null) }}
     onKeyDown={event => { if (event.target === event.currentTarget || (event.target as HTMLElement).matches('[data-floating-control]')) onKey(event) }}
     onPointerDown={event => {
       if (!editable) return
-      if (event.target === event.currentTarget || kind === 'image' || (kind === 'label' && !editingLabel)) begin('move', event)
+      if (event.target === event.currentTarget || kind === 'image' || kind === 'katex' || kind === 'html' || (kind === 'label' && !editingLabel)) begin('move', event)
     }}
     onDoubleClick={event => {
       if (!editable || (kind === 'label' && editingLabel)) return
@@ -43,6 +46,8 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
       event.preventDefault(); event.stopPropagation(); onLabel()
     }}>
     {note.kind === 'image' ? <img src={note.src} alt={note.alt} draggable={false} />
+      : note.kind === 'katex' ? <MathView latex={note.latex} />
+      : note.kind === 'html' ? <HTMLWidgetView note={note} editable={editable} selected={selected} run={widgetRun} staticOnly={staticWidgets} />
       : note.kind === 'rectangle' || note.kind === 'ellipse' ? <svg className="floating-vector" width="100%" height="100%" overflow="visible">
         {note.kind === 'rectangle' ? <rect className="vector-ink" x="0" y="0" width={box.width} height={box.height} rx={note.rounded ? Math.min(12, box.height / 4, box.width / 4) : 0}
           fill={note.fill ?? 'none'} stroke={stroke} strokeWidth={note.strokeWidth} strokeDasharray={note.dashed ? `${note.strokeWidth * 6} ${note.strokeWidth * 4}` : undefined} onPointerDown={event => begin('move', event)} />
@@ -62,9 +67,9 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onFinish={onFinishLabel} onReady={value => { editor.current = value; if (editingLabel) value.commands.focus('end') }} /> : null}
     {editable && !geometric && kind !== 'label' && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
-      aria-label={`Resize floating ${kind} width`} aria-valuemin={120} aria-valuenow={Math.round(box.width)}
+      aria-label={`Resize floating ${kind} width`} aria-valuemin={kind === 'html' ? 16 : 120} aria-valuenow={Math.round(box.width)}
       onPointerDown={event => begin('width', event)} onFocus={() => onActive(editor.current)} />}
-    {editable && selected && (note.kind === 'rectangle' || note.kind === 'ellipse') && (['nw', 'ne', 'sw', 'se'] as const).map(part => <button key={part}
+    {editable && selected && (note.kind === 'rectangle' || note.kind === 'ellipse' || note.kind === 'html') && (['nw', 'ne', 'sw', 'se'] as const).map(part => <button key={part}
       className={`object-handle handle-${part}`} data-floating-control={part} aria-label={`Resize ${kind} ${part}`} onPointerDown={event => begin(part, event)} />)}
     {editable && selected && note.kind === 'line' && path && <>
       {(['start', 'end'] as const).map((part, index) => <button key={part} className="object-handle" data-floating-control={part} aria-label={`Move line ${part}`}

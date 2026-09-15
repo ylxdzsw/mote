@@ -35,7 +35,7 @@ export async function exportPng(doc: MoteDocument): Promise<Blob> {
   const root = createRoot(host)
   let canvas: HTMLCanvasElement | undefined
   try {
-    await new Promise<void>(resolve => root.render(<ReadDocument initial={doc} onReady={resolve} />))
+    await new Promise<void>(resolve => root.render(<ReadDocument initial={doc} onReady={resolve} staticWidgets />))
     await settle(host)
     const source = host.querySelector<HTMLElement>('.stage > .sheet')!
     const width = Math.ceil(doc.width), height = Math.ceil(source.getBoundingClientRect().height)

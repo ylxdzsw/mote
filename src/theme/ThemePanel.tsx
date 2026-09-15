@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { themeBlockClasses, inlineClasses, type ThemeBlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
+import { MathView } from '../canvas/MathView'
 
 function pixels(value: ThemeLength, base: number) {
   return typeof value === 'number' ? value : parseFloat(value) * (value.endsWith('em') ? base : 1)
@@ -9,7 +10,12 @@ function pixels(value: ThemeLength, base: number) {
 export function themeVariables(theme: Theme): CSSProperties {
   const variables: Record<string, string> = { '--page-background': theme.defaults.background }
   for (const name of themeBlockClasses) {
-    const style = { ...theme.defaults, ...theme.blocks[name] }
+    const style = { ...theme.defaults, ...(theme.blocks[name] ?? {}) }
+    if (name === 'math') {
+      variables[`--${name}-size`] = `${pixels(style.size, theme.defaults.size)}px`
+      variables[`--${name}-color`] = String(style.color)
+      continue
+    }
     variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, monospace'
       : style.family === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif'
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
@@ -69,7 +75,9 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
   const history = useHistory()
   const defaults = selected === 'defaults'
   const isBlock = themeBlockClasses.includes(selected as ThemeBlockClass)
-  const styles = defaults ? theme.defaults : isBlock ? theme.blocks[selected as ThemeBlockClass] : theme.inline[selected as InlineClass]
+  const isMath = selected === 'math'
+  const isParagraphBlock = isBlock && !isMath
+  const styles = defaults ? theme.defaults : isBlock ? theme.blocks[selected as ThemeBlockClass] ?? {} : theme.inline[selected as InlineClass]
   const resolved = { ...theme.defaults, ...styles }
   const values = styles as Record<string, string | number | boolean>
 
@@ -121,7 +129,7 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
 
   return <>
     <nav className="theme-classes" aria-label="Theme classes">
-      {([['', ['defaults']], ['Paragraphs', themeBlockClasses], ['Phrases', inlineClasses]] as const).map(([label, names]) => <div key={label}>
+      {([['', ['defaults']], ['Paragraphs', themeBlockClasses.filter(name => name !== 'math')], ['Objects', ['math']], ['Phrases', inlineClasses]] as const).map(([label, names]) => <div key={label}>
         {label && <h3>{label}</h3>}
         <div className="class-buttons">{names.map(name => <button key={name} aria-pressed={selected === name}
           onClick={() => { history.boundary(); onSelect(name) }}>{classLabel(name)}</button>)}</div>
@@ -129,26 +137,28 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
     </nav>
     <section className="panel-section class-properties" key={selected}>
       <h2>{classLabel(selected)}</h2>
-      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isBlock ? 'Every paragraph with this meaning follows this style.' : 'Applied within any paragraph, including table cells.'}</p>
-      {(defaults || isBlock) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px), including spacing and line height. × line height follows this paragraph’s font size.</p>}
-      {(defaults || isBlock) && <>
+      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isMath ? 'Math follows Defaults except for size and color overrides.' : isBlock ? 'Every paragraph with this meaning follows this style.' : 'Applied within any paragraph, including table cells.'}</p>
+      {(defaults || isParagraphBlock || isMath) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px){isMath ? '.' : ', including spacing and line height. × line height follows this paragraph’s font size.'}</p>}
+      {(defaults || isParagraphBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
         {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
-      {choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
+      {isMath && length('size', 'Font size', 1, 512, .5)}
+      {!isMath && choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
       {field('color', 'Text color', <ColorField label="Text color" value={resolved.color} onChange={value => update('color', value)} />)}
       {defaults && field('background', 'Page background', <ColorField label="Page background" value={theme.defaults.background} onChange={value => update('background', value)} />)}
-      {(defaults || isBlock) ? <>
+      {(defaults || isParagraphBlock) ? <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
         {length('letterSpacing', 'Letter spacing', -64, 64, .1)}
         <div className="paired-fields">{length('spaceBefore', 'Space before', 0, 2000)}{length('spaceAfter', 'Space after', 0, 2000)}</div>
-      </> : <>
+      </> : !isMath && <>
         {field('background', 'Highlight', <ColorField label="Highlight" value={String(values.background ?? 'transparent')} optional onChange={value => update('background', value)} />)}
         {choose('italic', 'Slant', [['false', 'Normal'], ['true', 'Italic']], values.italic === undefined ? 'inherit' : String(values.italic), value => value === 'true')}
         {choose('decoration', 'Decoration', [['none', 'None'], ['underline', 'Underline'], ['line-through', 'Strikethrough']], String(values.decoration ?? 'inherit'))}
       </>}
       <div className="theme-sample text-content" style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme), background: theme.defaults.background }} aria-label="Style sample">
-        {selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "to think"\n}'}</code></pre>
+        {selected === 'math' ? <MathView latex="E=mc^2" />
+          : selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "to think"\n}'}</code></pre>
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}>A little more detail</p></>
           : <p data-semantic={isBlock ? selected : 'body'}>{defaults || isBlock ? 'A little room to think.' : <>A thought with <span data-inline-semantic={selected}>something to remember</span>.</>}</p>}
       </div>

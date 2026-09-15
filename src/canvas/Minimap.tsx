@@ -54,7 +54,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         miniature.className = 'sheet is-reading minimap-sheet'
         miniature.style.zoom = '1'
         miniature.style.height = `${source.offsetHeight}px`
-        miniature.querySelectorAll('.floating-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .attachment-guides, .marquee-selection').forEach(node => node.remove())
+        miniature.querySelectorAll('[data-widget-live], .floating-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .attachment-guides, .marquee-selection').forEach(node => node.remove())
         miniature.querySelectorAll<HTMLElement>('*').forEach(node => {
           for (const name of node.getAttributeNames()) {
             if (name === 'id' || name === 'tabindex' || name === 'contenteditable' || name === 'role' || name.startsWith('aria-')) node.removeAttribute(name)

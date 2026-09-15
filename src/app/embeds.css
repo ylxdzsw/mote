@@ -1,0 +1,20 @@
+.embed-source { display: block; width: 100%; min-height: 110px; margin-top: 7px; resize: vertical; padding: 9px 10px; border: 1px solid var(--border); border-radius: 5px; background: #fffefa; color: #303b33; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.widget-preview { margin: 0 0 14px; padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: #fffefa; }
+.widget-preview img { display: block; width: 100%; max-height: 150px; object-fit: contain; border-radius: 2px; }
+.embed-dimensions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.embed-dimensions > div { min-width: 0; }
+.widget-actions { margin-top: 16px; }
+.widget-editor { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; border: 1px solid var(--border); border-radius: 12px; background: #f8f8f3; color: inherit; box-shadow: 0 16px 80px #25332633; }
+.widget-editor::backdrop { background: #26312855; }
+.widget-editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+.widget-editor-heading h1 { margin: 0; font-size: 18px; }
+.widget-editor-heading p { margin: 7px 0 0; color: #6b7567; font-size: 12px; line-height: 1.6; }
+.widget-editor-heading button { flex: 0 0 auto; padding: 0 7px; font-size: 22px; }
+.widget-editor-source { display: grid; gap: 7px; font-size: 12px; color: #5f6a5f; }
+.widget-editor-source textarea { width: 100%; min-height: min(58dvh, 520px); resize: vertical; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: #fffefa; color: #303b33; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.widget-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.widget-editor-actions button { border-color: var(--border); }
+@media (max-width: 767px) {
+  .widget-editor { width: calc(100vw - 20px); padding: 18px; }
+  .widget-editor-source textarea { min-height: 50dvh; }
+}

@@ -4,7 +4,7 @@ import './files.css'
 
 const formats = {
   png: { description: 'PNG image', mime: 'image/png' },
-  html: { description: 'Offline HTML reader', mime: 'text/html' },
+  html: { description: 'HTML reader', mime: 'text/html' },
   mote: { description: 'Mote document', mime: 'application/gzip' },
 }
 const saveWindow = window as Window & {
@@ -89,9 +89,10 @@ export function DocumentFiles({ doc, onImport }: { doc: MoteDocument; onImport?:
       <p id="filename-hint">{invalidName ? 'Enter a filename without / \\ : * ? " < > |.' : 'The selected format’s extension is added automatically.'}</p>
       <div className="export-formats">
         <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width)}px wide · native resolution</span></button>
-        <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone offline reader · bundled document and images</span></button>
+        <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · embedded document and images</span></button>
         <button disabled={!!busy || invalidName} onClick={() => void exporting('mote')}><strong>Mote document <small>.mote</small></strong><span>Compressed editable document · can be imported back</span></button>
       </div>
+      {doc.floating.some(object => object.kind === 'html') && <p>HTML widgets stay interactive in HTML exports; their online resources still need a connection. PNG uses the screenshots you supplied.</p>}
       {onImport && <section className="files-import"><h2>Import</h2><p>Only .mote documents can be imported. Import replaces the local draft after confirmation.</p>
         <button disabled={!!busy} onClick={() => input.current!.click()}>Import .mote…</button>
         <input ref={input} type="file" accept=".mote" hidden aria-label="Mote document file" onChange={event => {

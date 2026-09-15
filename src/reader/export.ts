@@ -21,13 +21,12 @@ export async function exportHtml(doc: MoteDocument): Promise<Blob> {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <title>Mote</title>
 <style>${safeInline(bundle.css, 'style')}</style>
 </head>
 <body>
 <div id="root"></div>
-<noscript>This offline Mote reader needs JavaScript to display its document.</noscript>
+<noscript>This Mote reader needs JavaScript to display its document.</noscript>
 <script type="application/json" id="mote-document">${safeJson(doc)}</script>
 <script>${safeInline(bundle.js, 'script')}</script>
 </body>

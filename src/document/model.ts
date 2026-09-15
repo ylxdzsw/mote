@@ -2,7 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import type { SpaceMerge } from '../editor/spaces'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
-export const themeBlockClasses = [...blockClasses, 'table', 'label'] as const
+export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math'] as const
 export const inlineClasses = ['primary', 'secondary', 'bold', 'term'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
@@ -43,6 +43,7 @@ export const defaultTheme: Theme = {
     body: { size: '1em' },
     table: { size: '1em' },
     label: { size: '1em' },
+    math: {},
     caption: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
     code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
@@ -80,6 +81,19 @@ export interface FloatingImage extends FloatingGeometry {
   alt: string
 }
 
+export interface FloatingKaTeX extends FloatingGeometry {
+  kind: 'katex'
+  latex: string
+}
+
+export interface FloatingHTMLWidget extends FloatingGeometry {
+  kind: 'html'
+  html: string
+  screenshot: string
+  alt: string
+  height: number
+}
+
 export type AttachmentSide = 'auto' | 'top' | 'bottom' | 'left' | 'right'
 export interface ObjectConnection { targetId: string; side: AttachmentSide }
 export interface LineEnd { x: number; y: number; anchorId: string | null; connection?: ObjectConnection }
@@ -107,12 +121,13 @@ export interface FloatingLabel extends FloatingGeometry {
   content: JSONContent
   attachment: LabelAttachment | null
 }
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingLabel
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingLabel | FloatingKaTeX | FloatingHTMLWidget
 export type FloatingKind = NonNullable<FloatingObject['kind']>
 export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stroke> & {
   content?: JSONContent; src?: string; alt?: string; height?: number; fill?: string | null; rounded?: boolean
   start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
   attachment?: LabelAttachment | null
+  latex?: string; html?: string; screenshot?: string
 }
 
 export function labelContent(text = ''): JSONContent {
