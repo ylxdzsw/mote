@@ -10,7 +10,7 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
   const history = useHistory()
   const [linked, setLinked] = useState(doc.margins.left === doc.margins.right)
   function margin(side: 'left' | 'right', value: number) {
-    onChange({ ...doc, margins: linked ? { left: value, right: value } : { ...doc.margins, [side]: value } })
+    onChange({ ...doc, margins: { ...doc.margins, ...(linked ? { left: value, right: value } : { [side]: value }) } })
   }
   const available = doc.width - 120
   return <aside className="inspector document-settings" id="document-settings" aria-label="Document settings">
@@ -32,12 +32,20 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
           <NumberField label="Document width" value={doc.width} min={Math.max(320, doc.margins.left + doc.margins.right + 120)} max={2400}
             onChange={width => onChange({ ...doc, width })} /></div>
         <p className="hint">A continuous page, as tall as your content. Reading mode fits the page without rearranging it.</p>
-        <h2 className="subheading">Main-text margins</h2>
+        <h2 className="subheading">Margins</h2>
+        <div className="paired-fields">
+          {(['top', 'bottom'] as const).map(side => <div className="style-field" key={side}>
+            <div className="field-heading">{side === 'top' ? 'Top' : 'Bottom'}</div>
+            <NumberField label={`${side === 'top' ? 'Top' : 'Bottom'} margin`} value={doc.margins[side]}
+              min={0} max={2400} onChange={value => onChange({ ...doc, margins: { ...doc.margins, [side]: value } })} />
+          </div>)}
+        </div>
+        <p className="hint">Top spacing precedes the main text. Bottom spacing follows the main text or lowest floating object.</p>
         <label className="link-margins"><input type="checkbox" checked={linked} onChange={event => {
           history.boundary(); setLinked(event.target.checked)
           if (event.target.checked) {
             const value = Math.min(doc.margins.left, available / 2)
-            onChange({ ...doc, margins: { left: value, right: value } })
+            onChange({ ...doc, margins: { ...doc.margins, left: value, right: value } })
           }
         }} /> Link left and right</label>
         <div className="paired-fields">

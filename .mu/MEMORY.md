@@ -374,3 +374,11 @@ User found margin rulers and margin snapping too complex and requested their rem
 ## 2026-09-16 — GitHub continuous integration
 
 CI runs locked dependency installation and the existing combined TypeScript/production build on Ubuntu with Node.js 22 and 24 for pushes, pull requests, and manual dispatches. This includes the offline reader bundle without adding a regression framework. Actions are pinned to release commit SHAs, repository permissions are read-only, and superseded runs are canceled. Only npm downloads are cached; this is unrelated to the demo's no-store HTTP policy. CI deliberately has no deployment credentials or automatic deployment; the existing demo deployment remains separate. README links the live workflow status and describes its scope.
+
+## 2026-09-16 — Configurable top and bottom margins
+
+All four document margins now default to 48px. Layout exposes independent top/bottom fields (0–2400px, including zero); linking left/right never changes vertical margins. Top spacing precedes main text and therefore moves text-anchored objects through normal reflow, without rewriting floating geometry. Bottom spacing follows whichever extends farther: main text or the lowest floating object's visual bounds, including strokes/line decorations. This supersedes fixed top padding and the earlier no-bottom-margin decision. Shared canvas rendering carries these settings into reading mode, minimaps, PNG, and standalone HTML.
+
+V0 requires all four finite, nonnegative margin values; no legacy-margin migration was added. Invalid saved drafts, including earlier drafts missing top/bottom, use the existing confirmed reset-to-example flow. Native imports validate all four margins.
+
+Build/type/whitespace checks passed. Scoped production-preview checks covered defaults, independent changes, zero margins, linked side edits preserving vertical values, undo/redo, reload persistence, main-text and low-floating-object bottom extents, reading mode, PNG dimensions, native export values, standalone desktop/mobile reading, and the malformed-draft recovery prompt. No application browser errors were observed. Redeployed; live controls show 48px defaults and public HTML/all JS/CSS match the build with no-store. The existing bundle-size advisory remains; no dependencies or regression suite were added.

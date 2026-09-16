@@ -143,7 +143,7 @@ export interface MoteDocument {
   version: 'V0'
   id: string
   width: number
-  margins: { left: number; right: number }
+  margins: { top: number; right: number; bottom: number; left: number }
   theme: Theme
   content: JSONContent
   floating: FloatingObject[]
@@ -178,7 +178,7 @@ export function createDocument(): MoteDocument {
     version: 'V0',
     id: crypto.randomUUID(),
     width: 800,
-    margins: { left: 48, right: 48 },
+    margins: { top: 48, right: 48, bottom: 48, left: 48 },
     theme: structuredClone(defaultTheme),
     content: {
       type: 'doc',
