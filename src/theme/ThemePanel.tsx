@@ -7,7 +7,7 @@ function pixels(value: ThemeLength, base: number) {
   return typeof value === 'number' ? value : parseFloat(value) * (value.endsWith('em') ? base : 1)
 }
 
-export function themeVariables(theme: Theme): CSSProperties {
+export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
   const variables: Record<string, string> = { '--page-background': theme.defaults.background, '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal' }
   for (const name of themeBlockClasses) {
     const style = { ...theme.defaults, ...(theme.blocks[name] ?? {}) }
@@ -18,7 +18,7 @@ export function themeVariables(theme: Theme): CSSProperties {
     }
     variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace'
       : style.family === 'serif' ? 'Georgia, "Songti SC", SimSun, "Noto Serif CJK SC", "Noto Serif SC", serif'
-      : '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif'
+      : `${language === 'en' ? 'Inter, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", ' : ''}"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif`
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
     variables[`--${name}-lineHeight`] = typeof style.lineHeight === 'number' ? String(style.lineHeight) : `${pixels(style.lineHeight, theme.defaults.size)}px`
     for (const property of ['color', 'weight'] as const) variables[`--${name}-${property}`] = String(style[property])
@@ -142,7 +142,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       {(defaults || isParagraphBlock || isMath) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px){isMath ? '.' : ', including spacing and line height. × line height follows this paragraph’s font size.'}</p>}
       {(defaults || isParagraphBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
-        <p className="hint">{resolved.family === 'sans' ? 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>
+        <p className="hint">{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>
         {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
       {isMath && length('size', 'Font size', 1, 512, .5)}
@@ -164,7 +164,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         {choose('italic', 'Slant', [['false', 'Normal'], ['true', 'Italic']], values.italic === undefined ? 'inherit' : String(values.italic), value => value === 'true')}
         {choose('decoration', 'Decoration', [['none', 'None'], ['underline', 'Underline'], ['line-through', 'Strikethrough']], String(values.decoration ?? 'inherit'))}
       </>}
-      <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme), background: theme.defaults.background }} aria-label="Style sample">
+      <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: theme.defaults.background }} aria-label="Style sample">
         {selected === 'math' ? <MathView latex="E=mc^2" />
           : selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "思考空间"\n}'}</code></pre>
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>

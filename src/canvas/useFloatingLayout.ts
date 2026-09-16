@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from '
 import type { Editor } from '@tiptap/core'
 import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { labelOutsideGap, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 
 export interface Placement { x: number; top: number }
 export type FloatingPreview = FloatingPatch & { top?: number }
@@ -108,7 +108,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
       const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
-      const geometry = resolveGeometry(objects, anchors, sizes, tops)
+      const geometry = resolveGeometry(objects, anchors, sizes, tops, labelOutsideGap(doc.theme))
       const next = { anchors, tops, geometry, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       return next
@@ -134,6 +134,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
   const objects = shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null)
     .map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
   const tops = Object.fromEntries(objects.map(note => [note.id, preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
-  const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops)
+  const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops, labelOutsideGap(doc.theme))
   return { ...layout, tops, geometry, reflow, attach }
 }

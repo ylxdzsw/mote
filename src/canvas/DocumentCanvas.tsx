@@ -12,7 +12,7 @@ import { useSpaceGesture } from './useSpaceGesture'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
-import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, fullyOverlaps, gridSize, insertionPosition, labelPlacement, lineLabelPositions, objectIntersects, resolveGeometry, type Box, type Geometries, type Point } from './floatingGeometry'
+import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, fullyOverlaps, gridSize, insertionPosition, labelOutsideGap, labelPlacement, lineLabelPositions, objectIntersects, resolveGeometry, type Box, type Geometries, type Point } from './floatingGeometry'
 import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 
@@ -185,7 +185,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const candidates = doc.floating.filter(object => object.id !== id && object.kind !== 'label').flatMap(object => {
         const target = geometry[object.id]
         return target ? (object.kind === 'line' ? lineLabelPositions : boxLabelPositions).map(position => {
-          const placed = labelPlacement(target, size, position)
+          const placed = labelPlacement(target, size, position, labelOutsideGap(doc.theme))
           return { point: placed, attachment: { targetId: object.id, position }, distance: distance(p, placed) }
         }).filter(candidate => candidate.point.x >= 0 && candidate.point.x + size.width <= pageWidth()) : []
       }).sort((a, b) => a.distance - b.distance)
@@ -366,7 +366,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function collapsedLine(object: FloatingObject, objects: FloatingObject[]) {
     if (object.kind !== 'line') return false
     const tops = Object.fromEntries(objects.map(note => [note.id, (anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
-    const path = resolveGeometry(objects, anchors, geometry, tops)[object.id].path!
+    const path = resolveGeometry(objects, anchors, geometry, tops, labelOutsideGap(doc.theme))[object.id].path!
     return path.every(point => distance(point, path[0]) < 1)
   }
   function withoutObjects(ids: string[]) {
@@ -462,7 +462,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           event.preventDefault(); event.stopPropagation()
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
         }}
-        style={{ ...themeVariables(doc.theme), '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />

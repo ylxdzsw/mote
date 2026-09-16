@@ -13,10 +13,11 @@
 .vector-ink { pointer-events: visiblePainted; }
 .vector-hit { fill: none; stroke: transparent; stroke-width: 10px; pointer-events: stroke; cursor: move; }
 .is-editing :is(.floating-rectangle, .floating-ellipse, .floating-line).is-selected { outline: 1px dashed #86a47b99; outline-offset: 4px; }
-.floating-label { min-width: 12px; min-height: 24px; text-align: center; }
+.floating-label { min-width: 12px; text-align: center; }
+.sheet.is-editing .floating-label:hover { outline: 1px solid #d9decb; outline-offset: 3px; }
 .floating-label .text-content { width: max-content; min-width: 12px; }
 .is-editing .floating-label:not(.is-label-editing) .text-content { pointer-events: none; }
-.is-editing .floating-label.is-selected { outline: 1px dashed #86a47b; outline-offset: 3px; }
+.sheet.is-editing .floating-label.is-selected { outline: 1px dashed #86a47b; outline-offset: 3px; }
 .floating-label .tiptap { min-width: 12px; }
 .object-handle { position: absolute; width: 9px; height: 9px; min-width: 0; padding: 0; margin: -4.5px 0 0 -4.5px; border: 1px solid #54795f; border-radius: 2px; background: #fffefa; pointer-events: auto; touch-action: none; cursor: crosshair; }
 .handle-nw { left: 0; top: 0; cursor: nwse-resize; }

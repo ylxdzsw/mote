@@ -1,4 +1,4 @@
-import type { AttachmentSide, FloatingObject, LabelPosition, LineEnd } from '../document/model'
+import type { AttachmentSide, FloatingObject, LabelPosition, LineEnd, Theme } from '../document/model'
 
 export interface Point { x: number; y: number }
 export interface Box extends Point { width: number; height: number }
@@ -85,14 +85,20 @@ export function midpoint(path: Point[]): Point {
   return path[0]
 }
 
-export function labelPlacement(target: Geometry, size: Pick<Box, 'width' | 'height'>, position: LabelPosition): Point {
+export function labelOutsideGap(theme: Theme) {
+  const size = theme.blocks.label.size ?? theme.defaults.size
+  const pixels = typeof size === 'number' ? size : parseFloat(size) * (size.endsWith('em') ? theme.defaults.size : 1)
+  return pixels / 3
+}
+
+export function labelPlacement(target: Geometry, size: Pick<Box, 'width' | 'height'>, position: LabelPosition, outsideGap: number): Point {
   const c = target.path ? midpoint(target.path) : center(target)
   const { width, height } = size
   switch (position) {
     case 'top-inside': return { x: c.x - width / 2, y: target.y + labelGap }
-    case 'top-outside': return { x: c.x - width / 2, y: target.y - labelGap - height }
+    case 'top-outside': return { x: c.x - width / 2, y: target.y - outsideGap - height }
     case 'bottom-inside': return { x: c.x - width / 2, y: target.y + target.height - labelGap - height }
-    case 'bottom-outside': return { x: c.x - width / 2, y: target.y + target.height + labelGap }
+    case 'bottom-outside': return { x: c.x - width / 2, y: target.y + target.height + outsideGap }
     case 'left': return { x: c.x - labelGap - width, y: c.y - height / 2 }
     case 'right': return { x: c.x + labelGap, y: c.y - height / 2 }
     case 'above': return { x: c.x - width / 2, y: c.y - labelGap - height }
@@ -101,7 +107,7 @@ export function labelPlacement(target: Geometry, size: Pick<Box, 'width' | 'heig
   }
 }
 
-export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], sizes: Record<string, { width: number; height: number }>, tops: Record<string, number>): Geometries {
+export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], sizes: Record<string, { width: number; height: number }>, tops: Record<string, number>, outsideGap: number): Geometries {
   const result: Geometries = {}
   const byId = new Map(objects.map(object => [object.id, object]))
   for (const object of objects) {
@@ -126,7 +132,7 @@ export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], si
   for (const object of objects) {
     if (object.kind !== 'label' || !object.attachment) continue
     const target = result[object.attachment.targetId]
-    if (target) result[object.id] = { ...result[object.id], ...labelPlacement(target, result[object.id], object.attachment.position) }
+    if (target) result[object.id] = { ...result[object.id], ...labelPlacement(target, result[object.id], object.attachment.position, outsideGap) }
   }
   return result
 }
