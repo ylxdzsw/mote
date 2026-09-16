@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A week of attention</title>
+<style>html,body{margin:0;height:100%;background:#f4f6ef}attention-chart{display:block;height:100%}</style>
+<attention-chart></attention-chart>
+<script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js"></script>
+<script>
+class AttentionChart extends HTMLElement {
+  connectedCallback() {
+    const root = this.attachShadow({ mode: 'open' });
+    root.innerHTML = `
+      <style>
+        :host{color:#414841;font:13px/1.5 system-ui,sans-serif}
+        *{box-sizing:border-box}
+        article{height:100%;display:flex;flex-direction:column;padding:22px 24px 16px}
+        header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+        h2{font:24px/1.2 Georgia,serif;color:#262b27;margin:3px 0 0}
+        .eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#63745c}
+        label{display:grid;gap:3px;font-size:11px}
+        select{font:inherit;font-size:13px;color:#355b43;background:#fffefa;border:1px solid #bac8b0;border-radius:4px;padding:6px 10px}
+        select:focus-visible{outline:2px solid #355b43;outline-offset:2px}
+        #chart{flex:1;min-height:120px;margin-top:10px}
+        output{display:block;min-height:22px;color:#355b43}
+        p{font-size:11px;color:#737b72;margin:3px 0 0}
+      </style>
+      <article>
+        <header><div><div class="eyebrow">01 / Explore the data</div><h2>A week of attention</h2></div>
+          <label>Measure<select aria-label="Chart measure"><option value="minutes">Minutes</option><option value="sessions">Sessions</option></select></label>
+        </header>
+        <div id="chart" role="img" aria-label="Grouped bars comparing reading, writing, and exploring from Monday to Friday"></div>
+        <output aria-live="polite">Select a bar to keep a detail here.</output>
+        <p>Hover for values · click a legend to filter · switch the measure. Illustrative data.</p>
+      </article>`;
+    if (!window.echarts) {
+      root.querySelector('output').textContent = 'Chart unavailable. Connect to the internet and Run / Restart.';
+      return;
+    }
+    const data = {
+      minutes: [[40, 55, 35, 65, 50], [25, 45, 60, 30, 70], [35, 20, 45, 40, 30]],
+      sessions: [[2, 3, 2, 4, 3], [1, 3, 4, 2, 4], [3, 1, 3, 2, 2]]
+    };
+    const names = ['Reading', 'Writing', 'Exploring'];
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+    const measure = root.querySelector('select');
+    const detail = root.querySelector('output');
+    let selected;
+    this.chart = echarts.init(root.querySelector('#chart'), null, { renderer: 'svg' });
+    const showDetail = () => {
+      if (!selected) return;
+      const [series, day] = selected;
+      detail.textContent = days[day] + ' / ' + names[series] + ' — ' + data[measure.value][series][day] + ' ' + measure.value;
+    };
+    const update = () => {
+      this.chart.setOption({
+        color: ['#54725b', '#7294ac', '#c49b5d'],
+        textStyle: { fontFamily: 'system-ui, sans-serif', color: '#414841' },
+        animation: !matchMedia('(prefers-reduced-motion: reduce)').matches,
+        animationDuration: 700, animationDurationUpdate: 600,
+        tooltip: { trigger: 'axis', confine: true, axisPointer: { type: 'shadow' } },
+        legend: { top: 0, itemWidth: 12, itemHeight: 8, textStyle: { color: '#414841' } },
+        grid: { left: 42, right: 10, top: 58, bottom: 28 },
+        xAxis: { type: 'category', data: days, axisTick: { show: false }, axisLine: { lineStyle: { color: '#cbd4c3' } } },
+        yAxis: { type: 'value', name: measure.value, minInterval: 1, splitLine: { lineStyle: { color: '#e1e7d9' } } },
+        series: names.map((name, index) => ({
+          id: name, name, type: 'bar', data: data[measure.value][index],
+          barMaxWidth: 22, itemStyle: { borderRadius: [3, 3, 0, 0] }, emphasis: { focus: 'series' }
+        }))
+      });
+      showDetail();
+    };
+    measure.addEventListener('change', update);
+    this.chart.on('click', event => {
+      if (event.componentType !== 'series') return;
+      selected = [event.seriesIndex, event.dataIndex];
+      showDetail();
+      this.dispatchEvent(new CustomEvent('attention-select', {
+        bubbles: true, composed: true,
+        detail: { day: event.name, activity: event.seriesName, value: event.value, measure: measure.value }
+      }));
+    });
+    this.resize = new ResizeObserver(() => this.chart.resize());
+    this.resize.observe(root.querySelector('#chart'));
+    update();
+  }
+  disconnectedCallback() {
+    this.resize?.disconnect();
+    this.chart?.dispose();
+  }
+}
+customElements.define('attention-chart', AttentionChart);
+</script>
+</html>

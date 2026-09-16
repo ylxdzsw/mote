@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ideas in motion</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:#f6f2e9;color:#414841;font:13px/1.5 system-ui,sans-serif}
+  article{height:100%;display:flex;flex-direction:column;padding:22px 24px 16px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:16px}
+  h2{font:24px/1.2 Georgia,serif;color:#262b27;margin:3px 0 0}
+  .eyebrow{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#88704b}
+  nav{display:flex;gap:6px}
+  button{font:inherit;color:#6b5533;background:#fffefa;border:1px solid #d1c2a7;border-radius:4px;padding:6px 12px;cursor:pointer}
+  button:focus-visible{outline:2px solid #875a35;outline-offset:2px}
+  #chart{flex:1;min-height:120px;margin-top:10px}
+  footer{display:flex;justify-content:space-between;gap:12px;font-size:11px;color:#737b72}
+  output{font-variant-numeric:tabular-nums;color:#875a35;white-space:nowrap}
+</style>
+<article>
+  <header><div><div class="eyebrow">02 / Watch the change</div><h2>Ideas in motion</h2></div>
+    <nav aria-label="Animation controls"><button id="play">Pause</button><button id="step">Next pass</button></nav>
+  </header>
+  <div id="chart" role="img" aria-label="Animated ranking of five ideas by reader votes over six passes"></div>
+  <footer><span>Reader votes · illustrative data · six passes, on repeat</span><output id="pass">Pass 1 / 6</output></footer>
+</article>
+<script src="https://cdn.jsdelivr.net/npm/echarts@6.0.0/dist/echarts.min.js"></script>
+<script>
+if (!window.echarts) {
+  document.querySelector('#chart').textContent = 'Chart unavailable. Connect to the internet and Run / Restart.';
+  document.querySelectorAll('button').forEach(button => button.disabled = true);
+} else {
+  const names = ['Garden', 'Library', 'Workshop', 'Trail', 'Studio'];
+  const colors = ['#54725b', '#7294ac', '#c49b5d', '#8d80a6', '#be8070'];
+  const passes = [
+    [32, 48, 22, 38, 28],
+    [58, 52, 40, 44, 35],
+    [65, 60, 78, 54, 48],
+    [76, 92, 86, 72, 60],
+    [98, 104, 96, 118, 88],
+    [128, 120, 144, 136, 112]
+  ];
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const chart = echarts.init(document.querySelector('#chart'), null, { renderer: 'svg' });
+  let pass = 0;
+  let playing = !reducedMotion;
+  let timer;
+  const play = document.querySelector('#play');
+  const values = () => names.map((name, index) => ({ name, value: passes[pass][index], itemStyle: { color: colors[index] } }));
+  chart.setOption({
+    textStyle: { fontFamily: 'system-ui, sans-serif', color: '#414841' },
+    animation: !reducedMotion, animationDuration: 900, animationDurationUpdate: 1400,
+    animationEasing: 'cubicOut', animationEasingUpdate: 'cubicInOut',
+    grid: { left: 86, right: 36, top: 16, bottom: 30 },
+    tooltip: { trigger: 'item', confine: true, valueFormatter: value => value + ' votes' },
+    xAxis: { type: 'value', max: 160, splitLine: { lineStyle: { color: '#e6ded0' } } },
+    yAxis: { type: 'category', data: names, inverse: true, axisLine: { show: false }, axisTick: { show: false },
+      animationDuration: 400, animationDurationUpdate: 1000 },
+    series: [{ id: 'votes', type: 'bar', realtimeSort: true, data: values(), barWidth: 25,
+      label: { show: true, position: 'right', valueAnimation: true, color: '#414841' },
+      itemStyle: { borderRadius: [0, 4, 4, 0] } }]
+  });
+  function advance() {
+    pass = (pass + 1) % passes.length;
+    chart.setOption({ series: [{ id: 'votes', data: values() }] });
+    document.querySelector('#pass').textContent = 'Pass ' + (pass + 1) + ' / ' + passes.length;
+  }
+  function schedule() {
+    clearInterval(timer);
+    play.textContent = playing ? 'Pause' : 'Play';
+    if (playing) timer = setInterval(advance, 2400);
+  }
+  play.addEventListener('click', () => { playing = !playing; schedule(); });
+  document.querySelector('#step').addEventListener('click', () => { playing = false; schedule(); advance(); });
+  new ResizeObserver(() => chart.resize()).observe(document.querySelector('#chart'));
+  schedule();
+}
+</script>
+</html>

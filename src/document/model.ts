@@ -1,5 +1,10 @@
 import type { JSONContent } from '@tiptap/core'
 import type { SpaceMerge, SpaceShift } from '../editor/spaces'
+import exampleMath from './examples/math.tex?raw'
+import attentionHTML from './examples/attention.html?raw'
+import attentionScreenshot from './examples/attention.png?inline'
+import motionHTML from './examples/motion.html?raw'
+import motionScreenshot from './examples/motion.png?inline'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math'] as const
@@ -164,6 +169,9 @@ export function createDocument(): MoteDocument {
   const spaceId = crypto.randomUUID()
   const sketchSpaceId = crypto.randomUUID()
   const reviewSpaceId = crypto.randomUUID()
+  const mathSpaceId = crypto.randomUUID()
+  const attentionSpaceId = crypto.randomUUID()
+  const motionSpaceId = crypto.randomUUID()
   const rectangleId = crypto.randomUUID(), ellipseId = crypto.randomUUID()
   const imageId = crypto.randomUUID()
   return {
@@ -206,6 +214,17 @@ export function createDocument(): MoteDocument {
         { type: 'spacer', attrs: { id: reviewSpaceId, height: 410 } },
         paragraph('Read for the shape', 'heading'),
         paragraph('Switch to reading mode and look at the page as a composition. Zoom out to see the relationships, then move closer to a passage. Text and floating thoughts keep their places together.'),
+        paragraph('A little mathematical language', 'heading'),
+        paragraph('One KaTeX object, many ways to express an idea: fractions and roots, Greek letters and sums, integrals and derivatives, matrices, cases, and vectors. Select the formula to explore its LaTeX source.'),
+        { type: 'spacer', attrs: { id: mathSpaceId, height: 360 } },
+        paragraph('Let the reader explore', 'heading'),
+        paragraph('This ECharts widget lives inside an <attention-chart> custom element with its own shadow DOM. Change the measure, filter a series with its legend, or click a bar: the chart and the detail below it respond together.'),
+        paragraph('In editing mode, select a chart and choose Interact. In reading mode, use it directly. Both charts load ECharts from a CDN and need an internet connection.', 'caption'),
+        { type: 'spacer', attrs: { id: attentionSpaceId, height: 432 } },
+        paragraph('Make change visible', 'heading'),
+        paragraph('Watch five ideas trade places as new votes arrive. ECharts animates the bar lengths, rankings, and value labels between passes. Pause to look closer, or use Next pass to move at your own pace.'),
+        { type: 'spacer', attrs: { id: motionSpaceId, height: 432 } },
+        paragraph('The animation repeats with illustrative data; reduced-motion preferences start it paused. PNG exports and the minimap use saved chart screenshots, not live animation.', 'caption'),
         paragraph('Make it your own', 'heading'),
         paragraph('Replace a paragraph, rename a heading, or move a box to a better spot. Try a different theme and watch the whole note respond. The structure is a starting point, not a template to obey.'),
         paragraph('Keep what helps you think. Leave a little room for what comes next.', 'caption'),
@@ -263,6 +282,19 @@ export function createDocument(): MoteDocument {
     }, {
       id: crypto.randomUUID(), kind: 'label', anchorId: sketchSpaceId, x: 55, y: 270, width: 12, textFlow: 'overlap',
       content: labelContent('A different path'), attachment: { targetId: imageId, position: 'bottom-outside' },
+    }, {
+      id: crypto.randomUUID(), kind: 'katex', anchorId: mathSpaceId,
+      x: 55, y: 16, width: 690, textFlow: 'overlap', latex: exampleMath.trim(),
+    }, {
+      id: crypto.randomUUID(), kind: 'html', anchorId: attentionSpaceId,
+      x: 55, y: 16, width: 690, height: 400, textFlow: 'overlap',
+      html: attentionHTML, screenshot: attentionScreenshot,
+      alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.',
+    }, {
+      id: crypto.randomUUID(), kind: 'html', anchorId: motionSpaceId,
+      x: 55, y: 16, width: 690, height: 400, textFlow: 'overlap',
+      html: motionHTML, screenshot: motionScreenshot,
+      alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.',
     }],
   }
 }
