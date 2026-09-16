@@ -370,3 +370,7 @@ Type/build/whitespace checks passed. Scoped browser checks covered formula layou
 ## 2026-09-16 — Keep only the 48px margin preset
 
 User found margin rulers and margin snapping too complex and requested their removal. Reverted the entire margin-guide commit, then restored only the 48px left/right preset for new/example documents. Existing saved margins remain unchanged. Floating interactions return to their prior grid/attachment snapping without margin rulers or margin-specific snapping.
+
+## 2026-09-16 — GitHub continuous integration
+
+CI runs locked dependency installation and the existing combined TypeScript/production build on Ubuntu with Node.js 22 and 24 for pushes, pull requests, and manual dispatches. This includes the offline reader bundle without adding a regression framework. Actions are pinned to release commit SHAs, repository permissions are read-only, and superseded runs are canceled. Only npm downloads are cached; this is unrelated to the demo's no-store HTTP policy. CI deliberately has no deployment credentials or automatic deployment; the existing demo deployment remains separate. README links the live workflow status and describes its scope.

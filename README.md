@@ -1,5 +1,7 @@
 # Mote
 
+[![CI](https://github.com/ylxdzsw/mote/actions/workflows/ci.yml/badge.svg)](https://github.com/ylxdzsw/mote/actions/workflows/ci.yml)
+
 A local-first demo exploring semantic text and anchor-relative spatial placement.
 
 ## Run
@@ -125,6 +127,10 @@ Vite development and preview responses also send `Cache-Control: no-store`. `pub
 Review the early-development decisions in `.mu/AGENTS.md` before a release.
 
 ## Verification
+
+### Continuous integration
+
+GitHub Actions runs on every push and pull request, and can be started manually from the **CI** workflow. On Ubuntu with Node.js 22 and 24, each job installs the lockfile with `npm ci` and runs `npm run build`, which includes TypeScript checking and production builds of both the app and offline reader. npm's download cache is reused; `node_modules` and build outputs are not cached. CI does not deploy the demo or run browser checks.
 
 ### Current document-file checks
 
