@@ -7,7 +7,7 @@ import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { classLabel } from '../theme/ThemePanel'
 import './toolbar.css'
 
-type InsertKind = 'space' | 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
+type InsertKind = 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
 type DrawingTool = 'rectangle' | 'ellipse' | 'line' | 'label' | null
 type IconName = BlockClass | InsertKind | 'plain' | 'bold' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
@@ -21,7 +21,6 @@ function Icon({ name }: { name: IconName }) {
     code: <path d="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" />,
     plain: <path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4ZM9 11l7 6M13 20h8" />,
     bold: <path d="M7 12h7a4 4 0 0 1 0 8H7V4h6a4 4 0 0 1 0 8" strokeWidth="2.8" />,
-    space: <path d="M3 4h18M3 20h18M12 7v10m-3-7 3-3 3 3m-6 4 3 3 3-3" />,
     text: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M8 9V8h8v1M12 8v8M10 16h4" /></>,
     image: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 6-5 4 4 3-3 5 4" /></>,
     table: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 10h18M3 15h18M11 4v16" /></>,
@@ -100,6 +99,43 @@ function ToolMenu({ label, children, items, disabled, armed = false }: {
   </div>
 }
 
+function TablePicker({ disabled, onInsert }: { disabled: boolean; onInsert: (columns: number, rows: number) => void }) {
+  const [open, setOpen] = useState(false)
+  const [size, setSize] = useState({ columns: 2, rows: 2 })
+  const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null)
+  const id = useId()
+  useEffect(() => {
+    if (!open) return
+    root.current!.querySelector<HTMLButtonElement>('[data-columns="2"][data-rows="2"]')!.focus()
+    const outside = (event: PointerEvent) => { if (!root.current!.contains(event.target as Node)) setOpen(false) }
+    const resize = () => setOpen(false)
+    document.addEventListener('pointerdown', outside); window.addEventListener('resize', resize)
+    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', resize) }
+  }, [open])
+  return <div className="tool-menu tier-medium" ref={root} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}>
+    <button ref={trigger} aria-label="Insert table" title="Insert table" disabled={disabled} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? id : undefined}
+      onMouseDown={event => event.preventDefault()} onClick={() => { setSize({ columns: 2, rows: 2 }); setOpen(!open) }}
+      onKeyDown={event => { if (event.key === 'ArrowDown') { event.preventDefault(); setOpen(true) } }}><Icon name="table" /></button>
+    {open && <div id={id} className="tool-menu-panel table-picker" role="dialog" aria-label="Table size" onKeyDown={event => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current!.focus(); return }
+      const button = event.target as HTMLButtonElement
+      const columns = Number(button.dataset.columns), rows = Number(button.dataset.rows)
+      const next = { columns: Math.max(1, Math.min(8, columns + (event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0))),
+        rows: Math.max(1, Math.min(8, rows + (event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0))) }
+      if (event.key.startsWith('Arrow')) { event.preventDefault(); root.current!.querySelector<HTMLButtonElement>(`[data-columns="${next.columns}"][data-rows="${next.rows}"]`)!.focus() }
+    }}>
+      <div className="table-picker-size" aria-live="polite">{size.columns} columns × {size.rows} rows</div>
+      <div className="table-picker-grid">{Array.from({ length: 64 }, (_, index) => {
+        const columns = index % 8 + 1, rows = Math.floor(index / 8) + 1
+        return <button key={index} data-columns={columns} data-rows={rows} aria-label={`${columns} columns, ${rows} rows`}
+          tabIndex={columns === size.columns && rows === size.rows ? 0 : -1} className={columns <= size.columns && rows <= size.rows ? 'chosen' : ''}
+          onPointerEnter={() => setSize({ columns, rows })} onFocus={() => setSize({ columns, rows })} onMouseDown={event => event.preventDefault()}
+          onClick={() => { setOpen(false); trigger.current!.focus(); onInsert(columns, rows) }} />
+      })}</div>
+    </div>}
+  </div>
+}
+
 // Inspect every selected range, including rectangular cell selections and unmarked text.
 function selectedClasses(editor: Editor | null) {
   const paragraphs = new Set<string>(), inline = new Set<string>()
@@ -128,12 +164,12 @@ function selectedClasses(editor: Editor | null) {
 
 const paragraphQuick = ['heading', 'list', 'code'] as const
 const inlineQuick = ['bold', 'primary', 'secondary', 'term'] as const
-const insertKinds: InsertKind[] = ['space', 'text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
-const insertLabels: Record<InsertKind, string> = { space: 'Space', text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
+const insertKinds: InsertKind[] = ['text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
+const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
 
 interface Props {
   editor: Editor | null; canInsert: boolean; imageLoading: boolean; theme: Theme; tool: DrawingTool
-  onInsert: (kind: InsertKind) => void
+  onInsert: (kind: InsertKind, columns?: number, rows?: number) => void
   canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void
 }
 
@@ -152,7 +188,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onInsert
     return <span className={`inline-badge${sample ? ' sample' : ''}`} style={{ color: style.color ?? theme.defaults.color, background: style.background,
       fontWeight: style.weight, fontStyle: style.italic ? 'italic' : undefined, textDecoration: style.decoration }}>{sample ? 'Aa' : classLabel(name)}</span>
   }
-  const insertionDisabled = (kind: InsertKind) => ['space', 'text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
+  const insertionDisabled = (kind: InsertKind) => ['text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
   const insertionLabel = (kind: InsertKind) => kind === 'image' && imageLoading ? 'Opening image…' : kind === 'html' && imageLoading ? 'Opening screenshot…' : `${['rectangle', 'ellipse', 'line'].includes(kind) ? 'Draw' : 'Insert'} ${insertLabels[kind].toLowerCase()}`
 
   return <div className="toolbar" role="group" aria-label="Editing tools">
@@ -182,10 +218,11 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onInsert
     <div className="tool-group" role="group" aria-label="Insert">
       <ToolMenu label={tool ? `Insert · ${classLabel(tool)} tool active` : 'Insert'} armed={!!tool} items={insertKinds.map(kind => ({
         id: kind, label: insertLabels[kind], icon: <Icon name={kind} />, action: () => onInsert(kind), disabled: insertionDisabled(kind),
-        separator: ['text', 'image', 'rectangle'].includes(kind), checked: ['rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
+        separator: ['image', 'rectangle'].includes(kind), checked: ['rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
         hint: ['image', 'html'].includes(kind) && imageLoading ? 'Opening…' : undefined,
       }))}><Icon name="plus" /></ToolMenu>
-      {(['text', 'image', 'rectangle', 'line'] as const).map(kind => <button key={kind} className={`tool-quick tier-${kind === 'text' || kind === 'image' ? 'medium' : 'wide'}`}
+      <TablePicker disabled={!canInsert} onInsert={(columns, rows) => onInsert('table', columns, rows)} />
+      {(['text', 'rectangle', 'line'] as const).map(kind => <button key={kind} className={`tool-quick tier-${kind === 'text' ? 'medium' : 'wide'}`}
         aria-label={insertionLabel(kind)} title={insertionLabel(kind)} disabled={insertionDisabled(kind)} aria-pressed={kind === 'rectangle' || kind === 'line' ? tool === kind : undefined}
         onMouseDown={event => event.preventDefault()} onClick={() => onInsert(kind)}><Icon name={kind} /></button>)}
     </div>

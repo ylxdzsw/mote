@@ -12,6 +12,19 @@ export const lineLabelPositions: LabelPosition[] = ['center', 'left', 'right', '
 export const center = (box: Box): Point => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 })
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 
+// Partial overlap is intentional; never hide either object completely on insertion.
+export function fullyOverlaps(a: Box, b: Box) {
+  const encloses = (outer: Box, inner: Box) => inner.x >= outer.x - .5 && inner.y >= outer.y - .5
+    && inner.x + inner.width <= outer.x + outer.width + .5 && inner.y + inner.height <= outer.y + outer.height + .5
+  return encloses(a, b) || encloses(b, a)
+}
+
+export function insertionPosition(box: Box, occupied: Box[], pageWidth: number): Point {
+  let next = { ...box, x: Math.max(0, Math.min(pageWidth - box.width, box.x)), y: Math.max(0, box.y) }
+  while (occupied.some(other => fullyOverlaps(next, other))) next = { ...next, x: Math.max(0, next.x - 24), y: next.y + 24 }
+  return { x: next.x, y: next.y }
+}
+
 export function horizontalBounds(object: FloatingObject, box: Geometry) {
   const radius = 'strokeWidth' in object ? object.strokeWidth / 2 : 0
   const points: Point[] = []

@@ -21,6 +21,11 @@
 .toolbar .badge-button { padding-inline: 3px; }
 .toolbar .toolbar-history { border: 0; padding-right: 0; margin-left: auto; }
 .toolbar .tier-core, .toolbar .tier-medium, .toolbar .tier-wide { display: none; }
+.toolbar .table-picker { min-width: 0; width: 218px; padding: 10px; }
+.table-picker-size { margin-bottom: 8px; color: var(--muted); }
+.table-picker-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 3px; }
+.toolbar .table-picker-grid button { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 2px; background: #fffefa; }
+.toolbar .table-picker-grid .chosen { background: #dce8d6; border-color: #86a47b; }
 @media (min-width: 850px) { .toolbar .tier-core { display: inline-flex; } }
 @media (min-width: 1050px) { .toolbar .tier-medium { display: inline-flex; } }
 @media (min-width: 1250px) { .toolbar .tier-wide { display: inline-flex; } }

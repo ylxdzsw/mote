@@ -11,12 +11,12 @@ import { useSpaceGesture } from './useSpaceGesture'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
-import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, gridSize, labelPlacement, lineLabelPositions, objectIntersects, type Box, type Geometries, type Point } from './floatingGeometry'
+import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, fullyOverlaps, gridSize, insertionPosition, labelPlacement, lineLabelPositions, objectIntersects, resolveGeometry, type Box, type Geometries, type Point } from './floatingGeometry'
 import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 
 export type CreationTool = 'rectangle' | 'ellipse' | 'line' | 'label' | null
-export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void }
+export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void; insert: (objects: FloatingObject[]) => void }
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
@@ -26,6 +26,7 @@ interface Props {
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
   onActive: (editor: Editor | null) => void; onMainReady: (editor: Editor) => void
   widgetRuns?: Record<string, number>; staticWidgets?: boolean
+  onDropImages?: (files: File[], position: LineEnd) => void
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -33,8 +34,11 @@ interface Drag {
 }
 interface Guide { point: Point; active?: boolean; box?: Box }
 const rectangle = (a: Point, b: Point): Box => ({ x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) })
+const contentText = (content: JSONContent): string => (content.text ?? '') + (content.content?.map(contentText).join('') ?? '')
+const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
+  || (object.kind === 'katex' && !object.latex.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, onDropImages }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -42,15 +46,65 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const { scale, minScale, zoomTo, zoomBy, reset } = useDocumentZoom(stage, sheet, doc.width, editable)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
+  const [inserting, setInserting] = useState<FloatingObject[]>([])
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [guides, setGuides] = useState<Guide[]>([])
   const [editingLabel, setEditingLabel] = useState<string | null>(null)
+  const newLabels = useRef(new Set<string>())
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
-  const layoutDoc = useMemo(() => creating ? { ...doc, floating: [...doc.floating, creating] } : doc, [doc, creating])
+  const layoutDoc = useMemo(() => creating || inserting.length ? { ...doc, floating: [...doc.floating, ...inserting, ...(creating ? [creating] : [])] } : doc, [doc, creating, inserting])
   const { geometry, anchors, minHeight, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, scale, previews)
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
+
+  // Measure new content before committing its geometry and creation as one undo step.
+  useLayoutEffect(() => {
+    if (!inserting.length) return
+    if (!editable) { setInserting([]); return }
+    if (inserting.some(object => object.kind === 'image' && !sheet.current!.querySelector<HTMLImageElement>(`[data-note-id="${object.id}"] img`)?.complete)) return
+    const measured = reflow()
+    const occupied = doc.floating.map(object => measured.geometry[object.id])
+    const placed = inserting.map(object => {
+      const box = measured.geometry[object.id]
+      const position = insertionPosition(box, occupied, pageWidth())
+      occupied.push({ ...box, ...position })
+      if (object.kind === 'line') {
+        const offset = (p: Point) => anchorPoint({ x: p.x + position.x - box.x, y: p.y + position.y - box.y }, measured.anchors)
+        return { ...object, start: offset(box.path![0]), end: offset(box.path!.at(-1)!) }
+      }
+      return { ...object, ...anchorPoint(position, measured.anchors) }
+    })
+    history.boundary(); onFloatingChange([...doc.floating, ...placed]); setInserting([])
+    select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id)
+  }, [inserting])
+
+  const previousEdit = useRef({ ids: selectedIds, label: editingLabel, editable, revision: history.revision })
+  const cleanedDraft = useRef(false)
+  useLayoutEffect(() => {
+    if (cleanedDraft.current || !editable || !anchors.length) return
+    cleanedDraft.current = true
+    const empty = doc.floating.filter(object => emptyContent(object) || collapsedLine(object, doc.floating)).map(object => object.id)
+    if (empty.length) history.edit({ normalize: true }, () => onFloatingChange(withoutObjects(empty)))
+  }, [editable, anchors])
+  useLayoutEffect(() => {
+    const previous = previousEdit.current
+    previousEdit.current = { ids: selectedIds, label: editingLabel, editable, revision: history.revision }
+    if (previous.revision !== history.revision) { newLabels.current.clear(); return }
+    if (!previous.editable) return
+    const finished = previous.ids.filter(id => !editable || !selectedIds.includes(id))
+    if (previous.label && previous.label !== editingLabel) finished.push(previous.label)
+    const empty = doc.floating.filter(object => finished.includes(object.id) && (emptyContent(object) || collapsedLine(object, doc.floating))).map(object => object.id)
+    let changed = empty.length > 0
+    const next = withoutObjects(empty).map(object => {
+      if (!finished.includes(object.id) || !newLabels.current.delete(object.id) || object.kind !== 'label' || object.attachment) return object
+      const position = insertionPosition(geometry[object.id], doc.floating.filter(other => other.id !== object.id && !empty.includes(other.id)).map(other => geometry[other.id]), pageWidth())
+      changed = true
+      return { ...object, ...anchorPoint(position, anchors) }
+    })
+    for (const id of empty) newLabels.current.delete(id)
+    if (changed) history.edit({ normalize: true }, () => onFloatingChange(next))
+  }, [selectedIds, editingLabel, editable, history.revision])
 
   function select(ids: string[]) {
     onSelect(ids)
@@ -65,7 +119,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     captured.current = null
     if (pointer?.element.hasPointerCapture(pointer.pointerId)) pointer.element.releasePointerCapture(pointer.pointerId)
   }
-  useLayoutEffect(() => { cancel(); setEditingLabel(null); onToolChange(null) }, [editable, scale, history.revision])
+  useLayoutEffect(() => { cancel(); setInserting([]); setEditingLabel(null); onToolChange(null) }, [editable, scale, history.revision])
   useLayoutEffect(() => {
     const ids = selectedIds.filter(id => doc.floating.some(note => note.id === id))
     if (ids.length !== selectedIds.length) select(ids)
@@ -284,32 +338,55 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (d.moved && selectedIds.length) focusObject(selectedIds[0])
     } else if (d.created) {
       let object = d.created
-      if (!d.moved && object.kind === 'line') object = { ...object, end: anchorPoint(boundedPoint({ x: d.start.x + 160, y: d.start.y }, 0, 16), anchors) }
-      onFloatingChange(applyPatches([...doc.floating, object], d.patches))
+      if (!d.moved && object.kind === 'line') object = { ...object, end: anchorPoint(boundedPoint({ x: d.start.x + (d.start.x + 160 <= pageWidth() - 16 ? 160 : -160), y: d.start.y }, 0, 16), anchors) }
+      const next = applyPatches([object], d.patches)[0]
+      if (collapsedLine(next, [...doc.floating, next])) { cancel(); onToolChange(null); return }
+      if (!d.moved && next.kind !== 'label' && !(next.kind === 'line' && next.start.connection)) {
+        setInserting([next]); onToolChange(null); cancel(); return
+      }
+      onFloatingChange([...doc.floating, next])
       select([object.id]); onToolChange(null)
-      if (object.kind === 'label') setEditingLabel(object.id); else focusObject(object.id)
-    } else if (d.moved) onFloatingChange(applyPatches(doc.floating, d.patches))
+      if (object.kind === 'label') { newLabels.current.add(object.id); setEditingLabel(object.id) } else focusObject(object.id)
+    } else if (d.moved) {
+      const next = applyPatches(doc.floating, d.patches)
+      const object = next.find(object => object.id === d.id)!
+      if (collapsedLine(object, next)) { onFloatingChange(withoutObjects([object.id])); select([]); onActive(null) }
+      else onFloatingChange(next)
+    }
     cancel()
     if (sheet.current?.hasPointerCapture(event.pointerId)) sheet.current.releasePointerCapture(event.pointerId)
   }
-  function remove() {
-    if (!editable || !selectedIds.length || !window.confirm(`Delete ${selectedIds.length === 1 ? 'this floating object' : `${selectedIds.length} floating objects`}?`)) return
-    const next = doc.floating.filter(object => !selectedIds.includes(object.id)).map(object => {
+  function collapsedLine(object: FloatingObject, objects: FloatingObject[]) {
+    if (object.kind !== 'line') return false
+    const tops = Object.fromEntries(objects.map(note => [note.id, (anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
+    const path = resolveGeometry(objects, anchors, geometry, tops)[object.id].path!
+    return path.every(point => distance(point, path[0]) < 1)
+  }
+  function withoutObjects(ids: string[]) {
+    return doc.floating.filter(object => !ids.includes(object.id)).map(object => {
       const box = geometry[object.id]
-      if (object.kind === 'label' && object.attachment && selectedIds.includes(object.attachment.targetId)) return { ...object, ...anchorPoint(box, anchors), attachment: null }
+      if (object.kind === 'label' && object.attachment && ids.includes(object.attachment.targetId)) return { ...object, ...anchorPoint(box, anchors), attachment: null }
       if (object.kind === 'line') {
-        const detached = (end: LineEnd, p: Point) => end.connection && selectedIds.includes(end.connection.targetId) ? anchorPoint(p, anchors) : end
+        const detached = (end: LineEnd, p: Point) => end.connection && ids.includes(end.connection.targetId) ? anchorPoint(p, anchors) : end
         return { ...object, start: detached(object.start, box.path![0]), end: detached(object.end, box.path!.at(-1)!) }
       }
       return object
     })
-    history.boundary(); onFloatingChange(next); select([]); onActive(null)
+  }
+  function remove() {
+    if (!editable || !selectedIds.length) return
+    history.boundary(); onFloatingChange(withoutObjects(selectedIds)); select([]); onActive(null)
   }
   function duplicate() {
     if (!editable || !selectedIds.length) return
-    const originals = doc.floating.filter(object => selectedIds.includes(object.id) || (object.kind === 'label' && object.attachment && selectedIds.includes(object.attachment.targetId)))
+    const originals = doc.floating.filter(object => !emptyContent(object) && (selectedIds.includes(object.id) || (object.kind === 'label' && object.attachment && selectedIds.includes(object.attachment.targetId))))
+    if (!originals.length) return
     const mapping = new Map(originals.map(object => [object.id, crypto.randomUUID()]))
-    const patches = shifted(doc.floating, geometry, originals.map(object => object.id), 16, 16)
+    const ids = originals.map(object => object.id)
+    let delta = boundedTranslation(doc.floating, geometry, ids, { x: 16, y: 16 }, pageWidth())
+    const roots = originals.filter(object => !(object.kind === 'label' && object.attachment && ids.includes(object.attachment.targetId)))
+    while (roots.some(object => doc.floating.some(other => fullyOverlaps({ ...geometry[object.id], x: geometry[object.id].x + delta.x, y: geometry[object.id].y + delta.y }, geometry[other.id])))) delta = { ...delta, y: delta.y + 24 }
+    const patches = shifted(doc.floating, geometry, ids, delta.x, delta.y)
     const copies = applyPatches(originals, patches).map(original => {
       const object = structuredClone(original)
       object.id = mapping.get(original.id)!
@@ -336,7 +413,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (object?.kind !== 'label' || !object.attachment) return
     onNoteChange(object.id, { ...anchorPoint(geometry[object.id], anchors), attachment: null })
   }
-  useLayoutEffect(() => { onActions({ remove, duplicate, label, detach }) })
+  useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) } }) })
   function key(id: string, event: React.KeyboardEvent) {
     if (!editable) return
     if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); return }
@@ -371,6 +448,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && Object.keys(previews).length > 0 ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} data-floating-preview={active ? '' : undefined}
+        onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
+        onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
+        onDropCapture={event => {
+          if (!event.dataTransfer.types.includes('Files')) return
+          event.preventDefault(); event.stopPropagation()
+          if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
+        }}
         style={{ ...themeVariables(doc.theme), '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange}

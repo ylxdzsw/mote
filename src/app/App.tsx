@@ -5,7 +5,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions } from '../canvas/DocumentCanvas'
-import { createDocument, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { createDocument, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { saveDraft } from '../document/storage'
@@ -150,18 +150,6 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     },
   })
 
-  function addSpacer() {
-    if (!mainEditor) return
-    const { selection } = mainEditor.state
-    const position = selection instanceof NodeSelection ? selection.to
-      : selection.$from.depth ? selection.$from.after(1) : selection.from
-    const node = mainEditor.schema.nodes.spacer.create({ id: crypto.randomUUID(), height: 120 })
-    const transaction = mainEditor.state.tr.insert(position, node).setMeta('historyBoundary', true)
-    mainEditor.view.dispatch(transaction)
-    mainEditor.commands.focus()
-    setActiveEditor(mainEditor)
-  }
-
   function anchorId() {
     if (!mainEditor) return
     const selection = mainEditor.state.selection
@@ -170,23 +158,15 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     return block.attrs.id as string
   }
 
-  function addObject(kind: 'text' | 'table' | 'katex') {
+  function addObject(kind: 'text' | 'table' | 'katex', columns = 2, rows = 2) {
     const anchor = anchorId()
-    if (!anchor) return
-    const id = crypto.randomUUID()
-    const object = kind === 'katex' ? {
-      id, kind, anchorId: anchor, x: 0, y: 32, width: 340, textFlow: 'overlap' as const, latex: 'E = mc^2',
-    } : {
-      id, anchorId: anchor, kind,
-      x: 0, y: 32, width: 340, textFlow: 'overlap' as const,
-      content: kind === 'table' ? tableContent() : { type: 'doc', content: [paragraph('A new thought', 'heading'), paragraph('Write something here.', 'caption')] },
-    }
-    setDoc(current => {
-      if (!current) return current
-      const width = kind === 'katex' ? Math.min(340, current.width - current.margins.left - current.margins.right) : 340
-      return { ...current, floating: [...current.floating, { ...object, width, x: Math.max(current.margins.left, current.width - current.margins.right - width) }] }
-    })
-    if (kind === 'katex') { setSelectedIds([id]); setActiveEditor(null) }
+    if (!doc || anchor === undefined) return
+    const width = Math.min(kind === 'table' ? Math.max(340, columns * 80) : 340, doc.width - doc.margins.left - doc.margins.right)
+    const base = { id: crypto.randomUUID(), anchorId: anchor, x: doc.width - doc.margins.right - width, y: 32, width, textFlow: 'overlap' as const }
+    const object: FloatingObject = kind === 'katex' ? { ...base, kind, latex: 'E = mc^2' }
+      : { ...base, kind, content: kind === 'table' ? tableContent(Array.from({ length: rows }, () => Array(columns).fill('')))
+        : { type: 'doc', content: [paragraph('A new thought', 'heading'), paragraph('Write something here.', 'caption')] } }
+    actions.current?.insert([object])
   }
 
   function updateFloating(floating: FloatingObject[]) { setDoc(current => current && ({ ...current, floating })) }
@@ -216,38 +196,32 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     imageInput.current!.click()
   }
 
-  async function uploadImage(file: File) {
-    const target = imageTarget.current!
-    let createdWidgetId = ''
-    setImageLoading(true)
-    setImageError('')
+  const imageGeneration = useRef(0)
+  useEffect(() => () => { imageGeneration.current++ }, [editable, doc?.id, history.revision])
+
+  async function uploadImages(files: File[], target: NonNullable<typeof imageTarget.current>, position?: LineEnd) {
+    if (!editable || imageLoading || !files.length) return
+    const generation = imageGeneration.current
+    setImageLoading(true); setImageError('')
     try {
-      const src = await readImage(file)
-      setDoc(current => {
-        if (!current || current.id !== target.documentId) return current
-        if (target.objectId) return { ...current, floating: current.floating.map(object => object.id === target.objectId
-          ? target.kind === 'widget' && object.kind === 'html' ? { ...object, screenshot: src } : { ...object, src }
-          : object) }
-        const anchor = target.anchorId === null || current.content.content!.some(node => node.attrs?.id === target.anchorId)
-          ? target.anchorId : current.content.content![0].attrs!.id as string
-        if (target.kind === 'widget') {
-          const id = crypto.randomUUID()
-          const width = Math.min(340, current.width - current.margins.left - current.margins.right)
-          createdWidgetId = id
-          return { ...current, floating: [...current.floating, {
-            id, kind: 'html', anchorId: anchor,
-            x: Math.max(current.margins.left, current.width - current.margins.right - width), y: 32, width, height: 220, textFlow: 'overlap' as const,
-            html: DEFAULT_WIDGET_HTML, screenshot: src, alt: file.name.replace(/\.[^.]+$/, ''),
-          }] }
-        }
-        return { ...current, floating: [...current.floating, {
-          id: crypto.randomUUID(), kind: 'image', anchorId: anchor,
-          x: Math.max(current.margins.left, current.width - current.margins.right - 340), y: 32, width: 340, textFlow: 'overlap' as const,
-          src, alt: file.name.replace(/\.[^.]+$/, ''),
-        }] }
+      const sources = await Promise.all(files.map(readImage))
+      if (generation !== imageGeneration.current || latest.current?.id !== target.documentId) return
+      if (target.objectId) {
+        updateObject(target.objectId, target.kind === 'widget' ? { screenshot: sources[0] } : { src: sources[0] })
+        return
+      }
+      const current = latest.current!
+      const anchor = target.anchorId === null || current.content.content!.some(node => node.attrs?.id === target.anchorId)
+        ? target.anchorId : null
+      const width = Math.min(340, current.width - current.margins.left - current.margins.right)
+      const objects: FloatingObject[] = sources.map((src, index) => {
+        const base = { id: crypto.randomUUID(), anchorId: anchor, x: position?.x ?? current.width - current.margins.right - width,
+          y: position?.y ?? 32, width, textFlow: 'overlap' as const, alt: files[index].name.replace(/\.[^.]+$/, '') }
+        return target.kind === 'widget' ? { ...base, kind: 'html', height: 220, html: DEFAULT_WIDGET_HTML, screenshot: src }
+          : { ...base, kind: 'image', src }
       })
-      if (createdWidgetId) { setSelectedIds([createdWidgetId]); setActiveEditor(null); setTool(null) }
-    } catch (error) { setImageError((error as Error).message) }
+      actions.current?.insert(objects)
+    } catch (error) { if (generation === imageGeneration.current) setImageError((error as Error).message) }
     finally { setImageLoading(false) }
   }
 
@@ -305,22 +279,20 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       {!mobile && <button onClick={onTryEditing}>Try editing</button>}
     </div>}
 
-    {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor && activeEditor === mainEditor} imageLoading={imageLoading}
+    {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
       theme={doc.theme} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
-      onInsert={kind => {
+      onInsert={(kind, columns, rows) => {
         if (kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
         } else {
           setTool(null)
-          if (kind === 'space') addSpacer()
-          else if (kind === 'image') chooseImage()
+          if (kind === 'image') chooseImage()
           else if (kind === 'html') chooseWidgetScreenshot()
-          else if (kind === 'katex') addObject(kind)
-          else addObject(kind)
+          else addObject(kind, columns, rows)
         }
       }} />}
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
-      onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file) void uploadImage(file) }} />
+      onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file && imageTarget.current) void uploadImages([file], imageTarget.current) }} />
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>×</button></div>}
 
     <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
@@ -329,7 +301,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
-        onNoteChange={updateObject} />
+        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)} />
       {editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
       : showInspector && <aside className="inspector" id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>

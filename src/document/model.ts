@@ -157,7 +157,7 @@ export function paragraph(text: string, semantic: BlockClass = 'body'): JSONCont
   }
 }
 
-export function tableContent(rows = [['Idea', 'Next step'], ['A little space', 'Try something new'], ['', '']]): JSONContent {
+export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
   return { type: 'doc', content: [{ type: 'table', content: rows.map(row => ({
     type: 'tableRow', content: row.map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }] })),
   })) }] }
