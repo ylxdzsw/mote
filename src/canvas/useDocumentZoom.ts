@@ -2,40 +2,53 @@ import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefO
 
 interface Point { x: number; y: number }
 
-export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean) {
+export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number) {
   const [fit, setFit] = useState(1)
-  const [zoom, setZoom] = useState(1)
-  const scale = fit * zoom
-  const minScale = Math.min(.25, fit)
+  const [autoScale, setAutoScale] = useState(1)
+  const [zoom, setZoom] = useState<number | null>(initialScale ?? null)
+  const scale = zoom ?? autoScale
+  const minScale = Math.min(.25, autoScale)
   const focal = useRef<{ document: Point; client: Point } | null>(null)
   const wheelGesture = useRef<{ scale: number; time: number } | null>(null)
 
-  useLayoutEffect(() => { setZoom(1) }, [editable])
-  useLayoutEffect(() => { wheelGesture.current = null }, [fit, editable])
+  useLayoutEffect(() => { wheelGesture.current = null }, [autoScale, editable])
 
   useLayoutEffect(() => {
     const viewport = stage.current!
-    const measure = () => setFit(editable ? 1 : Math.min(1, (viewport.clientWidth - 48) / width))
+    const measure = () => {
+      const style = getComputedStyle(viewport)
+      const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
+      const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+      setFit(Math.min(1, availableWidth / width))
+      // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
+      setAutoScale(Math.min(3, availableWidth / width, availableHeight / 600))
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(viewport)
     return () => observer.disconnect()
-  }, [stage, width, editable])
+  }, [stage, width])
 
-  function zoomTo(next: number, client?: Point, snap = false) {
+  function zoomTo(next: number, client?: Point, snap = false, automatic = false) {
     wheelGesture.current = null
-    if (snap && next >= .95 && next <= 1.05) next = 1
+    if (snap) {
+      const target = [1, autoScale].sort((a, b) => Math.abs(Math.log(next / a)) - Math.abs(Math.log(next / b)))
+        .find(value => next >= value * .95 && next <= value * 1.05)
+      if (target !== undefined) next = target
+    }
     next = Math.max(minScale, Math.min(3, next))
+    // Even an unchanged manual scale leaves Auto (including snapping to its value).
+    setZoom(automatic ? null : next)
     if (next === scale) return
     const viewport = stage.current!
     const rect = viewport.getBoundingClientRect()
     const page = sheet.current!.getBoundingClientRect()
     const point = client ?? { x: rect.left + viewport.clientWidth / 2, y: rect.top + viewport.clientHeight / 2 }
     focal.current = { document: { x: (point.x - page.left) / scale, y: (point.y - page.top) / scale }, client: point }
-    setZoom(next / fit)
   }
 
   function zoomBy(factor: number) { zoomTo(scale * factor, undefined, true) }
+  function reset() { zoomTo(autoScale, undefined, false, true) }
 
   useLayoutEffect(() => {
     if (!focal.current) return
@@ -61,7 +74,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   const key = useEffectEvent((event: KeyboardEvent) => {
     if (!(event.ctrlKey || event.metaKey) || !['+', '=', '-', '0'].includes(event.key)) return
     event.preventDefault()
-    if (event.key === '0') zoomTo(fit)
+    if (event.key === '0') reset()
     else zoomBy(event.key === '-' ? 1 / 1.1 : 1.1)
   })
   const pinch = useRef<{ distance: number; scale: number } | null>(null)
@@ -89,5 +102,5 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     }
   }, [])
 
-  return { scale, minScale, zoomTo, zoomBy, reset: () => zoomTo(fit) }
+  return { scale, minScale, automatic: zoom === null, zoomTo, zoomBy, reset, fit: () => zoomTo(fit) }
 }

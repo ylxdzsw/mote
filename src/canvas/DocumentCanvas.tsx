@@ -26,6 +26,7 @@ interface Props {
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
   onActive: (editor: Editor | null) => void; onMainReady: (editor: Editor) => void
   widgetRuns?: Record<string, number>; staticWidgets?: boolean
+  initialScale?: number
   onDropImages?: (files: File[], position: LineEnd) => void
 }
 interface Drag {
@@ -38,12 +39,12 @@ const contentText = (content: JSONContent): string => (content.text ?? '') + (co
 const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
   || (object.kind === 'katex' && !object.latex.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, onDropImages }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
-  const { scale, minScale, zoomTo, zoomBy, reset } = useDocumentZoom(stage, sheet, doc.width, editable)
+  const { scale, minScale, automatic, zoomTo, zoomBy, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [inserting, setInserting] = useState<FloatingObject[]>([])
@@ -483,7 +484,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
       <button aria-label="Zoom out" disabled={scale <= minScale} onClick={() => zoomBy(1 / 1.1)}>−</button>
-      <select aria-label="Document zoom level" value={String(scale)} onChange={event => event.target.value === 'fit' ? reset() : zoomTo(Number(event.target.value))}>
+      <select aria-label="Document zoom level" title={automatic ? 'Auto zoom' : 'Zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : event.target.value === 'fit' ? fit() : zoomTo(Number(event.target.value))}>
+        <option value="auto">Auto</option>
         {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
         {!editable && <option value="fit">Fit</option>}
         {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
