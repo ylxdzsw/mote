@@ -4,6 +4,8 @@
 .sheet.has-creation-tool .main-text { cursor: crosshair; }
 .sheet.has-creation-tool [data-spacer] { cursor: crosshair; }
 .sheet.is-floating-dragging { user-select: none; }
+.sheet.is-editing .floating-text:hover { outline: 1px solid #d9decb; }
+.sheet.is-editing .floating-text.is-selected { outline: 1px solid #86a47b; }
 .sheet.is-editing .floating-image img { cursor: move; }
 .floating-note:is(.floating-rectangle, .floating-ellipse, .floating-line, .floating-label) { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .floating-rectangle, .floating-ellipse, .floating-line { pointer-events: none; }

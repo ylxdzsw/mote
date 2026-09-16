@@ -47,7 +47,7 @@ export const defaultTheme: Theme = {
     heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em', letterSpacing: '-0.025em' },
     body: { size: '1em' },
     table: { size: '1em' },
-    label: { size: '1em' },
+    label: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
     math: {},
     caption: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
     code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
@@ -73,6 +73,8 @@ interface FloatingGeometry {
 export interface FloatingText extends FloatingGeometry {
   kind?: 'text'
   content: JSONContent
+  background?: string | null
+  borderColor?: string | null
 }
 
 export interface FloatingTable extends FloatingGeometry {
@@ -133,6 +135,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stro
   start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
   attachment?: LabelAttachment | null
   latex?: string; html?: string; screenshot?: string
+  background?: string | null; borderColor?: string | null
 }
 
 export function labelContent(text = ''): JSONContent {

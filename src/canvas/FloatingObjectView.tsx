@@ -26,13 +26,14 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const geometric = kind === 'rectangle' || kind === 'ellipse' || kind === 'line'
+  const textStyle = !note.kind || note.kind === 'text' ? { backgroundColor: note.background ?? 'transparent', borderColor: note.borderColor ?? 'transparent' } : {}
   useEffect(() => { if (editingLabel) editor.current?.commands.focus('end') }, [editingLabel])
   function begin(part: DragPart, event: PointerEvent) { if (editable && event.button === 0) onBegin(part, event) }
   const stroke = 'stroke' in note ? note.stroke ?? defaultColor : defaultColor
   const path = box.path?.map(point => ({ x: point.x - box.x, y: point.y - box.y }))
   return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''} ${editingLabel ? 'is-label-editing' : ''}`}
     data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-text-flow={note.textFlow}
-    style={{ zIndex: order + 1, left: box.x, top: box.y, width: kind === 'label' ? 'max-content' : Math.max(1, box.width), height: geometric || kind === 'html' ? Math.max(1, box.height) : undefined }}
+    style={{ ...textStyle, zIndex: order + 1, left: box.x, top: box.y, width: kind === 'label' ? 'max-content' : Math.max(1, box.width), height: geometric || kind === 'html' ? Math.max(1, box.height) : undefined }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null) }}
     onKeyDown={event => { if (event.target === event.currentTarget || (event.target as HTMLElement).matches('[data-floating-control]')) onKey(event) }}

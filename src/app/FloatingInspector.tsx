@@ -37,6 +37,15 @@ export function FloatingInspector({ object, count, themeColor, onChange, onActio
       {count > 1 ? <div className="object-actions"><button onClick={() => onAction('remove')}>Delete</button><button onClick={() => onAction('duplicate')}>Duplicate</button><button onClick={onFront}>Bring front</button><button onClick={onBack}>Send back</button></div> : <>
         {(!object.kind || ['text', 'image', 'table', 'katex', 'html'].includes(object.kind)) && <label>Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>}
         {object.kind === 'image' && <p className="hint">Drag the image interior to move it; drag the right edge to resize.</p>}
+        {(!object.kind || object.kind === 'text') && (['background', 'borderColor'] as const).map(property => {
+          const name = property === 'background' ? 'Background color' : 'Border color'
+          return <label key={property}>{name}<div className="color-control">
+            <input aria-label={name} type="color" value={object[property] ?? (property === 'background' ? '#ffffff' : themeColor)}
+              onFocus={() => onHistoryBegin(`floating-${property}`)} onBlur={onHistoryEnd} onChange={event => onChange({ [property]: event.target.value })} />
+            <span>{object[property] ?? 'Transparent'}</span>
+            <button disabled={object[property] == null} onClick={() => { onHistoryEnd(); onChange({ [property]: null }) }}>None</button>
+          </div></label>
+        })}
         {shape && <ShapeControls shape={shape} themeColor={themeColor} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
         {line && <LineControls line={line} themeColor={themeColor} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
         {label && <LabelControls label={label} targetKind={targetKind} onAction={onAction} onChange={onChange} />}

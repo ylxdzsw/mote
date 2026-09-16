@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { labelContent, type FloatingObject, type FloatingPatch, type LabelAttachment, type LineEnd, type MoteDocument } from '../document/model'
+import { labelContent, paragraph, type FloatingObject, type FloatingPatch, type LabelAttachment, type LineEnd, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { TextEditor } from '../editor/TextEditor'
 import { themeVariables } from '../theme/ThemePanel'
@@ -15,7 +15,7 @@ import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, c
 import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 
-export type CreationTool = 'rectangle' | 'ellipse' | 'line' | 'label' | null
+export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | null
 export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void; insert: (objects: FloatingObject[]) => void }
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
@@ -77,7 +77,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       return { ...object, ...anchorPoint(position, measured.anchors) }
     })
     history.boundary(); onFloatingChange([...doc.floating, ...placed]); setInserting([])
-    select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id)
+    select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id, placed[0].kind === 'text')
   }, [inserting])
 
   const previousEdit = useRef({ ids: selectedIds, label: editingLabel, editable, revision: history.revision })
@@ -111,8 +111,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     onSelect(ids)
     if (!ids.includes(editingLabel ?? '')) setEditingLabel(null)
   }
-  function focusObject(id: string) {
-    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`)?.focus({ preventScroll: true }))
+  function focusObject(id: string, text = false) {
+    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' .tiptap' : ''}`)?.focus({ preventScroll: true }))
   }
   function cancel() {
     drag.current = null; setPreviews({}); setCreating(null); setMarquee(null); setGuides([])
@@ -228,6 +228,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const start = boundedPoint(snap(point(event), event.altKey), 16, .5)
       const base = { id: crypto.randomUUID(), ...anchorPoint(start, anchors), width: boundedWidth(start.x, 128, 16, .5), textFlow: 'overlap' as const }
       const note: FloatingObject = tool === 'label' ? { ...base, kind: 'label', content: labelContent(), attachment: null }
+        : tool === 'text' ? { ...base, kind: 'text', width: boundedWidth(start.x, 340, 120), background: null, borderColor: null, content: { type: 'doc', content: [paragraph('')] } }
         : tool === 'line' ? { ...base, kind: 'line', stroke: null, strokeWidth: 1, dashed: false, start: snapEndpoint(start, event.altKey), end: anchorPoint(start, anchors), route: 'straight', bend: 0, arrowStart: false, arrowEnd: true }
         : { ...base, kind: tool, height: 80, fill: null, rounded: false, stroke: null, strokeWidth: 1, dashed: false }
       drag.current = { part: 'create', id: note.id, ids: [note.id], start, objects: doc.floating, geometry, patches: {}, moved: false, additive: [], created: note }
@@ -287,6 +288,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       else if (object.kind === 'label') {
         const placement = snapLabel(p, geometry[object.id] ?? { ...p, width: 12, height: 24 }, object.id, event.altKey)
         patch = { x: placement.point.x, top: placement.point.y, attachment: placement.attachment }
+      } else if (object.kind === 'text') {
+        const end = boundedPoint(snap(p, event.altKey))
+        const x = Math.min(d.start.x, end.x)
+        patch = { x, top: d.start.y, width: boundedWidth(x, Math.abs(end.x - d.start.x), 120) }
       } else {
         let end = boundedPoint(snap(p, event.altKey), 0, .5)
         if (event.shiftKey) { const size = Math.min(Math.max(Math.abs(end.x - d.start.x), Math.abs(end.y - d.start.y)), end.x >= d.start.x ? pageWidth() - .5 - d.start.x : d.start.x - .5); end = { x: d.start.x + Math.sign(end.x - d.start.x || 1) * size, y: d.start.y + Math.sign(end.y - d.start.y || 1) * size } }
@@ -347,7 +352,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       }
       onFloatingChange([...doc.floating, next])
       select([object.id]); onToolChange(null)
-      if (object.kind === 'label') { newLabels.current.add(object.id); setEditingLabel(object.id) } else focusObject(object.id)
+      if (object.kind === 'label') { newLabels.current.add(object.id); setEditingLabel(object.id) } else focusObject(object.id, object.kind === 'text')
     } else if (d.moved) {
       const next = applyPatches(doc.floating, d.patches)
       const object = next.find(object => object.id === d.id)!

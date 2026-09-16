@@ -5,10 +5,10 @@ import { NodeSelection } from '@tiptap/pm/state'
 import { blockClasses, inlineClasses, type BlockClass, type InlineClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { classLabel } from '../theme/ThemePanel'
+import type { CreationTool } from '../canvas/DocumentCanvas'
 import './toolbar.css'
 
 type InsertKind = 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
-type DrawingTool = 'rectangle' | 'ellipse' | 'line' | 'label' | null
 type IconName = BlockClass | InsertKind | 'plain' | 'bold' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
 function Icon({ name }: { name: IconName }) {
@@ -168,7 +168,7 @@ const insertKinds: InsertKind[] = ['text', 'label', 'image', 'table', 'katex', '
 const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
 
 interface Props {
-  editor: Editor | null; canInsert: boolean; imageLoading: boolean; theme: Theme; tool: DrawingTool
+  editor: Editor | null; canInsert: boolean; imageLoading: boolean; theme: Theme; tool: CreationTool
   onInsert: (kind: InsertKind, columns?: number, rows?: number) => void
   canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void
 }

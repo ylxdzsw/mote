@@ -182,6 +182,9 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   if (!['overlap', 'repel'].includes(object.textFlow as string)) invalid(`${path}.textFlow is unsupported`)
 
   const kind = object.kind
+  if (kind === undefined || kind === 'text') {
+    for (const property of ['background', 'borderColor']) if (property in object) color(object[property], `${path}.${property}`)
+  }
   if (kind === undefined || kind === 'text' || kind === 'table' || kind === 'label') {
     if (!('content' in object)) invalid(`${path}.content is missing`)
     inspectContent(object.content, `${path}.content`)

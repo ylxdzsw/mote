@@ -4,8 +4,8 @@ import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
-import { DocumentCanvas, type CanvasActions } from '../canvas/DocumentCanvas'
-import { createDocument, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
+import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
+import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { saveDraft } from '../document/storage'
@@ -87,7 +87,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
   const [zoomHost, setZoomHost] = useState<HTMLDivElement | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [tool, setTool] = useState<'rectangle' | 'ellipse' | 'line' | 'label' | null>(null)
+  const [tool, setTool] = useState<CreationTool>(null)
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
   const actions = useRef<CanvasActions | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
@@ -158,14 +158,13 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     return block.attrs.id as string
   }
 
-  function addObject(kind: 'text' | 'table' | 'katex', columns = 2, rows = 2) {
+  function addObject(kind: 'table' | 'katex', columns = 2, rows = 2) {
     const anchor = anchorId()
     if (!doc || anchor === undefined) return
     const width = Math.min(kind === 'table' ? Math.max(340, columns * 80) : 340, doc.width - doc.margins.left - doc.margins.right)
     const base = { id: crypto.randomUUID(), anchorId: anchor, x: doc.width - doc.margins.right - width, y: 32, width, textFlow: 'overlap' as const }
     const object: FloatingObject = kind === 'katex' ? { ...base, kind, latex: 'E = mc^2' }
-      : { ...base, kind, content: kind === 'table' ? tableContent(Array.from({ length: rows }, () => Array(columns).fill('')))
-        : { type: 'doc', content: [paragraph('A new thought', 'heading'), paragraph('Write something here.', 'caption')] } }
+      : { ...base, kind, content: tableContent(Array.from({ length: rows }, () => Array(columns).fill(''))) }
     actions.current?.insert([object])
   }
 
@@ -282,7 +281,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
       theme={doc.theme} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
       onInsert={(kind, columns, rows) => {
-        if (kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
+        if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
         } else {
           setTool(null)
