@@ -470,3 +470,11 @@ Redeployed and verified live label/text centers match exactly, English curly apo
 The existing 16px floating grid now appears as soon as a canvas creation tool is armed, including before pointer-down, and remains through the creation preview. Completion/cancellation removes it; existing movement/resize visibility and snapping behavior are unchanged. This shares one condition across text boxes, shapes, lines, and labels rather than adding separate gesture state.
 
 Type/build/whitespace checks passed. Production-preview pointer checks confirmed text creation, shape cancellation, and line completion; live checks confirmed armed-tool visibility and Escape cleanup. An additional sequence starting a shape after leaving a newly created empty text box produced a blank app once; reloading restored it, and that separate empty-content/creation interaction was not investigated in this grid-only change. Redeployed and verified matching HTML and no-store headers. Existing bundle-size advisory remains. Task-owned browser and preview sessions stopped.
+
+## 2026-09-16 — HTML-file drops in widget source
+
+Image-file insertion already supports document drops, including batches and editor interiors; confirmed with two PNGs and atomic undo without changing that implementation. The HTML widget code field now accepts a single HTML file (text/html or a case-insensitive .html/.htm filename), replacing the entire source as one document-history step. It saves immediately but neither runs the source nor replaces the screenshot; Run / Restart stays explicit. Invalid/multiple files and read failures leave source intact with an inline error. Text-only drag/drop retains native textarea behavior. Pending reads are invalidated by newer drops, source edits, history navigation, target changes, and editor unmount.
+
+Build/type/whitespace checks passed. Scoped production-preview checks covered uppercase extension/empty MIME, Unicode source, invalid/multiple files, simulated read failure, closing during a pending read, atomic undo/redo, unchanged iframe until explicit restart, and reload persistence. No application browser errors or dependencies added; existing bundle-size advisory remains.
+
+Redeployed and verified a live .htm drop, matching HTML and all five JS/CSS chunks, and no-store responses (HTML DYNAMIC). Task-owned preview and browser sessions stopped.
