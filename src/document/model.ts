@@ -178,7 +178,7 @@ export function createDocument(): MoteDocument {
     version: 'V0',
     id: crypto.randomUUID(),
     width: 800,
-    margins: { left: 48, right: 48 },
+    margins: { left: 55, right: 55 },
     theme: structuredClone(defaultTheme),
     content: {
       type: 'doc',

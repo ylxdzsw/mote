@@ -91,15 +91,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       x: 0, y: (element.getBoundingClientRect().top - rect.top) / scale - sheet.current!.clientTop, width: doc.width, height: element.getBoundingClientRect().height / scale,
     })).find(space => contains(space, p))
   }
-  function snap(p: Point, alt: boolean, edges = [0]): Point {
-    if (alt) return p
-    const margins = [doc.margins.left, pageWidth() - doc.margins.right]
-    const nearest = edges.flatMap(edge => margins.map(margin => margin - edge))
-      .sort((a, b) => Math.abs(a - p.x) - Math.abs(b - p.x))[0]
-    return {
-      x: Math.abs(nearest - p.x) <= 8 / scale ? nearest : Math.round(p.x / gridSize) * gridSize,
-      y: Math.round(p.y / gridSize) * gridSize,
-    }
+  function snap(p: Point, alt: boolean): Point {
+    return alt ? p : { x: Math.round(p.x / gridSize) * gridSize, y: Math.round(p.y / gridSize) * gridSize }
   }
   function pageWidth() {
     const style = getComputedStyle(sheet.current!)
@@ -147,11 +140,11 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           box: candidate === nearest && nearest.distance < 16 / scale ? { ...candidate.point, width: size.width, height: size.height } : undefined,
         })))
         if (nearest.distance < 16 / scale) return nearest
-        return { point: boundedPoint(snap(p, alt, [0, size.width]), size.width), attachment: null }
+        return { point: boundedPoint(snap(p, alt), size.width), attachment: null }
       }
     }
     setGuides([])
-    return { point: boundedPoint(snap(p, alt, [0, size.width]), size.width), attachment: null }
+    return { point: boundedPoint(snap(p, alt), size.width), attachment: null }
   }
   function capture(event: PointerEvent) {
     event.preventDefault(); event.stopPropagation()
@@ -246,9 +239,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         patch = { x: rect.x, top: Math.max(0, rect.y), width: boundedWidth(rect.x, rect.width, 16, .5), height: Math.max(16, rect.height) }
       }
     } else if (d.part === 'move') {
-      const selected = d.ids.map(id => d.geometry[id])
-      const edges = [Math.min(...selected.map(box => box.x)) - box.x, Math.max(...selected.map(box => box.x + box.width)) - box.x]
-      let placement = snap({ x: box.x + p.x - d.start.x, y: box.y + p.y - d.start.y }, event.altKey, edges)
+      let placement = snap({ x: box.x + p.x - d.start.x, y: box.y + p.y - d.start.y }, event.altKey)
       const dx = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].x)), placement.x - box.x)
       const dy = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].y)), placement.y - box.y)
       d.patches = shifted(d.objects, d.geometry, d.ids, dx, dy)
@@ -378,7 +369,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''}`}>
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
-      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && (creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
+      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && Object.keys(previews).length > 0 ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} data-floating-preview={active ? '' : undefined}
         style={{ ...themeVariables(doc.theme), '--margin-left': `${doc.margins.left}px`, '--margin-right': `${doc.margins.right}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
         <div className="main-text">
