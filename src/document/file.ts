@@ -84,6 +84,7 @@ function themeStyle(value: unknown, path: string): void {
 
 function checkTheme(value: unknown): void {
   const theme = record(value, 'theme')
+  if ('autospace' in theme && typeof theme.autospace !== 'boolean') invalid('theme.autospace must be a boolean')
   const defaults = record(theme.defaults, 'theme.defaults')
   for (const property of ['family', 'size', 'color', 'background', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
     if (!(property in defaults)) invalid(`theme.defaults.${property} is missing`)
@@ -238,6 +239,7 @@ function validateDocument(value: unknown): asserts value is MoteDocument {
   finiteValues(value)
   const document = record(value, 'document')
   if (document.version !== 'V0') invalid('unsupported document version')
+  if ('language' in document && !['en', 'zh-Hans'].includes(document.language as string)) invalid('document.language is unsupported')
   identifier(document.id, 'document.id')
   finite(document.width, 'document.width', Number.MIN_VALUE)
   const margins = record(document.margins, 'document.margins')

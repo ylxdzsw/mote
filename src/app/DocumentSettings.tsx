@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { MoteDocument } from '../document/model'
+import type { DocumentLanguage, MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { NumberField, ThemePanel, type ThemeClass } from '../theme/ThemePanel'
 
@@ -32,6 +32,12 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
           <NumberField label="Document width" value={doc.width} min={Math.max(320, doc.margins.left + doc.margins.right + 120)} max={2400}
             onChange={width => onChange({ ...doc, width })} /></div>
         <p className="hint">A continuous page, as tall as your content. Reading mode fits the page without rearranging it.</p>
+        <div className="style-field"><div className="field-heading">Text language</div>
+          <select aria-label="Text language" value={doc.language ?? 'en'} onChange={event => {
+            history.boundary(); onChange({ ...doc, language: event.target.value as DocumentLanguage })
+          }}><option value="en">English</option><option value="zh-Hans">Simplified Chinese</option></select>
+        </div>
+        <p className="hint">The main language of the document, not the interface. Both support mixed English and Simplified Chinese text.</p>
         <h2 className="subheading">Margins</h2>
         <div className="paired-fields">
           {(['top', 'bottom'] as const).map(side => <div className="style-field" key={side}>
@@ -57,7 +63,7 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
           </div>)}
         </div>
         <p className="hint">At least 120px stays available for main text. Floating objects keep their document-space positions; narrower pages can leave them outside the page.</p>
-      </section> : <ThemePanel theme={doc.theme} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} />}
+      </section> : <ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} />}
     </div>
   </aside>
 }

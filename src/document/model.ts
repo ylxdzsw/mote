@@ -35,6 +35,7 @@ export interface PhraseStyle {
 }
 
 export interface Theme {
+  autospace?: boolean
   defaults: Omit<BlockStyle, 'size'> & { size: number; background: string }
   blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
   inline: Record<InlineClass, Partial<PhraseStyle>>
@@ -43,8 +44,8 @@ export interface Theme {
 export const defaultTheme: Theme = {
   defaults: { family: 'sans', size: 16, color: '#414841', background: '#fffefa', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
-    title: { size: '3em', color: '#262b27', family: 'serif', lineHeight: '3.5em', letterSpacing: '-0.1em' },
-    heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em', letterSpacing: '-0.025em' },
+    title: { size: '3em', color: '#262b27', family: 'serif', lineHeight: '3.5em' },
+    heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
     body: { size: '1em' },
     table: { size: '1em' },
     label: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
@@ -142,9 +143,12 @@ export function labelContent(text = ''): JSONContent {
   return { type: 'doc', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }] }
 }
 
+export type DocumentLanguage = 'en' | 'zh-Hans'
+
 export interface MoteDocument {
   version: 'V0'
   id: string
+  language?: DocumentLanguage
   width: number
   margins: { top: number; right: number; bottom: number; left: number }
   theme: Theme

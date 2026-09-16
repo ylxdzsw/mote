@@ -96,8 +96,8 @@ const Table = Node.create({
           return paragraph.outerHTML
         },
         handleDOMEvents: {
-          beforeinput: (_view, event) => {
-            if (!editor.isEditable || event.inputType !== 'insertParagraph') return false
+          beforeinput: (view, event) => {
+            if (!editor.isEditable || event.isComposing || view.composing || event.inputType !== 'insertParagraph') return false
             event.preventDefault()
             editor.commands.setHardBreak()
             return true

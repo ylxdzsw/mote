@@ -18,6 +18,7 @@ import { Toolbar } from './Toolbar'
 import { FloatingInspector } from './FloatingInspector'
 import { DocumentFiles } from './DocumentFiles'
 import { useMedia } from './useMedia'
+import { isComposingKey } from '../editor/composition'
 import './floating-controls.css'
 import './embeds.css'
 
@@ -37,6 +38,7 @@ export function App() {
   const session = useLocalDraft(!mobile)
   useEffect(() => {
     function saveShortcut(event: KeyboardEvent) {
+      if (isComposingKey(event)) return
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
         event.preventDefault(); event.stopPropagation()
       }
@@ -121,7 +123,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     function keydown(event: KeyboardEvent) {
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return
       const key = event.key.toLowerCase()
-      if (!editable || event.isComposing) return
+      if (!editable || isComposingKey(event)) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
       if (target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox])')) return

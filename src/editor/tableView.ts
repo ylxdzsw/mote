@@ -2,6 +2,7 @@ import type { NodeViewRendererProps } from '@tiptap/core'
 import type { NodeView } from '@tiptap/pm/view'
 import { TableMap } from '@tiptap/pm/tables'
 import { normalizeColumns, type TableColumn } from '../document/table'
+import { isComposingKey } from './composition'
 
 export function tableView({ node: initial, editor, getPos }: NodeViewRendererProps): NodeView {
   let node = initial
@@ -77,7 +78,7 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
         handle.onpointercancel = () => finish()
         handle.onlostpointercapture = () => finish()
         handle.onkeydown = event => {
-          if (!editor.isEditable || event.altKey || event.ctrlKey || event.metaKey) return
+          if (!editor.isEditable || isComposingKey(event) || event.altKey || event.ctrlKey || event.metaKey) return
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
           event.preventDefault(); event.stopPropagation()
           commit(resized(columns(), index, (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 1 : 8) / table.clientWidth))
@@ -92,6 +93,7 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
     })
   }
   const escape = (event: KeyboardEvent) => {
+    if (isComposingKey(event)) return
     if (drag && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); finish() }
   }
   document.addEventListener('keydown', escape, true)

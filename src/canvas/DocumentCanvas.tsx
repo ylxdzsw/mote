@@ -4,6 +4,7 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { labelContent, paragraph, type FloatingObject, type FloatingPatch, type LabelAttachment, type LineEnd, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { TextEditor } from '../editor/TextEditor'
+import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
@@ -127,7 +128,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }, [doc.floating])
   useLayoutEffect(() => {
     function escape(event: KeyboardEvent) {
-      if (event.key !== 'Escape') return
+      if (event.key !== 'Escape' || isComposingKey(event)) return
       if (drag.current) { event.preventDefault(); cancel() }
       onToolChange(null)
       if (editingLabel) { const id = editingLabel; setEditingLabel(null); focusObject(id) }
@@ -421,7 +422,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) } }) })
   function key(id: string, event: React.KeyboardEvent) {
-    if (!editable) return
+    if (!editable || isComposingKey(event.nativeEvent)) return
     if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); return }
     if (event.key === 'Enter') { event.preventDefault(); label(id); return }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicate(); return }
@@ -453,7 +454,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && Object.keys(previews).length > 0 ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
-        ref={sheet} data-floating-preview={active ? '' : undefined}
+        ref={sheet} lang={doc.language ?? 'en'} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
         onDropCapture={event => {

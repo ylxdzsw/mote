@@ -51,6 +51,20 @@ Direct insertion uses the last main-text caret as its starting anchor, even when
 
 ## Model and boundaries
 
+### English and Simplified Chinese
+
+Mote is English-first, with horizontal mixed English/Simplified Chinese document text. **Document → Layout → Text language** selects English (the default) or Simplified Chinese for the document content, without changing the interface. This language applies to the shared page, including floating text, tables, labels, minimap snapshots, PNG, and standalone HTML. There are no per-passage language controls or automatic language detection. Vertical writing and language-driven right alignment/RTL layout are non-goals; ordinary table-column alignment is unchanged.
+
+The three semantic typeface choices use installed fonts, not downloaded or embedded document fonts:
+
+- **Sans serif:** Microsoft YaHei first, then PingFang SC, Noto Sans CJK SC / Noto Sans SC, and system sans serif.
+- **Serif:** Georgia for English, with Songti SC, SimSun, and Noto Serif CJK SC / Noto Serif SC for Chinese, then the system serif fallback.
+- **Monospace:** system monospace, SFMono-Regular, and Consolas, with Sarasa Mono SC, Noto Sans Mono CJK SC, and Microsoft YaHei fallbacks. Chinese glyph coverage and cell-width alignment are best-effort.
+
+Prose uses normal word breaking, strict CJK punctuation breaking, and emergency wrapping for long unbreakable strings. Labels retain their explicit no-wrap behavior. **Theme → Defaults → Mixed-script spacing** defaults on and uses CSS `text-autospace` to add visual gaps between Chinese and Latin letters/numbers where the browser supports it. It never inserts spaces into stored or copied text. Code disables automatic spacing and retains literal whitespace. Title and Heading presets no longer apply negative tracking; existing saved theme overrides are not rewritten. Theme samples include mixed English/Chinese text. System-font availability and browser typography support can still change wrapping across devices; no identical-layout guarantee is made.
+
+Editor composition transactions are grouped by editor and composition identity, without the ordinary typing timeout splitting a paused conversion. Global document shortcuts yield to composing/process-key events, table paragraph-input handling yields to composition, and document-history navigation waits until composition ends. Scoped Chromium checks use browser composition injection, not a native OS candidate window; Windows/macOS input methods and Safari/Firefox still need hands-on verification.
+
 ### Formulas and HTML widgets
 
 **+ → KaTeX** inserts a floating display-mode formula. The inspector edits its LaTeX source live, without `$$` or `\[...\]` delimiters; syntax errors retain the source and appear on the object. Width is user-controlled and height follows content. Formulas are centered, never automatically wrapped or shrunk, and can use explicit constructs such as `aligned`. Oversized content follows the existing page-edge cropping policy. **Math style…** opens a global size/color style inherited from Defaults, with px/em units and normal history/reset behavior; math typefaces remain KaTeX's. KaTeX's unsafe HTML commands are disabled (`trust: false`). The renderer and WOFF2 math fonts are bundled for offline HTML and PNG. This is not a full LaTeX document engine, and inline mathematics is not included.
@@ -66,6 +80,8 @@ The example formula exercises aligned equations, fractions/roots, scripts, Greek
 The author-supplied screenshot is required and used for the minimap and PNG export, stretched to the object's saved rectangle. **Replace screenshot** updates it explicitly; authors should supply a matching aspect ratio and refresh it when needed. Mote does not capture widget HTML or verify that a screenshot matches the source/current state. Minimap snapshots remove live iframe content before insertion; PNG mounts a screenshot-only reader and never starts widget code. HTML exports keep live widgets, not screenshot substitutes. Both kinds share ordinary floating selection, anchoring, movement, grid, overlap/repel, labels, line connections, ordering, duplication/deletion, and document history.
 
 ### V0 representation
+
+Optional `language` is `en` or `zh-Hans` (omission means English). Optional `theme.autospace` is a boolean (omission means enabled). Both persist with the document, participate in history, and are validated on draft initialization and native import. They require no text rewriting or schema migration.
 
 KaTeX objects store `kind: 'katex'` and `latex` alongside shared floating geometry. HTML widgets store `kind: 'html'`, `html`, embedded `screenshot`, accessible `alt`, and explicit `height`. Math overrides live in `theme.blocks.math`; omission means inherited size/color, without rewriting the draft. Native import checks these fields and screenshot safety, but intentionally does not sanitize executable widget source. The `.mote` file contains source and screenshots, never live iframe state or run counters.
 

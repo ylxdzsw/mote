@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { themeBlockClasses, inlineClasses, type ThemeBlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
+import { themeBlockClasses, inlineClasses, type DocumentLanguage, type ThemeBlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
 import { MathView } from '../canvas/MathView'
 
@@ -8,7 +8,7 @@ function pixels(value: ThemeLength, base: number) {
 }
 
 export function themeVariables(theme: Theme): CSSProperties {
-  const variables: Record<string, string> = { '--page-background': theme.defaults.background }
+  const variables: Record<string, string> = { '--page-background': theme.defaults.background, '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal' }
   for (const name of themeBlockClasses) {
     const style = { ...theme.defaults, ...(theme.blocks[name] ?? {}) }
     if (name === 'math') {
@@ -16,8 +16,9 @@ export function themeVariables(theme: Theme): CSSProperties {
       variables[`--${name}-color`] = String(style.color)
       continue
     }
-    variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, monospace'
-      : style.family === 'serif' ? 'Georgia, serif' : 'system-ui, sans-serif'
+    variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace'
+      : style.family === 'serif' ? 'Georgia, "Songti SC", SimSun, "Noto Serif CJK SC", "Noto Serif SC", serif'
+      : '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif'
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
     variables[`--${name}-lineHeight`] = typeof style.lineHeight === 'number' ? String(style.lineHeight) : `${pixels(style.lineHeight, theme.defaults.size)}px`
     for (const property of ['color', 'weight'] as const) variables[`--${name}-${property}`] = String(style[property])
@@ -69,8 +70,8 @@ function ColorField({ label, value, onChange, optional = false }: { label: strin
   </div>
 }
 
-export function ThemePanel({ theme, selected, onSelect, onChange }: {
-  theme: Theme; selected: ThemeClass; onSelect: (value: ThemeClass) => void; onChange: (theme: Theme) => void
+export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
+  theme: Theme; language: DocumentLanguage; selected: ThemeClass; onSelect: (value: ThemeClass) => void; onChange: (theme: Theme) => void
 }) {
   const history = useHistory()
   const defaults = selected === 'defaults'
@@ -141,12 +142,19 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
       {(defaults || isParagraphBlock || isMath) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px){isMath ? '.' : ', including spacing and line height. × line height follows this paragraph’s font size.'}</p>}
       {(defaults || isParagraphBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
+        <p className="hint">{resolved.family === 'sans' ? 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>
         {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
       {isMath && length('size', 'Font size', 1, 512, .5)}
       {!isMath && choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
       {field('color', 'Text color', <ColorField label="Text color" value={resolved.color} onChange={value => update('color', value)} />)}
       {defaults && field('background', 'Page background', <ColorField label="Page background" value={theme.defaults.background} onChange={value => update('background', value)} />)}
+      {defaults && <>
+        <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {
+          history.boundary(); onChange({ ...theme, autospace: event.target.checked })
+        }} /> Mixed-script spacing</label>
+        <p className="hint">Adds a small visual gap between Chinese and English letters or numbers where supported. Does not change your text; Code stays literal.</p>
+      </>}
       {(defaults || isParagraphBlock) ? <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
         {length('letterSpacing', 'Letter spacing', -64, 64, .1)}
@@ -156,11 +164,11 @@ export function ThemePanel({ theme, selected, onSelect, onChange }: {
         {choose('italic', 'Slant', [['false', 'Normal'], ['true', 'Italic']], values.italic === undefined ? 'inherit' : String(values.italic), value => value === 'true')}
         {choose('decoration', 'Decoration', [['none', 'None'], ['underline', 'Underline'], ['line-through', 'Strikethrough']], String(values.decoration ?? 'inherit'))}
       </>}
-      <div className="theme-sample text-content" style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme), background: theme.defaults.background }} aria-label="Style sample">
+      <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme), background: theme.defaults.background }} aria-label="Style sample">
         {selected === 'math' ? <MathView latex="E=mc^2" />
-          : selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "to think"\n}'}</code></pre>
-          : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}>A little more detail</p></>
-          : <p data-semantic={isBlock ? selected : 'body'}>{defaults || isBlock ? 'A little room to think.' : <>A thought with <span data-inline-semantic={selected}>something to remember</span>.</>}</p>}
+          : selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "思考空间"\n}'}</code></pre>
+          : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
+          : <p data-semantic={isBlock ? selected : 'body'}>{defaults || isBlock ? <>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，保留V0草稿。</span></> : <>A thought with <span data-inline-semantic={selected}>something to remember</span>.<br /><span lang="zh-Hans">用Mote记录<span data-inline-semantic={selected}>值得记住的想法</span>。</span></>}</p>}
       </div>
       {!defaults && <button disabled={!Object.keys(styles).length} onClick={() => {
         history.boundary()

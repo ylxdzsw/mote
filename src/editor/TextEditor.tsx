@@ -42,8 +42,8 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         if (!editable || event.button !== 0 || !space) return false
         event.preventDefault()
         return true
-      }, beforeinput: (_view, event) => {
-        if (!editable || !['historyUndo', 'historyRedo'].includes(event.inputType)) return false
+      }, beforeinput: (view, event) => {
+        if (!editable || event.isComposing || view.composing || !['historyUndo', 'historyRedo'].includes(event.inputType)) return false
         event.preventDefault()
         if (event.inputType === 'historyUndo') history.undo(); else history.redo()
         return true
@@ -52,7 +52,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
     onFocus: ({ editor }) => { history.boundary(); onActive(editor) },
     onSelectionUpdate: ({ editor, transaction }) => {
       if (syncing.current || transaction.getMeta('historyRestore')) return
-      if (!transaction.docChanged) history.boundary()
+      if (!transaction.docChanged && !editor.view.composing && transaction.getMeta('composition') === undefined) history.boundary()
       onActive(editor)
     },
     onUpdate: ({ editor, transaction }) => {
@@ -60,6 +60,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         && transaction.steps[0] instanceof ReplaceStep && transaction.steps[0].slice.content.childCount <= 1
         && (!transaction.steps[0].slice.content.firstChild || transaction.steps[0].slice.content.firstChild.isText)
       history.edit({ editorId: historyId, before: before.current,
+        composition: transaction.getMeta('composition'),
         group: typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
       () => onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift')))
     },

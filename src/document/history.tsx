@@ -4,7 +4,7 @@ import type { MoteDocument } from './model'
 
 type SelectionJSON = ReturnType<Editor['state']['selection']['toJSON']>
 interface Snapshot { doc: MoteDocument; selections: Record<string, SelectionJSON> }
-interface EditOptions { group?: string; normalize?: boolean; editorId?: string; before?: SelectionJSON }
+interface EditOptions { group?: string; composition?: number; normalize?: boolean; editorId?: string; before?: SelectionJSON }
 type Update = MoteDocument | null | ((doc: MoteDocument | null) => MoteDocument | null)
 
 export function useDocumentHistory(initial: MoteDocument) {
@@ -23,7 +23,7 @@ export function useDocumentHistory(initial: MoteDocument) {
     const next = typeof update === 'function' ? update(s.doc) : update
     if (!next || next === s.doc) return
     if (s.doc && next.id === s.doc.id && next.content === s.doc.content && next.floating === s.doc.floating
-      && next.width === s.doc.width && JSON.stringify(next.margins) === JSON.stringify(s.doc.margins)
+      && next.width === s.doc.width && next.language === s.doc.language && JSON.stringify(next.margins) === JSON.stringify(s.doc.margins)
       && JSON.stringify(next.theme) === JSON.stringify(s.doc.theme)) {
       s.doc = next; render(next)
       return
@@ -31,9 +31,10 @@ export function useDocumentHistory(initial: MoteDocument) {
     if (!s.doc || next.id !== s.doc.id) {
       s.past = []; s.future = []; s.restored = {}; boundary()
     } else if (!s.options.normalize) {
-      const group = s.options.group ?? s.control
+      const composing = s.options.composition !== undefined
+      const group = composing ? `composition:${s.options.editorId}:${s.options.composition}` : s.options.group ?? s.control
       const now = Date.now()
-      if (!group || group !== s.group || (!s.control && now - s.time > 750)) {
+      if (!group || group !== s.group || (!s.control && !composing && now - s.time > 750)) {
         const before = selections()
         if (s.options.editorId && s.options.before) before[s.options.editorId] = s.options.before
         s.past.push({ doc: s.doc, selections: before })
@@ -45,6 +46,7 @@ export function useDocumentHistory(initial: MoteDocument) {
     render(next)
   }
   function travel(redo = false) {
+    if ([...s.editors.values()].some(editor => editor.view.composing)) return
     const from = redo ? s.future : s.past
     const to = redo ? s.past : s.future
     const snapshot = from.pop()

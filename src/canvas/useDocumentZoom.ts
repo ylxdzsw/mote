@@ -1,4 +1,5 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { isComposingKey } from '../editor/composition'
 
 interface Point { x: number; y: number }
 
@@ -72,6 +73,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     wheelGesture.current = { scale: next, time: event.timeStamp }
   })
   const key = useEffectEvent((event: KeyboardEvent) => {
+    if (isComposingKey(event)) return
     if (!(event.ctrlKey || event.metaKey) || !['+', '=', '-', '0'].includes(event.key)) return
     event.preventDefault()
     if (event.key === '0') reset()

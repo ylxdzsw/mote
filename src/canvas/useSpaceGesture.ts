@@ -3,6 +3,7 @@ import type { Editor } from '@tiptap/core'
 import type { Transaction } from '@tiptap/pm/state'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, spaceRemovalThreshold, type SpacePreview, type SpaceShift } from '../editor/spaces'
+import { isComposingKey } from '../editor/composition'
 
 interface Target extends SpacePreview { top: number }
 interface Drag { target: Target; y: number; height: number; moved: boolean; pointerId: number; shift?: SpaceShift }
@@ -104,6 +105,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       hover()
     }
     function key(event: KeyboardEvent) {
+      if (isComposingKey(event)) return
       alt = event.altKey
       if (event.key === 'Escape' && drag.current) { event.preventDefault(); cancel() }
       hover()
