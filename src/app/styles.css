@@ -42,7 +42,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .mode-switch [aria-pressed='true']:hover { background: #34513d; }
 .workspace { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 248px; flex: 1; min-height: 0; overflow: hidden; }
 .workspace.reader { display: block; }
-.canvas-pane { --minimap-width: 100px; --bookmark-width: 64px; position: relative; min-width: 0; height: 100%; min-height: 0; }
+.canvas-pane { --minimap-width: 100px; --bookmark-width: 96px; position: relative; min-width: 0; height: 100%; min-height: 0; }
 .canvas-pane.has-minimap { display: grid; grid-template-columns: var(--minimap-width) minmax(0, 1fr); }
 .has-minimap .stage { grid-column: 2; grid-row: 1; }
 .stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 32px 24px 64px; min-width: 0; }
@@ -59,11 +59,12 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .minimap.is-dragging .minimap-viewport { background: #54795f30; }
 .minimap[data-scrollable='false'], .minimap[data-scrollable='false'] .minimap-hit { cursor: default; }
 .minimap-bookmarks { position: absolute; left: 100%; top: 0; bottom: 0; width: var(--bookmark-width); overflow: auto; scrollbar-width: none; overscroll-behavior: contain; pointer-events: none; }
+.minimap-pane:hover .minimap-bookmarks { pointer-events: auto; }
 .minimap-bookmarks button { pointer-events: auto; }
 .minimap-bookmarks::-webkit-scrollbar { display: none; }
-.minimap-bookmark { position: absolute; left: 0; max-width: calc(100% - 4px); height: 18px; padding: 1px 4px; border: 1px solid #d6ddcf; border-left: 2px solid #95a98b; border-radius: 0 4px 4px 0; background: #f6f7f0; color: #6a7665; font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.minimap-bookmark { position: absolute; left: 0; max-width: calc(100% - 6px); height: 18px; padding: 1px 4px; border: 1px solid #d6ddcf; border-left: 2px solid #95a98b; border-radius: 0 4px 4px 0; background: #f6f7f0; color: #6a7665; font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .minimap-bookmark[aria-current='location'] { color: #35543e; background: #e2eadb; border-color: #9eb392; }
-.minimap-bookmark:not(:hover):not(:focus-visible) { max-width: 10px; padding-inline: 0; color: transparent; text-overflow: clip; }
+.minimap-pane:not(:hover) .minimap-bookmark:not(:focus-visible) { max-width: 10px; padding-inline: 0; color: transparent; text-overflow: clip; }
 .minimap-bookmark:focus-visible { outline-offset: -2px; }
 .header-zoom { flex-shrink: 0; }
 .zoom-controls { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; }
@@ -173,7 +174,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
   .sheet { box-shadow: none; }
   .workspace { display: block; }
   .inspector { position: absolute; top: 0; right: 0; bottom: 0; width: min(280px, 85vw); z-index: 2; box-shadow: -4px 0 16px #303b3310; }
-  .canvas-pane { --minimap-width: 72px; --bookmark-width: 44px; }
+  .canvas-pane { --minimap-width: 72px; --bookmark-width: 66px; }
 }
 
 @media (max-width: 360px) {

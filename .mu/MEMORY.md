@@ -415,3 +415,9 @@ Redeployed and verified live default Auto, the dynamic detent without re-enterin
 Heading bookmarks now rest as 10px tabs without visible text; hovering an individual tab expands its existing label, and leaving folds it again. Keyboard focus also reveals the focused label for accessible navigation. Current-heading tint, full accessible names/tooltips, heading jumps, and canvas layout remain unchanged; pointer clicks do not leave labels expanded. This shared CSS also applies to standalone readers.
 
 Build/type/whitespace checks and scoped Chromium checks passed for individual expansion, collapse after navigation, retained current-heading state, and keyboard focus. Redeployed and verified live folding/hover behavior and matching HTML/CSS with no-store headers. The existing bundle-size advisory remains.
+
+## 2026-09-16 — Expand bookmarks together on minimap hover
+
+User clarified that hovering the minimap should expand all heading labels, not individual labels. Hovering anywhere in the minimap pane now reveals them together and keeps them open across the label lane, including gaps between labels. Leaving folds them back into 10px tabs; keyboard-focused labels remain readable. Expanded width caps increase exactly 50%: 60→90px on desktop and 40→60px on small screens, with bookmark lanes increasing to 96/66px. Canvas layout and zoom remain unchanged.
+
+Build/type/whitespace checks passed. Scoped Chromium checks covered group hover, movement into the label lane, collapse after leaving/navigation, keyboard focus, and small-screen fit-mode widths. Redeployed and verified live group expansion/folding and matching HTML/CSS with no-store headers. No browser errors; the existing bundle-size advisory remains.
