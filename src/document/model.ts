@@ -196,7 +196,7 @@ export function createDocument(): MoteDocument {
           ...paragraph(''),
           content: [
             { type: 'text', text: 'Some thoughts want a line. Others need ' },
-            { type: 'text', text: 'a little space', marks: [{ type: 'semanticText', attrs: { semantic: 'primary' } }] },
+            { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'semanticText', attrs: { semantic: 'primary' } }] },
             { type: 'text', text: '. Mote brings both into the same document.' },
           ],
         },
@@ -212,7 +212,7 @@ export function createDocument(): MoteDocument {
         { type: 'spacer', attrs: { id: sketchSpaceId, height: 410 } },
         paragraph('Keep the thread', 'heading'),
         paragraph('Use the main text for the path you want to follow. Put a definition, a reminder, or an alternative in a floating box, close to the passage that gives it meaning.'),
-        paragraph('Leave room for later', 'heading'),
+        paragraph('Leave room for later · 留白', 'heading'),
         paragraph('An empty area can be an invitation rather than a gap to fill. Insert a space, place a thought inside it, and return when the connection becomes clearer. Nothing needs a final position yet.'),
         paragraph('Space is part of the composition, just as a pause is part of a sentence.', 'caption'),
         paragraph('Returning with fresh eyes', 'heading'),
@@ -244,7 +244,7 @@ export function createDocument(): MoteDocument {
       y: 22,
       width: 300,
       textFlow: 'overlap',
-      content: { type: 'doc', content: [paragraph('A thought in the margin', 'heading'), paragraph('I move with the space I’m anchored to.', 'caption')] },
+      content: { type: 'doc', content: [paragraph('A thought in the margin', 'heading'), paragraph('I follow my anchor. 灵感随行。', 'caption')] },
     }, {
       id: crypto.randomUUID(),
       anchorId: sketchSpaceId,
@@ -268,7 +268,7 @@ export function createDocument(): MoteDocument {
     }, {
       id: crypto.randomUUID(), kind: 'table', anchorId: reviewSpaceId,
       x: 55, y: 48, width: 340, textFlow: 'overlap',
-      content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Room to think', 'One useful question']]),
+      content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Space · 留白', 'One useful question']]),
     }, {
       id: rectangleId, kind: 'rectangle', anchorId: spaceId, x: 55, y: 48, width: 112, height: 80,
       textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: true,
@@ -282,7 +282,7 @@ export function createDocument(): MoteDocument {
       end: { x: 224, y: 88, anchorId: spaceId, connection: { targetId: ellipseId, side: 'left' } },
     }, {
       id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 55, y: 48, width: 12, textFlow: 'overlap',
-      content: labelContent('Idea'), attachment: { targetId: rectangleId, position: 'center' },
+      content: labelContent('Idea · 想法'), attachment: { targetId: rectangleId, position: 'center' },
     }, {
       id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 224, y: 48, width: 12, textFlow: 'overlap',
       content: labelContent('Explore'), attachment: { targetId: ellipseId, position: 'center' },
