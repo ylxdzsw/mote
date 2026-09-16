@@ -63,6 +63,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .minimap-bookmarks::-webkit-scrollbar { display: none; }
 .minimap-bookmark { position: absolute; left: 0; max-width: calc(100% - 4px); height: 18px; padding: 1px 4px; border: 1px solid #d6ddcf; border-left: 2px solid #95a98b; border-radius: 0 4px 4px 0; background: #f6f7f0; color: #6a7665; font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .minimap-bookmark[aria-current='location'] { color: #35543e; background: #e2eadb; border-color: #9eb392; }
+.minimap-bookmark:not(:hover):not(:focus-visible) { max-width: 10px; padding-inline: 0; color: transparent; text-overflow: clip; }
 .minimap-bookmark:focus-visible { outline-offset: -2px; }
 .header-zoom { flex-shrink: 0; }
 .zoom-controls { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid var(--border); border-radius: 7px; font-size: 11px; }

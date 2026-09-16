@@ -409,3 +409,9 @@ Incremental zoom has relative 5% detents at both 100% and the currently calculat
 Type/build/whitespace checks passed. Production-preview checks covered default width fit, ultrawide height limits, panel/document-width/minimap changes, fixed manual scales, Auto re-entry/reset, button/wheel/pinch snapping and escape, the unchanged 100% detent, reading Fit, 390/320px mobile, and standalone HTML Auto/manual resizing. PNG exported at the matching native 800×4066 size. Mobile header screenshot was reviewed; no application browser errors were observed. The existing bundle-size advisory remains; no dependencies or regression suite were added.
 
 Redeployed and verified live default Auto, the dynamic detent without re-entering Auto, fixed manual zoom across viewport changes, and the ultrawide height limit. Public HTML and all JS/CSS match the production build and return no-store (HTML DYNAMIC). Task-owned preview and isolated browser session were stopped.
+
+## 2026-09-16 — Fold minimap heading labels
+
+Heading bookmarks now rest as 10px tabs without visible text; hovering an individual tab expands its existing label, and leaving folds it again. Keyboard focus also reveals the focused label for accessible navigation. Current-heading tint, full accessible names/tooltips, heading jumps, and canvas layout remain unchanged; pointer clicks do not leave labels expanded. This shared CSS also applies to standalone readers.
+
+Build/type/whitespace checks and scoped Chromium checks passed for individual expansion, collapse after navigation, retained current-heading state, and keyboard focus. Redeployed and verified live folding/hover behavior and matching HTML/CSS with no-store headers. The existing bundle-size advisory remains.
