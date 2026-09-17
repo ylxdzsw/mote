@@ -6,13 +6,15 @@ interface Point { x: number; y: number }
 export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number) {
   const [fit, setFit] = useState(1)
   const [autoScale, setAutoScale] = useState(1)
-  const [zoom, setZoom] = useState<number | null>(initialScale ?? null)
-  const scale = zoom ?? autoScale
+  const [zooms, setZooms] = useState<{ edit: number | null; read: number | null | undefined }>({ edit: initialScale ?? null, read: initialScale })
+  const mode = editable ? 'edit' : 'read'
+  const zoom = zooms[mode]
+  const scale = zoom === undefined ? Math.min(autoScale, 1) : zoom ?? autoScale
   const minScale = Math.min(.25, autoScale)
   const focal = useRef<{ document: Point; client: Point } | null>(null)
   const wheelGesture = useRef<{ scale: number; time: number } | null>(null)
 
-  useLayoutEffect(() => { wheelGesture.current = null }, [autoScale, editable])
+  useLayoutEffect(() => { wheelGesture.current = null; pinch.current = null }, [autoScale, editable])
 
   useLayoutEffect(() => {
     const viewport = stage.current!
@@ -22,13 +24,15 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
       const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
       setFit(Math.min(1, availableWidth / width))
       // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
-      setAutoScale(Math.min(3, availableWidth / width, availableHeight / 600))
+      const automatic = Math.min(3, availableWidth / width, availableHeight / 600)
+      setAutoScale(automatic)
+      if (!editable) setZooms(current => current.read === undefined ? { ...current, read: Math.min(automatic, 1) } : current)
     }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(viewport)
     return () => observer.disconnect()
-  }, [stage, width])
+  }, [stage, width, editable])
 
   function zoomTo(next: number, client?: Point, snap = false, automatic = false) {
     wheelGesture.current = null
@@ -39,7 +43,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     }
     next = Math.max(minScale, Math.min(3, next))
     // Even an unchanged manual scale leaves Auto (including snapping to its value).
-    setZoom(automatic ? null : next)
+    setZooms(current => ({ ...current, [mode]: automatic ? null : next }))
     if (next === scale) return
     const viewport = stage.current!
     const rect = viewport.getBoundingClientRect()

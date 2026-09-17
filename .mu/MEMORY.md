@@ -546,3 +546,13 @@ The reading footprint clamps between scaled content width and scaled full-page w
 Type/build/whitespace checks passed. Scoped development and production-preview Chromium checks covered 390/320px Auto and zoom beyond full-page fit, exact 704px content fit, symmetric/asymmetric/zero/fractional margins, thick strokes and arrowheads at both scroll limits, measured attached labels with edit/undo, oversized formulas, below-fold objects, fully off-page objects, native import, manual scale across reading/editing, unchanged native dimensions, heading/minimap navigation, and standalone HTML fixtures. All three exports passed; PNG remained byte-identical across view zooms. Mobile screenshots reviewed; no application exceptions. Existing bundle-size advisory remains; no dependency or regression suite added.
 
 Redeployed and verified matching production HTML and every JS/CSS asset with no-store. Live 390px reading shows a 429px scaled page without horizontal scrolling; at 75%, scroll width is exactly 528px (704 × 0.75). Idle sheet mutations were zero and iframe browsing contexts survived zoom. Task-owned development/preview servers and browser session stopped.
+
+## 2026-09-17 — Independent mode zoom and initial reading scale
+
+Reading starts once, on loading or first entering the mode, at min(calculated Auto, 100%). This is a fixed initial scale, not a cap on Auto and not an ongoing fit policy. Explicit Auto / Ctrl+0 still uses the original width/height-limited calculation, including values above 100%, and the original Auto detent remains available. Explicit initialScale (native PNG capture) takes precedence.
+
+Editing and reading now keep independent session zoom settings, preserving either an absolute manual scale or Auto across switches. This supersedes the earlier shared manual zoom across modes. Reading initializes from its own measured viewport after the mode layout changes, not the editing viewport. Wheel/pinch gesture baselines clear across mode changes. No saved-document or persistence changes.
+
+Type/build/whitespace checks passed. Scoped production-preview Chromium checks covered first reading entry at 100%, independent manual restoration, independent Auto restoration, uncapped reading Auto, snapping to Auto without enabling it, mobile initial width fit, fixed initial scale across resizing, and Auto reset. Generated standalone HTML also started at 100% on desktop and reset to uncapped Auto. No application exceptions; the existing bundle-size advisory remains. Deployment follows.
+
+Redeployed and verified matching public HTML/main JS with no-store (DYNAMIC/BYPASS). Live desktop reading initializes at 100% and Ctrl+0 reaches the unchanged 150.667% Auto scale. Task-owned preview and isolated browser session stopped.
