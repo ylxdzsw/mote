@@ -46,7 +46,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .canvas-pane { --minimap-width: 100px; --bookmark-width: 96px; position: relative; min-width: 0; height: 100%; min-height: 0; }
 .canvas-pane.has-minimap { display: grid; grid-template-columns: var(--minimap-width) minmax(0, 1fr); }
 .has-minimap .stage { grid-column: 2; grid-row: 1; }
-.stage { --canvas-gutter: 24px; height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 32px var(--canvas-gutter) 64px; min-width: 0; }
+.stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 32px 24px 64px; min-width: 0; }
 .stage::-webkit-scrollbar { display: none; }
 .minimap-pane { position: relative; z-index: 1; grid-column: 1; grid-row: 1; display: grid; grid-template-columns: var(--minimap-width); min-height: 0; }
 .minimap { position: relative; overflow: hidden; min-height: 0; background: #f3f3ed; border-right: 1px solid var(--border); touch-action: none; user-select: none; cursor: pointer; }
@@ -78,6 +78,8 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .sheet.is-reading { overflow-x: clip; border-color: transparent; box-shadow: none; }
 .reading-canvas { background: var(--page-background); }
 .reading-canvas .stage { padding-inline: 0; }
+.reading-canvas .sheet-footprint { overflow-x: clip; }
+.reading-canvas .sheet-footprint > .sheet { left: calc((100% - var(--scaled-page-width)) * var(--crop-left)); }
 .reading-canvas .minimap { background: transparent; border-right-color: transparent; }
 .app-header.floating-header { position: fixed; inset: 0 0 auto; z-index: 2; background: transparent; border-color: transparent; pointer-events: none; }
 .floating-header > :not(.mode-switch, .reader-return) { display: none; }

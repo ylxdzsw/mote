@@ -2,16 +2,16 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from '
 import type { Editor } from '@tiptap/core'
 import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { labelOutsideGap, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { horizontalBounds, labelOutsideGap, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 import { nativeSize } from './measurement'
 
 export interface Placement { x: number; top: number }
 export type FloatingPreview = FloatingPatch & { top?: number }
 export type FloatingPreviews = Record<string, FloatingPreview>
 interface Obstacle { left: number; right: number; top: number; bottom: number }
-interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number }
+interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number } }
 const gap = 8
-const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0 }
+const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0, sideInsets: { left: 0, right: 0 } }
 
 function property(element: HTMLElement, name: string, value: string) {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
@@ -112,7 +112,21 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
       const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
       const geometry = resolveGeometry(objects, anchors, sizes, tops, labelOutsideGap(doc.theme))
-      const next = { anchors, tops, geometry, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
+      // Only unused side margins may collapse in reading; retain every on-page object.
+      let left = doc.margins.left, right = doc.width - doc.margins.right
+      for (const note of objects) {
+        const bounds = horizontalBounds(note, geometry[note.id])
+        const start = bounds.left + surface.clientLeft, end = bounds.right + surface.clientLeft
+        if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
+      }
+      // Display math can extend beyond its author-sized box on either side.
+      surface.querySelectorAll<HTMLElement>('.katex-html > .katex-base, .katex-html > .katex-tag').forEach(element => {
+        const box = element.getBoundingClientRect()
+        const start = (box.left - rect.left) / scale, end = (box.right - rect.left) / scale
+        if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
+      })
+      const sideInsets = { left: Math.max(0, left), right: Math.max(0, doc.width - right) }
+      const next = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       return next
     }

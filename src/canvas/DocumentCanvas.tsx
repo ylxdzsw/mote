@@ -57,7 +57,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
   const layoutDoc = useMemo(() => creating || inserting.length ? { ...doc, floating: [...doc.floating, ...inserting, ...(creating ? [creating] : [])] } : doc, [doc, creating, inserting])
-  const { geometry, anchors, minHeight, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
+  const { geometry, anchors, minHeight, sideInsets, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
+  const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
 
@@ -467,7 +468,11 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     style={{ '--page-background': doc.theme.defaults.background } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
-      <div className="sheet-footprint" ref={footprint} style={{ width: doc.width * scale, height: `calc(var(--page-height, 0px) * ${scale})` }}>
+      <div className="sheet-footprint" ref={footprint} style={{
+        width: editable ? doc.width * scale : `clamp(${(doc.width - sideSpace) * scale}px, 100%, ${doc.width * scale}px)`,
+        '--scaled-page-width': `${doc.width * scale}px`, '--crop-left': sideSpace ? sideInsets.left / sideSpace : 0,
+        height: `calc(var(--page-height, 0px) * ${scale})`,
+      } as React.CSSProperties}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && (tool || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
