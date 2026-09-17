@@ -72,6 +72,8 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .zoom-controls button { padding: 4px 8px; }
 .zoom-controls select { width: 66px; padding: 4px 2px; border-color: transparent; background: transparent; cursor: pointer; font-variant-numeric: tabular-nums; }
 .sheet { position: relative; margin: 0 auto; background: var(--page-background); border: 1px solid #dedfd5; box-shadow: 0 3px 12px #3c472c06; }
+.sheet-footprint { position: relative; margin: 0 auto; display: flow-root; }
+.sheet-footprint > .sheet { margin: 0; transform-origin: top left; }
 /* Keep the border's geometry so reading never changes wrapping or object placement. */
 .sheet.is-reading { overflow-x: clip; border-color: transparent; box-shadow: none; }
 .reading-canvas { background: var(--page-background); }

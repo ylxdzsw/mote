@@ -44,6 +44,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
+  const footprint = useRef<HTMLDivElement>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const { scale, minScale, automatic, zoomTo, zoomBy, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
@@ -56,9 +57,21 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
   const layoutDoc = useMemo(() => creating || inserting.length ? { ...doc, floating: [...doc.floating, ...inserting, ...(creating ? [creating] : [])] } : doc, [doc, creating, inserting])
-  const { geometry, anchors, minHeight, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, scale, previews)
+  const { geometry, anchors, minHeight, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
+
+  function sizeFootprint() {
+    const wrapper = footprint.current!, height = getComputedStyle(sheet.current!).height
+    if (wrapper.style.getPropertyValue('--page-height') !== height) wrapper.style.setProperty('--page-height', height)
+  }
+  // Update alongside edits, not one observer delivery after selection scrolling.
+  useLayoutEffect(sizeFootprint)
+  useLayoutEffect(() => {
+    const observer = new ResizeObserver(sizeFootprint)
+    observer.observe(sheet.current!)
+    return () => observer.disconnect()
+  }, [])
 
   // Measure new content before committing its geometry and creation as one undo step.
   useLayoutEffect(() => {
@@ -116,7 +129,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' .tiptap' : ''}`)?.focus({ preventScroll: true }))
   }
   function cancel() {
-    drag.current = null; setPreviews({}); setCreating(null); setMarquee(null); setGuides([])
+    drag.current = null; setPreviews(previous => Object.keys(previous).length ? {} : previous); setCreating(null); setMarquee(null); setGuides([])
     const pointer = captured.current
     captured.current = null
     if (pointer?.element.hasPointerCapture(pointer.pointerId)) pointer.element.releasePointerCapture(pointer.pointerId)
@@ -454,6 +467,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     style={{ '--page-background': doc.theme.defaults.background } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
+      <div className="sheet-footprint" ref={footprint} style={{ width: doc.width * scale, height: `calc(var(--page-height, 0px) * ${scale})` }}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && (tool || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
@@ -463,7 +477,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           event.preventDefault(); event.stopPropagation()
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
         }}
-        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, zoom: scale, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
@@ -486,6 +500,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           {guide.box && <rect x={guide.box.x} y={guide.box.y} width={guide.box.width} height={guide.box.height} />}
           <circle className={guide.active ? 'active' : ''} cx={guide.point.x} cy={guide.point.y} r={4 / scale} />
         </g>)}</svg>}
+      </div>
       </div>
     </div>
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}

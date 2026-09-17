@@ -99,7 +99,7 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
   document.addEventListener('keydown', escape, true)
   const resize = new ResizeObserver(() => { if (drag && Math.abs(table.getBoundingClientRect().width - drag.width) > .1) finish() })
   resize.observe(table)
-  // CSS zoom and reading-mode switches need cancellation even without a pointer move.
+  // View scaling and reading-mode switches need cancellation even without a pointer move.
   const mode = new MutationObserver(() => {
     if (drag && (!editor.isEditable || dom.closest('.is-reading') || Math.abs(table.getBoundingClientRect().width - drag.width) > .1)) finish()
   })

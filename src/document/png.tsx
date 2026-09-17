@@ -37,7 +37,7 @@ export async function exportPng(doc: MoteDocument): Promise<Blob> {
   try {
     await new Promise<void>(resolve => root.render(<ReadDocument initial={doc} onReady={resolve} staticWidgets initialScale={1} />))
     await settle(host)
-    const source = host.querySelector<HTMLElement>('.stage > .sheet')!
+    const source = host.querySelector<HTMLElement>('.stage .sheet')!
     const width = Math.ceil(doc.width), height = Math.ceil(source.getBoundingClientRect().height)
     if (height > 32767 || width * height > 32_000_000) throw new Error(tooLarge)
     canvas = document.createElement('canvas')
@@ -57,7 +57,7 @@ export async function exportPng(doc: MoteDocument): Promise<Blob> {
     context.clearRect(0, 0, width, height)
 
     const copy = source.cloneNode(true) as HTMLElement
-    copy.style.cssText += ';margin:0;zoom:1;box-shadow:none;border-color:transparent;overflow:hidden'
+    copy.style.cssText += ';margin:0;transform:none;box-shadow:none;border-color:transparent;overflow:hidden'
     // Freeze animated images and embed raster pixels, including SVG source images.
     const images = [...source.querySelectorAll('img')]
     for (const [index, image] of [...copy.querySelectorAll('img')].entries()) {

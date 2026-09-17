@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, type PointerEvent, type RefObject } from 'react'
 import type { ViewSettings } from '../app/GlobalSettings'
+import { nativeSize } from './measurement'
 
 interface Props {
   stage: RefObject<HTMLDivElement | null>
@@ -52,8 +53,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         // An inert DOM snapshot shares the real layout and theme, without another editor.
         const miniature = source.cloneNode(true) as HTMLDivElement
         miniature.className = 'sheet is-reading minimap-sheet'
-        miniature.style.zoom = '1'
-        miniature.style.height = `${source.offsetHeight}px`
+        miniature.style.height = getComputedStyle(source).height
         miniature.querySelectorAll('[data-widget-live], .floating-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .attachment-guides, .marquee-selection').forEach(node => node.remove())
         miniature.querySelectorAll<HTMLElement>('*').forEach(node => {
           for (const name of node.getAttributeNames()) {
@@ -62,9 +62,10 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
           node.classList.remove('ProseMirror-selectednode', 'ProseMirror-focused', 'is-selected', 'selectedCell')
         })
         const rect = source.getBoundingClientRect()
-        const zoom = rect.width / source.offsetWidth
+        const size = nativeSize(source)
+        const zoom = rect.width / size.width
         const pageTop = (rect.top - viewport.getBoundingClientRect().top - viewport.clientTop + viewport.scrollTop) / zoom
-        const width = source.classList.contains('is-reading') ? source.offsetWidth : Math.max(source.offsetWidth, source.scrollWidth)
+        const width = source.classList.contains('is-reading') ? size.width : Math.max(size.width, source.scrollWidth)
         const x = (rail.clientWidth - 12) / width
         const height = viewport.scrollHeight / zoom
         const y = sizing === 'fit' ? Math.min(x, rail.clientHeight / height) : x
@@ -149,6 +150,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     const resize = new ResizeObserver(refresh)
     resize.observe(viewport)
     resize.observe(source)
+    resize.observe(source.parentElement!)
     resize.observe(rail)
     document.fonts.addEventListener('loadingdone', refresh)
     viewport.addEventListener('scroll', schedule, { passive: true })

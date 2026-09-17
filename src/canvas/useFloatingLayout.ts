@@ -3,6 +3,7 @@ import type { Editor } from '@tiptap/core'
 import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
 import { labelOutsideGap, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { nativeSize } from './measurement'
 
 export interface Placement { x: number; top: number }
 export type FloatingPreview = FloatingPatch & { top?: number }
@@ -33,7 +34,7 @@ function exclusion(obstacles: Obstacle[], top: number, left: number, width: numb
   return { height, shape: `polygon(${points.join(',')})` }
 }
 
-export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, scale: number, preview: FloatingPreviews) {
+export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, preview: FloatingPreviews) {
   const [layout, setLayout] = useState(origin)
   const measureRef = useRef<(override?: FloatingPreviews) => Layout>(() => origin)
   const reflow = useCallback(() => measureRef.current(), [])
@@ -48,6 +49,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     function measure(override = preview) {
       const floating = shiftSpaceObjects(doc.floating, spaceLayoutKey.getState(editor!.state)?.shift)
       const rect = surface.getBoundingClientRect()
+      const scale = rect.width / nativeSize(surface).width
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
       // A spacer separates margins that would otherwise collapse to their maximum.
       editor!.view.dom.querySelectorAll<HTMLElement>('[data-spacer]').forEach(element => {
@@ -55,12 +57,13 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const overlap = Math.min(before ? parseFloat(getComputedStyle(before).marginBottom) : 0, after ? parseFloat(getComputedStyle(after).marginTop) : 0)
         property(element, '--space-overlap', `${overlap}px`)
       })
-      const elements = new Set<Element>([editor!.view.dom, surface.parentElement!])
+      const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
       const sizes: Record<string, { width: number; height: number }> = {}
       surface.querySelectorAll<HTMLElement>('.floating-note').forEach(element => {
-        heights.set(element.dataset.noteId!, element.getBoundingClientRect().height / scale)
-        sizes[element.dataset.noteId!] = { width: element.getBoundingClientRect().width / scale, height: element.getBoundingClientRect().height / scale }
+        const size = nativeSize(element)
+        heights.set(element.dataset.noteId!, size.height)
+        sizes[element.dataset.noteId!] = size
         elements.add(element)
       })
       const anchors: Anchor[] = []
@@ -89,17 +92,17 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
         const left = (element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft
-        const shape = exclusion(obstacles, top, left, element.getBoundingClientRect().width / scale)
+        const shape = exclusion(obstacles, top, left, nativeSize(element).width)
         if (shape) {
           // Contain each proxy float, but derive paragraph height from its native
           // in-flow content rather than the (possibly much taller) proxy itself.
           if (!element.hasAttribute('data-repel')) {
-            property(element, '--text-height', `${content.getBoundingClientRect().height / scale}px`)
+            property(element, '--text-height', `${nativeSize(content).height}px`)
             element.setAttribute('data-repel', '')
           }
           property(element, '--repel-height', `${shape.height}px`)
           property(element, '--repel-shape', shape.shape)
-          property(element, '--text-height', `${content.getBoundingClientRect().height / scale}px`)
+          property(element, '--text-height', `${nativeSize(content).height}px`)
         } else if (element.hasAttribute('data-repel')) {
           element.removeAttribute('data-repel')
           for (const name of ['--repel-height', '--repel-shape', '--text-height']) element.style.removeProperty(name)
@@ -123,7 +126,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       editor.off('transaction', schedule)
       document.fonts.removeEventListener('loadingdone', schedule)
     }
-  }, [doc, editor, sheet, scale, preview])
+  }, [doc, editor, sheet, preview])
 
   function attach(note: FloatingObject, placement: Placement): FloatingPatch {
     const { anchors } = measureRef.current({ ...preview, [note.id]: placement })
