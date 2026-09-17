@@ -1,4 +1,4 @@
-import { inlineClasses, themeBlockClasses, type MoteDocument } from './model'
+import { themeBlockClasses, type MoteDocument } from './model'
 import { initializeDocument } from './initialize'
 
 const maxCompressedBytes = 128 * 1024 * 1024
@@ -55,13 +55,6 @@ function finiteValues(value: unknown, path = 'document'): void {
   if (isRecord(value)) for (const [key, child] of Object.entries(value)) finiteValues(child, `${path}.${key}`)
 }
 
-function safeStyleString(value: unknown, path: string): string {
-  if (typeof value !== 'string' || value.length > 256 || !CSS.supports('color', value) || /var\s*\(/i.test(value)) {
-    invalid(`${path} contains unsafe style text`)
-  }
-  return value
-}
-
 function themeLength(value: unknown, path: string): void {
   if (typeof value === 'number') {
     finite(value, path)
@@ -76,10 +69,8 @@ function themeStyle(value: unknown, path: string): void {
   for (const property of ['size', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
     if (property in style) themeLength(style[property], `${path}.${property}`)
   }
-  for (const property of ['color', 'background']) if (property in style) safeStyleString(style[property], `${path}.${property}`)
+  for (const property of ['color', 'background']) if (property in style) text(style[property], `${path}.${property}`)
   if ('weight' in style) finite(style.weight, `${path}.weight`)
-  if ('italic' in style && typeof style.italic !== 'boolean') invalid(`${path}.italic must be a boolean`)
-  if ('decoration' in style && !['none', 'underline', 'line-through'].includes(style.decoration as string)) invalid(`${path}.decoration is unsupported`)
 }
 
 function checkTheme(value: unknown): void {
@@ -97,7 +88,7 @@ function checkTheme(value: unknown): void {
     if (name === 'math' && (!blocks || !(name in blocks))) continue
     themeStyle(record(blocks?.[name], `theme.blocks.${name}`), `theme.blocks.${name}`)
   }
-  for (const name of inlineClasses) themeStyle(record(theme.inline && isRecord(theme.inline) ? theme.inline[name] : undefined, `theme.inline.${name}`), `theme.inline.${name}`)
+  if (!Array.isArray(theme.palette)) invalid('theme.palette must be an array')
 }
 
 function inspectContent(value: unknown, path: string): void {
@@ -155,7 +146,7 @@ function anchor(value: unknown, path: string): void {
 }
 
 function color(value: unknown, path: string): void {
-  if (value !== null) safeStyleString(value, path)
+  if (value !== null) text(value, path)
 }
 
 function lineEnd(value: unknown, path: string): void {

@@ -1,15 +1,17 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type CSSProperties } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useEditorState } from '@tiptap/react'
 import { NodeSelection } from '@tiptap/pm/state'
-import { blockClasses, inlineClasses, type BlockClass, type InlineClass, type Theme } from '../document/model'
+import { blockClasses, type BlockClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
+import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
 import { classLabel } from '../theme/ThemePanel'
+import { neutralIds, paletteColor } from '../theme/palette'
 import type { CreationTool } from '../canvas/DocumentCanvas'
 import './toolbar.css'
 
 type InsertKind = 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
-type IconName = BlockClass | InsertKind | 'plain' | 'bold' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
+type IconName = BlockClass | InsertKind | 'plain' | 'bold' | 'color' | 'box' | 'underline' | 'clear' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -21,6 +23,10 @@ function Icon({ name }: { name: IconName }) {
     code: <path d="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" />,
     plain: <path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4ZM9 11l7 6M13 20h8" />,
     bold: <path d="M7 12h7a4 4 0 0 1 0 8H7V4h6a4 4 0 0 1 0 8" strokeWidth="2.8" />,
+    color: <><circle cx="12" cy="12" r="8" /><path d="M8 16h8" strokeWidth="3" /></>,
+    box: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="m8 17 4-10 4 10M9.2 14h5.6" strokeWidth="1.5" /></>,
+    underline: <><path d="M7 5v6a5 5 0 0 0 10 0V5M5 19h14" /></>,
+    clear: <><path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4Z" /><path d="m9 11 7 6" /></>,
     text: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M8 9V8h8v1M12 8v8M10 16h4" /></>,
     image: <><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 6-5 4 4 3-3 5 4" /></>,
     table: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 10h18M3 15h18M11 4v16" /></>,
@@ -45,8 +51,8 @@ interface MenuItem {
   checked?: boolean; disabled?: boolean; separator?: boolean; hint?: string
 }
 
-function ToolMenu({ label, children, items, disabled, armed = false }: {
-  label: string; children: ReactNode; items: MenuItem[]; disabled?: boolean; armed?: boolean
+function ToolMenu({ label, children, items, disabled, armed = false, className = '' }: {
+  label: string; children: ReactNode; items: MenuItem[]; disabled?: boolean; armed?: boolean; className?: string
 }) {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
@@ -64,7 +70,7 @@ function ToolMenu({ label, children, items, disabled, armed = false }: {
     window.addEventListener('resize', resize)
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('resize', resize) }
   }, [open])
-  return <div className="tool-menu" ref={root} onBlur={event => {
+  return <div className={`tool-menu ${className}`.trim()} ref={root} onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
   }}>
     <button ref={trigger} className={`tool-menu-trigger${armed ? ' armed' : ''}`} aria-label={label} title={label}
@@ -138,60 +144,77 @@ function TablePicker({ disabled, onInsert }: { disabled: boolean; onInsert: (col
 
 // Inspect every selected range, including rectangular cell selections and unmarked text.
 function selectedClasses(editor: Editor | null) {
-  const paragraphs = new Set<string>(), inline = new Set<string>()
-  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', inline: '', text: false, code: false, list: false, fixed: '' }
-  const { selection, storedMarks, doc } = editor.state
+  const paragraphs = new Set<string>()
+  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', text: false, code: false, list: false, fixed: '', ...selectedInlineMarks(null) }
+  const { selection, doc } = editor.state
   for (const { $from, $to } of selection.ranges) {
     doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
       if (node.type.name === 'paragraph' && ($from.pos === $to.pos || pos + 1 < $to.pos)) {
         paragraphs.add(node.attrs.semantic ?? 'body')
-        if (!node.content.size) inline.add('')
       }
-      if (node.isInline) inline.add(node.marks.find(mark => mark.type.name === 'semanticText')?.attrs.semantic ?? '')
     })
   }
-  if (selection.empty) {
-    inline.clear()
-    inline.add((storedMarks ?? selection.$from.marks()).find(mark => mark.type.name === 'semanticText')?.attrs.semantic ?? '')
-  }
+  const inline = selectedInlineMarks(editor)
   return {
     paragraph: paragraphs.size === 1 ? [...paragraphs][0] : '',
-    inline: inline.size > 1 ? 'mixed' : [...inline][0] ?? '',
     text: paragraphs.size > 0, code: paragraphs.has('code'), list: paragraphs.has('list'),
     fixed: editor.schema.nodes.table ? 'Table' : !editor.schema.nodes.paragraph.spec.attrs?.semantic ? 'Label' : '',
+    ...inline,
   }
 }
 
 const paragraphQuick = ['heading', 'list', 'code'] as const
-const inlineQuick = ['bold', 'primary', 'secondary', 'term'] as const
 const insertKinds: InsertKind[] = ['text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
 const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
+const neutralSet = new Set<string>(neutralIds)
+
+function colorEntries(theme: Theme) {
+  return theme.palette.filter(entry => entry.id === 'ink' || entry.id === 'muted' || !neutralSet.has(entry.id))
+}
+
+function swatchColor(theme: Theme, reference: string | null | 'mixed') {
+  if (!reference || reference === 'mixed') return undefined
+  const [id, tone] = reference.split(':')
+  const entry = theme.palette.find(value => value.id === id)
+  return tone === 'soft' ? entry?.soft ?? entry?.strong : entry?.strong
+}
 
 interface Props {
   editor: Editor | null; canInsert: boolean; imageLoading: boolean; theme: Theme; tool: CreationTool
+  onPalette?: () => void
   onInsert: (kind: InsertKind, columns?: number, rows?: number) => void
   canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void
 }
 
-export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onInsert, canUndo, canRedo, undo, redo }: Props) {
+export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalette, onInsert, canUndo, canRedo, undo, redo }: Props) {
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
   const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
   const inlineDisabled = !editor?.isEditable || !selection.text || selection.code
   const applyParagraph = (name: BlockClass) => { if (editor) setParagraphClass(editor, name) }
-  const applyInline = (name: string) => {
-    if (name) editor?.chain().focus().setMark('semanticText', { semantic: name }).run()
-    else editor?.chain().focus().unsetMark('semanticText').run()
+  const applyBold = () => editor?.chain().focus().toggleMark('bold').run()
+  const applyColor = (color: string | null) => {
+    if (!editor) return
+    const chain = editor.chain().focus()
+    if (color) chain.setMark('color', { color }).run()
+    else chain.unsetMark('color').run()
   }
-  const badge = (name: InlineClass, sample = false) => {
-    if (name === 'bold') return <Icon name="bold" />
-    const style = theme.inline[name]
-    return <span className={`inline-badge${sample ? ' sample' : ''}`} style={{ color: style.color ?? theme.defaults.color, background: style.background,
-      fontWeight: style.weight, fontStyle: style.italic ? 'italic' : undefined, textDecoration: style.decoration }}>{sample ? 'Aa' : classLabel(name)}</span>
+  const applyDecoration = (decoration: InlineDecorationValue, toggle = true) => {
+    if (!editor) return
+    const chain = editor.chain().focus()
+    if (toggle && selection.decoration === decoration) chain.unsetMark('decoration').run()
+    else chain.setMark('decoration', { decoration }).run()
   }
+  const clearInline = () => editor?.chain().focus().unsetMark('bold').unsetMark('color').unsetMark('decoration').run()
   const insertionDisabled = (kind: InsertKind) => ['text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
   const insertionLabel = (kind: InsertKind) => kind === 'image' && imageLoading ? 'Opening image…' : kind === 'html' && imageLoading ? 'Opening screenshot…' : `${['rectangle', 'ellipse', 'line'].includes(kind) ? 'Draw' : 'Insert'} ${insertLabels[kind].toLowerCase()}`
+  const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
+  const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
+  const colorSwatch = swatchColor(theme, selection.color === null ? inheritedColor : selection.color)
+  const decorationIcon = selection.decoration === 'box' ? 'box' : selection.decoration === 'underline' ? 'underline' : 'plain'
 
-  return <div className="toolbar" role="group" aria-label="Editing tools">
+  return <div className="toolbar" role="group" aria-label="Editing tools" style={{
+    '--palette-ink': paletteColor(theme, 'ink'), '--palette-muted': paletteColor(theme, 'muted'), '--palette-paper': paletteColor(theme, 'paper'),
+  } as CSSProperties}>
     <div className="tool-group" role="group" aria-label="Paragraph">
       <ToolMenu label="Paragraph class" disabled={paragraphDisabled} items={[
         ...blockClasses.map(name => ({ id: name, label: classLabel(name), icon: <Icon name={name} />, checked: selection.paragraph === name, action: () => applyParagraph(name) })),
@@ -205,15 +228,25 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onInsert
         onMouseDown={event => event.preventDefault()} onClick={() => applyParagraph(selection.paragraph === name ? 'body' : name)}><Icon name={name} /></button>)}
     </div>
     <div className="tool-group" role="group" aria-label="Inline">
-      <ToolMenu label="Inline class" disabled={inlineDisabled} items={[
-        { id: 'plain', label: 'Plain', icon: <Icon name="plain" />, checked: selection.inline === '', action: () => applyInline('') },
-        ...(['bold', ...inlineClasses.filter(name => name !== 'bold')] as InlineClass[]).map(name => ({ id: name, label: classLabel(name), icon: badge(name, true), checked: selection.inline === name,
-          hint: name === 'bold' ? 'Ctrl/⌘B' : undefined, action: () => applyInline(name) })),
-      ]}><span className="class-menu-value">{selection.text ? selection.inline ? classLabel(selection.inline) : 'Plain' : 'Inline'}</span></ToolMenu>
-      {inlineQuick.map(name => <button key={name} className={`tool-quick ${name === 'bold' ? 'tier-core' : 'tier-wide badge-button'}`}
-        aria-label={classLabel(name)} title={`${classLabel(name)}${name === 'bold' ? ' · Ctrl/⌘B' : ''} · Click again for Plain`}
-        aria-pressed={!inlineDisabled && selection.inline === name} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()}
-        onClick={() => applyInline(selection.inline === name ? '' : name)}>{badge(name)}</button>)}
+      <button className="tool-quick" aria-label="Bold" title="Bold · Ctrl/⌘B" aria-pressed={inlineDisabled ? false : selection.bold}
+        disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={applyBold}><Icon name="bold" /></button>
+      <ToolMenu label="Text color" disabled={inlineDisabled} items={[
+        { id: 'inherit', label: 'Inherit', icon: <span className="palette-swatch palette-swatch-inherit" />, checked: selection.color === null, action: () => applyColor(null) },
+        ...colorEntries(theme).map(entry => ({ id: entry.id, label: entry.name, icon: <span className="palette-swatch" style={{ backgroundColor: entry.strong }} />, checked: selection.color === entry.id,
+          action: () => applyColor(entry.id) })),
+        { id: 'edit-palette', label: 'Edit document palette…', icon: <Icon name="color" />, separator: true, disabled: !onPalette, action: () => onPalette?.() },
+        { id: 'clear-inline-color', label: 'Clear inline formatting', icon: <Icon name="clear" />, action: clearInline },
+      ]}><span className={`color-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} /></ToolMenu>
+      <ToolMenu label="Text decoration" className="decoration-compact" disabled={inlineDisabled} items={[
+        { id: 'none', label: 'None', icon: <Icon name="plain" />, checked: selection.decoration === null, action: () => editor?.chain().focus().unsetMark('decoration').run() },
+        { id: 'box', label: 'Box', icon: <Icon name="box" />, checked: selection.decoration === 'box', action: () => applyDecoration('box', false) },
+        { id: 'underline', label: 'Underline', icon: <Icon name="underline" />, checked: selection.decoration === 'underline', action: () => applyDecoration('underline', false) },
+        { id: 'clear-inline-decoration', label: 'Clear inline formatting', icon: <Icon name="clear" />, separator: true, action: clearInline },
+      ]}><Icon name={decorationIcon} /></ToolMenu>
+      <button className="tool-quick decoration-wide" aria-label="Box" title="Box · Click again for None" aria-pressed={!inlineDisabled && selection.decoration === 'box'}
+        disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration('box')}><Icon name="box" /></button>
+      <button className="tool-quick decoration-wide" aria-label="Underline" title="Underline · Click again for None" aria-pressed={!inlineDisabled && selection.decoration === 'underline'}
+        disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration('underline')}><Icon name="underline" /></button>
     </div>
     <div className="tool-group" role="group" aria-label="Insert">
       <ToolMenu label={tool ? `Insert · ${classLabel(tool)} tool active` : 'Insert'} armed={!!tool} items={insertKinds.map(kind => ({

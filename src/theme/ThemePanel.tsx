@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { themeBlockClasses, inlineClasses, type DocumentLanguage, type ThemeBlockClass, type InlineClass, type Theme, type ThemeLength } from '../document/model'
+import { themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
+import { paletteColor } from './palette'
+import { PaletteControl, PaletteEditor } from './PaletteControl'
 import { MathView } from '../canvas/MathView'
 
 export function pixels(value: ThemeLength, base: number) {
@@ -8,12 +10,23 @@ export function pixels(value: ThemeLength, base: number) {
 }
 
 export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
-  const variables: Record<string, string> = { '--page-background': theme.defaults.background, '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal' }
+  const subtle = paletteColor(theme, 'subtle')
+  const variables: Record<string, string> = {
+    '--page-background': paletteColor(theme, theme.defaults.background),
+    '--inline-neutral-surface': subtle,
+    '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
+  }
+  for (const entry of theme.palette) {
+    const soft = entry.soft ?? subtle
+    variables[`--palette-${entry.id}`] = entry.strong
+    variables[`--palette-${entry.id}-soft`] = soft
+    variables[`--palette-${entry.id}-surface`] = soft
+  }
   for (const name of themeBlockClasses) {
     const style = { ...theme.defaults, ...(theme.blocks[name] ?? {}) }
     if (name === 'math') {
       variables[`--${name}-size`] = `${pixels(style.size, theme.defaults.size)}px`
-      variables[`--${name}-color`] = String(style.color)
+      variables[`--${name}-color`] = paletteColor(theme, style.color)
       continue
     }
     variables[`--${name}-family`] = style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace'
@@ -21,21 +34,14 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
       : `${language === 'en' ? 'Inter, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", ' : ''}"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif`
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
     variables[`--${name}-lineHeight`] = typeof style.lineHeight === 'number' ? String(style.lineHeight) : `${pixels(style.lineHeight, theme.defaults.size)}px`
-    for (const property of ['color', 'weight'] as const) variables[`--${name}-${property}`] = String(style[property])
-  }
-  for (const name of inlineClasses) {
-    const style = theme.inline[name]
-    variables[`--${name}-color`] = style.color ?? 'inherit'
-    variables[`--${name}-background`] = style.background ?? 'transparent'
-    variables[`--${name}-weight`] = String(style.weight ?? 'inherit')
-    variables[`--${name}-italic`] = style.italic === undefined ? 'inherit' : style.italic ? 'italic' : 'normal'
-    variables[`--${name}-decoration`] = style.decoration ?? 'inherit'
+    variables[`--${name}-color`] = paletteColor(theme, style.color)
+    variables[`--${name}-weight`] = String(style.weight)
   }
   return variables as CSSProperties
 }
 
 export const classLabel = (name: string) => name[0].toUpperCase() + name.slice(1)
-export type ThemeClass = 'defaults' | ThemeBlockClass | InlineClass
+export type ThemeClass = 'defaults' | 'palette' | ThemeBlockClass
 
 export function NumberField({ label, value, onChange, min, max, step = 1, unit = 'px', units, onUnitChange }: {
   label: string; value: number; onChange: (value: number) => void; min: number; max: number; step?: number; unit?: string
@@ -59,41 +65,31 @@ export function NumberField({ label, value, onChange, min, max, step = 1, unit =
     }}>{units.map(unit => <option key={unit}>{unit}</option>)}</select> : <span>{unit}</span>}</div>{invalid && <p className="field-error">Use {Number(min.toFixed(3))}–{Number(max.toFixed(3))}{unit === '×' ? '' : unit}.</p>}</>
 }
 
-function ColorField({ label, value, onChange, optional = false }: { label: string; value: string; onChange: (value: string) => void; optional?: boolean }) {
-  const history = useHistory()
-  return <div className="color-control">
-    <input aria-label={label} type="color" value={value === 'transparent' ? '#ffffff' : value}
-      onPointerDown={() => { history.boundary(); history.begin(label) }} onFocus={() => history.begin(label)}
-      onBlur={history.boundary} onChange={event => { history.begin(label); onChange(event.target.value) }} />
-    <span>{value === 'transparent' ? 'None' : value.toUpperCase()}</span>
-    {optional && value !== 'transparent' && <button aria-label={`Clear ${label.toLowerCase()}`} onClick={() => { history.boundary(); onChange('transparent') }}>None</button>}
-  </div>
-}
-
 export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
   theme: Theme; language: DocumentLanguage; selected: ThemeClass; onSelect: (value: ThemeClass) => void; onChange: (theme: Theme) => void
 }) {
   const history = useHistory()
   const defaults = selected === 'defaults'
-  const isBlock = themeBlockClasses.includes(selected as ThemeBlockClass)
+  const palette = selected === 'palette'
+  const isBlock = !defaults && !palette && themeBlockClasses.includes(selected as ThemeBlockClass)
   const isMath = selected === 'math'
   const isParagraphBlock = isBlock && !isMath
-  const styles = defaults ? theme.defaults : isBlock ? theme.blocks[selected as ThemeBlockClass] ?? {} : theme.inline[selected as InlineClass]
+  const styles = defaults ? theme.defaults : isBlock ? theme.blocks[selected as ThemeBlockClass] ?? {} : {}
   const resolved = { ...theme.defaults, ...styles }
-  const values = styles as Record<string, string | number | boolean>
+  const values = styles as Record<string, string | number | boolean | undefined>
 
   function update(property: string, value?: string | number | boolean) {
+    if (palette) return
     const next = { ...styles } as Record<string, string | number | boolean>
     if (value === undefined) delete next[property]; else next[property] = value
     onChange(defaults ? { ...theme, defaults: next as unknown as Theme['defaults'] }
-      : isBlock ? { ...theme, blocks: { ...theme.blocks, [selected]: next } }
-      : { ...theme, inline: { ...theme.inline, [selected]: next } })
+      : { ...theme, blocks: { ...theme.blocks, [selected]: next } })
   }
   function field(property: string, label: string, control: ReactNode) {
     const inherited = !defaults && values[property] === undefined
     return <div className="style-field" key={property}>
       <div className="field-heading"><span>{label}</span>{!defaults && (inherited
-        ? <span className="inherited" title={isBlock ? 'Follows Defaults' : 'Follows the surrounding paragraph; background is transparent'}>Inherited</span>
+        ? <span className="inherited">Follows Defaults</span>
         : <button aria-label={`Reset ${label.toLowerCase()} to inherited`} title="Use inherited value" onClick={() => { history.boundary(); update(property) }}>↶</button>)}</div>
       {control}
     </div>
@@ -119,26 +115,31 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       }} />)
   }
   function choose(property: string, label: string, choices: [string, string][], value: string, parse: (value: string) => string | number | boolean = value => value) {
-    const inherited = choices.find(([value]) => value === String(resolved[property as keyof typeof resolved]))?.[1]
+    const inherited = choices.find(([choice]) => choice === String(resolved[property as keyof typeof resolved]))?.[1]
     return field(property, label, <select aria-label={label} value={value} onChange={event => {
       history.boundary(); update(property, event.target.value === 'inherit' ? undefined : parse(event.target.value))
     }}>
-      {!defaults && <option value="inherit">Inherited · {isBlock ? inherited : 'surrounding text'}</option>}
-      {choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      {!defaults && <option value="inherit">Inherited · {inherited ?? 'Defaults'}</option>}
+      {choices.map(([choice, choiceLabel]) => <option key={choice} value={choice}>{choiceLabel}</option>)}
     </select>)
+  }
+  function paletteField(property: 'color' | 'background', label: string) {
+    const value = String(resolved[property])
+    return field(property, label, <PaletteControl theme={theme} label={label} value={value} onChange={next => { if (next) update(property, next) }}
+      onFocus={() => history.begin(`theme-${selected}-${property}`)} onBlur={history.boundary} />)
   }
 
   return <>
     <nav className="theme-classes" aria-label="Theme classes">
-      {([['', ['defaults']], ['Paragraphs', themeBlockClasses.filter(name => name !== 'math')], ['Objects', ['math']], ['Phrases', inlineClasses]] as const).map(([label, names]) => <div key={label}>
+      {([['', ['defaults', 'palette']], ['Paragraphs', themeBlockClasses.filter(name => name !== 'math')], ['Objects', ['math']]] as const).map(([label, names]) => <div key={label}>
         {label && <h3>{label}</h3>}
         <div className="class-buttons">{names.map(name => <button key={name} aria-pressed={selected === name}
           onClick={() => { history.boundary(); onSelect(name) }}>{classLabel(name)}</button>)}</div>
       </div>)}
     </nav>
-    <section className="panel-section class-properties" key={selected}>
+    {palette ? <PaletteEditor theme={theme} onChange={onChange} /> : <section className="panel-section class-properties" key={selected}>
       <h2>{classLabel(selected)}</h2>
-      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isMath ? 'Math follows Defaults except for size and color overrides.' : isBlock ? 'Every paragraph with this meaning follows this style.' : 'Applied within any paragraph, including table cells.'}</p>
+      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isMath ? 'Math follows Defaults except for size and color overrides.' : 'Every paragraph with this meaning follows this style.'}</p>
       {(defaults || isParagraphBlock || isMath) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px){isMath ? '.' : ', including spacing and line height. × line height follows this paragraph’s font size.'}</p>}
       {(defaults || isParagraphBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
@@ -147,33 +148,28 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       </>}
       {isMath && length('size', 'Font size', 1, 512, .5)}
       {!isMath && choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
-      {field('color', 'Text color', <ColorField label="Text color" value={resolved.color} onChange={value => update('color', value)} />)}
-      {defaults && field('background', 'Page background', <ColorField label="Page background" value={theme.defaults.background} onChange={value => update('background', value)} />)}
+      {paletteField('color', 'Text color')}
+      {defaults && paletteField('background', 'Page background')}
       {defaults && <>
         <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {
           history.boundary(); onChange({ ...theme, autospace: event.target.checked })
         }} /> Mixed-script spacing</label>
         <p className="hint">Adds a small visual gap between Chinese and English letters or numbers where supported. Does not change your text; Code stays literal.</p>
       </>}
-      {(defaults || isParagraphBlock) ? <>
+      {(defaults || isParagraphBlock) && <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
         {length('letterSpacing', 'Letter spacing', -64, 64, .1)}
         <div className="paired-fields">{length('spaceBefore', 'Space before', 0, 2000)}{length('spaceAfter', 'Space after', 0, 2000)}</div>
-      </> : !isMath && <>
-        {field('background', 'Highlight', <ColorField label="Highlight" value={String(values.background ?? 'transparent')} optional onChange={value => update('background', value)} />)}
-        {choose('italic', 'Slant', [['false', 'Normal'], ['true', 'Italic']], values.italic === undefined ? 'inherit' : String(values.italic), value => value === 'true')}
-        {choose('decoration', 'Decoration', [['none', 'None'], ['underline', 'Underline'], ['line-through', 'Strikethrough']], String(values.decoration ?? 'inherit'))}
       </>}
-      <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: theme.defaults.background }} aria-label="Style sample">
+      <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: paletteColor(theme, theme.defaults.background) }} aria-label="Style sample">
         {selected === 'math' ? <MathView latex="E=mc^2" />
           : selected === 'code' ? <pre data-semantic="code"><code>{'const thought = {\n  room: "思考空间"\n}'}</code></pre>
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
-          : <p data-semantic={isBlock ? selected : 'body'}>{defaults || isBlock ? <>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，保留V0草稿。</span></> : <>A thought with <span data-inline-semantic={selected}>something to remember</span>.<br /><span lang="zh-Hans">用Mote记录<span data-inline-semantic={selected}>值得记住的想法</span>。</span></>}</p>}
+          : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，保留V0草稿。</span></p>}
       </div>
       {!defaults && <button disabled={!Object.keys(styles).length} onClick={() => {
-        history.boundary()
-        onChange(isBlock ? { ...theme, blocks: { ...theme.blocks, [selected]: {} } } : { ...theme, inline: { ...theme.inline, [selected]: {} } })
+        history.boundary(); onChange({ ...theme, blocks: { ...theme.blocks, [selected]: {} } })
       }}>Reset class overrides</button>}
-    </section>
+    </section>}
   </>
 }

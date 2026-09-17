@@ -119,17 +119,18 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .text-content pre code { display: block; font: inherit; color: inherit; letter-spacing: inherit; }
 .text-content [data-semantic='list'] { display: flow-root list-item; margin-left: calc((var(--list-level, 0) + 1) * 24px); list-style-type: disc; }
 .text-content [data-semantic='list'][data-list-level]:not([data-list-level='0']) { list-style-type: circle; }
-.text-content [data-inline-semantic='primary'] { color: var(--primary-color); background: var(--primary-background); font-weight: var(--primary-weight); font-style: var(--primary-italic); text-decoration: var(--primary-decoration); border-radius: 2px; box-decoration-break: clone; }
-.text-content [data-inline-semantic='secondary'] { color: var(--secondary-color); background: var(--secondary-background); font-weight: var(--secondary-weight); font-style: var(--secondary-italic); text-decoration: var(--secondary-decoration); border-radius: 2px; box-decoration-break: clone; }
-.text-content [data-inline-semantic='bold'] { color: var(--bold-color); background: var(--bold-background); font-weight: var(--bold-weight); font-style: var(--bold-italic); text-decoration: var(--bold-decoration); }
-.text-content [data-inline-semantic='term'] { color: var(--term-color); background: var(--term-background); font-weight: var(--term-weight); font-style: var(--term-italic); text-decoration: var(--term-decoration); border-radius: 2px; box-decoration-break: clone; }
+.text-content [data-inline-color] { color: inherit; }
+.text-content [data-inline-decoration='box'] { font-size: 0; line-height: 0; padding: var(--box-ascent, calc(var(--text-size) * .8)) calc(var(--text-size) * .12) var(--box-descent, calc(var(--text-size) * .2)); border: 1px solid currentColor; background: var(--inline-surface, var(--inline-neutral-surface)); border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.text-content [data-inline-box-text] { font-size: var(--text-size); line-height: var(--text-lineHeight); }
+.text-content [data-inline-decoration='underline'] { color: inherit; text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: .12em; }
+.text-content strong { font-weight: 700; }
 .text-content [data-spacer] { position: relative; margin: 0 calc(-1 * var(--margin-right)) calc(-1 * var(--space-overlap, 0px)) calc(-1 * var(--margin-left)); height: var(--spacer-preview-height, var(--spacer-height)); }
 .is-editing [data-spacer] { cursor: default; }
 .sheet.can-resize-space, .sheet.can-resize-space .main-text * { cursor: ns-resize; }
 .sheet.is-space-dragging, .sheet.is-space-dragging * { cursor: ns-resize !important; user-select: none; }
 .space-hint { position: absolute; left: 8px; pointer-events: none; color: #73866b; font-size: 12px; line-height: 18px; transform: translateY(-50%); }
 .space-hint.is-dragging { padding: 2px 5px; border-radius: 3px; background: #f1f4ec; font-size: 10px; }
-.floating-note { position: absolute; padding: 0; border: 1px solid transparent; background: #f6f5eb; border-radius: 3px; }
+.floating-note { position: absolute; padding: 0; border: 1px solid transparent; background: transparent; border-radius: 3px; }
 .is-editing .floating-note { cursor: move; touch-action: none; }
 .is-editing .floating-image img { cursor: default; }
 .floating-border-right { position: absolute; top: -1px; bottom: -1px; right: -4px; width: 8px; cursor: ew-resize; touch-action: none; }
@@ -149,7 +150,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .table-column-divider:hover::after, .table-column-divider:focus-visible::after, .table-column-divider.is-dragging::after { opacity: 1; }
 .table-column-divider:focus { outline: none; }
 .is-reading .table-column-controls { display: none; }
-.floating-table td { position: relative; border: 1px solid #cbd2c2; padding: 9px 11px; vertical-align: top; min-width: 0; }
+.floating-table td { position: relative; border: 1px solid var(--palette-subtle); padding: 9px 11px; vertical-align: top; min-width: 0; }
 .floating-table td p:last-child { margin-bottom: 0; }
 .floating-table .selectedCell::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: #54795f26; }
 .table-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

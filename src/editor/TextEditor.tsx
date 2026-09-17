@@ -3,7 +3,10 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Selection, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
+import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model'
+import { paletteSwatches } from '../theme/palette'
 import { extensions } from './extensions'
+import { fitInlineBoxes } from './inlineBoxes'
 import './label.css'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
@@ -24,6 +27,8 @@ interface Props {
 
 export function TextEditor({ content, editable, spatial = false, table = false, singleLabel = false, onFinish, label, historyId, onChange, onActive, onReady }: Props) {
   const history = useHistory()
+  const palette = useRef(new Set<string>())
+  palette.current = new Set(paletteSwatches(history.doc!.theme).map(swatch => swatch.value))
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
   const syncing = useRef(false)
   const syncedRevision = useRef(-1)
@@ -36,6 +41,17 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
       if (spatial) editor.view.dispatch(editor.state.tr.setMeta('normalizeSpaces', true).setMeta('addToHistory', false))
     },
     editorProps: {
+      transformPasted: slice => {
+        const clean = (node: ProseMirrorNode): ProseMirrorNode => {
+          const children: ProseMirrorNode[] = []
+          node.forEach(child => children.push(clean(child)))
+          return (node.isLeaf ? node : node.copy(Fragment.from(children)))
+            .mark(node.marks.filter(mark => mark.type.name !== 'color' || palette.current.has(mark.attrs.color)))
+        }
+        const nodes: ProseMirrorNode[] = []
+        slice.content.forEach(node => nodes.push(clean(node)))
+        return new Slice(Fragment.from(nodes), slice.openStart, slice.openEnd)
+      },
       attributes: { 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
       handleDOMEvents: { pointerdown: (_view, event) => {
         const space = (event.target as HTMLElement).closest('[data-spacer]')
@@ -94,7 +110,20 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
     } finally { syncing.current = false }
   }, [content, editor, history.revision, historyId])
 
+  useLayoutEffect(() => {
+    const marks = editor.state.storedMarks
+    if (marks?.some(mark => mark.type.name === 'color' && !palette.current.has(mark.attrs.color))) {
+      editor.view.dispatch(editor.state.tr.setStoredMarks(marks.filter(mark => mark.type.name !== 'color' || palette.current.has(mark.attrs.color))))
+    }
+  }, [editor, history.doc!.theme.palette])
+
   const ready = useEffectEvent(() => onReady?.(editor))
+  useLayoutEffect(() => { fitInlineBoxes(editor.view.dom) }, [content, editor, history.doc!.theme, history.doc!.language])
+  useEffect(() => {
+    const fit = () => fitInlineBoxes(editor.view.dom)
+    document.fonts.addEventListener('loadingdone', fit)
+    return () => document.fonts.removeEventListener('loadingdone', fit)
+  }, [editor])
   useEffect(() => { ready() }, [editor])
   useEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
 

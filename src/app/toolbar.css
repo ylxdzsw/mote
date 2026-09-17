@@ -16,9 +16,13 @@
 .tool-menu-hint { font-size: 10px; color: var(--muted); }
 .tool-menu-check { width: 12px; color: var(--accent); }
 .tool-menu-separator { height: 1px; background: var(--border); margin: 5px 3px; }
-.inline-badge { display: inline-block; padding: 2px 4px; border-radius: 3px; line-height: 16px; font-size: 11px; }
-.inline-badge.sample { width: 22px; padding-inline: 1px; text-align: center; }
-.toolbar .badge-button { padding-inline: 3px; }
+.color-swatch, .palette-swatch { display: block; flex-shrink: 0; border: 1px solid currentColor; }
+.color-swatch { width: 16px; height: 16px; border-radius: 3px; background: var(--palette-ink); }
+.color-swatch.mixed { background: linear-gradient(135deg, var(--palette-ink) 0 42%, var(--palette-paper) 42% 58%, var(--palette-muted) 58%); }
+.palette-swatch { width: 15px; height: 15px; border-radius: 50%; }
+.palette-swatch-inherit { background: linear-gradient(135deg, var(--palette-ink) 0 46%, var(--palette-paper) 46% 54%, var(--palette-muted) 54%); }
+.toolbar .decoration-compact { display: inline-flex; }
+.toolbar .decoration-wide { display: inline-flex; }
 .toolbar .toolbar-history { border: 0; padding-right: 0; margin-left: auto; }
 .toolbar .tier-core, .toolbar .tier-medium, .toolbar .tier-wide { display: none; }
 .toolbar .table-picker { min-width: 0; width: 218px; padding: 10px; }
@@ -29,4 +33,6 @@
 @media (min-width: 850px) { .toolbar .tier-core { display: inline-flex; } }
 @media (min-width: 1050px) { .toolbar .tier-medium { display: inline-flex; } }
 @media (min-width: 1250px) { .toolbar .tier-wide { display: inline-flex; } }
+@media (min-width: 1050px) { .toolbar .decoration-compact { display: none; } }
+@media (max-width: 1049px) { .toolbar .decoration-wide { display: none; } }
 @media (max-width: 1050px) { .toolbar { padding-inline: 18px; gap: 8px; } }

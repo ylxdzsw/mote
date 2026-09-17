@@ -6,6 +6,7 @@ import { useHistory } from '../document/history'
 import { TextEditor } from '../editor/TextEditor'
 import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
+import { paletteColor } from '../theme/palette'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
@@ -465,7 +466,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
-    style={{ '--page-background': doc.theme.defaults.background } as React.CSSProperties}>
+    style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="sheet-footprint" ref={footprint} style={{
@@ -496,7 +497,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} selected={selectedIds.includes(note.id) || creating?.id === note.id}
-            editingLabel={editingLabel === note.id} defaultColor={doc.theme.defaults.color} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
+            editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
             onChange={patch => onNoteChange(note.id, patch)} onLabel={() => label(note.id)} onFinishLabel={() => { setEditingLabel(null); focusObject(note.id) }} onKey={event => key(note.id, event)} />
         })}

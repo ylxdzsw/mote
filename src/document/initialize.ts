@@ -1,6 +1,7 @@
 import { getSchema } from '@tiptap/core'
 import { extensions } from '../editor/extensions'
 import type { MoteDocument } from './model'
+import { validatePaletteReferences } from '../theme/palette'
 
 export function initializeDocument(draft: MoteDocument): MoteDocument {
   if (draft.version !== 'V0') throw new Error('Unsupported document version')
@@ -10,6 +11,7 @@ export function initializeDocument(draft: MoteDocument): MoteDocument {
     const margin = draft.margins[side]
     if (!Number.isFinite(margin) || margin < 0) throw new Error(`Invalid ${side} margin`)
   }
+  validatePaletteReferences(draft)
   const content = getSchema(extensions(true)).nodeFromJSON(draft.content)
   content.check()
   draft.content = content.toJSON()

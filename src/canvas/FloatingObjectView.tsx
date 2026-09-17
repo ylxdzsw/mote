@@ -6,6 +6,7 @@ import { arrowPoints, type Geometry, type Point } from './floatingGeometry'
 import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
 import { pixels } from '../theme/ThemePanel'
+import { paletteCSS } from '../theme/palette'
 
 export type DragPart = 'move' | 'width' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end' | 'bend'
 interface Props {
@@ -27,10 +28,10 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const geometric = kind === 'rectangle' || kind === 'ellipse' || kind === 'line'
-  const textStyle = !note.kind || note.kind === 'text' ? { padding: pixels(note.padding ?? 0, defaultFontSize), backgroundColor: note.background ?? 'transparent', borderColor: note.borderColor ?? 'transparent' } : {}
+  const textStyle = !note.kind || note.kind === 'text' ? { padding: pixels(note.padding ?? 0, defaultFontSize), backgroundColor: note.background ? paletteCSS(note.background) : 'transparent', borderColor: note.borderColor ? paletteCSS(note.borderColor) : 'transparent' } : {}
   useEffect(() => { if (editingLabel) editor.current?.commands.focus('end') }, [editingLabel])
   function begin(part: DragPart, event: PointerEvent) { if (editable && event.button === 0) onBegin(part, event) }
-  const stroke = 'stroke' in note ? note.stroke ?? defaultColor : defaultColor
+  const stroke = 'stroke' in note ? note.stroke ? paletteCSS(note.stroke) : defaultColor : defaultColor
   const path = box.path?.map(point => ({ x: point.x - box.x, y: point.y - box.y }))
   return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''} ${editingLabel ? 'is-label-editing' : ''}`}
     data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-text-flow={note.textFlow}
@@ -52,8 +53,8 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
       : note.kind === 'html' ? <HTMLWidgetView note={note} editable={editable} selected={selected} run={widgetRun} staticOnly={staticWidgets} />
       : note.kind === 'rectangle' || note.kind === 'ellipse' ? <svg className="floating-vector" width="100%" height="100%" overflow="visible">
         {note.kind === 'rectangle' ? <rect className="vector-ink" x="0" y="0" width={box.width} height={box.height} rx={note.rounded ? Math.min(12, box.height / 4, box.width / 4) : 0}
-          fill={note.fill ?? 'none'} stroke={stroke} strokeWidth={note.strokeWidth} strokeDasharray={note.dashed ? `${note.strokeWidth * 6} ${note.strokeWidth * 4}` : undefined} onPointerDown={event => begin('move', event)} />
-          : <ellipse className="vector-ink" cx={box.width / 2} cy={box.height / 2} rx={box.width / 2} ry={box.height / 2} fill={note.fill ?? 'none'} stroke={stroke} strokeWidth={note.strokeWidth}
+          fill={note.fill ? paletteCSS(note.fill) : 'none'} stroke={stroke} strokeWidth={note.strokeWidth} strokeDasharray={note.dashed ? `${note.strokeWidth * 6} ${note.strokeWidth * 4}` : undefined} onPointerDown={event => begin('move', event)} />
+          : <ellipse className="vector-ink" cx={box.width / 2} cy={box.height / 2} rx={box.width / 2} ry={box.height / 2} fill={note.fill ? paletteCSS(note.fill) : 'none'} stroke={stroke} strokeWidth={note.strokeWidth}
             strokeDasharray={note.dashed ? `${note.strokeWidth * 6} ${note.strokeWidth * 4}` : undefined} onPointerDown={event => begin('move', event)} />}
         {editable && (note.kind === 'rectangle' ? <rect className="vector-hit" x="0" y="0" width={box.width} height={box.height} rx={note.rounded ? Math.min(12, box.height / 4, box.width / 4) : 0} onPointerDown={event => begin('move', event)} />
           : <ellipse className="vector-hit" cx={box.width / 2} cy={box.height / 2} rx={box.width / 2} ry={box.height / 2} onPointerDown={event => begin('move', event)} />)}

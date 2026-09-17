@@ -1,17 +1,17 @@
-import { Extension, Mark, Node, mergeAttributes } from '@tiptap/core'
+import { Extension, Node, mergeAttributes } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import HardBreak from '@tiptap/extension-hard-break'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor } from '@tiptap/extensions'
-import { NodeSelection, Plugin } from '@tiptap/pm/state'
+import { Plugin } from '@tiptap/pm/state'
 import { Fragment, Slice } from '@tiptap/pm/model'
-import { CellSelection } from '@tiptap/pm/tables'
-import { blockClasses, inlineClasses } from '../document/model'
+import { blockClasses } from '../document/model'
 import { TableParagraph, tableExtensions } from './table'
 import { Spaces } from './spaces'
 import { ParagraphBehavior } from './paragraphBehavior'
+import { inlineMarks } from './inline'
 
 const SemanticParagraph = Paragraph.extend({
   addAttributes() {
@@ -71,40 +71,6 @@ const MainParagraph = SemanticParagraph.extend({
       }
     }
   },
-})
-
-const SemanticText = Mark.create({
-  name: 'semanticText',
-  addAttributes() {
-    return {
-      semantic: {
-        default: 'primary',
-        parseHTML: element => {
-          if (element.matches('strong, b')) return 'bold'
-          const value = element.getAttribute('data-inline-semantic')
-          const semantic = value === 'emphasis' ? 'primary' : value
-          return inlineClasses.find(name => name === semantic) ?? 'primary'
-        },
-        renderHTML: attrs => ({ 'data-inline-semantic': attrs.semantic }),
-      },
-    }
-  },
-  parseHTML: () => [
-    { tag: 'span[data-inline-semantic]' },
-    { tag: 'strong', getAttrs: () => ({ semantic: 'bold' }) },
-    { tag: 'b', getAttrs: () => ({ semantic: 'bold' }) },
-  ],
-  addKeyboardShortcuts() {
-    return {
-      'Mod-b': ({ editor }) => {
-        const { selection } = editor.state
-        if (!editor.isEditable || selection instanceof NodeSelection || (!selection.$from.parent.isTextblock && !(selection instanceof CellSelection))) return false
-        if (selection.$from.parent.attrs.semantic === 'code') return true
-        return editor.commands.toggleMark('semanticText', { semantic: 'bold' })
-      },
-    }
-  },
-  renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
 
 const LabelParagraph = Paragraph.extend({
@@ -186,12 +152,12 @@ export const Spacer = Node.create({
 
 export function extensions(spatial: boolean, table = false, singleLabel = false, onFinish?: () => void) {
   if (singleLabel) return [
-    Document.extend({ content: 'paragraph' }), LabelParagraph, Text, HardBreak, SemanticText, Gapcursor,
+    Document.extend({ content: 'paragraph' }), LabelParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
     LabelBehavior.configure({ onFinish }),
   ]
   return [
     table ? Document.extend({ content: 'table' }) : Document,
-    table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, SemanticText, Gapcursor,
+    table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
     UniqueID.configure({ types: spatial ? ['paragraph', 'spacer'] : ['paragraph'] }),
     ...(spatial ? [Spacer, Spaces] : []),
     ...(table ? tableExtensions : [ParagraphBehavior]),

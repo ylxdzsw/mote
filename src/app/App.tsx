@@ -126,7 +126,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       if (!editable || isComposingKey(event)) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
-      if (target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox])')) return
+      if (target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])')) return
       event.preventDefault(); event.stopPropagation()
       if (key === 'y' || event.shiftKey) history.redo(); else history.undo()
     }
@@ -144,7 +144,6 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         paragraph: editor?.isActive('paragraph') ?? false,
         semantic: editor?.schema.nodes.table ? 'table' : editor?.getAttributes('paragraph').semantic ?? 'body',
         listLevel: editor?.getAttributes('paragraph').listLevel ?? 0,
-        inline: editor?.getAttributes('semanticText').semantic ?? '',
         table: !!editor?.schema.nodes.table,
         columnAlignment: rect && columnAlignment(editor!.state),
         tableRect: rect && { removeRow: rect.bottom - rect.top < rect.map.height, removeColumn: rect.right - rect.left < rect.map.width },
@@ -282,7 +281,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     </div>}
 
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
-      theme={doc.theme} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
+      theme={doc.theme} onPalette={() => openThemeClass('palette')} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
       onInsert={(kind, columns, rows) => {
         if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
@@ -315,7 +314,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         {!selectedObject && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag empty space or either side gutter to select objects.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
-        {selectedObject && <FloatingInspector object={selectedObject} count={selectedIds.length} themeColor={doc.theme.defaults.color} defaultFontSize={doc.theme.defaults.size}
+        {selectedObject && <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
           targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
           onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
           onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
@@ -341,15 +340,14 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
             {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={!selection.tableRect}
               aria-pressed={selection.columnAlignment === align} onClick={() => tableCommand(alignColumns(align))}>{classLabel(align)}</button>)}
           </div>
-          <p className="hint">Alignment applies to entire selected columns. Enter / Shift+Enter adds a newline within a cell; Tab / Shift+Tab moves between cells. All cells use the Table style; inline classes remain available.</p>
+          <p className="hint">Alignment applies to entire selected columns. Enter / Shift+Enter adds a newline within a cell; Tab / Shift+Tab moves between cells. All cells use the Table style; bold, palette colors, and decorations remain available.</p>
           <p className="hint">Drag an internal divider to resize adjacent columns without changing table width. The outer right border resizes the whole table proportionally; the top, left, and bottom borders move it. Focus the outer border and press Delete to remove the table.</p>
         </section>}
         {selectedObject?.kind !== 'katex' && selectedObject?.kind !== 'html' && <section className="panel-section">
           <h2>Edit style</h2>
           <div className="style-actions" onMouseDown={event => event.preventDefault()}>
             <button disabled={selectedIds.length > 1 || (selectedObject?.kind !== 'label' && !selection?.paragraph && !selection?.tableRect)} onClick={() => openThemeClass(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')}>{classLabel(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')} style…</button>
-            <button disabled={!activeEditor?.isEditable || selection?.semantic === 'code' || (!selection?.paragraph && !selection?.tableRect)}
-              onClick={() => openThemeClass(selection?.inline || 'primary')}>{classLabel(selection?.inline || 'primary')} style…</button>
+            <button onClick={() => openThemeClass('palette')}>Document palette…</button>
           </div>
         </section>}
         </>}

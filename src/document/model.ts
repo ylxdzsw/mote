@@ -8,10 +8,8 @@ import motionScreenshot from './examples/motion.png?inline'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math'] as const
-export const inlineClasses = ['primary', 'secondary', 'bold', 'term'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
-export type InlineClass = typeof inlineClasses[number]
 
 export type ThemeLength = number | `${number}px` | `${number}em`
 
@@ -26,40 +24,43 @@ export interface BlockStyle {
   letterSpacing: ThemeLength
 }
 
-export interface PhraseStyle {
-  color: string
-  background: string
-  weight: number
-  italic: boolean
-  decoration: 'none' | 'underline' | 'line-through'
+export interface PaletteEntry {
+  id: string
+  name: string
+  strong: string
+  soft?: string
 }
 
 export interface Theme {
   autospace?: boolean
   defaults: Omit<BlockStyle, 'size'> & { size: number; background: string }
   blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
-  inline: Record<InlineClass, Partial<PhraseStyle>>
+  palette: PaletteEntry[]
 }
 
 export const defaultTheme: Theme = {
-  defaults: { family: 'sans', size: 16, color: '#414841', background: '#fffefa', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
+  defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
-    title: { size: '3em', color: '#262b27', family: 'serif', lineHeight: '3.5em' },
-    heading: { size: '1.5em', color: '#262b27', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
+    title: { size: '3em', color: 'ink', family: 'serif', lineHeight: '3.5em' },
+    heading: { size: '1.5em', color: 'ink', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
     body: { size: '1em' },
     table: { size: '1em' },
-    label: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
+    label: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
     math: {},
-    caption: { size: '0.75em', color: '#737b72', lineHeight: '1.25em' },
+    caption: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
     code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
   },
-  inline: {
-    primary: { color: '#355b43', background: '#e9efdf' },
-    secondary: { color: '#425f87', background: '#e8eef7' },
-    bold: { weight: 700 },
-    term: { color: '#875a35', background: '#f6edde' },
-  },
+  palette: [
+    { id: 'ink', name: 'Ink', strong: '#303830' },
+    { id: 'muted', name: 'Muted', strong: '#687166' },
+    { id: 'subtle', name: 'Subtle', strong: '#e8ece3' },
+    { id: 'paper', name: 'Paper', strong: '#fffefa' },
+    { id: 'key-idea', name: 'Key idea', strong: '#355b43', soft: '#e9efdf' },
+    { id: 'detail', name: 'Detail', strong: '#425f87', soft: '#e8eef7' },
+    { id: 'term', name: 'Term', strong: '#875a35', soft: '#f6edde' },
+    { id: 'caution', name: 'Caution', strong: '#984b38', soft: '#fae9e1' },
+  ],
 }
 
 interface FloatingGeometry {
@@ -197,13 +198,13 @@ export function createDocument(): MoteDocument {
           ...paragraph(''),
           content: [
             { type: 'text', text: 'Some thoughts want a line. Others need ' },
-            { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'semanticText', attrs: { semantic: 'primary' } }] },
+            { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'key-idea' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
             { type: 'text', text: '. Mote brings both into the same document.' },
           ],
         },
         { type: 'spacer', attrs: { id: spaceId, height: 176 } },
         paragraph('Meaning before appearance', 'heading'),
-        paragraph('Give a paragraph or a phrase a role, then let the theme take care of how it looks. Change the theme once, and every use follows.'),
+        paragraph('Give paragraphs a role, then combine bold, color, and decoration within them. Text and shapes share one document palette; change a color once, and every use follows.'),
         paragraph('Try it out', 'heading'),
         paragraph('Write above the floating note and watch it follow its anchor. Select a phrase to highlight a key idea, or insert a spacer to leave room for something new.'),
         paragraph('This draft lives in this browser. No account, no cloud.', 'caption'),
@@ -275,7 +276,7 @@ export function createDocument(): MoteDocument {
       textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: true,
     }, {
       id: ellipseId, kind: 'ellipse', anchorId: spaceId, x: 224, y: 48, width: 96, height: 80,
-      textFlow: 'overlap', fill: '#e9efdf', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
+      textFlow: 'overlap', fill: 'key-idea:soft', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
     }, {
       id: crypto.randomUUID(), kind: 'line', anchorId: spaceId, x: 167, y: 88, width: 57,
       textFlow: 'overlap', stroke: null, strokeWidth: 1, dashed: true, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true,
