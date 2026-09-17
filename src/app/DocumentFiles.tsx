@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { MoteDocument } from '../document/model'
 import './files.css'
 
@@ -21,7 +21,7 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
-export function DocumentFiles({ doc, onImport }: { doc: MoteDocument; onImport?: (doc: MoteDocument) => void }) {
+export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; active: boolean; onImport?: (doc: MoteDocument) => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState('')
@@ -30,6 +30,8 @@ export function DocumentFiles({ doc, onImport }: { doc: MoteDocument; onImport?:
   const [filename, setFilename] = useState('Untitled')
   const basename = filename.trim().replace(/\.(png|html|mote)$/i, '')
   const invalidName = !basename || /^[. ]+$/.test(basename) || /[<>:"/\\|?*\u0000-\u001f]/.test(basename)
+
+  useEffect(() => { if (!active) dialog.current?.close() }, [active])
 
   async function exporting(format: keyof typeof formats) {
     if (invalidName) return

@@ -450,7 +450,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     onFloatingChange(applyPatches(doc.floating, patches))
   }
 
-  return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''}`}>
+  return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
+    style={{ '--page-background': doc.theme.defaults.background } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && (tool || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}

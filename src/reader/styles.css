@@ -1,8 +1,0 @@
-.reader-header { gap: 18px; }
-.reader-header .header-zoom { margin-left: auto; }
-.reader-header .view-settings-toggle { flex-shrink: 0; }
-
-@media (max-width: 767px) {
-  .reader-header { gap: 10px; }
-  .reader-header .header-zoom { margin-left: auto; }
-}

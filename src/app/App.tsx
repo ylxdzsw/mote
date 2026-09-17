@@ -83,7 +83,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   const [documentSettingsOpen, setDocumentSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'layout' | 'theme'>('layout')
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
-  const showInspector = editable || viewSettingsOpen
+  const showInspector = editable
   const showMinimap = settings.minimap === 'show' || (settings.minimap === 'auto' && !smallScreen)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
@@ -252,7 +252,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     : 'Main text'
 
   return <HistoryContext value={history}><div className="app">
-    <header className="app-header">
+    <header className={`app-header ${editable ? '' : 'floating-header'}`} hidden={mobile}>
       <a className="brand" href="./" aria-label="Mote home"><span className="brand-mark">m</span>Mote</a>
       <div className="document-label">Untitled notebook <span className="version">V0</span></div>
       {editable && <button className="reset-example" onClick={() => {
@@ -264,20 +264,21 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         {writable && status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
       </div>
       <div className="header-zoom" ref={setZoomHost} />
-      <DocumentFiles doc={doc} onImport={writable && !mobile ? onImport : undefined} />
+      <DocumentFiles doc={doc} active={editable} onImport={writable && !mobile ? onImport : undefined} />
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
         aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
         aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen) }}>View</button>
-      {!mobile && writable ? <div className="mode-switch" aria-label="Document mode">
+      {!mobile && (writable ? <div className="mode-switch" role="group" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
-      </div> : <span className="mobile-mode">Reading</span>}
+      </div> : <button className="reader-return"
+        title={blocked ? 'This draft is being edited in another tab. Try to acquire editing access.' : 'Edit this local draft'}
+        onClick={onTryEditing}>Try editing</button>)}
     </header>
 
-    {!writable && (blocked || !mobile) && <div className="draft-notice" role="status">
-      <span>{blocked ? 'This draft is being edited in another tab.' : 'This tab is reading the local draft.'}</span>
-      {!mobile && <button onClick={onTryEditing}>Try editing</button>}
+    {!editable && writable && status === 'error' && <div className="image-error" role="alert">
+      <span>Local save failed</span><button onClick={() => setDoc({ ...doc })}>Retry</button>
     </div>}
 
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
