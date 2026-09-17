@@ -116,7 +116,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .sheet.is-space-dragging, .sheet.is-space-dragging * { cursor: ns-resize !important; user-select: none; }
 .space-hint { position: absolute; left: 8px; pointer-events: none; color: #73866b; font-size: 12px; line-height: 18px; transform: translateY(-50%); }
 .space-hint.is-dragging { padding: 2px 5px; border-radius: 3px; background: #f1f4ec; font-size: 10px; }
-.floating-note { position: absolute; padding: 16px; border: 1px solid transparent; background: #f6f5eb; border-radius: 3px; }
+.floating-note { position: absolute; padding: 0; border: 1px solid transparent; background: #f6f5eb; border-radius: 3px; }
 .is-editing .floating-note { cursor: move; touch-action: none; }
 .is-editing .floating-image img { cursor: default; }
 .floating-border-right { position: absolute; top: -1px; bottom: -1px; right: -4px; width: 8px; cursor: ew-resize; touch-action: none; }

@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { FloatingObject, FloatingShape, FloatingLine, FloatingLabel, FloatingKaTeX, FloatingHTMLWidget, FloatingPatch, LabelPosition } from '../document/model'
+import type { FloatingObject, FloatingShape, FloatingLine, FloatingLabel, FloatingKaTeX, FloatingHTMLWidget, FloatingPatch, LabelPosition, ThemeLength } from '../document/model'
 import type { CanvasActions } from '../canvas/DocumentCanvas'
 import { WidgetEditor } from './WidgetEditor'
-import { NumberField } from '../theme/ThemePanel'
+import { NumberField, pixels } from '../theme/ThemePanel'
 
 interface Props {
   object: FloatingObject
   count: number
   themeColor: string
+  defaultFontSize: number
   onChange: (patch: FloatingPatch) => void
   onAction: (action: Exclude<keyof CanvasActions, 'insert'>) => void
   onFront: () => void
@@ -25,7 +26,7 @@ interface Props {
 const kindName = (object: FloatingObject) => object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'label' ? 'Label' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text'
 const colorValue = (value: string | null, fallback: string) => value ?? fallback
 
-export function FloatingInspector({ object, count, themeColor, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, targetKind, onTheme, onWidgetRun, onReplaceScreenshot }: Props) {
+export function FloatingInspector({ object, count, themeColor, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, targetKind, onTheme, onWidgetRun, onReplaceScreenshot }: Props) {
   const shape = object.kind === 'rectangle' || object.kind === 'ellipse' ? object as FloatingShape : null
   const line = object.kind === 'line' ? object as FloatingLine : null
   const label = object.kind === 'label' ? object as FloatingLabel : null
@@ -37,6 +38,7 @@ export function FloatingInspector({ object, count, themeColor, onChange, onActio
       {count > 1 ? <div className="object-actions"><button onClick={() => onAction('remove')}>Delete</button><button onClick={() => onAction('duplicate')}>Duplicate</button><button onClick={onFront}>Bring front</button><button onClick={onBack}>Send back</button></div> : <>
         {(!object.kind || ['text', 'image', 'table', 'katex', 'html'].includes(object.kind)) && <label>Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>}
         {object.kind === 'image' && <p className="hint">Drag the image interior to move it; drag the right edge to resize.</p>}
+        {(!object.kind || object.kind === 'text') && <TextPadding value={object.padding ?? 0} base={defaultFontSize} onChange={padding => onChange({ padding })} />}
         {(!object.kind || object.kind === 'text') && (['background', 'borderColor'] as const).map(property => {
           const name = property === 'background' ? 'Background color' : 'Border color'
           return <label key={property}>{name}<div className="color-control">
@@ -56,6 +58,18 @@ export function FloatingInspector({ object, count, themeColor, onChange, onActio
       </>}
     </section>
   </>
+}
+
+function TextPadding({ value, base, onChange }: { value: ThemeLength; base: number; onChange: (value: ThemeLength) => void }) {
+  const unit = typeof value === 'string' && value.endsWith('em') ? 'em' : 'px'
+  return <div className="style-field">
+    <div className="field-heading">Padding</div>
+    <NumberField label="Padding" value={typeof value === 'number' ? value : parseFloat(value)} min={0} max={2000 / (unit === 'em' ? base : 1)}
+      step={unit === 'em' ? .025 : 1} unit={unit} units={['em', 'px']}
+      onChange={next => onChange(`${next}${unit}`)}
+      onUnitChange={nextUnit => onChange(`${Number((pixels(value, base) / (nextUnit === 'em' ? base : 1)).toFixed(6))}${nextUnit as 'em' | 'px'}`)} />
+    <p className="hint">All sides. em follows the global default font size.</p>
+  </div>
 }
 
 function KaTeXControls({ value, onChange, onTheme, onHistoryBegin, onHistoryEnd }: { value: FloatingKaTeX; onChange: (patch: FloatingPatch) => void; onTheme: (className: string) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {

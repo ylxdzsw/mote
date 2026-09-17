@@ -185,6 +185,10 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   const kind = object.kind
   if (kind === undefined || kind === 'text') {
     for (const property of ['background', 'borderColor']) if (property in object) color(object[property], `${path}.${property}`)
+    if ('padding' in object) {
+      themeLength(object.padding, `${path}.padding`)
+      finite(typeof object.padding === 'number' ? object.padding : parseFloat(object.padding as string), `${path}.padding`, 0)
+    }
   }
   if (kind === undefined || kind === 'text' || kind === 'table' || kind === 'label') {
     if (!('content' in object)) invalid(`${path}.content is missing`)

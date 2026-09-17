@@ -3,7 +3,7 @@ import { themeBlockClasses, inlineClasses, type DocumentLanguage, type ThemeBloc
 import { useHistory } from '../document/history'
 import { MathView } from '../canvas/MathView'
 
-function pixels(value: ThemeLength, base: number) {
+export function pixels(value: ThemeLength, base: number) {
   return typeof value === 'number' ? value : parseFloat(value) * (value.endsWith('em') ? base : 1)
 }
 

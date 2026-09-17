@@ -478,3 +478,9 @@ Image-file insertion already supports document drops, including batches and edit
 Build/type/whitespace checks passed. Scoped production-preview checks covered uppercase extension/empty MIME, Unicode source, invalid/multiple files, simulated read failure, closing during a pending read, atomic undo/redo, unchanged iframe until explicit restart, and reload persistence. No application browser errors or dependencies added; existing bundle-size advisory remains.
 
 Redeployed and verified a live .htm drop, matching HTML and all five JS/CSS chunks, and no-store responses (HTML DYNAMIC). Task-owned preview and browser sessions stopped.
+
+## 2026-09-16 — Adjustable floating text padding
+
+Floating text boxes now have one per-object Padding value for all four sides, defaulting to zero when omitted. The inspector supports px and em using the existing numeric/history control; switching units preserves the current absolute size. em resolves against the global Defaults font size, never the box's paragraph class. The input accepts nonnegative lengths up to 2000 document pixels (converted for em), matching the existing spacing-control convention. Image/table/label padding is unchanged. Shared canvas rendering covers editing, reading, minimaps, and exports; native files retain the optional ThemeLength field and reject negative or unsupported padding lengths.
+
+Build/type/whitespace checks passed. Scoped production-preview checks covered zero defaults, equal-side computed padding, px/em conversion, 1.5em scaling from 24px to 30px when Defaults changes from 16px to 20px, undo/redo, negative-input rejection, saved reload, read-only rendering, native round-trip and invalid-unit/value rejection. Inspector screenshot reviewed; no application browser errors. Redeployed with no-store headers and matching production HTML. Existing bundle-size advisory remains; no dependencies or regression suite added.

@@ -74,6 +74,7 @@ interface FloatingGeometry {
 export interface FloatingText extends FloatingGeometry {
   kind?: 'text'
   content: JSONContent
+  padding?: ThemeLength
   background?: string | null
   borderColor?: string | null
 }
@@ -136,7 +137,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stro
   start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
   attachment?: LabelAttachment | null
   latex?: string; html?: string; screenshot?: string
-  background?: string | null; borderColor?: string | null
+  background?: string | null; borderColor?: string | null; padding?: ThemeLength
 }
 
 export function labelContent(text = ''): JSONContent {

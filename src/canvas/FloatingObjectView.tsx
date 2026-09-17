@@ -5,10 +5,11 @@ import { TextEditor } from '../editor/TextEditor'
 import { arrowPoints, type Geometry, type Point } from './floatingGeometry'
 import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
+import { pixels } from '../theme/ThemePanel'
 
 export type DragPart = 'move' | 'width' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end' | 'bend'
 interface Props {
-  note: FloatingObject; geometry: Geometry; editable: boolean; selected: boolean; editingLabel: boolean; defaultColor: string
+  note: FloatingObject; geometry: Geometry; editable: boolean; selected: boolean; editingLabel: boolean; defaultColor: string; defaultFontSize: number
   onBegin: (part: DragPart, event: PointerEvent) => void
   onActive: (editor: Editor | null) => void
   onChange: (patch: FloatingPatch) => void
@@ -22,11 +23,11 @@ function arrow(tip: Point, from: Point, width: number) {
   return arrowPoints(tip, from, width).map(p => `${p.x},${p.y}`).join(' ')
 }
 
-export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order }: Props) {
+export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, defaultFontSize, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const geometric = kind === 'rectangle' || kind === 'ellipse' || kind === 'line'
-  const textStyle = !note.kind || note.kind === 'text' ? { backgroundColor: note.background ?? 'transparent', borderColor: note.borderColor ?? 'transparent' } : {}
+  const textStyle = !note.kind || note.kind === 'text' ? { padding: pixels(note.padding ?? 0, defaultFontSize), backgroundColor: note.background ?? 'transparent', borderColor: note.borderColor ?? 'transparent' } : {}
   useEffect(() => { if (editingLabel) editor.current?.commands.focus('end') }, [editingLabel])
   function begin(part: DragPart, event: PointerEvent) { if (editable && event.button === 0) onBegin(part, event) }
   const stroke = 'stroke' in note ? note.stroke ?? defaultColor : defaultColor

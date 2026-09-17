@@ -476,7 +476,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} selected={selectedIds.includes(note.id) || creating?.id === note.id}
-            editingLabel={editingLabel === note.id} defaultColor={doc.theme.defaults.color} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
+            editingLabel={editingLabel === note.id} defaultColor={doc.theme.defaults.color} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
             onChange={patch => onNoteChange(note.id, patch)} onLabel={() => label(note.id)} onFinishLabel={() => { setEditingLabel(null); focusObject(note.id) }} onKey={event => key(note.id, event)} />
         })}
