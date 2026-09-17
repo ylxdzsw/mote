@@ -21,8 +21,10 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
       const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
       const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
       setFit(Math.min(1, availableWidth / width))
+      // Auto reserves breathing room even when reading has no scrollable side padding.
+      const autoWidth = Math.max(1, viewport.clientWidth - 2 * parseFloat(style.getPropertyValue('--canvas-gutter')))
       // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
-      setAutoScale(Math.min(3, availableWidth / width, availableHeight / 600))
+      setAutoScale(Math.min(3, autoWidth / width, availableHeight / 600))
     }
     measure()
     const observer = new ResizeObserver(measure)

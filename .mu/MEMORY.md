@@ -518,3 +518,19 @@ Type/build/whitespace and extensive scoped Chromium smoke checks passed: twelve-
 Additional production boundary checks passed for paragraph joins, label editing, shape creation/undo, short-page scroll footprints at 25/75/150/300%, retained editing overflow, and reader page-edge cropping. An independent review raised an auto-sized border-box concern; direct native-scale measurements of the sheet and every floating kind, including padded images/tables/text and intrinsic labels, confirmed computed dimensions include their border boxes (only subpixel serialization differences), so adding padding/borders again would be incorrect.
 
 Redeployed assets before HTML, validated Nginx, and verified public HTML and every JS/CSS asset match the production build with no-store headers (HTML DYNAMIC, assets BYPASS). Live 25/75/125/150/300% wrapping/native-height and footprint checks, reading mode, minimap End, and 390px mobile Auto passed without application exceptions. Live desktop/mobile screenshots reviewed. Task-owned development/preview servers and isolated browser session stopped.
+
+## 2026-09-17 — Remove reading side gutters
+
+Reading canvas outer left/right padding is now zero, including mobile and shared standalone HTML. This removes 48 screen pixels of unnecessary horizontal scroll extent and gives Auto the full available width. Document-internal margins, native composition, top/bottom canvas spacing, desktop centering, and editing gutters remain unchanged; manual zoom still permits horizontal scrolling across the document itself.
+
+Type/build/whitespace checks passed. Scoped production-preview Chromium checks confirmed 390/320px Auto fits with zero horizontal overflow, unchanged native width/height across desktop editing/reading at 100%, retained manual zoom with precisely document-width scroll bounds, and Auto reset. Mobile screenshot reviewed; no application exceptions. Existing bundle-size advisory remains.
+
+Redeployed and verified matching live HTML/CSS with no-store headers and 390px reading without horizontal overflow. Task-owned preview and browser sessions stopped.
+
+## 2026-09-17 — Auto breathing room without scrollable gutters
+
+User clarified that Auto should retain the old side spacing while further zooming should consume that space before introducing horizontal scrolling. Auto now reserves 24 screen pixels per side using the same CSS gutter value as editing padding; reading still has zero actual horizontal padding. The centered footprint supplies the breathing room naturally, shrinking it as zoom increases. This supersedes the preceding full-width Auto decision. Exact reading Fit still uses the full viewport width, and the existing Auto height cap, manual zoom, document margins, and native layout remain unchanged.
+
+Build/type/whitespace checks passed. Production-preview checks at 390/320px confirmed Auto leaves 24px sides, the first keyboard zoom-in stays horizontally non-scrollable, and further zoom scrolls only the overflowing document. Desktop editing retains its padding; manual scale/native height survive mode switches; Auto reset works. Exported HTML reproduces the same behavior and exact 390px fit has zero horizontal overflow. Mobile screenshot reviewed; no application exceptions. Existing bundle-size advisory remains.
+
+Redeployed and verified all production HTML/JS/CSS match the build with no-store. Live 390px Auto retains 24px sides and a zoom increment consumes the gap without horizontal overflow. Task-owned preview and browser sessions stopped.
