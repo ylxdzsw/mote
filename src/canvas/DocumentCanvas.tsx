@@ -18,6 +18,8 @@ import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 import { aiPlaceholder } from '../ai/placeholder'
 import type { Area } from '../ai/types'
+import { currentPlacement } from '../ai/reservations'
+import type { AIReview } from '../ai/ReviewControls'
 
 export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
 export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void; insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[] }
@@ -34,6 +36,7 @@ interface Props {
   onDropImages?: (files: File[], position: LineEnd) => void
   lockedIds?: Set<string>; onAICreate?: (object: FloatingObject, area: Area) => void
   aiWidgetIds?: Set<string>
+  aiReview?: AIReview
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -45,7 +48,7 @@ const contentText = (content: JSONContent): string => (content.text ?? '') + (co
 const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
   || (object.kind === 'katex' && !object.latex.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -61,7 +64,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const newLabels = useRef(new Set<string>())
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
-  const layoutDoc = useMemo(() => creating || inserting.length ? { ...doc, floating: [...doc.floating, ...inserting, ...(creating ? [creating] : [])] } : doc, [doc, creating, inserting])
+  const layoutDoc = useMemo(() => ({ ...doc, floating: [...doc.floating.map(object => {
+    const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
+    return task && task.preview && task.candidate?.object ? currentPlacement(task.candidate.object, object) : object
+  }), ...inserting, ...(creating ? [creating] : [])] }), [doc, creating, inserting, editable, aiReview?.tasks])
   const { geometry, anchors, minHeight, sideInsets, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
@@ -240,7 +246,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
     const target = event.target as Element
-    if (target.closest('[data-widget-control]')) return
+    if (target.closest('[data-widget-control], [data-ai-controls], [data-ai-preview]')) return
     const inside = !!target.closest('.sheet')
     if (inside && spaces.begin(event)) return
     if (tool && inside) {
@@ -498,9 +504,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           event.preventDefault(); event.stopPropagation()
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
         }}
-        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), '--ai-page-width': `${doc.width - 2}px`, '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
         <div className="main-text">
-          <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange}
+          <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={aiReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
         </div>
         {editable && spaces.hint && <div className={`space-hint ${spaces.hint.dragging ? 'is-dragging' : ''}`} aria-hidden="true"
@@ -512,6 +518,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
+            aiReview={aiReview} aiTask={editable ? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}

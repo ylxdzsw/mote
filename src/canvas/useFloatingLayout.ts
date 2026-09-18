@@ -82,13 +82,26 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       }
       // A dragged object has a fixed document-space position until release.
       for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
+      const blocks: { element: HTMLElement; ids: string[]; paragraph: boolean }[] = []
+      const seen = new Set<Element>()
       editor!.state.doc.forEach((node, from) => {
-        const element = editor!.view.nodeDOM(from) as HTMLElement
+        const original = editor!.view.nodeDOM(from) as HTMLElement
+        const replacement = surface.querySelector<HTMLElement>(`[data-ai-block="${node.attrs.id}"]`)
+        const preview = replacement?.closest('.ai-text-preview')
+        if (preview) {
+          if (seen.has(preview)) return
+          seen.add(preview)
+          for (const element of preview.children as HTMLCollectionOf<HTMLElement>) blocks.push({ element, paragraph: true,
+            ids: [element.dataset.aiBlock!, ...[...element.querySelectorAll<HTMLElement>('[data-ai-block]')].map(anchor => anchor.dataset.aiBlock!)].filter(Boolean) })
+        } else blocks.push({ element: original, ids: [node.attrs.id], paragraph: node.type.name === 'paragraph' })
+      })
+      for (const { element, ids, paragraph } of blocks) {
         const top = localTop(element)
-        anchors.push({ id: node.attrs.id, top })
+        // Resolve existing alias attachments, but new placements prefer the visible survivor.
+        anchors.push(...ids.toReversed().map(id => ({ id, top })))
         elements.add(element)
-        for (const note of floating) if (note.anchorId === node.attrs.id && override[note.id]?.top === undefined) activate(note, top)
-        if (node.type.name !== 'paragraph') return
+        for (const note of floating) if (note.anchorId !== null && ids.includes(note.anchorId) && override[note.id]?.top === undefined) activate(note, top)
+        if (!paragraph) continue
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
         const left = (element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft
@@ -107,7 +120,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           element.removeAttribute('data-repel')
           for (const name of ['--repel-height', '--repel-shape', '--text-height']) element.style.removeProperty(name)
         }
-      })
+      }
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
       const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)

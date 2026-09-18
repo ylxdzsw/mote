@@ -44,7 +44,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!mounted.current) return
     state.current = state.current.map(task => {
       if (task.id !== id) return task
-      const next = { ...task, ...patch }; save(next); return next
+      const next = { ...task, ...(patch.candidate ? { preview: true } : {}), ...patch }; save(next); return next
     })
     setTasks(state.current)
   }

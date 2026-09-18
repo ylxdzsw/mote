@@ -10,8 +10,8 @@ import { neutralIds, paletteColor } from '../theme/palette'
 import type { CreationTool } from '../canvas/DocumentCanvas'
 import './toolbar.css'
 
-type InsertKind = 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai'
-type IconName = BlockClass | InsertKind | 'plain' | 'bold' | 'color' | 'box' | 'underline' | 'clear' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
+type InsertKind = 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
+type IconName = BlockClass | InsertKind | 'ai-text' | 'ai-object' | 'plain' | 'bold' | 'color' | 'box' | 'underline' | 'clear' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
@@ -32,7 +32,8 @@ function Icon({ name }: { name: IconName }) {
     table: <><rect x="3" y="4" width="18" height="16" rx="1" /><path d="M3 10h18M3 15h18M11 4v16" /></>,
     katex: <><path d="M5 5h14M5 19h14M7 5v14M17 5v14" /><path d="m10 9 4 3-4 3" /></>,
     html: <><path d="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /></>,
-    ai: <path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5Z" />,
+    'ai-text': <><path d="M3 5h9M3 10h8M3 15h6M3 20h13" /><path d="m17 5 1.5 4.5L23 11l-4.5 1.5L17 17l-1.5-4.5L11 11l4.5-1.5Z" /></>,
+    'ai-object': <><path d="M12 3H3v18h18v-9M6 17l4-5 4 5" /><path d="m18 1 1.2 3.8L23 6l-3.8 1.2L18 11l-1.2-3.8L13 6l3.8-1.2Z" /></>,
     rectangle: <rect x="3" y="5" width="18" height="14" rx="1" />,
     ellipse: <ellipse cx="12" cy="12" rx="9" ry="7" />,
     line: <path d="M4 20 20 4M12 4h8v8" />,
@@ -165,8 +166,8 @@ function selectedClasses(editor: Editor | null) {
 }
 
 const paragraphQuick = ['heading', 'list', 'code'] as const
-const insertKinds: InsertKind[] = ['text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line', 'ai']
-const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label', ai: 'AI generated' }
+const insertKinds: InsertKind[] = ['text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
+const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
 const neutralSet = new Set<string>(neutralIds)
 
 function colorEntries(theme: Theme) {
@@ -185,9 +186,10 @@ interface Props {
   onPalette?: () => void
   onInsert: (kind: InsertKind, columns?: number, rows?: number) => void
   canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void
+  onAIParagraphs: () => void; onAIObject: () => void; canAIParagraphs: boolean
 }
 
-export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalette, onInsert, canUndo, canRedo, undo, redo }: Props) {
+export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalette, onInsert, canUndo, canRedo, undo, redo, onAIParagraphs, onAIObject, canAIParagraphs }: Props) {
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
   const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
   const inlineDisabled = !editor?.isEditable || !selection.text || selection.code
@@ -259,6 +261,12 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalett
       {(['text', 'rectangle', 'line'] as const).map(kind => <button key={kind} className={`tool-quick tier-${kind === 'text' ? 'medium' : 'wide'}`}
         aria-label={insertionLabel(kind)} title={insertionLabel(kind)} disabled={insertionDisabled(kind)} aria-pressed={kind === 'rectangle' || kind === 'line' ? tool === kind : undefined}
         onMouseDown={event => event.preventDefault()} onClick={() => onInsert(kind)}><Icon name={kind} /></button>)}
+    </div>
+    <div className="tool-group" role="group" aria-label="AI tools">
+      <button aria-label="AI insert or replace paragraphs" title="AI paragraphs · Replace selected paragraphs, or insert after the caret" disabled={!canAIParagraphs}
+        onMouseDown={event => event.preventDefault()} onClick={onAIParagraphs}><Icon name="ai-text" /></button>
+      <button aria-label="AI draw or replace floating object" title="AI object · Replace the selected object, or draw an area" aria-pressed={tool === 'ai'}
+        onMouseDown={event => event.preventDefault()} onClick={onAIObject}><Icon name="ai-object" /></button>
     </div>
     <div className="tool-group toolbar-history" role="group" aria-label="History">
       <button aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!canUndo} onMouseDown={event => event.preventDefault()} onClick={undo}><Icon name="undo" /></button>

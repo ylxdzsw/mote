@@ -54,7 +54,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         const miniature = source.cloneNode(true) as HTMLDivElement
         miniature.className = 'sheet is-reading minimap-sheet'
         miniature.style.height = getComputedStyle(source).height
-        miniature.querySelectorAll('[data-widget-live], .floating-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .attachment-guides, .marquee-selection').forEach(node => node.remove())
+        miniature.querySelectorAll('[data-widget-live], [data-ai-controls], .floating-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .attachment-guides, .marquee-selection').forEach(node => node.remove())
         miniature.querySelectorAll<HTMLElement>('*').forEach(node => {
           for (const name of node.getAttributeNames()) {
             if (name === 'id' || name === 'tabindex' || name === 'contenteditable' || name === 'role' || name.startsWith('aria-')) node.removeAttribute(name)
@@ -83,7 +83,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         image.current!.replaceChildren(miniature)
 
         const existing = new Map(bookmarks.map(bookmark => [bookmark.heading, bookmark.button]))
-        bookmarks = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic="heading"]')].map(heading => {
+        bookmarks = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic="heading"]:not(.ai-original-hidden)')].map(heading => {
           let button = existing.get(heading)
           if (!button) {
             button = document.createElement('button')

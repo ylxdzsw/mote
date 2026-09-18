@@ -10,6 +10,7 @@ import './label.css'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
 import { reservationExtension } from './reservations'
+import type { AIReview } from '../ai/ReviewControls'
 
 interface Props {
   content: JSONContent
@@ -23,16 +24,19 @@ interface Props {
   onChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void
   onActive: (editor: Editor) => void
   onReady?: (editor: Editor) => void
+  aiReview?: AIReview
 }
 
-export function TextEditor({ content, editable, spatial = false, table = false, singleLabel = false, onFinish, label, historyId, onChange, onActive, onReady }: Props) {
+export function TextEditor({ content, editable, spatial = false, table = false, singleLabel = false, onFinish, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
   const history = useHistory()
   const palette = useRef(new Set<string>())
   palette.current = new Set(paletteSwatches(history.doc!.theme).map(swatch => swatch.value))
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
   const syncing = useRef(false)
   const syncedRevision = useRef(-1)
-  const schema = useMemo(() => [...extensions(spatial, table, singleLabel, onFinish), reservationExtension(history, historyId)], [spatial, table, singleLabel, onFinish, historyId])
+  const review = useRef(aiReview)
+  review.current = editable ? aiReview : undefined
+  const schema = useMemo(() => [...extensions(spatial, table, singleLabel, onFinish), reservationExtension(history, historyId, review)], [spatial, table, singleLabel, onFinish, historyId])
   const editor = useEditor({
     extensions: schema,
     content,
@@ -121,7 +125,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   useEffect(() => { ready() }, [editor])
   useEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
   const reservations = JSON.stringify(history.lockedBlocks.current)
-  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations])
+  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, editable])
 
   return <EditorContent className={`text-content${singleLabel ? ' label-editor' : ''}`} editor={editor} />
 }

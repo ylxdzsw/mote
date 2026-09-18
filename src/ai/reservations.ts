@@ -1,6 +1,21 @@
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument } from '../document/model'
 import type { AITarget, AITask } from './types'
+import type { Node } from '@tiptap/pm/model'
+
+export function paragraphSelection(doc: Node, from: number, to: number) {
+  const blockIds: string[] = []
+  let start = -1, end = -1, crossesSpace = false
+  doc.nodesBetween(from, to, (node, position) => {
+    if (node.type.name !== 'paragraph') { crossesSpace = true; return false }
+    if (from !== to && position + 1 >= to) return false
+    if (start < 0) start = position + 1
+    end = position + node.nodeSize - 1
+    blockIds.push(node.attrs.id)
+    return false
+  })
+  return blockIds.length && !crossesSpace ? { blockIds, selection: { from: start, to: end }, selectedText: doc.textBetween(start, end, '\n') } : null
+}
 
 export const sameContent = (a: unknown, b: unknown) => JSON.stringify(a, sortedKeys) === JSON.stringify(b, sortedKeys)
 function sortedKeys(_key: string, value: unknown): unknown {

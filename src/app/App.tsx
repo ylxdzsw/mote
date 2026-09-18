@@ -25,6 +25,7 @@ import { useAssistant } from '../ai/useAssistant'
 import { AssistantPanel } from '../ai/AssistantPanel'
 import { initializeDocument } from '../document/initialize'
 import type { Area } from '../ai/types'
+import { paragraphSelection } from '../ai/reservations'
 
 const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
 <style>
@@ -267,15 +268,13 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     }
     if (!mainEditor || selectedIds.length) return
     const { from, to } = mainEditor.state.selection
-    const ids: string[] = []
-    mainEditor.state.doc.nodesBetween(from, to, (node, pos) => {
-      if (node.type.name === 'paragraph' && (from === to || pos < to && pos + node.nodeSize > from)) ids.push(node.attrs.id)
-      return false
-    })
-    if (!ids.length) { assistant.setNotice('Select one or more main-text paragraphs.'); return }
+    const range = paragraphSelection(mainEditor.state.doc, from, to)
+    if (!range) { assistant.setNotice('Select consecutive main-text paragraphs without crossing a space.'); return }
+    const ids = range.blockIds
     const first = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids[0]}"]`))
     const last = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids.at(-1)}"]`))
-    assistant.reserve({ kind: 'text', blockIds: ids, selection: { from, to }, selectedText: mainEditor.state.doc.textBetween(from, to, '\n'), insert: false, area: { ...first, height: last.y + last.height - first.y } })
+    const task = assistant.reserve({ kind: 'text', ...range, insert: false, area: { ...first, height: last.y + last.height - first.y } })
+    if (task) mainEditor.commands.setTextSelection(range.selection)
   }
   function insertAIParagraphs() {
     if (!doc || !mainEditor) return
@@ -335,11 +334,16 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     </div>}
 
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
+      canAIParagraphs={!!mainEditor && !selectedIds.length}
+      onAIParagraphs={() => { setTool(null); if (mainEditor?.state.selection.empty) insertAIParagraphs(); else reserveSelection() }}
+      onAIObject={() => {
+        if (selectedIds.length === 1) { setTool(null); reserveSelection() }
+        else { setTool(tool === 'ai' ? null : 'ai'); setSelectedIds([]) }
+      }}
       theme={doc.theme} onPalette={() => openThemeClass('palette')} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
       onInsert={(kind, columns, rows) => {
-        if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label' || kind === 'ai') {
+        if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
-          if (kind === 'ai') assistant.setOpen(true)
         } else {
           setTool(null)
           if (kind === 'image') chooseImage()
@@ -355,13 +359,15 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea}
+        aiReview={{ tasks: assistant.tasks, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
+          toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: () => assistant.setOpen(true) }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
         widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)} />
-      {editable && assistant.open ? <AssistantPanel assistant={assistant} doc={doc} onDraw={() => { setTool('ai'); setSelectedIds([]) }}
+      {editable && assistant.open ? <AssistantPanel assistant={assistant} onDraw={() => { setTool('ai'); setSelectedIds([]) }}
         onSelection={reserveSelection} onInsert={insertAIParagraphs} canSelect={selectedIds.length === 1 || !!mainEditor && !selectedIds.length} />
       : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
