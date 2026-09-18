@@ -6,7 +6,6 @@ import { ReplaceStep } from '@tiptap/pm/transform'
 import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { paletteSwatches } from '../theme/palette'
 import { extensions } from './extensions'
-import { fitInlineBoxes } from './inlineBoxes'
 import './label.css'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
@@ -118,12 +117,6 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   }, [editor, history.doc!.theme.palette])
 
   const ready = useEffectEvent(() => onReady?.(editor))
-  useLayoutEffect(() => { fitInlineBoxes(editor.view.dom) }, [content, editor, history.doc!.theme, history.doc!.language])
-  useEffect(() => {
-    const fit = () => fitInlineBoxes(editor.view.dom)
-    document.fonts.addEventListener('loadingdone', fit)
-    return () => document.fonts.removeEventListener('loadingdone', fit)
-  }, [editor])
   useEffect(() => { ready() }, [editor])
   useEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
 

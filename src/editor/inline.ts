@@ -1,7 +1,6 @@
 import { Mark, type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { CellSelection } from '@tiptap/pm/tables'
-import { fitInlineBox } from './inlineBoxes'
 
 const paletteReference = /^[A-Za-z0-9_-]+(?::soft)?$/
 const reservedReferences = new Set(['__proto__', 'constructor', 'prototype'])
@@ -75,21 +74,7 @@ export const InlineDecoration = Mark.create({
     } },
     { tag: 'u', getAttrs: () => ({ decoration: 'underline' }) },
   ],
-  renderHTML: ({ mark, HTMLAttributes }) => mark.attrs.decoration === 'box'
-    ? ['span', HTMLAttributes, ['span', { 'data-inline-box-text': '' }, 0]]
-    : ['span', HTMLAttributes, 0],
-  addMarkView() {
-    return ({ mark, HTMLAttributes }) => {
-      const dom = document.createElement('span')
-      for (const [name, value] of Object.entries(HTMLAttributes)) dom.setAttribute(name, String(value))
-      const contentDOM = mark.attrs.decoration === 'box' ? dom.appendChild(document.createElement('span')) : dom
-      if (contentDOM !== dom) {
-        contentDOM.setAttribute('data-inline-box-text', '')
-        queueMicrotask(() => { if (dom.isConnected) fitInlineBox(dom) })
-      }
-      return { dom, contentDOM, ignoreMutation: mutation => mutation.type === 'attributes' && mutation.target === dom }
-    }
-  },
+  renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
 
 export const InlineBold = Mark.create({
