@@ -1,0 +1,40 @@
+[Unit]
+Description=Mote optional AI supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The supervisor may be root only so it can chown task-local writable paths and
+# launch a transient worker. The worker itself is always the non-root mote-ai user.
+User=root
+Group=http
+UMask=0007
+Environment=MOTED_SOCKET=/run/moted/moted.sock
+Environment=MOTED_STATE_DIR=/tmp/moted
+Environment=MOTED_SOURCE_PATH=/root/mote
+Environment=MOTED_SHARED_MU_DIR=/root/.mu
+Environment=MOTED_MU_ENV_SOURCE=/root/.mu/.env
+Environment=MOTED_WORKER_USER=mote-ai
+Environment=MOTED_CONCURRENCY=2
+Environment=MOTED_TASK_TIMEOUT_MS=900000
+Environment=MOTED_MEMORY_MAX=2G
+Environment=MOTED_CPU_QUOTA=200%
+Environment=MOTED_TASKS_MAX=256
+Environment=MOTED_MU_DEFAULT_MODEL=codex/gpt-5.6-luna
+RuntimeDirectory=moted
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/node /root/mote/server/moted.mjs
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=30
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
+
+# This is an example only; it does not provision users, install software, or
+# activate the unit. The operator must provide /usr/bin/node, mu, systemd-run,
+# /usr/bin/chromium, a non-root mote-ai account, and existing Mu credentials.
+# Static Mote files remain under /var/www/mote; server code stays in /root/mote.
+# Do not run the worker as root or grant SYS_ADMIN.

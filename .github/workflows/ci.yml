@@ -35,3 +35,5 @@ jobs:
         run: npm ci
       - name: Typecheck and build app and offline reader
         run: npm run build
+      - name: Check AI reservations and fake backend (no model calls)
+        run: npm run test:ai

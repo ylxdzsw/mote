@@ -5,7 +5,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
+import { createDocument, paragraph, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
 import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { saveDraft } from '../document/storage'
@@ -21,6 +21,10 @@ import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
 import './floating-controls.css'
 import './embeds.css'
+import { useAssistant } from '../ai/useAssistant'
+import { AssistantPanel } from '../ai/AssistantPanel'
+import { initializeDocument } from '../document/initialize'
+import type { Area } from '../ai/types'
 
 const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
 <style>
@@ -71,13 +75,15 @@ function DraftSession(props: DraftProps) {
 function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftProps & { onImport: (doc: MoteDocument) => void }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
+  const actions = useRef<CanvasActions | null>(null)
+  const assistant = useAssistant(history, writable, id => actions.current?.without([id]))
   const [status, setStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')
   const mobile = useMedia('(max-width: 767px)')
   const smallScreen = useMedia('(max-width: 1050px)')
-  const editable = writable && !mobile && mode === 'edit'
+  const editable = writable && assistant.loaded && !mobile && mode === 'edit'
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings()
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false)
   const [documentSettingsOpen, setDocumentSettingsOpen] = useState(false)
@@ -91,7 +97,6 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [tool, setTool] = useState<CreationTool>(null)
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
-  const actions = useRef<CanvasActions | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
@@ -244,6 +249,53 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     setWidgetRuns(current => ({ ...current, [id]: (current[id] ?? 0) + 1 }))
   }
 
+  function measuredArea(element: Element | null): Area {
+    const sheet = document.querySelector<HTMLElement>('.workspace > .canvas-pane .sheet')
+    if (!element || !sheet) return { x: doc!.margins.left, y: doc!.margins.top, width: doc!.width - doc!.margins.left - doc!.margins.right, height: 24 }
+    const origin = sheet.getBoundingClientRect(), rect = element.getBoundingClientRect(), scale = origin.width / sheet.offsetWidth
+    return { x: (rect.left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: rect.width / scale, height: rect.height / scale }
+  }
+  function reserveSelection() {
+    if (!doc) return
+    if (selectedIds.length === 1 && selectedObject) {
+      const range = activeEditor && activeEditor !== mainEditor && !activeEditor.state.selection.empty ? activeEditor.state.selection : null
+      assistant.reserve({ kind: 'object', objectId: selectedObject.id, isNew: false,
+        ...(range ? { selection: { from: range.from, to: range.to }, selectedText: activeEditor!.state.doc.textBetween(range.from, range.to, '\n') } : {}),
+        area: measuredArea(document.querySelector(`.workspace [data-note-id="${selectedObject.id}"]`)) })
+      setActiveEditor(null)
+      return
+    }
+    if (!mainEditor || selectedIds.length) return
+    const { from, to } = mainEditor.state.selection
+    const ids: string[] = []
+    mainEditor.state.doc.nodesBetween(from, to, (node, pos) => {
+      if (node.type.name === 'paragraph' && (from === to || pos < to && pos + node.nodeSize > from)) ids.push(node.attrs.id)
+      return false
+    })
+    if (!ids.length) { assistant.setNotice('Select one or more main-text paragraphs.'); return }
+    const first = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids[0]}"]`))
+    const last = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids.at(-1)}"]`))
+    assistant.reserve({ kind: 'text', blockIds: ids, selection: { from, to }, selectedText: mainEditor.state.doc.textBetween(from, to, '\n'), insert: false, area: { ...first, height: last.y + last.height - first.y } })
+  }
+  function insertAIParagraphs() {
+    if (!doc || !mainEditor) return
+    const index = mainEditor.state.selection.$from.index(0)
+    const block = doc.content.content![index]
+    if (assistant.tasks.some(task => task.target.kind === 'text' && task.target.blockIds.includes(block?.attrs?.id))) { assistant.setNotice('Place the caret outside a reserved section first.'); return }
+    const phantom = paragraph('')
+    const content = [...doc.content.content!]; content.splice(index + 1, 0, phantom)
+    const next = initializeDocument({ ...doc, content: { ...doc.content, content } })
+    history.boundary(); setDoc(next)
+    const area = measuredArea(document.querySelector(`.workspace .main-text [data-id="${block?.attrs?.id}"]`))
+    const position = mainEditor.state.selection.$from.depth ? mainEditor.state.selection.$from.end(1) + 1 : mainEditor.state.selection.to
+    assistant.reserve({ kind: 'text', blockIds: [phantom.attrs!.id], selection: { from: position + 1, to: position + 1 }, insert: true, area: { ...area, y: area.y + area.height, height: 24 } }, next)
+  }
+  function createAIArea(object: FloatingObject, area: Area) {
+    if (!doc) return
+    const next = { ...doc, floating: [...doc.floating, object] }
+    setDoc(next); assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next)
+  }
+
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
   const itemType = selectedIds.length > 1 ? `${selectedIds.length} floating objects` : selectedObject
@@ -256,6 +308,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       <div className="document-label">Untitled notebook <span className="version">V0</span></div>
       {editable && <button className="reset-example" onClick={() => {
         if (!window.confirm('Replace your local draft with the example? This cannot be undone.')) return
+        assistant.abandonAll()
         setMainEditor(null); setActiveEditor(null); setSelectedIds([]); setTool(null); setImageError(''); setDoc(createDocument())
       }}>Reset to example</button>}
       <div className={`save-status ${writable ? status : 'reading'}`} role="status"><span className="status-dot" />
@@ -263,11 +316,12 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         {writable && status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
       </div>
       <div className="header-zoom" ref={setZoomHost} />
-      <DocumentFiles doc={doc} active={editable} onImport={writable && !mobile ? onImport : undefined} />
+      <DocumentFiles doc={doc} active={editable} onImport={writable && !mobile ? imported => { assistant.abandonAll(); onImport(imported) } : undefined} />
+      {editable && <button className="view-settings-toggle" aria-label="AI assistant" aria-expanded={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>AI{assistant.tasks.length ? ` · ${assistant.tasks.length}` : ''}</button>}
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
-        aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false) }}>Document</button>}
+        aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
-        aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen) }}>View</button>
+        aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen); assistant.setOpen(false) }}>View</button>
       {!mobile && (writable ? <div className="mode-switch" role="group" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
@@ -283,8 +337,9 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
       theme={doc.theme} onPalette={() => openThemeClass('palette')} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
       onInsert={(kind, columns, rows) => {
-        if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
+        if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label' || kind === 'ai') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
+          if (kind === 'ai') assistant.setOpen(true)
         } else {
           setTool(null)
           if (kind === 'image') chooseImage()
@@ -295,15 +350,20 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file && imageTarget.current) void uploadImages([file], imageTarget.current) }} />
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>×</button></div>}
+    {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}<button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>×</button></div>}
 
-    <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
+    <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
-        widgetRuns={widgetRuns} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
+        lockedIds={assistant.lockedIds} onAICreate={createAIArea}
+        aiWidgetIds={new Set(Object.keys(assistant.runs))}
+        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)} />
-      {editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
+      {editable && assistant.open ? <AssistantPanel assistant={assistant} doc={doc} onDraw={() => { setTool('ai'); setSelectedIds([]) }}
+        onSelection={reserveSelection} onInsert={insertAIParagraphs} canSelect={selectedIds.length === 1 || !!mainEditor && !selectedIds.length} />
+      : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
       : showInspector && <aside className="inspector" id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
         <div className="inspector-heading">{viewSettingsOpen || !editable ? 'VIEW SETTINGS' : itemType}
@@ -311,6 +371,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         </div>
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
         {editable && !viewSettingsOpen && <>
+        {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <section className="panel-section"><h2>AI content reservation</h2><p className="hint">You can move this object. Accept or discard its task to edit content or size.</p><button onClick={() => assistant.setOpen(true)}>Open AI task</button></section> : <>
         {!selectedObject && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag empty space or either side gutter to select objects.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
@@ -350,6 +411,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
             <button onClick={() => openThemeClass('palette')}>Document palette…</button>
           </div>
         </section>}
+        </>}
         </>}
       </aside>}
     </main>

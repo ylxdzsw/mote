@@ -12,7 +12,7 @@ interface Props {
   theme: Theme
   defaultFontSize: number
   onChange: (patch: FloatingPatch) => void
-  onAction: (action: Exclude<keyof CanvasActions, 'insert'>) => void
+  onAction: (action: Exclude<keyof CanvasActions, 'insert' | 'without'>) => void
   onFront: () => void
   onBack: () => void
   onHistoryBegin: (name: string) => void
@@ -137,7 +137,7 @@ function LineControls({ line, theme, onChange, onHistoryBegin, onHistoryEnd }: {
   return <><StrokeControls value={line} theme={theme} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} /><label>Route<select value={line.route} onChange={event => onChange({ route: event.target.value as 'straight' | 'elbow' })}><option value="straight">Straight</option><option value="elbow">Elbow</option></select></label><label className="check-label"><input type="checkbox" checked={line.arrowStart} onChange={event => onChange({ arrowStart: event.target.checked })} /> Arrow at start</label><label className="check-label"><input type="checkbox" checked={line.arrowEnd} onChange={event => onChange({ arrowEnd: event.target.checked })} /> Arrow at end</label></>
 }
 
-function LabelControls({ label, targetKind, onAction, onChange }: { label: FloatingLabel; targetKind?: FloatingObject['kind']; onAction: (action: Exclude<keyof CanvasActions, 'insert'>) => void; onChange: (patch: FloatingPatch) => void }) {
+function LabelControls({ label, targetKind, onAction, onChange }: { label: FloatingLabel; targetKind?: FloatingObject['kind']; onAction: (action: Exclude<keyof CanvasActions, 'insert' | 'without'>) => void; onChange: (patch: FloatingPatch) => void }) {
   const positions: LabelPosition[] = targetKind !== 'line' ? ['center', 'top-inside', 'top-outside', 'bottom-inside', 'bottom-outside'] : ['center', 'left', 'right', 'above', 'below']
   return <>{label.attachment ? <><label>Position<select value={label.attachment.position} onChange={event => onChange({ attachment: { ...label.attachment!, position: event.target.value as LabelPosition } })}>{positions.map(position => <option key={position} value={position}>{position.replaceAll('-', ' ')}</option>)}</select></label><button onClick={() => onAction('detach')}>Detach label</button></> : <p className="hint">Free label. Drag near an object to connect it. Alt bypasses snapping.</p>}<p className="hint">Double-click to edit. Enter finishes; Shift+Enter inserts a line break.</p></>
 }

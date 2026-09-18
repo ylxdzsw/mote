@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { DocumentLanguage, MoteDocument } from '../document/model'
+import { DEFAULT_AI_MODEL, type DocumentLanguage, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { NumberField, ThemePanel, type ThemeClass } from '../theme/ThemePanel'
 
@@ -63,6 +63,13 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
           </div>)}
         </div>
         <p className="hint">At least 120px stays available for main text. Floating objects keep their document-space positions; narrower pages can leave them outside the page.</p>
+        <h2 className="subheading">AI assistant (optional)</h2>
+        <div className="style-field"><div className="field-heading">Mu model (optional)</div>
+          <input type="text" maxLength={256} spellCheck={false} autoComplete="off" aria-label="AI assistant Mu model"
+            value={doc.aiModel ?? ''} placeholder={DEFAULT_AI_MODEL} onFocus={() => history.begin('document-ai-model')} onBlur={history.boundary}
+            onChange={event => onChange({ ...doc, aiModel: event.target.value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '') })} />
+        </div>
+        <p className="hint">AI is used only when you explicitly request generation. When requested, the full document is sent to this Mu model.</p>
       </section> : <ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} />}
     </div>
   </aside>

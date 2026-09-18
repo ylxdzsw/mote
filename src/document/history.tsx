@@ -1,5 +1,5 @@
 import { createContext, useContext, useRef, useState } from 'react'
-import type { Editor } from '@tiptap/core'
+import type { Editor, JSONContent } from '@tiptap/core'
 import type { MoteDocument } from './model'
 
 type SelectionJSON = ReturnType<Editor['state']['selection']['toJSON']>
@@ -8,6 +8,9 @@ interface EditOptions { group?: string; composition?: number; normalize?: boolea
 type Update = MoteDocument | null | ((doc: MoteDocument | null) => MoteDocument | null)
 
 export function useDocumentHistory(initial: MoteDocument) {
+  const guard = useRef<(before: MoteDocument, after: MoteDocument) => boolean>(() => true)
+  const guardEditor = useRef<(id: string, before: JSONContent, after: JSONContent) => boolean>(() => true)
+  const lockedBlocks = useRef<Record<string, string>>({})
   const [doc, render] = useState<MoteDocument | null>(initial)
   const [revision, setRevision] = useState(0)
   const state = useRef({ doc, past: [] as Snapshot[], future: [] as Snapshot[],
@@ -22,8 +25,9 @@ export function useDocumentHistory(initial: MoteDocument) {
   function setDoc(update: Update) {
     const next = typeof update === 'function' ? update(s.doc) : update
     if (!next || next === s.doc) return
+    if (s.doc && !guard.current(s.doc, next)) return
     if (s.doc && next.id === s.doc.id && next.content === s.doc.content && next.floating === s.doc.floating
-      && next.width === s.doc.width && next.language === s.doc.language && JSON.stringify(next.margins) === JSON.stringify(s.doc.margins)
+      && next.width === s.doc.width && next.language === s.doc.language && next.aiModel === s.doc.aiModel && JSON.stringify(next.margins) === JSON.stringify(s.doc.margins)
       && JSON.stringify(next.theme) === JSON.stringify(s.doc.theme)) {
       s.doc = next; render(next)
       return
@@ -49,8 +53,10 @@ export function useDocumentHistory(initial: MoteDocument) {
     if ([...s.editors.values()].some(editor => editor.view.composing)) return
     const from = redo ? s.future : s.past
     const to = redo ? s.past : s.future
-    const snapshot = from.pop()
+    const snapshot = from.at(-1)
     if (!snapshot || !s.doc) return
+    if (!guard.current(s.doc, snapshot.doc)) return
+    from.pop()
     to.push({ doc: s.doc, selections: selections() })
     boundary()
     s.restored = snapshot.selections
@@ -62,7 +68,7 @@ export function useDocumentHistory(initial: MoteDocument) {
     s.options = options
     try { action() } finally { s.options = {} }
   }
-  return { doc, setDoc, revision, canUndo: !!s.past.length, canRedo: !!s.future.length,
+  return { doc, setDoc, revision, guard, guardEditor, lockedBlocks, canUndo: !!s.past.length, canRedo: !!s.future.length,
     undo: () => travel(), redo: () => travel(true), boundary, edit,
     begin: (key: string) => { if (s.control !== key) { boundary(); s.control = key } },
     register: (id: string, editor: Editor) => { s.editors.set(id, editor); return () => { s.editors.delete(id) } },

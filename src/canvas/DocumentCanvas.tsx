@@ -16,9 +16,11 @@ import { FloatingObjectView, type DragPart } from './FloatingObjectView'
 import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, fullyOverlaps, gridSize, insertionPosition, labelOutsideGap, labelPlacement, lineLabelPositions, objectIntersects, resolveGeometry, type Box, type Geometries, type Point } from './floatingGeometry'
 import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
+import { aiPlaceholder } from '../ai/placeholder'
+import type { Area } from '../ai/types'
 
-export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | null
-export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void; insert: (objects: FloatingObject[]) => void }
+export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
+export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void; insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[] }
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
@@ -30,6 +32,8 @@ interface Props {
   widgetRuns?: Record<string, number>; staticWidgets?: boolean
   initialScale?: number
   onDropImages?: (files: File[], position: LineEnd) => void
+  lockedIds?: Set<string>; onAICreate?: (object: FloatingObject, area: Area) => void
+  aiWidgetIds?: Set<string>
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -41,7 +45,7 @@ const contentText = (content: JSONContent): string => (content.text ?? '') + (co
 const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
   || (object.kind === 'katex' && !object.latex.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -101,7 +105,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   useLayoutEffect(() => {
     if (cleanedDraft.current || !editable || !anchors.length) return
     cleanedDraft.current = true
-    const empty = doc.floating.filter(object => emptyContent(object) || collapsedLine(object, doc.floating)).map(object => object.id)
+    const empty = doc.floating.filter(object => !lockedIds.has(object.id) && (emptyContent(object) || collapsedLine(object, doc.floating))).map(object => object.id)
     if (empty.length) history.edit({ normalize: true }, () => onFloatingChange(withoutObjects(empty)))
   }, [editable, anchors])
   useLayoutEffect(() => {
@@ -111,7 +115,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (!previous.editable) return
     const finished = previous.ids.filter(id => !editable || !selectedIds.includes(id))
     if (previous.label && previous.label !== editingLabel) finished.push(previous.label)
-    const empty = doc.floating.filter(object => finished.includes(object.id) && (emptyContent(object) || collapsedLine(object, doc.floating))).map(object => object.id)
+    const empty = doc.floating.filter(object => !lockedIds.has(object.id) && finished.includes(object.id) && (emptyContent(object) || collapsedLine(object, doc.floating))).map(object => object.id)
     let changed = empty.length > 0
     const next = withoutObjects(empty).map(object => {
       if (!finished.includes(object.id) || !newLabels.current.delete(object.id) || object.kind !== 'label' || object.attachment) return object
@@ -224,6 +228,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function begin(id: string, part: DragPart, event: PointerEvent) {
     if (event.button !== 0) return
+    if (lockedIds.has(id) && part !== 'move') { event.preventDefault(); event.stopPropagation(); return }
     capture(event)
     if (event.shiftKey && part === 'move') { const ids = selectedIds.includes(id) ? selectedIds.filter(value => value !== id) : [...selectedIds, id]; select(ids); onActive(null); if (ids.length) focusObject(ids.at(-1)!); return }
     const ids = selectedIds.includes(id) && part === 'move' ? selectedIds : [id]
@@ -243,7 +248,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       capture(event); select([]); onActive(null); setEditingLabel(null); history.boundary()
       const start = boundedPoint(snap(point(event), event.altKey), 16, .5)
       const base = { id: crypto.randomUUID(), ...anchorPoint(start, anchors), width: boundedWidth(start.x, 128, 16, .5), textFlow: 'overlap' as const }
-      const note: FloatingObject = tool === 'label' ? { ...base, kind: 'label', content: labelContent(), attachment: null }
+      const note: FloatingObject = tool === 'ai' ? aiPlaceholder({ ...base, width: boundedWidth(start.x, 340, 120) })
+        : tool === 'label' ? { ...base, kind: 'label', content: labelContent(), attachment: null }
         : tool === 'text' ? { ...base, kind: 'text', width: boundedWidth(start.x, 340, 120), background: null, borderColor: null, content: { type: 'doc', content: [paragraph('')] } }
         : tool === 'line' ? { ...base, kind: 'line', stroke: null, strokeWidth: 1, dashed: false, start: snapEndpoint(start, event.altKey), end: anchorPoint(start, anchors), route: 'straight', bend: 0, arrowStart: false, arrowEnd: true }
         : { ...base, kind: tool, height: 80, fill: null, rounded: false, stroke: null, strokeWidth: 1, dashed: false }
@@ -362,6 +368,11 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       let object = d.created
       if (!d.moved && object.kind === 'line') object = { ...object, end: anchorPoint(boundedPoint({ x: d.start.x + (d.start.x + 160 <= pageWidth() - 16 ? 160 : -160), y: d.start.y }, 0, 16), anchors) }
       const next = applyPatches([object], d.patches)[0]
+      if (tool === 'ai') {
+        const top = (anchors.find(anchor => anchor.id === next.anchorId)?.top ?? 0) + next.y
+        onAICreate?.(next, { x: next.x, y: top, width: next.width, height: 'height' in next ? next.height : 220 })
+        select([next.id]); onToolChange(null); cancel(); return
+      }
       if (collapsedLine(next, [...doc.floating, next])) { cancel(); onToolChange(null); return }
       if (!d.moved && next.kind !== 'label' && !(next.kind === 'line' && next.start.connection)) {
         setInserting([next]); onToolChange(null); cancel(); return
@@ -397,10 +408,12 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function remove() {
     if (!editable || !selectedIds.length) return
+    if (selectedIds.some(id => lockedIds.has(id))) return
     history.boundary(); onFloatingChange(withoutObjects(selectedIds)); select([]); onActive(null)
   }
   function duplicate() {
     if (!editable || !selectedIds.length) return
+    if (selectedIds.some(id => lockedIds.has(id))) return
     const originals = doc.floating.filter(object => !emptyContent(object) && (selectedIds.includes(object.id) || (object.kind === 'label' && object.attachment && selectedIds.includes(object.attachment.targetId))))
     if (!originals.length) return
     const mapping = new Map(originals.map(object => [object.id, crypto.randomUUID()]))
@@ -421,6 +434,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function label(id = selectedIds[0]) {
     const target = doc.floating.find(object => object.id === id)
     if (!editable || !target) return
+    if (lockedIds.has(id)) return
     if (target.kind === 'label') { select([id]); setEditingLabel(id); return }
     const existing = doc.floating.filter(object => object.kind === 'label' && object.attachment?.targetId === id).sort((a, b) => (geometry[a.id]?.y ?? 0) - (geometry[b.id]?.y ?? 0) || a.id.localeCompare(b.id))[0]
     if (existing) { select([existing.id]); onActive(null); focusObject(existing.id); return }
@@ -435,7 +449,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (object?.kind !== 'label' || !object.attachment) return
     onNoteChange(object.id, { ...anchorPoint(geometry[object.id], anchors), attachment: null })
   }
-  useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) } }) })
+  useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, without: withoutObjects, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) } }) })
   function key(id: string, event: React.KeyboardEvent) {
     if (!editable || isComposingKey(event.nativeEvent)) return
     if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); return }
@@ -447,6 +461,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     event.preventDefault()
     const step = event.shiftKey ? 1 : event.altKey ? 8 : gridSize
     const part = (event.target as HTMLElement).dataset.floatingControl
+    if (lockedIds.has(id) && part) return
     const object = doc.floating.find(object => object.id === id)!
     if (part === 'width') { onNoteChange(id, { width: boundedWidth(object.x, object.width + direction.x * step, object.kind === 'html' ? 16 : 120) }); return }
     if ((part === 'start' || part === 'end') && object.kind === 'line') {
@@ -496,7 +511,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         {layoutDoc.floating.toSorted((a, b) => a.id.localeCompare(b.id)).map(original => {
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
-          return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} selected={selectedIds.includes(note.id) || creating?.id === note.id}
+          return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
+            restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
             onChange={patch => onNoteChange(note.id, patch)} onLabel={() => label(note.id)} onFinishLabel={() => { setEditingLabel(null); focusObject(note.id) }} onKey={event => key(note.id, event)} />

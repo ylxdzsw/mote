@@ -31,13 +31,13 @@ These features are planned but explicit not V1. They need rediscussion and desig
 
 ## Development and Deployment
 
-Node.js 22.12+ and npm. `npm install`, `npm run dev` (port 5173 or next available, all interfaces), `npm run check`, `npm run build`, `npm run preview`. Use the printed URL; IndexedDB drafts are origin-specific. Build and scoped Chromium checks are described in README.md; no regression suite yet.
+Node.js 22.12+ and npm. `npm install`, `npm run dev` (port 5173 or next available, all interfaces), `npm run check`, `npm run build`, `npm run preview`. Use the printed URL; IndexedDB drafts are origin-specific. `npm run test:ai` runs essential reservation/fake-backend invariants without model calls. Build and scoped Chromium checks are described in README.md; no general regression suite yet.
 
-Deployed at `https://mote.ylxdzsw.com` through `/var/www/mote` and `/etc/nginx/conf.d/mote.conf`; static responses use `Cache-Control: no-store`. The site is intentionally unauthenticated and has no backend. Dev/preview send `Cache-Control: no-store`; `public/_headers` supplies the same policy for supporting static hosts. Other hosts must configure no-store for HTML and assets. No service worker. Browser-local document persistence is intentional, separate from HTTP caching.
+Deployed at `https://mote.ylxdzsw.com` through `/var/www/mote` and `/etc/nginx/conf.d/mote.conf`; static responses use `Cache-Control: no-store`. Ordinary editing/reading is intentionally unauthenticated. The optional `/api/ai` backend uses the existing Nginx cookie gate and `moted.service`, with per-task unprivileged systemd workers, private writable temporary paths, and read-only host/source access. Server code stays in `/root/mote/server`, not the public static directory. See README for fake-first testing, input/output contracts, model configuration, and operational boundaries. Dev/preview send `Cache-Control: no-store`; `public/_headers` supplies the same policy for supporting static hosts. Other hosts must configure no-store for HTML and assets. No service worker. Browser-local document persistence is intentional, separate from HTTP caching.
 
 ## File Structure
 
-`src/app/`: shell, controls, CSS. `src/document/`: V0 model, example, IndexedDB. `src/editor/`: constrained semantic Tiptap schema. `src/canvas/`: measured anchors and floating rich-text boxes. `src/theme/`: central semantic styling. See README.md for demo boundaries.
+`src/app/`: shell, controls, CSS. `src/document/`: V0 model, example, IndexedDB. `src/editor/`: constrained semantic Tiptap schema. `src/canvas/`: measured anchors and floating rich-text boxes. `src/theme/`: central semantic styling. `src/ai/`: reservations, task state, service client, and review UI. `server/`: moted, worker isolation, guide, preview/delivery helpers, and fake runner. See README.md for demo boundaries.
 
 ## Dev Notes
 

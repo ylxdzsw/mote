@@ -6,6 +6,7 @@ import { validatePaletteReferences } from '../theme/palette'
 export function initializeDocument(draft: MoteDocument): MoteDocument {
   if (draft.version !== 'V0') throw new Error('Unsupported document version')
   if (draft.language !== undefined && !['en', 'zh-Hans'].includes(draft.language)) throw new Error('Unsupported document language')
+  if (draft.aiModel !== undefined && (typeof draft.aiModel !== 'string' || draft.aiModel.length > 256 || /[\u0000-\u001F\u007F-\u009F]/.test(draft.aiModel))) throw new Error('Invalid AI model')
   if (draft.theme.autospace !== undefined && typeof draft.theme.autospace !== 'boolean') throw new Error('Invalid mixed-script spacing')
   for (const side of ['top', 'right', 'bottom', 'left'] as const) {
     const margin = draft.margins[side]

@@ -1,0 +1,38 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { currentPlacement, overlaps, permits, permitsEditor } from '../src/ai/reservations.ts'
+import type { MoteDocument, FloatingObject } from '../src/document/model.ts'
+import type { AITask } from '../src/ai/types.ts'
+
+const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
+const object = { id: 'box', kind: 'html', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, textFlow: 'overlap', html: 'before', screenshot: 'png', alt: 'Figure' } as FloatingObject
+const doc = { id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, floating: [object] } as MoteDocument
+const textTask = { target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
+const objectTask = { target: { kind: 'object', objectId: 'box' } } as AITask
+
+test('reservations allow unrelated edits and placement, but block content, size, and removal', () => {
+  assert.equal(permits([objectTask], doc, { ...doc, floating: [{ ...object, x: 90, y: 160, anchorId: 'c' }] }), true)
+  for (const patch of [{ width: 321 }, { html: 'after' }, { screenshot: 'other' }]) {
+    assert.equal(permits([objectTask], doc, { ...doc, floating: [{ ...object, ...patch }] }), false)
+  }
+  assert.equal(permits([objectTask], doc, { ...doc, floating: [] }), false)
+  assert.equal(permits([textTask], doc, { ...doc, content: { ...doc.content, content: [paragraph('a', 'edited'), ...doc.content.content!.slice(1)] } }), true)
+})
+
+test('text boundary locks reject cross-range replacement, deletion, and interleaving', () => {
+  for (const blocks of [[paragraph('a'), paragraph('b', 'changed'), paragraph('c'), paragraph('d')],
+    [paragraph('a'), paragraph('c'), paragraph('d')], [paragraph('a'), paragraph('b'), paragraph('new'), paragraph('c'), paragraph('d')]]) {
+    assert.equal(permitsEditor([textTask], 'main', doc.content, { type: 'doc', content: blocks }), false)
+  }
+  assert.equal(permitsEditor([textTask], 'main', doc.content, { type: 'doc', content: [paragraph('new'), ...doc.content.content!] }), true)
+})
+
+test('concurrent tasks reject overlap and accepted object preserves current geometry', () => {
+  assert.equal(overlaps(textTask.target, { ...textTask.target, blockIds: ['c', 'd'] } as typeof textTask.target), true)
+  assert.equal(overlaps(textTask.target, objectTask.target), false)
+  const moved = { ...object, x: 70, y: 80, anchorId: 'd' }
+  const candidate = { ...object, html: 'after', width: 999, x: 999 }
+  const applied = currentPlacement(candidate, moved)
+  assert.equal(applied.x, 70); assert.equal(applied.y, 80); assert.equal(applied.width, 320)
+  assert.equal(applied.anchorId, 'd'); assert.equal('html' in applied && applied.html, 'after')
+})

@@ -1,0 +1,20 @@
+.workspace.with-ai { grid-template-columns: minmax(0, 1fr) 310px; }
+.ai-panel { min-width: 0; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.ai-panel a { color: #355b43; font-size: 12px; }
+.ai-panel textarea { width: 100%; resize: vertical; min-height: 88px; border: 1px solid #d0d7c9; border-radius: 5px; padding: 8px; color: inherit; background: #fffefa; font: inherit; }
+.ai-task-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ai-task-heading span { font-size: 11px; color: #687166; }
+.ai-progress, .ai-summary { font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-error { font-size: 12px; color: #984b38; overflow-wrap: anywhere; }
+.ai-reserved { background: repeating-linear-gradient(-45deg, #e9efdf55, #e9efdf55 6px, #e9efdf99 6px, #e9efdf99 7px); outline: 1px dashed #758c68; outline-offset: 3px; }
+.reading-canvas .ai-reserved { background: none; outline: none; }
+.is-ai-reserved { outline: 1px dashed #758c68 !important; }
+.ai-reservation-badge { position: absolute; left: 0; top: -21px; color: #355b43; background: #e9efdf; font: 11px/20px system-ui; padding: 0 6px; white-space: nowrap; pointer-events: none; }
+.ai-preview { width: min(1200px, 94vw); height: 90vh; max-width: none; padding: 14px; border: 1px solid #cbd4c3; border-radius: 8px; color: #303830; background: #f5f6f1; }
+.ai-preview::backdrop { background: #19231777; }
+.ai-preview header { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.ai-preview header div { display: flex; gap: 5px; }
+.ai-preview button[aria-pressed=true] { background: #e0e9d6; }
+.ai-preview-document { height: calc(100% - 80px); }
+.ai-preview-document .canvas-pane { height: 100%; }

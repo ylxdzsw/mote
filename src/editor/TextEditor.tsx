@@ -9,6 +9,7 @@ import { extensions } from './extensions'
 import './label.css'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
+import { reservationExtension } from './reservations'
 
 interface Props {
   content: JSONContent
@@ -31,7 +32,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
   const syncing = useRef(false)
   const syncedRevision = useRef(-1)
-  const schema = useMemo(() => extensions(spatial, table, singleLabel, onFinish), [spatial, table, singleLabel, onFinish])
+  const schema = useMemo(() => [...extensions(spatial, table, singleLabel, onFinish), reservationExtension(history, historyId)], [spatial, table, singleLabel, onFinish, historyId])
   const editor = useEditor({
     extensions: schema,
     content,
@@ -119,6 +120,8 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const ready = useEffectEvent(() => onReady?.(editor))
   useEffect(() => { ready() }, [editor])
   useEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
+  const reservations = JSON.stringify(history.lockedBlocks.current)
+  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations])
 
   return <EditorContent className={`text-content${singleLabel ? ' label-editor' : ''}`} editor={editor} />
 }

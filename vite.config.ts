@@ -57,6 +57,6 @@ function readerBundlePlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), readerBundlePlugin()],
-  server: { headers: { 'Cache-Control': 'no-store' } },
+  server: { headers: { 'Cache-Control': 'no-store' }, proxy: { '/api/ai': 'http://127.0.0.1:5174' } },
   preview: { headers: { 'Cache-Control': 'no-store' } },
 })

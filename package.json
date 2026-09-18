@@ -7,7 +7,8 @@
     "dev": "vite --host 0.0.0.0",
     "check": "tsc --noEmit",
     "build": "npm run check && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "test:ai": "node --experimental-strip-types --test tests/ai-reservations.test.mts server/moted.test.mjs"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",
