@@ -232,7 +232,7 @@ export function createDocument(): MoteDocument {
         { type: 'spacer', attrs: { id: mathSpaceId, height: 360 } },
         paragraph('Let the reader explore', 'heading'),
         paragraph('This ECharts widget lives inside an <attention-chart> custom element with its own shadow DOM. Change the measure, filter a series with its legend, or click a bar: the chart and the detail below it respond together.'),
-        paragraph('In editing mode, select a chart and choose Interact. In reading mode, use it directly. Both charts load ECharts from a CDN and need an internet connection.', 'caption'),
+        paragraph('In editing mode, select a chart to interact with it; deselect it to drag it elsewhere. In reading mode, use it directly. Both charts load ECharts from a CDN and need an internet connection.', 'caption'),
         { type: 'spacer', attrs: { id: attentionSpaceId, height: 432 } },
         paragraph('Make change visible', 'heading'),
         paragraph('Watch five ideas trade places as new votes arrive. ECharts animates the bar lengths, rankings, and value labels between passes. Pause to look closer, or use Next pass to move at your own pace.'),

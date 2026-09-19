@@ -123,7 +123,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
 
   const ready = useEffectEvent(() => onReady?.(editor))
   useEffect(() => { ready() }, [editor])
-  useEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
+  useLayoutEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
   const reservations = JSON.stringify(history.lockedBlocks.current)
   useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, aiReview?.mainActive, editable])
 

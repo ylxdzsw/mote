@@ -12,7 +12,7 @@ import type { AITask } from '../ai/types'
 
 export type DragPart = 'move' | 'width' | 'nw' | 'ne' | 'sw' | 'se' | 'start' | 'end' | 'bend'
 interface Props {
-  note: FloatingObject; geometry: Geometry; editable: boolean; selected: boolean; editingLabel: boolean; defaultColor: string; defaultFontSize: number
+  note: FloatingObject; geometry: Geometry; editable: boolean; selected: boolean; contentActive: boolean; editingLabel: boolean; defaultColor: string; defaultFontSize: number
   onBegin: (part: DragPart, event: PointerEvent) => void
   onActive: (editor: Editor | null) => void
   onChange: (patch: FloatingPatch) => void
@@ -28,7 +28,7 @@ function arrow(tip: Point, from: Point, width: number) {
   return arrowPoints(tip, from, width).map(p => `${p.x},${p.y}`).join(' ')
 }
 
-export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, defaultFontSize, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview }: Props) {
+export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, editingLabel, defaultColor, defaultFontSize, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const geometric = kind === 'rectangle' || kind === 'ellipse' || kind === 'line'
@@ -37,7 +37,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
   function begin(part: DragPart, event: PointerEvent) { if (editable && event.button === 0) onBegin(part, event) }
   const stroke = 'stroke' in note ? note.stroke ? paletteCSS(note.stroke) : defaultColor : defaultColor
   const path = box.path?.map(point => ({ x: point.x - box.x, y: point.y - box.y }))
-  return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''} ${editingLabel ? 'is-label-editing' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
+  return <div className={`floating-note floating-${kind} ${selected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
     data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-text-flow={note.textFlow}
     style={{ ...textStyle, '--ai-object-x': `${box.x}px`, zIndex: order + 1, left: box.x, top: box.y, width: kind === 'label' ? 'max-content' : Math.max(1, box.width), height: geometric || kind === 'html' ? Math.max(1, box.height) : undefined } as React.CSSProperties & { '--ai-object-x': string }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`}
@@ -45,16 +45,16 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
     onKeyDown={event => { if (event.target === event.currentTarget || (event.target as HTMLElement).matches('[data-floating-control]')) onKey(event) }}
     onPointerDown={event => {
       if (!editable) return
-      if (locked || event.target === event.currentTarget || kind === 'image' || kind === 'katex' || kind === 'html' || (kind === 'label' && !editingLabel)) begin('move', event)
+      if (locked || event.target === event.currentTarget || kind === 'image' || kind === 'katex' || kind === 'html') begin('move', event)
     }}
     onDoubleClick={event => {
-      if (!editable || locked || (kind === 'label' && editingLabel)) return
-      if ((kind === 'text' || kind === 'table') && event.target !== event.currentTarget) return
+      if (!editable || locked) return
+      if ('content' in note && event.target !== event.currentTarget) return
       event.preventDefault(); event.stopPropagation(); onLabel()
     }}>
     {note.kind === 'image' ? <img src={note.src} alt={note.alt} draggable={false} />
       : note.kind === 'katex' ? <MathView latex={note.latex} />
-      : note.kind === 'html' ? <HTMLWidgetView key={locked ? note.html : undefined} note={note} editable={editable} selected={selected} run={widgetRun}
+      : note.kind === 'html' ? <HTMLWidgetView key={locked ? note.html : undefined} note={note} editable={editable} selected={contentActive} run={widgetRun}
         staticOnly={staticWidgets || !!(aiTask?.target.kind === 'object' && aiTask.target.isNew && !(aiTask.preview && aiTask.candidate))} restoreRevision={restoreWidgetRevision} />
       : note.kind === 'rectangle' || note.kind === 'ellipse' ? <svg className="floating-vector" width="100%" height="100%" overflow="visible">
         {note.kind === 'rectangle' ? <rect className="vector-ink" x="0" y="0" width={box.width} height={box.height} rx={note.rounded ? Math.min(12, box.height / 4, box.width / 4) : 0}
@@ -71,7 +71,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
         {note.arrowEnd && <polygon className="vector-ink" points={arrow(path.at(-1)!, path.findLast(p => p.x !== path.at(-1)!.x || p.y !== path.at(-1)!.y) ?? path[0], note.strokeWidth)} fill={stroke} onPointerDown={event => begin('move', event)} />}
         {editable && <polyline className="vector-hit" points={path.map(p => `${p.x},${p.y}`).join(' ')} onPointerDown={event => begin('move', event)} />}
       </svg>
-      : 'content' in note ? <TextEditor content={note.content} editable={editable && !locked && (kind !== 'label' || editingLabel)} table={kind === 'table'} singleLabel={kind === 'label'}
+      : 'content' in note ? <TextEditor content={note.content} editable={editable && contentActive && !locked} table={kind === 'table'} singleLabel={kind === 'label'}
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onFinish={onFinishLabel} onReady={value => { editor.current = value; if (editingLabel) value.commands.focus('end') }} /> : null}
     {editable && selected && aiTask && aiReview && <ReviewControls task={aiTask} review={aiReview} />}

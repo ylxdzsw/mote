@@ -60,6 +60,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const [inserting, setInserting] = useState<FloatingObject[]>([])
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [guides, setGuides] = useState<Guide[]>([])
+  const [manipulating, setManipulating] = useState(false)
   const [editingLabel, setEditingLabel] = useState<string | null>(null)
   const newLabels = useRef(new Set<string>())
   const drag = useRef<Drag | null>(null)
@@ -141,7 +142,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' .tiptap' : ''}`)?.focus({ preventScroll: true }))
   }
   function cancel() {
-    drag.current = null; setPreviews(previous => Object.keys(previous).length ? {} : previous); setCreating(null); setMarquee(null); setGuides([])
+    drag.current = null; setManipulating(false); setPreviews(previous => Object.keys(previous).length ? {} : previous); setCreating(null); setMarquee(null); setGuides([])
     const pointer = captured.current
     captured.current = null
     if (pointer?.element.hasPointerCapture(pointer.pointerId)) pointer.element.releasePointerCapture(pointer.pointerId)
@@ -231,6 +232,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     event.preventDefault(); event.stopPropagation()
     event.currentTarget.setPointerCapture(event.pointerId)
     captured.current = { element: event.currentTarget, pointerId: event.pointerId }
+    setManipulating(true)
   }
   function begin(id: string, part: DragPart, event: PointerEvent) {
     if (event.button !== 0) return
@@ -246,7 +248,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
     const target = event.target as Element
-    if (target.closest('[data-widget-control], [data-ai-controls], [data-ai-preview]')) return
+    if (target.closest('[data-ai-controls], [data-ai-preview]')) return
     const inside = !!target.closest('.sheet')
     if (inside && spaces.begin(event)) return
     if (tool && inside) {
@@ -522,6 +524,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} sizeLocked={sizeLocked(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
+            contentActive={selectedIds.includes(note.id) && !manipulating}
             aiReview={aiReview} aiTask={editable ? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}

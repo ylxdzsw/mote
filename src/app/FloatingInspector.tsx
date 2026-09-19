@@ -36,6 +36,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   return <>
     <section className="panel-section floating-inspector">
       <h2>{count > 1 ? `${count} objects` : kindName(object)}</h2>
+      <p className="hint">Unselected objects move when dragged. Select an object to edit its text or interact with its contents; click elsewhere on the page to deselect. Images, shapes, and formulas remain draggable when selected.</p>
       {count > 1 ? <div className="object-actions"><button onClick={() => onAction('remove')}>Delete</button><button onClick={() => onAction('duplicate')}>Duplicate</button><button onClick={onFront}>Bring front</button><button onClick={onBack}>Send back</button></div> : <>
         {(!object.kind || ['text', 'image', 'table', 'katex', 'html'].includes(object.kind)) && <label>Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>}
         {object.kind === 'image' && <p className="hint">Drag the image interior to move it; drag the right edge to resize.</p>}

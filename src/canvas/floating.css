@@ -6,6 +6,8 @@
 .sheet.is-floating-dragging { user-select: none; }
 .sheet.is-editing .floating-text:hover { outline: 1px solid #d9decb; }
 .sheet.is-editing .floating-text.is-selected { outline: 1px solid #86a47b; }
+.is-editing .floating-note:not(.is-content-active) .text-content { pointer-events: none; }
+.is-editing .floating-note:not(.is-content-active) .table-column-controls { display: none; }
 .sheet.is-editing .floating-image img { cursor: move; }
 .floating-note:is(.floating-rectangle, .floating-ellipse, .floating-line, .floating-label) { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .floating-rectangle, .floating-ellipse, .floating-line { pointer-events: none; }
@@ -16,7 +18,6 @@
 .floating-label { min-width: 12px; text-align: center; }
 .sheet.is-editing .floating-label:hover { outline: 1px solid #d9decb; outline-offset: 3px; }
 .floating-label .text-content { width: max-content; min-width: 12px; }
-.is-editing .floating-label:not(.is-label-editing) .text-content { pointer-events: none; }
 .sheet.is-editing .floating-label.is-selected { outline: 1px dashed #86a47b; outline-offset: 3px; }
 .floating-label .tiptap { min-width: 12px; }
 .object-handle { position: absolute; width: 9px; height: 9px; min-width: 0; padding: 0; margin: -4.5px 0 0 -4.5px; border: 1px solid #54795f; border-radius: 2px; background: #fffefa; pointer-events: auto; touch-action: none; cursor: crosshair; }
