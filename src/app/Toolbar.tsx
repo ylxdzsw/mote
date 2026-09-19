@@ -263,7 +263,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalett
         onMouseDown={event => event.preventDefault()} onClick={() => onInsert(kind)}><Icon name={kind} /></button>)}
     </div>
     <div className="tool-group" role="group" aria-label="AI tools">
-      <button aria-label="AI insert or replace paragraphs" title="AI paragraphs · Replace selected paragraphs, or insert after the caret" disabled={!canAIParagraphs}
+      <button aria-label="AI insert or replace paragraphs" title="AI paragraphs · Use selected paragraphs or the paragraph at the caret" disabled={!canAIParagraphs}
         onMouseDown={event => event.preventDefault()} onClick={onAIParagraphs}><Icon name="ai-text" /></button>
       <button aria-label="AI draw or replace floating object" title="AI object · Replace the selected object, or draw an area" aria-pressed={tool === 'ai'}
         onMouseDown={event => event.preventDefault()} onClick={onAIObject}><Icon name="ai-object" /></button>

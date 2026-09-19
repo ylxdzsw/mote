@@ -31,6 +31,12 @@ export function objectContent(object: FloatingObject) {
   return content
 }
 
+export const canResizeReservation = (task: AITask) => !task.submitted && !task.requestSent && ['draft', 'error', 'stopped'].includes(task.status)
+export function reservedObjectContent(task: AITask, object: FloatingObject) {
+  const content = objectContent(object)
+  return canResizeReservation(task) ? { ...content, width: undefined, height: undefined } : content
+}
+
 export function reservedText(content: JSONContent, ids: string[]) {
   const blocks = content.content ?? []
   const first = blocks.findIndex(node => node.attrs?.id === ids[0])
@@ -46,7 +52,8 @@ export function overlaps(a: AITarget, b: AITarget) {
 
 export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocument) {
   if (tasks.length && before.id !== after.id) return false
-  return tasks.every(({ target }) => {
+  return tasks.every(task => {
+    const { target } = task
     if (target.kind === 'text') {
       const previous = reservedText(before.content, target.blockIds)
       const next = reservedText(after.content, target.blockIds)
@@ -54,7 +61,7 @@ export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocume
     }
     const previous = before.floating.find(object => object.id === target.objectId)
     const next = after.floating.find(object => object.id === target.objectId)
-    return !!previous && !!next && sameContent(objectContent(previous), objectContent(next))
+    return !!previous && !!next && sameContent(reservedObjectContent(task, previous), reservedObjectContent(task, next))
   })
 }
 

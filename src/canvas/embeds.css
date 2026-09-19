@@ -13,5 +13,5 @@
 .widget-screenshot { display: none; width: 100%; height: 100%; object-fit: fill; }
 .widget-screenshot.is-static, .minimap-sheet .widget-screenshot { display: block; }
 .widget-controls { position: absolute; right: 8px; top: -32px; cursor: default; }
-.widget-controls button { padding: 4px 8px; border: 1px solid #b8c6ac; border-radius: 4px; background: #fffefa; color: #355b43; font: 12px/1.4 system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+.widget-controls button, .ai-review-controls button { padding: 4px 8px; border: 1px solid #b8c6ac; border-radius: 4px; background: #fffefa; color: #355b43; font: 12px/1.4 system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
 .is-floating-dragging .html-widget iframe { pointer-events: none !important; }

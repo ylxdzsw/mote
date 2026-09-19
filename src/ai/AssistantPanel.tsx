@@ -3,23 +3,22 @@ import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
 import './assistant.css'
 
-export function AssistantPanel({ assistant, onDraw, onSelection, onInsert, canSelect }: {
+export function AssistantPanel({ assistant, onDraw, onSelection, canSelect }: {
   assistant: ReturnType<typeof useAssistant>
-  onDraw: () => void; onSelection: () => void; onInsert: () => void; canSelect: boolean
+  onDraw: () => void; onSelection: () => void; canSelect: boolean
 }) {
   return <aside className="inspector ai-panel" aria-label="AI assistant">
     <div className="inspector-heading">AI ASSISTANT<button aria-label="Close AI assistant" onClick={() => assistant.setOpen(false)}>×</button></div>
     <section className="panel-section">
       <div className="ai-actions">
         <button onClick={onDraw}>Draw AI area</button>
-        <button disabled={!canSelect} onMouseDown={event => event.preventDefault()} onClick={onSelection}>Revise selection</button>
-        <button onMouseDown={event => event.preventDefault()} onClick={onInsert}>Insert paragraphs</button>
+        <button disabled={!canSelect} onMouseDown={event => event.preventDefault()} onClick={onSelection}>Use selection</button>
       </div>
       <p className="hint">Each request sends the full document, its rendered snapshot, and your selected area to the authenticated Mu service. Nothing is sent until you generate.</p>
-      <p className="hint">Content stays reserved until accepted or discarded. Other regions remain editable. Floating areas can move, but keep their size.</p>
+      <p className="hint">Content stays reserved until accepted or discarded. Other regions remain editable. Floating areas can move, and can be resized before their first request.</p>
       <a href="https://mote.ylxdzsw.com/ai-login" target="_blank" rel="noopener noreferrer">Sign in to AI service ↗</a>
     </section>
-    {!assistant.tasks.length && <section className="panel-section"><p className="hint">Research a topic, illustrate a process, or build an interactive figure. Select an object or paragraphs, or draw an area to begin.</p></section>}
+    {!assistant.tasks.length && <section className="panel-section"><p className="hint">Research a topic, write a KaTeX formula, create a table, or build an interactive object. Select an object or paragraphs, use the paragraph at the caret, or draw an area to begin.</p></section>}
     {assistant.tasks.map(task => <TaskCard key={task.id} task={task} assistant={assistant} />)}
   </aside>
 }
@@ -28,9 +27,9 @@ function TaskCard({ task, assistant }: { task: AITask; assistant: ReturnType<typ
   const [prompt, setPrompt] = useState(task.prompt)
   const busy = ['preparing', 'queued', 'running'].includes(task.status)
   return <section className="panel-section ai-task" data-ai-task={task.id}>
-    <div className="ai-task-heading"><h2>{task.target.kind === 'object' ? task.target.isNew ? 'New figure' : 'Object revision' : task.target.insert ? 'New paragraphs' : 'Text revision'}</h2><span role="status">{task.status}</span></div>
-    {task.target.kind === 'text' && <p className="hint">Whole selected paragraphs are reserved and replaced together.</p>}
-    <label>Request<textarea aria-label="AI request" rows={4} value={prompt} disabled={busy} placeholder="Research… / Illustrate… / Make this interactive…"
+    <div className="ai-task-heading"><h2>{task.target.kind === 'object' ? task.target.isNew ? 'New floating object' : 'Object revision' : 'Paragraphs'}</h2><span role="status">{task.status}</span></div>
+    {task.target.kind === 'text' && <p className="hint">Whole paragraphs are reserved and replaced together. An empty selection uses the paragraph at the caret.</p>}
+    <label>Request<textarea aria-label="AI request" rows={4} value={prompt} disabled={busy} placeholder="Research… / Write a formula… / Make this interactive…"
       onChange={event => setPrompt(event.target.value)} onBlur={() => assistant.update(task.id, { prompt })} /></label>
     {task.progress && <p className="ai-progress" role="status">{task.progress}</p>}
     {task.error && <p className="ai-error" role="alert">{task.error}</p>}

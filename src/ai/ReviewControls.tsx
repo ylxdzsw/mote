@@ -3,6 +3,8 @@ import type { AITask } from './types'
 
 export interface AIReview {
   tasks: AITask[]
+  mainActive: boolean
+  selectText: () => void
   accept: (id: string) => void
   discard: (id: string) => void
   stop: (id: string) => void
@@ -24,10 +26,6 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
   root.onmousedown = event => event.preventDefault()
   root.ondblclick = event => event.stopPropagation()
   root.onkeydown = event => event.stopPropagation()
-  const status = document.createElement('span')
-  status.textContent = `AI · ${task.status === 'draft' ? 'reserved' : task.status}`
-  status.setAttribute('role', 'status')
-  root.append(status)
   const button = (label: string, action: () => void) => {
     const element = document.createElement('button')
     element.type = 'button'; element.textContent = label; element.onclick = action

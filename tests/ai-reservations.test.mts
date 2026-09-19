@@ -16,6 +16,9 @@ test('partial selections expand to complete paragraphs without swallowing the ne
   const doc = schema.nodeFromJSON({ type: 'doc', content: [paragraph('a', 'first'), paragraph('b', 'second'), paragraph('c', 'third')] })
   assert.deepEqual(paragraphSelection(doc, 3, 10), { blockIds: ['a', 'b'], selection: { from: 1, to: 14 }, selectedText: 'first\nsecond' })
   assert.deepEqual(paragraphSelection(doc, 3, 8)?.blockIds, ['a'])
+  assert.deepEqual(paragraphSelection(doc, 10, 10), { blockIds: ['b'], selection: { from: 8, to: 14 }, selectedText: 'second' })
+  const empty = schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'empty' } }] })
+  assert.deepEqual(paragraphSelection(empty, 1, 1), { blockIds: ['empty'], selection: { from: 1, to: 1 }, selectedText: '' })
   const spaced = schema.nodeFromJSON({ type: 'doc', content: [paragraph('a', 'first'), { type: 'spacer' }, paragraph('b', 'second')] })
   assert.equal(paragraphSelection(spaced, 3, 11), null)
   assert.equal(paragraphSelection(spaced, 3, 8), null)
@@ -36,6 +39,16 @@ test('text boundary locks reject cross-range replacement, deletion, and interlea
     assert.equal(permitsEditor([textTask], 'main', doc.content, { type: 'doc', content: blocks }), false)
   }
   assert.equal(permitsEditor([textTask], 'main', doc.content, { type: 'doc', content: [paragraph('new'), ...doc.content.content!] }), true)
+})
+
+test('unsubmitted floating reservations allow size changes, but never content edits or uncertain submitted resizes', () => {
+  const draft = { ...objectTask, status: 'draft', submitted: false } as AITask
+  const resized = { ...doc, floating: [{ ...object, width: 400, height: 220 }] }
+  assert.equal(permits([draft], doc, resized), true)
+  assert.equal(permits([draft], doc, { ...doc, floating: [{ ...object, html: 'changed' }] }), false)
+  for (const patch of [{ status: 'preparing' }, { requestSent: true, status: 'error' }, { submitted: true, status: 'stopped' }]) {
+    assert.equal(permits([{ ...draft, ...patch } as AITask], doc, resized), false)
+  }
 })
 
 test('concurrent tasks reject overlap and accepted object preserves current geometry', () => {

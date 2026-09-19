@@ -6,6 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createMotedServer } from './moted.mjs'
 import { fakeRunner } from './runner.mjs'
+import { validateCandidate } from './validation.mjs'
 
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const svg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`
@@ -32,6 +33,42 @@ async function app(options = {}) {
 }
 async function post(app, body, pathName = '/api/ai/tasks', origin = 'http://localhost:5173') { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}${pathName}`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) }) }
 async function get(app, id) { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`) }
+
+test('new floating reservations accept all supported kinds, not only HTML and images', () => {
+  const doc = document('html'), original = doc.floating[0]
+  const { id, anchorId, x, y, width, textFlow } = original
+  const base = { id, anchorId, x, y, width, textFlow }
+  const target = { kind: 'object', objectId: id, isNew: true, area: { x, y, width, height: 100 } }
+  const paragraph = { type: 'paragraph', attrs: { semantic: 'body' }, content: [{ type: 'text', text: 'Native text' }] }
+  const stroke = { stroke: null, strokeWidth: 1, dashed: false }
+  const objects = [
+    { ...base, kind: 'katex', latex: String.raw`\int_0^1 x^2\,dx = \frac{1}{3}` },
+    { ...base, kind: 'text', content: { type: 'doc', content: [paragraph] } },
+    { ...base, kind: 'table', content: { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [paragraph] }] }] }] } },
+    ...['rectangle', 'ellipse'].map(kind => ({ ...base, ...stroke, kind, height: 100, fill: null, rounded: false })),
+    { ...base, ...stroke, kind: 'line', start: { x, y, anchorId }, end: { x: 200, y: 80, anchorId }, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true },
+    { ...base, kind: 'label', content: { type: 'doc', content: [paragraph] }, attachment: null },
+    { ...base, kind: 'image', src: png, alt: 'Image' }, original,
+  ]
+  for (const object of objects) {
+    assert.equal(validateCandidate({ object, summary: 'Candidate' }, doc, target).object.kind, object.kind)
+    if (object.kind !== 'html') assert.throws(() => validateCandidate({ object, summary: 'Candidate' }, doc, { ...target, isNew: false }), /retain target kind/)
+  }
+})
+
+test('a native KaTeX delivery reaches ready without HTML or screenshot artifacts', async t => {
+  const doc = document('html'), original = doc.floating[0]
+  const value = await app({ runner: async context => {
+    const { id, anchorId, x, y, width, textFlow } = original
+    await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ object: { id, anchorId, x, y, width, textFlow, kind: 'katex', latex: 'E = mc^2' }, summary: 'Native formula' }))
+  } }); t.after(() => value.close())
+  const id = crypto.randomUUID()
+  assert.equal((await post(value, request(id, doc, { target: { kind: 'object', objectId: original.id, isNew: true, area: { x: 40, y: 10, width: 200, height: 100 } } }))).status, 202)
+  let status
+  for (let i = 0; i < 30; i++) { status = await (await get(value, id)).json(); if (!['queued', 'running'].includes(status.status)) break; await new Promise(resolve => setTimeout(resolve, 10)) }
+  assert.equal(status.status, 'ready'); assert.equal(status.candidate.object.kind, 'katex'); assert.equal(status.candidate.object.latex, 'E = mc^2')
+  assert.equal(status.candidate.object.screenshot, undefined)
+})
 
  test('fake task reaches ready and status does not expose logs or document', async t => {
   const value = await app(); t.after(() => value.close())

@@ -4,10 +4,10 @@ import { DEFAULT_AI_MODEL, paragraph, replaceMainContent, type FloatingObject, t
 import { initializeDocument } from '../document/initialize'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
-import { currentPlacement, objectContent, overlaps, permits, permitsEditor, reservedText, sameContent } from './reservations'
+import { currentPlacement, overlaps, permits, permitsEditor, reservedObjectContent, reservedText, sameContent } from './reservations'
 import { aiRequest, AIServiceError } from './api'
 import { loadTasks, storeTask } from './storage'
-import type { AITarget, AITask, RemoteTask } from './types'
+import type { Area, AITarget, AITask, RemoteTask } from './types'
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = task.candidate): MoteDocument {
   if (!candidate) throw new Error('This task has no complete candidate.')
@@ -30,7 +30,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = t
   return initializeDocument(structuredClone(result))
 }
 
-export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined) {
+export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area) {
   const [tasks, setTasks] = useState<AITask[]>([])
   const [loaded, setLoaded] = useState(false)
   const [notice, setNotice] = useState('')
@@ -38,6 +38,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const [runs, setRuns] = useState<Record<string, number>>({})
   const state = useRef(tasks), currentDoc = useRef(history.doc!), bypass = useRef(false)
   const mounted = useRef(true)
+  const preparations = useRef(new Map<string, symbol>())
   currentDoc.current = history.doc!
   function save(task: AITask) { void storeTask(task).catch(() => setNotice('AI task recovery could not be saved. Keep this tab open until you accept or discard.')) }
   function update(id: string, patch: Partial<AITask>) {
@@ -69,9 +70,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       const doc = currentDoc.current
       const retained = saved.filter(task => {
         const valid = task.documentId === doc.id && task.expiresAt > Date.now() && (task.target.kind === 'object'
-          ? sameContent(objectContent(doc.floating.find(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId) ?? {} as never), objectContent(task.original as never))
+          ? sameContent(reservedObjectContent(task, doc.floating.find(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId) ?? {} as never), reservedObjectContent(task, task.original as never))
           : sameContent(reservedText(doc.content, task.target.blockIds), reservedText({ type: 'doc', content: task.original as JSONContent[] }, task.target.blockIds)))
-        if (!valid) { void storeTask(task.id); if (task.submitted) void aiRequest(`/tasks/${task.id}`, 'DELETE').catch(() => {}) }
+        if (!valid) { void storeTask(task.id); if (task.submitted || task.requestSent) void aiRequest(`/tasks/${task.id}`, 'DELETE').catch(() => {}) }
         return valid
       }).map(task => task.status === 'preparing' ? { ...task, status: 'error' as const, error: 'Generation was interrupted before confirmation. Retry or discard.' } : task)
       state.current = retained; setTasks(retained); setLoaded(true)
@@ -117,47 +118,76 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
 
   async function start(id: string, prompt: string) {
-    const task = state.current.find(task => task.id === id)
+    let task = state.current.find(task => task.id === id)
     if (!task || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status)) return
+    const run = Symbol()
+    preparations.current.set(id, run)
+    const preparing = () => preparations.current.get(id) === run && state.current.some(task => task.id === id && task.status === 'preparing')
     update(id, { status: 'preparing', prompt, error: undefined, preview: false, progress: 'Preparing full document snapshot…' })
     try {
       let remote: RemoteTask
-      if (!task.submitted && task.status === 'error') {
+      if (!task.submitted && (task.status === 'error' || task.requestSent)) {
         try {
           remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-          update(id, { ...remote, submitted: true, snapshotDocument: undefined }); return
-        } catch (error) { if (!(error instanceof AIServiceError) || error.status !== 404) throw error }
+          if (preparing()) update(id, { ...remote, submitted: true, snapshotDocument: undefined })
+          return
+        } catch (error) {
+          if (!(error instanceof AIServiceError) || error.status !== 404) throw error
+          if (!preparing()) return
+          task = { ...task, requestSent: false }; update(id, { requestSent: false })
+        }
       }
       if (task.submitted) remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt })
       else {
+        if (!task.requestSent && task.target.kind === 'object') {
+          const objectId = task.target.objectId
+          const snapshotDocument = structuredClone(currentDoc.current)
+          const original = snapshotDocument.floating.find(object => object.id === objectId)!
+          const target = { ...task.target, area: objectArea(objectId) }
+          task = { ...task, snapshotDocument, original, target }
+          update(id, { snapshotDocument, original, target })
+        }
         const document = task.snapshotDocument!
         const { exportPng } = await import('../document/png')
         const blob = await exportPng(document)
         const snapshot = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
         })
-        if (!state.current.some(current => current.id === id && current.status === 'preparing')) return
+        if (!preparing()) return
+        update(id, { requestSent: true })
         remote = await aiRequest('/tasks', 'POST', { id, document, target: task.target, prompt, model: currentDoc.current.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot })
       }
-      if (!state.current.some(current => current.id === id && current.status === 'preparing')) { void aiRequest(`/tasks/${id}`, 'DELETE').catch(() => {}); return }
+      if (!preparing()) {
+        const current = state.current.find(task => task.id === id)
+        if (!current) void aiRequest(`/tasks/${id}`, 'DELETE').catch(() => {})
+        else if (current.status === 'stopped') void aiRequest(`/tasks/${id}/stop`, 'POST').catch(() => {})
+        return
+      }
       update(id, { ...remote, submitted: true, snapshotDocument: undefined })
-    } catch (error) { update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message }) }
+    } catch (error) { if (preparing()) update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message }) }
+    finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
   }
 
   async function stop(id: string) {
     const task = state.current.find(task => task.id === id)
     if (!task) return
+    preparations.current.delete(id)
     update(id, { status: 'stopped', progress: 'Stopping…' })
-    if (!task.submitted) { update(id, { progress: 'Stopped' }); return }
-    try { const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST'); update(id, { ...remote, status: 'stopped' }) }
-    catch (error) { update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. Discard to abandon this result.' }) }
+    if (!task.submitted && !task.requestSent) { update(id, { progress: 'Stopped' }); return }
+    try {
+      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
+      if (state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { ...remote, submitted: true, status: 'stopped' })
+    } catch (error) {
+      if (state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. Discard to abandon this result.' })
+    }
   }
 
   function forget(id: string) {
+    preparations.current.delete(id)
     const task = state.current.find(task => task.id === id)
     state.current = state.current.filter(task => task.id !== id); setTasks(state.current)
     void storeTask(id).catch(() => setNotice('Could not clear saved task recovery.'))
-    if (task?.submitted || task?.status === 'preparing') void aiRequest(`/tasks/${id}`, 'DELETE').catch(() => {})
+    if (task?.submitted || task?.requestSent || task?.status === 'preparing') void aiRequest(`/tasks/${id}`, 'DELETE').catch(() => {})
   }
   function discard(id: string) {
     const task = state.current.find(task => task.id === id)

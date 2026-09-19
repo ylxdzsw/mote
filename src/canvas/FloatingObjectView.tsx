@@ -20,7 +20,7 @@ interface Props {
   onFinishLabel: () => void
   onKey: (event: React.KeyboardEvent) => void
   widgetRun: number; staticWidgets: boolean; order: number
-  locked?: boolean; restoreWidgetRevision?: number
+  locked?: boolean; sizeLocked?: boolean; restoreWidgetRevision?: number
   aiTask?: AITask; aiReview?: AIReview
 }
 
@@ -28,7 +28,7 @@ function arrow(tip: Point, from: Point, width: number) {
   return arrowPoints(tip, from, width).map(p => `${p.x},${p.y}`).join(' ')
 }
 
-export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, defaultFontSize, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order, locked = false, restoreWidgetRevision, aiTask, aiReview }: Props) {
+export function FloatingObjectView({ note, geometry: box, editable, selected, editingLabel, defaultColor, defaultFontSize, onBegin, onActive, onChange, onLabel, onFinishLabel, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const geometric = kind === 'rectangle' || kind === 'ellipse' || kind === 'line'
@@ -74,13 +74,13 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, ed
       : 'content' in note ? <TextEditor content={note.content} editable={editable && !locked && (kind !== 'label' || editingLabel)} table={kind === 'table'} singleLabel={kind === 'label'}
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onFinish={onFinishLabel} onReady={value => { editor.current = value; if (editingLabel) value.commands.focus('end') }} /> : null}
-    {editable && aiTask && aiReview && <ReviewControls task={aiTask} review={aiReview} />}
-    {editable && !locked && !geometric && kind !== 'label' && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
+    {editable && selected && aiTask && aiReview && <ReviewControls task={aiTask} review={aiReview} />}
+    {editable && !sizeLocked && !geometric && kind !== 'label' && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
       aria-label={`Resize floating ${kind} width`} aria-valuemin={kind === 'html' ? 16 : 120} aria-valuenow={Math.round(box.width)}
       onPointerDown={event => begin('width', event)} onFocus={() => onActive(editor.current)} />}
-    {editable && !locked && selected && (note.kind === 'rectangle' || note.kind === 'ellipse' || note.kind === 'html') && (['nw', 'ne', 'sw', 'se'] as const).map(part => <button key={part}
+    {editable && !sizeLocked && selected && (note.kind === 'rectangle' || note.kind === 'ellipse' || note.kind === 'html') && (['nw', 'ne', 'sw', 'se'] as const).map(part => <button key={part}
       className={`object-handle handle-${part}`} data-floating-control={part} aria-label={`Resize ${kind} ${part}`} onPointerDown={event => begin(part, event)} />)}
-    {editable && !locked && selected && note.kind === 'line' && path && <>
+    {editable && !sizeLocked && selected && note.kind === 'line' && path && <>
       {(['start', 'end'] as const).map((part, index) => <button key={part} className="object-handle" data-floating-control={part} aria-label={`Move line ${part}`}
         style={{ left: index ? path.at(-1)!.x : path[0].x, top: index ? path.at(-1)!.y : path[0].y }} onPointerDown={event => begin(part, event)} />)}
       {note.route === 'elbow' && <button className="object-handle bend-handle" data-floating-control="bend" aria-label="Move line bend"

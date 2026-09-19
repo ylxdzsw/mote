@@ -18,7 +18,7 @@ import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 import { aiPlaceholder } from '../ai/placeholder'
 import type { Area } from '../ai/types'
-import { currentPlacement } from '../ai/reservations'
+import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/ReviewControls'
 
 export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
@@ -234,7 +234,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function begin(id: string, part: DragPart, event: PointerEvent) {
     if (event.button !== 0) return
-    if (lockedIds.has(id) && part !== 'move') { event.preventDefault(); event.stopPropagation(); return }
+    if (sizeLocked(id) && part !== 'move') { event.preventDefault(); event.stopPropagation(); return }
     capture(event)
     if (event.shiftKey && part === 'move') { const ids = selectedIds.includes(id) ? selectedIds.filter(value => value !== id) : [...selectedIds, id]; select(ids); onActive(null); if (ids.length) focusObject(ids.at(-1)!); return }
     const ids = selectedIds.includes(id) && part === 'move' ? selectedIds : [id]
@@ -467,7 +467,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     event.preventDefault()
     const step = event.shiftKey ? 1 : event.altKey ? 8 : gridSize
     const part = (event.target as HTMLElement).dataset.floatingControl
-    if (lockedIds.has(id) && part) return
+    if (sizeLocked(id) && part) return
     const object = doc.floating.find(object => object.id === id)!
     if (part === 'width') { onNoteChange(id, { width: boundedWidth(object.x, object.width + direction.x * step, object.kind === 'html' ? 16 : 120) }); return }
     if ((part === 'start' || part === 'end') && object.kind === 'line') {
@@ -484,6 +484,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const ids = selectedIds.includes(id) ? selectedIds : [id]
     const patches = shifted(doc.floating, geometry, ids, direction.x * step, direction.y * step)
     onFloatingChange(applyPatches(doc.floating, patches))
+  }
+
+  function sizeLocked(id: string) {
+    return lockedIds.has(id) && !aiReview?.tasks.some(task => task.target.kind === 'object' && task.target.objectId === id && canResizeReservation(task))
   }
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
@@ -517,7 +521,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         {layoutDoc.floating.toSorted((a, b) => a.id.localeCompare(b.id)).map(original => {
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
-          return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
+          return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} sizeLocked={sizeLocked(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
             aiReview={aiReview} aiTask={editable ? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}

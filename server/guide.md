@@ -10,6 +10,8 @@ Supported floating kinds are text (the omitted kind is text), table, image, rect
 
 The current palette uses references such as `ink`, `muted`, `key-idea`, or `key-idea:soft`; raw native colors do not belong in a candidate. Rich text uses paragraph nodes, text and hard breaks, and only the current bold, color, and box/underline marks. Preserve stable paragraph IDs when returning text content.
 
+A drawn reservation is a **generic floating-object area**, not a request for an image or HTML widget. Its empty HTML placeholder is only a size/placement carrier, not an output-kind instruction. Choose the native kind that fits: **katex for formulas/equations**, text for rich prose, table for structured cells, rectangle/ellipse/line/label for simple diagrams, image for raster artwork, and html for actual interactivity or custom web rendering. Prefer native KaTeX over HTML or a screenshot for mathematical notation. Native objects do not need an HTML harness or screenshot.
+
 ## Task inputs and paths
 
 The task runs on Linux. `/usr/bin/node`, `/usr/bin/chromium`, `agent-browser`, `jq`, and ordinary POSIX tools are available. The complete immutable document snapshot is at the absolute path named in the task prompt, normally `input/document.json`. Read the full structured JSON, but avoid flooding your context with embedded images:
@@ -21,6 +23,8 @@ jq 'walk(if type == "string" and startswith("data:") then "<embedded data URL om
 The unmodified JSON remains available at `input/document.json`; use focused `jq` queries for exact fields. The full-page PNG is at `input/snapshot.png`; inspect it with `view_image --detail auto input/snapshot.png` when visual context is needed. `input/target.json` contains either an object target with `objectId`, `isNew`, and an absolute `{x,y,width,height}` snapshot area, or a text target with `blockIds`, `{from,to}`, `insert`, and an area.
 
 `selectedText` quotes the selected passage when applicable. An object target can also include `selection`: those positions refer to the rich-text document inside that object, not the main text. The whole object remains reserved, but use the selection to understand the requested scope. Main-text positions refer to the main ProseMirror document. Both the selection offsets and selectedText expand to the complete selected paragraphs; replace those whole paragraphs, never just a substring. All designated paragraphs remain reserved through review.
+
+A caret without a text selection targets its containing paragraph, including an empty paragraph. Generate into that paragraph in place, not beneath an extra blank line. Floating areas may be resized before the first request; the supplied snapshot contains their dimensions at submission. Later movement remains controlled by the user.
 
 The task root is the absolute directory given in the prompt, normally under `/tmp/moted/tasks/<uuid>`. The immutable `input/` directory contains the document, target, request, and snapshot. The current run's writable output directory contains `result.json`, optional HTML files, and `screenshot.png`. The task-local `.mu/` is writable for Mu journals and objects, and `~/.mu` resolves to this task-local scope because `HOME` is the task root. `.config/`, `.cache/`, `.agent-browser/`, and `tmp/` are writable scratch/cache paths. `/tmp` is a private writable temporary directory for this worker; its short paths are suitable for browser sockets. The read-only source path is provided in the prompt. Shared `/root/.mu` is readable only as configured by the supervisor; it is not the task journal. If the supervisor copies the root-only provider `.env` into the task `.mu`, the worker can read those credentials by design. This is the tradeoff required for the unprivileged worker to call Mu; never print or copy credentials elsewhere.
 
@@ -59,6 +63,14 @@ For an HTML widget, `screenshotPath` belongs at the result root, NOT inside `obj
 ```
 
 Replace the example geometry/ID with the target's actual fields. Capture PNG at the exact rounded target width and height; a screenshot of a larger viewport with empty space will be rejected.
+
+For native KaTeX, deliver LaTeX directly without `$` or `$$` delimiters:
+
+```json
+{"object":{"id":"target-id","kind":"katex","anchorId":null,"x":48,"y":120,"width":500,"textFlow":"overlap","latex":"\\int_0^1 x^2\\,dx = \\frac{1}{3}"},"summary":"An integral rendered as native KaTeX","sources":[]}
+```
+
+Use the target's actual ID and geometry. KaTeX height follows its rendered content; no `html`, `screenshot`, or `screenshotPath` is needed. Check syntax with the read-only application's installed KaTeX renderer using `trust: false` and `throwOnError: true`. Other native kinds use their own payloads in `src/document/model.ts`; omit irrelevant HTML-placeholder fields when choosing a native kind.
 
 For a text target:
 

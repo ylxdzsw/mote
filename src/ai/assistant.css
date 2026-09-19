@@ -17,12 +17,13 @@
 .text-content .ai-text-preview[data-ai-first] > :first-child { margin-top: 0; }
 .text-content .ai-text-preview[data-ai-last] > :last-child { margin-bottom: 0; }
 .text-content .main-paragraph.ai-original-hidden { display: none; }
-.ai-review-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; width: fit-content; max-width: 100%; margin: 8px 0 12px; padding: 4px 6px; border: 1px solid #cbd4c3; border-radius: 6px; background: #f8faf4; color: #355b43; font: 11px/1.4 system-ui; letter-spacing: normal; user-select: none; cursor: default; pointer-events: auto; }
-.ai-review-controls > span { padding: 2px 4px; }
-.ai-review-controls button { font: inherit; padding: 3px 6px; color: inherit; }
+.ai-review-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: fit-content; max-width: 100%; user-select: none; cursor: default; pointer-events: auto; }
 .ai-review-controls button:focus-visible { outline: 2px solid #355b43; outline-offset: 1px; }
+.ai-text-review { position: relative; height: 0; z-index: 1; }
+.text-content .ai-text-review:first-child + .main-paragraph { margin-top: 0; }
+.ai-text-review .ai-review-controls { position: absolute; right: 0; bottom: 8px; }
 .ai-object-review { position: absolute; top: 100%; left: max(calc(-1 * var(--ai-object-x)), min(0px, calc(var(--ai-page-width) - var(--ai-object-x) - 300px))); width: 300px; max-width: var(--ai-page-width); z-index: 3; }
-.ai-object-review .ai-review-controls { margin: 8px 0 0; }
+.ai-object-review .ai-review-controls { margin-top: 8px; }
 .reading-canvas .ai-reserved { background: none; outline: none; }
 .minimap-sheet .ai-reserved { background-image: none; outline: none !important; }
 .minimap-sheet .is-ai-reserved::after { display: none; }

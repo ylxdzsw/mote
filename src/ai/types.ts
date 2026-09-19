@@ -12,5 +12,6 @@ export interface RemoteTask {
 export interface AITask extends Omit<RemoteTask, 'status'> {
   documentId: string; target: AITarget; prompt: string; original: FloatingObject | JSONContent[]
   status: RemoteTask['status'] | 'draft' | 'preparing'; submitted: boolean; preview: boolean
+  requestSent?: boolean
   snapshotDocument?: MoteDocument
 }
