@@ -19,7 +19,7 @@ A note taking web app, which emphasis simplicity, unification, and coherence. Th
 ## Guiding Rules and Key Decisions
 
 - Has editing mode and reading mode. Moblie version only supports reading mode.
-- Document width can be set in the document config editor, defaults to 800px.
+- Document width can be set in the document config editor, defaults to 960px.
 
 ## Planned Features
 

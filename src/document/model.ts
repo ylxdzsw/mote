@@ -190,7 +190,7 @@ export function createDocument(): MoteDocument {
     version: 'V0',
     id: crypto.randomUUID(),
     aiModel: DEFAULT_AI_MODEL,
-    width: 800,
+    width: 960,
     margins: { top: 48, right: 48, bottom: 48, left: 48 },
     theme: structuredClone(defaultTheme),
     content: {
@@ -246,7 +246,7 @@ export function createDocument(): MoteDocument {
     floating: [{
       id: crypto.randomUUID(),
       anchorId: spaceId,
-      x: 361,
+      x: 441,
       y: 22,
       width: 300,
       textFlow: 'overlap',
@@ -254,7 +254,7 @@ export function createDocument(): MoteDocument {
     }, {
       id: crypto.randomUUID(),
       anchorId: sketchSpaceId,
-      x: 415,
+      x: 495,
       y: 72,
       width: 300,
       textFlow: 'overlap',
@@ -262,50 +262,50 @@ export function createDocument(): MoteDocument {
     }, {
       id: crypto.randomUUID(),
       anchorId: reviewSpaceId,
-      x: 415,
+      x: 495,
       y: 80,
       width: 300,
       textFlow: 'overlap',
       content: { type: 'doc', content: [paragraph('A note for next time', 'heading'), paragraph('Leave one useful question for the person who returns to this page. That person may be you.', 'caption')] },
     }, {
       id: imageId, kind: 'image', anchorId: sketchSpaceId,
-      x: 55, y: 48, width: 340, textFlow: 'overlap', src: landscape,
+      x: 135, y: 48, width: 340, textFlow: 'overlap', src: landscape,
       alt: 'A winding path between green hills beneath a golden sun.',
     }, {
       id: crypto.randomUUID(), kind: 'table', anchorId: reviewSpaceId,
-      x: 55, y: 48, width: 340, textFlow: 'overlap',
+      x: 135, y: 48, width: 340, textFlow: 'overlap',
       content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Space · 留白', 'One useful question']]),
     }, {
-      id: rectangleId, kind: 'rectangle', anchorId: spaceId, x: 55, y: 48, width: 112, height: 80,
+      id: rectangleId, kind: 'rectangle', anchorId: spaceId, x: 135, y: 48, width: 112, height: 80,
       textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: true,
     }, {
-      id: ellipseId, kind: 'ellipse', anchorId: spaceId, x: 224, y: 48, width: 96, height: 80,
+      id: ellipseId, kind: 'ellipse', anchorId: spaceId, x: 304, y: 48, width: 96, height: 80,
       textFlow: 'overlap', fill: 'key-idea:soft', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
     }, {
-      id: crypto.randomUUID(), kind: 'line', anchorId: spaceId, x: 167, y: 88, width: 57,
+      id: crypto.randomUUID(), kind: 'line', anchorId: spaceId, x: 247, y: 88, width: 57,
       textFlow: 'overlap', stroke: null, strokeWidth: 1, dashed: true, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true,
-      start: { x: 167, y: 88, anchorId: spaceId, connection: { targetId: rectangleId, side: 'right' } },
-      end: { x: 224, y: 88, anchorId: spaceId, connection: { targetId: ellipseId, side: 'left' } },
+      start: { x: 247, y: 88, anchorId: spaceId, connection: { targetId: rectangleId, side: 'right' } },
+      end: { x: 304, y: 88, anchorId: spaceId, connection: { targetId: ellipseId, side: 'left' } },
     }, {
-      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 55, y: 48, width: 12, textFlow: 'overlap',
+      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 135, y: 48, width: 12, textFlow: 'overlap',
       content: labelContent('Idea · 想法'), attachment: { targetId: rectangleId, position: 'center' },
     }, {
-      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 224, y: 48, width: 12, textFlow: 'overlap',
+      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 304, y: 48, width: 12, textFlow: 'overlap',
       content: labelContent('Explore'), attachment: { targetId: ellipseId, position: 'center' },
     }, {
-      id: crypto.randomUUID(), kind: 'label', anchorId: sketchSpaceId, x: 55, y: 270, width: 12, textFlow: 'overlap',
+      id: crypto.randomUUID(), kind: 'label', anchorId: sketchSpaceId, x: 135, y: 270, width: 12, textFlow: 'overlap',
       content: labelContent('A different path'), attachment: { targetId: imageId, position: 'bottom-outside' },
     }, {
       id: crypto.randomUUID(), kind: 'katex', anchorId: mathSpaceId,
-      x: 55, y: 16, width: 690, textFlow: 'overlap', latex: exampleMath.trim(),
+      x: 135, y: 16, width: 690, textFlow: 'overlap', latex: exampleMath.trim(),
     }, {
       id: crypto.randomUUID(), kind: 'html', anchorId: attentionSpaceId,
-      x: 55, y: 16, width: 690, height: 400, textFlow: 'overlap',
+      x: 135, y: 16, width: 690, height: 400, textFlow: 'overlap',
       html: attentionHTML, screenshot: attentionScreenshot,
       alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.',
     }, {
       id: crypto.randomUUID(), kind: 'html', anchorId: motionSpaceId,
-      x: 55, y: 16, width: 690, height: 400, textFlow: 'overlap',
+      x: 135, y: 16, width: 690, height: 400, textFlow: 'overlap',
       html: motionHTML, screenshot: motionScreenshot,
       alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.',
     }],
