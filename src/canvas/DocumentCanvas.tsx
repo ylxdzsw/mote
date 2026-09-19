@@ -10,6 +10,7 @@ import { paletteColor } from '../theme/palette'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
+import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
@@ -73,6 +74,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
+  const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
+    onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
 
   function sizeFootprint() {
     const wrapper = footprint.current!, height = getComputedStyle(sheet.current!).height
@@ -247,6 +250,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
+    if (segments.begin(event)) return
+    segments.clear()
     const target = event.target as Element
     if (target.closest('[data-ai-controls], [data-ai-preview]')) return
     const inside = !!target.closest('.sheet')
@@ -494,7 +499,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
     style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
-    <div className="stage" ref={stage} id={canvasId} aria-label="Document canvas" onPointerDownCapture={blankDown}
+    <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="sheet-footprint" ref={footprint} style={{
         width: editable ? doc.width * scale : `clamp(${(doc.width - sideSpace) * scale}px, 100%, ${doc.width * scale}px)`,
@@ -537,8 +542,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           <circle className={guide.active ? 'active' : ''} cx={guide.point.x} cy={guide.point.y} r={4 / scale} />
         </g>)}</svg>}
       </div>
+      {segments.overlay}
       </div>
     </div>
+    {segments.notice && <p className="segment-notice" role="status">{segments.notice}</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
       <button aria-label="Zoom out" disabled={scale <= minScale} onClick={() => zoomBy(1 / 1.1)}>−</button>
