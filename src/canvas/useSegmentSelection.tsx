@@ -5,6 +5,7 @@ import { useHistory } from '../document/history'
 import type { MoteDocument } from '../document/model'
 import { copySegment, parseSegment, replaceSegment, segmentObjectIds, segmentText, serializeSegment, SEGMENT_MIME, type SegmentClipboard, type SegmentPoint, type SegmentRange } from '../document/segment'
 import { isComposingKey } from '../editor/composition'
+import { floatingClipboardJSON } from '../document/floatingClipboard'
 import type { Anchor, Box, Geometries } from './floatingGeometry'
 import './segment.css'
 
@@ -209,6 +210,7 @@ export function useSegmentSelection(props: Props) {
   function paste(event: ClipboardEvent) {
     const { editable, editor, doc } = live.current
     if (!editable || !editor || !ownedFocus() || !event.clipboardData) return
+    if (floatingClipboardJSON(event.clipboardData)) return
     const current = selected.current
     if (!current && !insertion.current && !editor.isFocused) return
     let json = event.clipboardData.getData(SEGMENT_MIME)

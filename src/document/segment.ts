@@ -267,7 +267,7 @@ function paletteReferences(content: JSONContent, result = new Set<string>()) {
   return result
 }
 
-function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
+export function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
   if ('content' in object) paletteReferences(object.content, result)
   for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
     const value = (object as unknown as Record<string, unknown>)[key]
@@ -317,7 +317,7 @@ function uniquePaletteId(id: string, existing: Set<string>) {
   return candidate
 }
 
-function mergePalette(doc: MoteDocument, payload: SegmentClipboard) {
+export function mergePalette(doc: MoteDocument, payload: Pick<SegmentClipboard, 'content' | 'floating' | 'palette'>) {
   const palette = doc.theme.palette.map(clone)
   const byId = new Map(palette.map(entry => [entry.id, entry]))
   const ids = new Set(palette.flatMap(entry => paletteNames(entry.id)))
@@ -344,7 +344,7 @@ function mergePalette(doc: MoteDocument, payload: SegmentClipboard) {
   return { palette, remap }
 }
 
-function remapPaletteContent(node: JSONContent, remap: Map<string, string>): JSONContent {
+export function remapPaletteContent(node: JSONContent, remap: Map<string, string>): JSONContent {
   return { ...node,
     ...(node.marks && { marks: node.marks.map(mark => mark.type === 'color' && typeof mark.attrs?.color === 'string'
       ? { ...mark, attrs: { ...mark.attrs, color: remap.get(mark.attrs.color.split(':')[0]) ? `${remap.get(mark.attrs.color.split(':')[0])}${mark.attrs.color.endsWith(':soft') ? ':soft' : ''}` : mark.attrs?.color } } : mark) }),
@@ -352,7 +352,7 @@ function remapPaletteContent(node: JSONContent, remap: Map<string, string>): JSO
   }
 }
 
-function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
+export function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
   const result = clone(node)
   if (result.attrs && typeof result.attrs.id === 'string') {
     result.attrs = { ...result.attrs, id: freshId(used) }
@@ -363,7 +363,7 @@ function freshNode(node: JSONContent, used: Set<string>, top = false): JSONConte
   return result
 }
 
-function collectNodeIds(node: JSONContent, used: Set<string>) {
+export function collectNodeIds(node: JSONContent, used: Set<string>) {
   const id = blockId(node)
   if (id) used.add(id)
   for (const child of node.content ?? []) collectNodeIds(child, used)
@@ -439,7 +439,7 @@ function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, s
   return result
 }
 
-function validateGeometry(geometry: unknown): asserts geometry is Geometries {
+export function validateGeometry(geometry: unknown): asserts geometry is Geometries {
   if (!geometry || typeof geometry !== 'object' || Array.isArray(geometry)) throw new Error('Invalid segment geometry')
   for (const [id, value] of Object.entries(geometry as Record<string, unknown>)) {
     if (!/^[A-Za-z0-9_-]+$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)) throw new Error('Invalid segment geometry ID')

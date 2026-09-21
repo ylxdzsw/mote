@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { labelContent, paragraph, type FloatingObject, type FloatingPatch, type LabelAttachment, type LineEnd, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
+import { copyFloating, floatingClipboardJSON, floatingCopyIds, floatingText, importFloating, parseFloating, FLOATING_MIME } from '../document/floatingClipboard'
 import { TextEditor } from '../editor/TextEditor'
 import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
@@ -14,7 +15,7 @@ import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
-import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, fullyOverlaps, gridSize, insertionPosition, labelOutsideGap, labelPlacement, lineLabelPositions, objectIntersects, resolveGeometry, type Box, type Geometries, type Point } from './floatingGeometry'
+import { anchorPoint, boundary, boundedTranslation, boxLabelPositions, center, contains, distance, fullyOverlaps, gridSize, horizontalBounds, insertionPosition, labelOutsideGap, labelPlacement, lineLabelPositions, objectIntersects, resolveGeometry, type Box, type Geometries, type Point } from './floatingGeometry'
 import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 import { aiPlaceholder } from '../ai/placeholder'
@@ -59,6 +60,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [inserting, setInserting] = useState<FloatingObject[]>([])
+  const pasteGroup = useRef<{ doc: MoteDocument; palette: MoteDocument['theme']['palette']; top?: number } | null>(null)
+  const [clipboardNotice, setClipboardNotice] = useState('')
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [guides, setGuides] = useState<Guide[]>([])
   const [manipulating, setManipulating] = useState(false)
@@ -66,7 +69,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const newLabels = useRef(new Set<string>())
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
-  const layoutDoc = useMemo(() => ({ ...doc, floating: [...doc.floating.map(object => {
+  const layoutDoc = useMemo(() => ({ ...doc, theme: pasteGroup.current ? { ...doc.theme, palette: pasteGroup.current.palette } : doc.theme, floating: [...doc.floating.map(object => {
     const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
     return task && task.preview && task.candidate?.object ? currentPlacement(task.candidate.object, object) : object
   }), ...inserting, ...(creating ? [creating] : [])] }), [doc, creating, inserting, editable, aiReview?.tasks])
@@ -92,9 +95,25 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   // Measure new content before committing its geometry and creation as one undo step.
   useLayoutEffect(() => {
     if (!inserting.length) return
-    if (!editable) { setInserting([]); return }
+    const group = pasteGroup.current
+    if (!editable || group && group.doc !== doc) { pasteGroup.current = null; setInserting([]); return }
     if (inserting.some(object => object.kind === 'image' && !sheet.current!.querySelector<HTMLImageElement>(`[data-note-id="${object.id}"] img`)?.complete)) return
     const measured = reflow()
+    if (group) {
+      const ids = inserting.map(object => object.id), boxes = measured.geometry
+      const roots = inserting.filter(object => !(object.kind === 'label' && object.attachment))
+      const top = Math.min(...inserting.map(object => boxes[object.id].y))
+      const right = Math.max(...inserting.map(object => horizontalBounds(object, boxes[object.id]).right))
+      let delta = boundedTranslation(inserting, boxes, ids, { x: Math.min(0, pageWidth() - right), y: group.top === undefined ? 0 : group.top - top }, pageWidth())
+      while ((roots.length ? roots : inserting).some(object => doc.floating.some(other => fullyOverlaps({ ...boxes[object.id], x: boxes[object.id].x + delta.x, y: boxes[object.id].y + delta.y }, boxes[other.id])))) delta = { ...delta, y: delta.y + 24 }
+      const placed = applyPatches(inserting, shifted(inserting, boxes, ids, delta.x, delta.y))
+      const next = { ...doc, theme: { ...doc.theme, palette: group.palette }, floating: [...doc.floating, ...placed] }
+      pasteGroup.current = null; setInserting([])
+      if (!history.guard.current(doc, next)) { setClipboardNotice('Accept or discard the affected AI task before pasting.'); return }
+      history.boundary(); history.setDoc(next); history.boundary()
+      segments.clear(); select(ids); onActive(null); onToolChange(null); focusObject(ids[0])
+      return
+    }
     const occupied = doc.floating.map(object => measured.geometry[object.id])
     const placed = inserting.map(object => {
       const box = measured.geometry[object.id]
@@ -108,7 +127,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     })
     history.boundary(); onFloatingChange([...doc.floating, ...placed]); setInserting([])
     select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id, placed[0].kind === 'text')
-  }, [inserting])
+  }, [inserting, doc])
 
   const previousEdit = useRef({ ids: selectedIds, label: editingLabel, editable, revision: history.revision })
   const cleanedDraft = useRef(false)
@@ -139,6 +158,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
   function select(ids: string[]) {
     onSelect(ids)
+    setClipboardNotice('')
     if (!ids.includes(editingLabel ?? '')) setEditingLabel(null)
   }
   function focusObject(id: string, text = false) {
@@ -150,7 +170,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     captured.current = null
     if (pointer?.element.hasPointerCapture(pointer.pointerId)) pointer.element.releasePointerCapture(pointer.pointerId)
   }
-  useLayoutEffect(() => { cancel(); setInserting([]); setEditingLabel(null); onToolChange(null) }, [editable, scale, history.revision])
+  useLayoutEffect(() => { cancel(); pasteGroup.current = null; setInserting([]); setEditingLabel(null); setClipboardNotice(''); onToolChange(null) }, [editable, scale, history.revision])
   useLayoutEffect(() => {
     const ids = selectedIds.filter(id => doc.floating.some(note => note.id === id))
     if (ids.length !== selectedIds.length) select(ids)
@@ -284,6 +304,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const padding = target.matches('.main-text, .sheet')
     if (space || gutter || padding) {
       capture(event); setEditingLabel(null)
+      stage.current!.focus({ preventScroll: true })
       drag.current = { part: 'marquee', id: '', ids: [], start, objects: doc.floating, geometry, patches: {}, moved: false, additive: event.shiftKey ? selectedIds : [] }
       if (!drag.current.additive.length) select([])
     } else select([])
@@ -425,6 +446,60 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (selectedIds.some(id => lockedIds.has(id))) return
     history.boundary(); onFloatingChange(withoutObjects(selectedIds)); select([]); onActive(null)
   }
+  useLayoutEffect(() => {
+    if (!editable) return
+    function ownsClipboard() {
+      const element = document.activeElement as HTMLElement | null
+      return !!element && stage.current!.contains(element) && !element.closest('input, textarea, select') && element.tagName !== 'IFRAME'
+    }
+    function copy(event: ClipboardEvent) {
+      if (!selectedIds.length || !ownsClipboard() || (document.activeElement as HTMLElement).isContentEditable || !event.clipboardData) return
+      event.preventDefault(); event.stopImmediatePropagation(); setClipboardNotice('')
+      try {
+        const ids = floatingCopyIds(doc.floating, selectedIds)
+        if ([...ids].some(id => lockedIds.has(id))) throw new Error('Accept or discard the selected AI task before copying or cutting these elements.')
+        const payload = copyFloating(doc, ids, geometry), json = JSON.stringify(payload)
+        parseFloating(json)
+        const next = event.type === 'cut' ? { ...doc, floating: withoutObjects([...ids]) } : null
+        if (next && !history.guard.current(doc, next)) throw new Error('Accept or discard the affected AI task before cutting these elements.')
+        const escape = (text: string) => text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
+        const text = floatingText(payload)
+        event.clipboardData.setData(FLOATING_MIME, json)
+        event.clipboardData.setData('text/plain', text || '\n')
+        event.clipboardData.setData('text/html', `<div data-mote-floating="${escape(json)}"><pre>${escape(text)}</pre></div>`)
+        if (next) {
+          history.boundary(); history.setDoc(next); history.boundary()
+          select([]); onActive(null); stage.current!.focus({ preventScroll: true })
+        }
+      } catch (error) { setClipboardNotice(error instanceof Error ? error.message : 'These elements could not be copied.') }
+    }
+    function paste(event: ClipboardEvent) {
+      if (!ownsClipboard() || !event.clipboardData) return
+      // Rich-text editors and widget frames keep their own content clipboard.
+      const element = document.activeElement as HTMLElement
+      if (element.isContentEditable && !mainEditor?.isFocused) return
+      const json = floatingClipboardJSON(event.clipboardData)
+      if (!json) return
+      event.preventDefault(); event.stopImmediatePropagation(); setClipboardNotice('')
+      try {
+        const payload = parseFloating(json)
+        const imported = importFloating(doc, payload, anchors)
+        const caret = mainEditor?.isFocused ? mainEditor.view.coordsAtPos(mainEditor.state.selection.from) : null
+        const top = caret ? point({ clientX: caret.left, clientY: caret.top }).y : undefined
+        cancel(); segments.clear(); onToolChange(null)
+        pasteGroup.current = { doc, palette: imported.palette, top }
+        setInserting(imported.floating)
+      } catch (error) { setClipboardNotice(error instanceof Error ? error.message : 'The clipboard does not contain valid Mote elements.') }
+    }
+    window.addEventListener('copy', copy, true)
+    window.addEventListener('cut', copy, true)
+    window.addEventListener('paste', paste, true)
+    return () => {
+      window.removeEventListener('copy', copy, true)
+      window.removeEventListener('cut', copy, true)
+      window.removeEventListener('paste', paste, true)
+    }
+  })
   function duplicate() {
     if (!editable || !selectedIds.length) return
     if (selectedIds.some(id => lockedIds.has(id))) return
@@ -516,7 +591,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           event.preventDefault(); event.stopPropagation()
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
         }}
-        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), '--ai-page-width': `${doc.width - 2}px`, '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en'), '--ai-page-width': `${doc.width - 2}px`, '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={aiReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
@@ -546,7 +621,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       {segments.overlay}
       </div>
     </div>
-    {segments.notice && <p className="segment-notice" role="status">{segments.notice}</p>}
+    {(clipboardNotice || segments.notice) && <p className="segment-notice" role="status">{clipboardNotice || segments.notice}</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
       <button aria-label="Zoom out" disabled={scale <= minScale} onClick={() => zoomBy(1 / 1.1)}>−</button>
