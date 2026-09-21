@@ -53,7 +53,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--border)
 .minimap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .minimap-image { position: absolute; inset: 0; pointer-events: none; }
 .minimap .minimap-sheet { position: absolute; top: 0; left: 0; margin: 0; transform-origin: top left; box-shadow: none; pointer-events: none; }
-.minimap-viewport { position: absolute; top: 0; left: 0; right: 0; min-height: 2px; border-block: 1px solid #54795f66; border-left: 2px solid #54795f99; background: #54795f14; pointer-events: none; }
+.minimap-viewport { position: absolute; top: 0; left: 0; right: 0; min-height: 2px; border: 1px solid #54795f66; background: #54795f14; pointer-events: none; }
 .minimap-hit { position: absolute; top: 0; left: 0; right: 0; cursor: grab; }
 .minimap:hover .minimap-viewport, .minimap:focus-visible .minimap-viewport { background: #54795f24; border-color: #54795fa6; }
 .minimap.is-dragging, .minimap.is-dragging .minimap-hit { cursor: grabbing; }
