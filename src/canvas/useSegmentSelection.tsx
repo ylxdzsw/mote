@@ -13,7 +13,7 @@ interface Props {
   stage: RefObject<HTMLDivElement | null>; sheet: RefObject<HTMLDivElement | null>
   anchors: Anchor[]; geometry: Geometries; lockedIds: Set<string>; onStart: () => void
 }
-interface Block { top: number; bottom: number; height: number; space: boolean; bands?: { top: number; height: number }[] }
+interface Block { top: number; bottom: number; height: number; space: boolean }
 interface Paint { bands: Box[]; objects: (Box & { id: string })[]; top: number; bottom: number }
 interface Drag {
   pointerId: number; y: number; originY: number; alt: boolean; moved: boolean
@@ -30,6 +30,7 @@ export function useSegmentSelection(props: Props) {
   const live = useRef({ ...props, history })
   live.current = { ...props, history }
   const selected = useRef<SegmentRange | null>(null)
+  const insertion = useRef<SegmentPoint | null>(null)
   const [range, setRange] = useState<SegmentRange | null>(null)
   const [paint, setPaint] = useState<Paint>({ bands: [], objects: [], top: 0, bottom: 0 })
   const [notice, setNotice] = useState('')
@@ -37,7 +38,11 @@ export function useSegmentSelection(props: Props) {
   const tick = useRef<() => void>(() => {})
   const content = useRef(props.doc.content)
 
-  function select(next: SegmentRange | null) { selected.current = next; setRange(next); setNotice('') }
+  function select(next: SegmentRange | null) {
+    if (next && equal(next)) next = null
+    insertion.current = null
+    selected.current = next; setRange(next); setNotice('')
+  }
   function measure(): Block[] {
     const { editor, sheet, scale } = live.current
     if (!editor || !sheet.current) return []
@@ -48,14 +53,14 @@ export function useSegmentSelection(props: Props) {
       const candidate = sheet.current!.querySelector<HTMLElement>(`[data-ai-block="${node.attrs.id}"]`)?.closest('.main-paragraph')
       const box = (candidate ?? element).getBoundingClientRect()
       const top = (box.top - rect.top) / scale - border, space = node.type.name === 'spacer'
-      const bands = candidate ? [{ top, height: box.height / scale }] : undefined
+      let bottom = top + box.height / scale
       // Extra candidate paragraphs belong to the final original reservation block.
       for (let next = candidate?.nextElementSibling; next?.getAttribute('data-ai-block') === ''; next = next.nextElementSibling) {
         const box = next.getBoundingClientRect()
-        bands!.push({ top: (box.top - rect.top) / scale - border, height: box.height / scale })
+        bottom = (box.bottom - rect.top) / scale - border
       }
-      const height = space ? node.attrs.height : bands ? bands.at(-1)!.top + bands.at(-1)!.height - top : box.height / scale
-      blocks.push({ top, bottom: top + height, height, space, bands })
+      const height = space ? node.attrs.height : bottom - top
+      blocks.push({ top, bottom: top + height, height, space })
     })
     return blocks
   }
@@ -88,16 +93,10 @@ export function useSegmentSelection(props: Props) {
     const current = selected.current, { doc, geometry } = live.current
     const blocks = measure()
     if (!current || !blocks.length) return
-    const bands = blocks.flatMap((block, index) => {
-      if (index < current.start.index || index > current.end.index || index === current.end.index && !current.end.offset) return []
-      const from = index === current.start.index ? current.start.offset : 0
-      const to = index === current.end.index ? current.end.offset : block.height
-      if (block.bands) return block.bands.map(band => ({ x: 0, y: band.top, width: doc.width - 2, height: band.height }))
-      return to > from ? [{ x: 0, y: block.top + from, width: doc.width - 2, height: to - from }] : []
-    })
     const objects = [...segmentObjectIds(doc, current)].flatMap(id => geometry[id] ? [{ ...geometry[id], id }] : [])
-    const top = boundaryY(current.start, 'start', blocks)
-    const next = { bands, objects, top, bottom: equal(current) ? top : boundaryY(current.end, 'end', blocks) }
+    const top = boundaryY(current.start, 'start', blocks), bottom = boundaryY(current.end, 'end', blocks)
+    const bands = [{ x: 0, y: top, width: doc.width - 2, height: bottom - top }]
+    const next = { bands, objects, top, bottom }
     setPaint(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
   }
   useLayoutEffect(() => {
@@ -111,7 +110,7 @@ export function useSegmentSelection(props: Props) {
     const stage = live.current.stage.current
     if (previous && stage?.hasPointerCapture(previous.pointerId)) stage.releasePointerCapture(previous.pointerId)
   }
-  function clear() { release(); if (selected.current) select(null); else setNotice('') }
+  function clear() { release(); select(null) }
   function adjust() {
     const d = drag.current
     if (!d) return
@@ -119,9 +118,9 @@ export function useSegmentSelection(props: Props) {
     let point = endpoint(y, d.alt, blocks)
     if (d.handle && selected.current) {
       const current = selected.current
-      if (d.previous && equal(d.previous)) { select({ start: point, end: point }); return }
-      select(d.handle === 'start' ? { start: compare(point, current.end) <= 0 ? point : current.end, end: current.end }
-        : { start: current.start, end: compare(point, current.start) >= 0 ? point : current.start })
+      if (d.handle === 'start' ? compare(point, current.end) < 0 : compare(point, current.start) > 0) {
+        select(d.handle === 'start' ? { start: point, end: current.end } : { start: current.start, end: point })
+      }
     } else {
       if (!d.moved) return
       const down = y >= d.originY
@@ -168,26 +167,29 @@ export function useSegmentSelection(props: Props) {
   }
   function commit(next: MoteDocument, current: SegmentRange, payload: SegmentClipboard | null = null) {
     const { history, editor, stage, doc } = live.current
-    // Locate the end of prefix + inserted content even when adjacent spaces merge.
+    // Locate both insertion boundaries even when adjacent spaces merge.
     const extent = (node: NonNullable<MoteDocument['content']['content']>[number]) => node.type === 'spacer' ? node.attrs!.height as number : 1
-    let remaining = doc.content.content!.slice(0, current.start.index).reduce((sum, node) => sum + extent(node), current.start.offset)
-      + (payload?.content.reduce((sum, node) => sum + extent(node), 0) ?? 0)
-    let point = edge(0)
-    for (const [index, node] of next.content.content!.entries()) {
-      const size = extent(node)
-      if (remaining < size - .0001) { point = { index, offset: node.type === 'spacer' ? Math.max(0, remaining) : 0 }; break }
-      remaining -= size; point = edge(index + 1)
+    const prefix = doc.content.content!.slice(0, current.start.index).reduce((sum, node) => sum + extent(node), current.start.offset)
+    function pointAt(remaining: number) {
+      for (const [index, node] of next.content.content!.entries()) {
+        const size = extent(node)
+        if (remaining < size - .0001) return { index, offset: node.type === 'spacer' ? Math.max(0, remaining) : 0 }
+        remaining -= size
+      }
+      return edge(next.content.content!.length)
     }
+    const start = pointAt(prefix), end = pointAt(prefix + (payload?.content.reduce((sum, node) => sum + extent(node), 0) ?? 0))
     history.boundary(); history.setDoc(next); history.boundary()
     select(null)
     requestAnimationFrame(() => {
       if (!editor || editor.isDestroyed || live.current.doc !== next) return
       let position = 0
-      editor.state.doc.forEach((node, _from, i) => { if (i < point.index) position += node.nodeSize })
+      editor.state.doc.forEach((node, _from, i) => { if (i < end.index) position += node.nodeSize })
       editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(position))))
       stage.current!.focus({ preventScroll: true })
       content.current = next.content
-      select({ start: point, end: point })
+      if (payload) select({ start, end })
+      else insertion.current = start
     })
   }
   function copy(event: ClipboardEvent) {
@@ -208,7 +210,7 @@ export function useSegmentSelection(props: Props) {
     const { editable, editor, doc } = live.current
     if (!editable || !editor || !ownedFocus() || !event.clipboardData) return
     const current = selected.current
-    if (!current && !editor.isFocused) return
+    if (!current && !insertion.current && !editor.isFocused) return
     let json = event.clipboardData.getData(SEGMENT_MIME)
     if (!json) {
       const html = event.clipboardData.getData('text/html')
@@ -221,7 +223,7 @@ export function useSegmentSelection(props: Props) {
     event.preventDefault(); event.stopImmediatePropagation()
     try {
       const payload = parseSegment(json)
-      let target = current
+      let target = current ?? (insertion.current ? { start: insertion.current, end: insertion.current } : null)
       if (!target) {
         const selection = editor.state.selection, start = selection.$from.index(0)
         if (selection.empty) {
@@ -273,7 +275,7 @@ export function useSegmentSelection(props: Props) {
       if (isComposingKey(event)) return
       const d = drag.current
       if (event.key === 'Alt' && d) { d.alt = event.altKey; actions.current.adjust() }
-      if (event.type === 'keydown' && event.key === 'Escape' && selected.current) { event.preventDefault(); if (d) cancel(); else actions.current.clear() }
+      if (event.type === 'keydown' && event.key === 'Escape' && (d || selected.current || insertion.current)) { event.preventDefault(); if (d) cancel(); else actions.current.clear() }
     }
     function outside(event: PointerEvent) { if (!live.current.stage.current!.contains(event.target as Node)) actions.current.clear() }
     function focus(event: FocusEvent) {
@@ -329,10 +331,9 @@ export function useSegmentSelection(props: Props) {
         next = offset === block.height ? edge(index + 1) : { index, offset }
       }
     }
-    const adjusted = equal(current) ? { start: next, end: next } : side === 'start' ? { start: compare(next, current.end) <= 0 ? next : current.end, end: current.end }
-      : { start: current.start, end: compare(next, current.start) >= 0 ? next : current.start }
-    select(adjusted)
-    if (side === 'end' && equal(adjusted)) live.current.stage.current!.focus({ preventScroll: true })
+    if (side === 'start' ? compare(next, current.end) < 0 : compare(next, current.start) > 0) {
+      select(side === 'start' ? { start: next, end: current.end } : { start: current.start, end: next })
+    }
   }
   const styleBox = (box: Box) => ({ left: (box.x + 1) * props.scale, top: (box.y + 1) * props.scale, width: box.width * props.scale, height: box.height * props.scale })
   const overlay = props.editable && <div className={`segment-layer${range ? ' has-segment' : ''}`}>
@@ -340,8 +341,8 @@ export function useSegmentSelection(props: Props) {
     {range && <>
       {paint.bands.map((box, index) => <div className="segment-band" key={index} style={styleBox(box)} />)}
       {paint.objects.map(box => <div className="segment-object" data-segment-object={box.id} key={box.id} style={styleBox(box)} />)}
-      {(['start', 'end'] as const).filter(side => side === 'start' || !equal(range)).map(side => {
-        const offset = equal(range) ? 0 : Math.max(0, 24 - (paint.bottom - paint.top) * props.scale) / 2 * (side === 'start' ? -1 : 1)
+      {(['start', 'end'] as const).map(side => {
+        const offset = Math.max(0, 24 - (paint.bottom - paint.top) * props.scale) / 2 * (side === 'start' ? -1 : 1)
         return <div className="segment-boundary" key={side} style={{ top: ((side === 'start' ? paint.top : paint.bottom) + 1) * props.scale }}>
         {!!offset && <span className="segment-handle-join" style={{ top: Math.min(0, offset), height: Math.abs(offset) }} />}
         <button className="segment-handle" data-segment-control={side} aria-label={`Segment ${side}`} title={`Drag to adjust ${side} · Alt splits spaces`}
