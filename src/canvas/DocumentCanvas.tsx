@@ -159,7 +159,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function select(ids: string[]) {
     onSelect(ids)
     setClipboardNotice('')
-    if (!ids.includes(editingLabel ?? '')) setEditingLabel(null)
+    if (ids.length !== 1 || !ids.includes(editingLabel ?? '')) setEditingLabel(null)
   }
   function focusObject(id: string, text = false) {
     requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' .tiptap' : ''}`)?.focus({ preventScroll: true }))
@@ -605,7 +605,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} sizeLocked={sizeLocked(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
-            contentActive={selectedIds.includes(note.id) && !manipulating}
+            contentActive={selectedIds.length === 1 && selectedIds[0] === note.id && !manipulating}
             aiReview={aiReview} aiTask={editable ? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
