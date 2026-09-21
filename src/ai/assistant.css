@@ -1,4 +1,4 @@
-.workspace.with-ai { grid-template-columns: minmax(0, 1fr) 310px; }
+.workspace.with-ai { grid-template-columns: 310px minmax(0, 1fr); }
 .ai-panel { min-width: 0; }
 .ai-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .ai-panel a { color: #355b43; font-size: 12px; }

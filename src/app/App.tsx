@@ -345,17 +345,6 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}<button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>×</button></div>}
 
     <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
-      <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
-        lockedIds={assistant.lockedIds} onAICreate={createAIArea}
-        aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
-          selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
-          toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: () => assistant.setOpen(true) }}
-        aiWidgetIds={new Set(Object.keys(assistant.runs))}
-        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
-        onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
-        onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
-        onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
-        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)} />
       {editable && assistant.open ? <AssistantPanel assistant={assistant} onDraw={() => { setTool('ai'); setSelectedIds([]) }}
         onSelection={reserveSelection} canSelect={selectedIds.length === 1 || !!mainEditor && !selectedIds.length} />
       : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
@@ -409,6 +398,17 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         </>}
         </>}
       </aside>}
+      <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
+        lockedIds={assistant.lockedIds} onAICreate={createAIArea}
+        aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
+          selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
+          toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: () => assistant.setOpen(true) }}
+        aiWidgetIds={new Set(Object.keys(assistant.runs))}
+        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
+        onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
+        onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
+        onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
+        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)} />
     </main>
   </div></HistoryContext>
 }
