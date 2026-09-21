@@ -281,7 +281,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (floating) return
     const start = point(event), space = spaceAt(start)
     const gutter = !inside && (start.x < 0 || start.x > pageWidth())
-    if (space || gutter) {
+    const padding = target.matches('.main-text, .sheet')
+    if (space || gutter || padding) {
       capture(event); setEditingLabel(null)
       drag.current = { part: 'marquee', id: '', ids: [], start, objects: doc.floating, geometry, patches: {}, moved: false, additive: event.shiftKey ? selectedIds : [] }
       if (!drag.current.additive.length) select([])
