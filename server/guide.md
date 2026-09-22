@@ -6,7 +6,7 @@ This guide is part of the task prompt. It describes the current V0 format and th
 
 Mote is a local-first browser application. The read-only source tree has `src/document/model.ts` (V0 model and examples), `src/document/validate.ts` (document validation), `src/document/file.ts` (native-file codec), `src/document/initialize.ts` (Tiptap/schema initialization), `src/editor/extensions.ts` (constrained JSONContent schema), and `README.md` (format and preview notes). The document is a `MoteDocument` with `version: "V0"`, an `id`, optional AI model/language fields, width and margins, semantic theme/palette, main `content`, and `floating` objects. Paragraph and spacer nodes have stable IDs. Floating objects have stable IDs, an anchor, document-space `x`, nonnegative anchor-relative `y`, width, and a text-flow mode. Text, table, and label content use constrained JSONContent; widgets store HTML source.
 
-Supported floating kinds are text (the omitted kind is text), table, image, rectangle, ellipse, line, label, katex, and html. An HTML widget stores author HTML and an embedded screenshot; its HTML is untrusted and must not be executed by the backend or placed in an authenticated Mote page. Candidate geometry is not authoritative: retain the target ID and let the frontend rebind exact target geometry. Existing-object candidates retain the existing kind. A new placeholder (`target.isNew: true`) may become any supported floating kind; the frontend keeps the selected kind stable for later revisions.
+Supported floating kinds are text (the omitted kind is text), table, image, rectangle, ellipse, line, label, katex, and html. An HTML widget stores author HTML and an embedded screenshot; its HTML is untrusted and must not be executed by the backend or placed in an authenticated Mote page. For an object target, candidate geometry is not authoritative: retain the target ID and let the frontend rebind exact target geometry. Existing-object candidates retain the existing kind. A new placeholder (`target.isNew: true`) may become any supported floating kind; the frontend keeps the selected kind stable for later revisions. For a segment target, author the composition's native geometry and anchors as described below; the segment has no single object ID or fixed-height box.
 
 The current palette uses references such as `ink`, `muted`, `key-idea`, or `key-idea:soft`; raw native colors do not belong in a candidate. Rich text uses paragraph nodes, text and hard breaks, and only the current bold, color, and box/underline marks. Preserve stable paragraph IDs when returning text content.
 
@@ -20,11 +20,46 @@ The task runs on Linux. `/usr/bin/node`, `/usr/bin/chromium`, `agent-browser`, `
 jq 'walk(if type == "string" and startswith("data:") then "<embedded data URL omitted; value remains in file>" else . end)' input/document.json
 ```
 
-The unmodified JSON remains available at `input/document.json`; use focused `jq` queries for exact fields. The full-page PNG is at `input/snapshot.png`; inspect it with `view_image --detail auto input/snapshot.png` when visual context is needed. `input/target.json` contains either an object target with `objectId`, `isNew`, and an absolute `{x,y,width,height}` snapshot area, or a text target with `blockIds`, `{from,to}`, `insert`, and an area.
+The unmodified JSON remains available at `input/document.json`; use focused `jq` queries for exact fields. The full-page PNG is at `input/snapshot.png`; inspect it with `view_image --detail auto input/snapshot.png` when visual context is needed. `input/target.json` contains an object target, a paragraph target, or a segment target. A segment target has a canonical snapshot range with `{start:{index,offset},end:{index,offset}}`, exact `blockIds` for touched top-level paragraphs/spacers, exact `objectIds` for floating objects owned by that range, and an absolute `{x,y,width,height}` area.
 
 `selectedText` quotes the selected passage when applicable. An object target can also include `selection`: those positions refer to the rich-text document inside that object, not the main text. The whole object remains reserved, but use the selection to understand the requested scope. Main-text positions refer to the main ProseMirror document. Both the selection offsets and selectedText expand to the complete selected paragraphs; replace those whole paragraphs, never just a substring. All designated paragraphs remain reserved through review.
 
 A caret without a text selection targets its containing paragraph, including an empty paragraph. Generate into that paragraph in place, not beneath an extra blank line. Floating areas may be resized before the first request; the supplied snapshot contains their dimensions at submission. Later movement remains controlled by the user.
+
+## Native segment targets
+
+A segment request is a composition request, not a paragraph request. Its range uses the document's snapshot top-level block indices. A point at a paragraph boundary has offset `0`; an interior offset is allowed only inside a spacer and is measured in document pixels. A spacer endpoint exactly at its height is canonicalized to the following block boundary. `blockIds` must include every touched paragraph and every touched spacer, including a partial spacer. `objectIds` are ownership, not visual intersection: include objects anchored in the selected range, attached labels that follow those objects, and lines that follow selected connected targets. An empty insertion has equal start/end points and normally has empty `blockIds` and `objectIds`.
+
+Return a complete self-contained V0 `SegmentClipboard` in the exclusive `segment` field. The payload is accepted as a native composition with paragraphs and explicit spacers plus any supported floating kinds (`text`, `table`, `image`, `katex`, `html`, `rectangle`, `ellipse`, `line`, and `label`). Use fresh safe IDs inside the payload. Every non-null object or line anchor must name a payload paragraph/spacer; every line connection and label attachment must name a payload floating object. Do not leave references to the source document. Keep line geometry and object geometry keyed only by payload floating IDs. Semantic paragraph classes (`title`, `heading`, `body`, `caption`, `code`, and `list`) are styled by the document theme; use palette references rather than raw colors.
+
+The segment area is a visual selection/insertion area, not a maximum output height. Segment replacement has free height. Add an explicit `spacer` when the composition needs room or a deliberate pause; do not encode spatial room as an unexplained paragraph height or as empty page padding. Object `x` and width use the document's page coordinate system and must fit the supplied document width. `originTop` and `anchorTops` describe the payload's vertical coordinate system; preserve that relationship when placing floating objects.
+
+For example, this is a complete small segment:
+
+```json
+{
+  "segment": {
+    "version": "V0",
+    "type": "segment",
+    "content": [
+      {"type":"paragraph","attrs":{"id":"ai-paragraph","semantic":"body"},"content":[{"type":"text","text":"A composed idea"}]},
+      {"type":"spacer","attrs":{"id":"ai-space","height":96}}
+    ],
+    "floating": [
+      {"id":"ai-shape","kind":"rectangle","anchorId":"ai-space","x":120,"y":12,"width":180,"height":64,"textFlow":"overlap","fill":"key-idea:soft","stroke":"ink","strokeWidth":1,"dashed":false,"rounded":true},
+      {"id":"ai-label","kind":"label","anchorId":"ai-space","x":120,"y":12,"width":180,"textFlow":"overlap","content":{"type":"doc","content":[{"type":"paragraph","attrs":{"semantic":"label"},"content":[{"type":"text","text":"A native shape"}]}]},"attachment":{"targetId":"ai-shape","position":"center"}}
+    ],
+    "palette":[{"id":"key-idea","name":"Key idea","strong":"#355b43","soft":"#e9efdf"}],
+    "geometry":{"ai-shape":{"x":120,"y":40,"width":180,"height":64},"ai-label":{"x":120,"y":40,"width":180,"height":24}},
+    "anchorTops":{"ai-paragraph":0,"ai-space":28},
+    "originTop":0
+  },
+  "summary":"A native paragraph, spacer, shape, and attached label.",
+  "sources":[]
+}
+```
+
+HTML widgets in a segment still need a safe bounded PNG. Put one relative output path per HTML object at the result root, for example `"screenshotPaths":{"chart-id":"chart.png","control-id":"control.png"}`. Capture each PNG at the rounded object `width` × `height`, not at the full page or segment area. The backend embeds the bytes and never executes candidate HTML. Do not use `screenshotPath` for a segment; that singular field remains the object-target contract.
 
 The task root is the absolute directory given in the prompt, normally under `/tmp/moted/tasks/<uuid>`. The immutable `input/` directory contains the document, target, request, and snapshot. The current run's writable output directory contains `result.json`, optional HTML files, and `screenshot.png`. The task-local `.mu/` is writable for Mu journals and objects, and `~/.mu` resolves to this task-local scope because `HOME` is the task root. `.config/`, `.cache/`, `.agent-browser/`, and `tmp/` are writable scratch/cache paths. `/tmp` is a private writable temporary directory for this worker; its short paths are suitable for browser sockets. The read-only source path is provided in the prompt. Shared `/root/.mu` is readable only as configured by the supervisor; it is not the task journal. If the supervisor copies the root-only provider `.env` into the task `.mu`, the worker can read those credentials by design. This is the tradeoff required for the unprivileged worker to call Mu; never print or copy credentials elsewhere.
 
@@ -78,7 +113,9 @@ For a text target:
 {"content":[{"type":"paragraph","attrs":{"id":"existing-block-id","semantic":"body"},"content":[{"type":"text","text":"..."}]}],"summary":"short explanation","sources":[]}
 ```
 
-Return one of `object` or `content`, not both. Keep the full existing object payload, target ID, target anchor, and unrelated fields. Do not invent raw colors, unsafe URLs, executable screenshot formats, or arbitrary schema nodes. Preserve saved geometry for existing and new placeholders; frontend placement is authoritative. Existing targets retain their kind. A new placeholder may change to any supported kind, but a revision should keep the kind chosen by its first accepted candidate. `summary` is required. Cite researched claims. An HTML candidate may set `screenshotPath: "screenshot.png"`; it must point to a PNG inside the current output directory. The screenshot path replaces the HTML object's placeholder screenshot; do not add a fake data URL just to satisfy the output validator.
+For a segment target, return the complete `SegmentClipboard` under `segment`, as shown above. Do not return `object` or `content` alongside it. The candidate segment may be empty for an intentionally empty replacement, but generated compositions should normally include at least one paragraph or spacer. Preserve all native object fields required by their kind, and keep palette, anchor, connection, attachment, and geometry references internal to the payload. `screenshotPaths` is allowed only for segment HTML objects and maps each HTML object ID to a relative PNG file in the current output directory.
+
+Return exactly one of `object`, `content`, or `segment`, not more than one. Keep the full existing object payload, target ID, target anchor, and unrelated fields. Do not invent raw colors, unsafe URLs, executable screenshot formats, or arbitrary schema nodes. Preserve saved geometry for existing and new placeholders; frontend placement is authoritative. Existing targets retain their kind. A new placeholder may change to any supported kind, but a revision should keep the kind chosen by its first accepted candidate. `summary` is required. Cite researched claims. An HTML candidate may set `screenshotPath: "screenshot.png"`; it must point to a PNG inside the current output directory. The screenshot path replaces the HTML object's placeholder screenshot; do not add a fake data URL just to satisfy the output validator. Segment HTML candidates instead use the per-object `screenshotPaths` map described above.
 
 A revision or retry uses the same immutable document and target. If a previous Mu turn created a task-local `current-session`, continue that session. If the previous turn was canceled or failed before the session was recorded, make a new ordinary Mu turn with the same task inputs; do not use `mu retry`. Late or stopped worker output is discarded by the supervisor.
 

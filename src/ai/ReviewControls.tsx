@@ -1,9 +1,14 @@
 import { useLayoutEffect, useRef } from 'react'
+import type { JSONContent } from '@tiptap/core'
 import type { AITask } from './types'
 
 export interface AIReview {
   tasks: AITask[]
   mainActive: boolean
+  segmentPreviews?: Array<{ taskId: string; taskIds: string[]; from: number; to: number; content: JSONContent[]; blockOwners: Record<string, string> }>
+  segmentRanges?: Array<{ taskId: string; from: number; to: number; startOffset?: number; endOffset?: number }>
+  activeSegmentId?: string | null
+  selectSegment?: (id: string) => void
   selectText: () => void
   accept: (id: string) => void
   discard: (id: string) => void

@@ -4,33 +4,55 @@ import { DEFAULT_AI_MODEL, paragraph, replaceMainContent, type FloatingObject, t
 import { initializeDocument } from '../document/initialize'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
-import { currentPlacement, overlaps, permits, permitsEditor, reservedObjectContent, reservedText, sameContent } from './reservations'
+import { currentPlacement, overlaps, permits, permitsEditor, reservedObjectContent, reservedText, sameContent, segmentReservationIntact } from './reservations'
 import { aiRequest, AIServiceError } from './api'
 import { loadTasks, storeTask } from './storage'
 import type { Area, AITarget, AITask, RemoteTask } from './types'
+import { applySegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
+import { copySegment, type SegmentClipboard } from '../document/segment'
 
-export function candidateDocument(doc: MoteDocument, task: AITask, candidate = task.candidate): MoteDocument {
-  if (!candidate) throw new Error('This task has no complete candidate.')
-  const target = task.target
-  let result: MoteDocument
-  if (target.kind === 'object') {
-    const original = doc.floating.find(object => object.id === target.objectId)
-    if (!original || !candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one floating object.')
-    if (!target.isNew && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new Error('A revision must retain the object kind.')
-    result = { ...doc, floating: doc.floating.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
-  } else {
-    if (!candidate.content?.length || candidate.object || candidate.content.some(node => node.type !== 'paragraph')) throw new Error('The candidate must deliver paragraphs.')
-    const blocks = doc.content.content!, first = blocks.findIndex(node => node.attrs?.id === target.blockIds[0])
-    if (first < 0 || !reservedText(doc.content, target.blockIds)) throw new Error('The reserved text is no longer available.')
-    const content = candidate.content.map((node, index) => ({ ...node, attrs: { ...node.attrs,
-      id: target.blockIds[index] ?? crypto.randomUUID() } }))
-    result = replaceMainContent(doc, { ...doc.content, content: [...blocks.slice(0, first), ...content, ...blocks.slice(first + target.blockIds.length)] })
-  }
-  validateDocument(result)
-  return initializeDocument(structuredClone(result))
+const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
+
+function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string, context: SegmentContext | undefined, create: () => MoteDocument) {
+  let byCandidate = candidateCache.get(doc)
+  if (!byCandidate) { byCandidate = new WeakMap(); candidateCache.set(doc, byCandidate) }
+  let byTask = byCandidate.get(candidate)
+  if (!byTask) { byTask = new Map(); byCandidate.set(candidate, byTask) }
+  const previous = byTask.get(taskId)
+  if (previous && previous.context === context) return previous.result
+  const result = create()
+  byTask.set(taskId, { context, result })
+  return result
 }
 
-export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area) {
+export function candidateDocument(doc: MoteDocument, task: AITask, candidate = task.candidate, context?: SegmentContext): MoteDocument {
+  if (!candidate) throw new Error('This task has no complete candidate.')
+  return memoizedCandidate(doc, candidate, task.id, task.target.kind === 'segment' ? context : undefined, () => {
+    const target = task.target
+    let result: MoteDocument
+    if (target.kind === 'object') {
+      const original = doc.floating.find(object => object.id === target.objectId)
+      if (!original || !candidate.object || candidate.content || candidate.segment) throw new Error('The candidate must deliver exactly one floating object.')
+      if (!target.isNew && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new Error('A revision must retain the object kind.')
+      result = { ...doc, floating: doc.floating.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
+    } else if (target.kind === 'text') {
+      if (!candidate.content?.length || candidate.object || candidate.segment || candidate.content.some(node => node.type !== 'paragraph')) throw new Error('The candidate must deliver paragraphs.')
+      const blocks = doc.content.content!, first = blocks.findIndex(node => node.attrs?.id === target.blockIds[0])
+      if (first < 0 || !reservedText(doc.content, target.blockIds)) throw new Error('The reserved text is no longer available.')
+      const content = candidate.content.map((node, index) => ({ ...node, attrs: { ...node.attrs,
+        id: target.blockIds[index] ?? crypto.randomUUID() } }))
+      result = replaceMainContent(doc, { ...doc.content, content: [...blocks.slice(0, first), ...content, ...blocks.slice(first + target.blockIds.length)] })
+    } else {
+      if (!candidate.segment || candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one V0 segment.')
+      if (!context) throw new Error('Segment geometry is not available for this preview.')
+      result = applySegmentCandidate(doc, target, candidate.segment, context)
+    }
+    validateDocument(result)
+    return initializeDocument(structuredClone(result))
+  })
+}
+
+export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined) {
   const [tasks, setTasks] = useState<AITask[]>([])
   const [loaded, setLoaded] = useState(false)
   const [notice, setNotice] = useState('')
@@ -61,7 +83,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     return allowed
   }
   history.guardEditor.current = (id, before, after) => bypass.current || permitsEditor(state.current, id, before, after)
-  history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' ? task.target.blockIds.map(id => [id, task.id]) : []))
+  history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' || task.target.kind === 'segment' ? task.target.blockIds.map(id => [id, task.id]) : []))
 
   useEffect(() => {
     mounted.current = true
@@ -73,6 +95,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       const retained = saved.filter(task => {
         const valid = task.documentId === doc.id && task.expiresAt > Date.now() && (task.target.kind === 'object'
           ? sameContent(reservedObjectContent(task, doc.floating.find(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId) ?? {} as never), reservedObjectContent(task, task.original as never))
+          : task.target.kind === 'segment' ? segmentReservationIntact(task, doc)
           : sameContent(reservedText(doc.content, task.target.blockIds), reservedText({ type: 'doc', content: task.original as JSONContent[] }, task.target.blockIds)))
         if (!valid) { void storeTask(task.id); if (task.submitted || task.requestSent) void aiRequest(`/tasks/${task.id}`, 'DELETE').catch(() => {}) }
         return valid
@@ -94,7 +117,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
           if (!active || !state.current.some(current => current.id === task.id && ['queued', 'running'].includes(current.status))) return
           if (remote.candidate) {
-            try { candidateDocument(currentDoc.current, task, remote.candidate) }
+            try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
             catch (error) { update(task.id, { status: 'error', error: `Invalid candidate: ${(error as Error).message}` }); return }
           }
           update(task.id, { error: undefined, ...remote })
@@ -115,11 +138,31 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   function reserve(target: AITarget, snapshot = currentDoc.current) {
     if (!loaded || !writable) return
     if (target.kind === 'text' && !reservedText(snapshot.content, target.blockIds)) { setNotice('Select consecutive paragraphs without crossing a space.'); return }
-    const overlapping = state.current.find(task => overlaps(task.target, target))
+    if (target.kind === 'segment') {
+      const range = resolveSegmentRange(snapshot, target)
+      if (!range) { setNotice('The selected segment is no longer available.'); return }
+      const fresh = makeSegmentTarget(snapshot, range, target.area)
+      if (!sameContent(fresh.blockIds, target.blockIds) || !sameContent(fresh.objectIds, target.objectIds)) { setNotice('The selected segment changed.'); return }
+      target = fresh
+    }
+    const overlapping = state.current.find(task => overlaps(task.target, target, snapshot))
     if (overlapping) { openTask(overlapping.id); return }
+    let original: FloatingObject | JSONContent[] | SegmentClipboard
+    let segmentOriginalBlocks: JSONContent[] | undefined
+    let segmentOriginalObjects: FloatingObject[] | undefined
+    if (target.kind === 'object') original = structuredClone(snapshot.floating.find(object => object.id === target.objectId)!)
+    else if (target.kind === 'text') original = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
+    else {
+      const context = segmentContext?.() ?? { anchors: [], geometry: {} }
+      original = copySegment(snapshot, target.range, context.anchors, context.geometry)
+      segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
+      segmentOriginalObjects = structuredClone(snapshot.floating.filter(object => target.objectIds.includes(object.id)))
+    }
     const task: AITask = { id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
-      original: structuredClone(target.kind === 'object' ? snapshot.floating.find(object => object.id === target.objectId)! : snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id))),
+      original,
       snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false, expiresAt: Date.now() + 24 * 60 * 60 * 1000 }
+    if (segmentOriginalBlocks) task.segmentOriginalBlocks = segmentOriginalBlocks
+    if (segmentOriginalObjects) task.segmentOriginalObjects = segmentOriginalObjects
     state.current = [...state.current, task]; setTasks(state.current); save(task); openTask(task.id); setNotice(''); history.boundary()
     return task
   }
@@ -156,6 +199,18 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const target = { ...task.target, area: objectArea(objectId) }
           task = { ...task, snapshotDocument, original, target }
           update(id, { snapshotDocument, original, target })
+        } else if (!task.requestSent && task.target.kind === 'segment') {
+          if (!segmentReservationIntact(task, currentDoc.current)) throw new Error('The reserved segment changed. Discard it and start a new request.')
+          const range = resolveSegmentRange(currentDoc.current, task.target)
+          if (!range) throw new Error('The reserved segment anchor is no longer available.')
+          const refreshed = makeSegmentTarget(currentDoc.current, range, task.target.area)
+          const context = segmentContext?.() ?? { anchors: [], geometry: {} }
+          const snapshotDocument = structuredClone(currentDoc.current)
+          const original = copySegment(snapshotDocument, range, context.anchors, context.geometry)
+          const segmentOriginalBlocks = structuredClone(snapshotDocument.content.content!.filter(node => refreshed.blockIds.includes(node.attrs?.id)))
+          const segmentOriginalObjects = structuredClone(snapshotDocument.floating.filter(object => refreshed.objectIds.includes(object.id)))
+          task = { ...task, snapshotDocument, original, target: refreshed, segmentOriginalBlocks, segmentOriginalObjects }
+          update(id, { snapshotDocument, original, target: refreshed, segmentOriginalBlocks, segmentOriginalObjects })
         }
         const document = task.snapshotDocument!
         const { exportPng } = await import('../document/png')
@@ -214,6 +269,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!task) return
     forget(id)
     const target = task.target
+    if (target.kind === 'segment') return
     unrestricted(() => history.setDoc(doc => {
       if (!doc) return doc
       if (target.kind === 'object' && target.isNew) return { ...doc, floating: withoutObject(target.objectId) ?? doc.floating.filter(object => object.id !== target.objectId) }
@@ -229,7 +285,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!task?.candidate || ['running', 'queued', 'preparing'].includes(task.status)) return
     try {
       if (task.expiresAt <= Date.now()) throw new Error('This task has expired. Discard it and start a new request.')
-      const next = candidateDocument(currentDoc.current, task)
+      const next = candidateDocument(currentDoc.current, task, task.candidate, segmentContext?.())
       if (!permits(state.current.filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
       unrestricted(() => history.setDoc(next)); forget(id); setNotice('')
       if (task.target.kind === 'object') {
@@ -256,6 +312,19 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       deleteObjects(withoutObject(task.target.objectId) ?? currentDoc.current.floating.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
       return
     }
+    if (task.target.kind === 'segment') {
+      if (!task.target.blockIds.length && !task.target.objectIds.length) { forget(id); return }
+      try {
+        const next = applySegmentCandidate(currentDoc.current, task.target, null, segmentContext?.() ?? { anchors: [], geometry: {} })
+        if (!permits(state.current.filter(other => other.id !== id), currentDoc.current, next)) {
+          setNotice('That deletion would change another reserved region. Resolve that task first.'); return
+        }
+        forget(id)
+        if (sameContent(next, currentDoc.current)) return
+        history.boundary(); history.setDoc(next); history.boundary()
+      } catch (error) { setNotice((error as Error).message) }
+      return
+    }
     const ids = task.target.blockIds
     const content = currentDoc.current.content.content!.filter(node => !ids.includes(node.attrs?.id))
     const next = replaceMainContent(currentDoc.current, { ...currentDoc.current.content, content: content.length ? content : [paragraph('')] })
@@ -265,5 +334,5 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
   return { tasks, loaded, open, setOpen, activeId, openTask, notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
-    lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : [])) }
+    lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }
 }

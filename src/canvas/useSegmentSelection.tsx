@@ -279,7 +279,10 @@ export function useSegmentSelection(props: Props) {
       if (event.key === 'Alt' && d) { d.alt = event.altKey; actions.current.adjust() }
       if (event.type === 'keydown' && event.key === 'Escape' && (d || selected.current || insertion.current)) { event.preventDefault(); if (d) cancel(); else actions.current.clear() }
     }
-    function outside(event: PointerEvent) { if (!live.current.stage.current!.contains(event.target as Node)) actions.current.clear() }
+    function outside(event: PointerEvent) {
+      if ((event.target as Element).closest('[data-ai-segment-action]')) return
+      if (!live.current.stage.current!.contains(event.target as Node)) actions.current.clear()
+    }
     function focus(event: FocusEvent) {
       const target = event.target as HTMLElement
       if (target !== live.current.stage.current && !target.closest('[data-segment-control]')) actions.current.clear()
@@ -354,5 +357,8 @@ export function useSegmentSelection(props: Props) {
       </div>})}
     </>}
   </div>
-  return { begin, clear, overlay, notice }
+  return { begin, clear, overlay, notice,
+    selection: () => selected.current && { range: selected.current, area: { x: 0, y: paint.top, width: props.doc.width - 2, height: Math.max(0, paint.bottom - paint.top) } },
+    context: () => ({ anchors: snapshotAnchors(), geometry: live.current.geometry }),
+  }
 }

@@ -10,11 +10,24 @@ export type FloatingPreview = FloatingPatch & { top?: number }
 export type FloatingPreviews = Record<string, FloatingPreview>
 interface Obstacle { left: number; right: number; top: number; bottom: number }
 interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number } }
+interface VisibleBlock { element: HTMLElement; ids: string[]; paragraph: boolean }
 const gap = 8
 const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0, sideInsets: { left: 0, right: 0 } }
 
 function property(element: HTMLElement, name: string, value: string) {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
+}
+
+function layoutBlock(element: Element): element is HTMLElement {
+  return element instanceof HTMLElement && (element.matches('.main-paragraph') || element.matches('[data-spacer]'))
+}
+
+function blockIds(element: HTMLElement, fallback?: string) {
+  const ids = [element.dataset.aiBlock, element.dataset.id, fallback].filter((id): id is string => !!id)
+  for (const anchor of element.querySelectorAll<HTMLElement>('[data-ai-block]')) {
+    if (anchor.dataset.aiBlock) ids.push(anchor.dataset.aiBlock)
+  }
+  return [...new Set(ids)]
 }
 
 // One left-hand text interval per vertical band. Disconnected obstacles join only
@@ -51,12 +64,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const rect = surface.getBoundingClientRect()
       const scale = rect.width / nativeSize(surface).width
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
-      // A spacer separates margins that would otherwise collapse to their maximum.
-      editor!.view.dom.querySelectorAll<HTMLElement>('[data-spacer]').forEach(element => {
-        const before = element.previousElementSibling, after = element.nextElementSibling
-        const overlap = Math.min(before ? parseFloat(getComputedStyle(before).marginBottom) : 0, after ? parseFloat(getComputedStyle(after).marginTop) : 0)
-        property(element, '--space-overlap', `${overlap}px`)
-      })
       const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
       const sizes: Record<string, { width: number; height: number }> = {}
@@ -82,22 +89,45 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       }
       // A dragged object has a fixed document-space position until release.
       for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
-      const blocks: { element: HTMLElement; ids: string[]; paragraph: boolean }[] = []
-      const seen = new Set<Element>()
-      editor!.state.doc.forEach((node, from) => {
-        const original = editor!.view.nodeDOM(from) as HTMLElement
-        const replacement = surface.querySelector<HTMLElement>(`[data-ai-block="${node.attrs.id}"]`)
-        const preview = replacement?.closest('.ai-text-preview')
-        if (preview) {
-          if (seen.has(preview)) return
-          seen.add(preview)
-          for (const element of preview.children as HTMLCollectionOf<HTMLElement>) blocks.push({ element, paragraph: true,
-            ids: [element.dataset.aiBlock!, ...[...element.querySelectorAll<HTMLElement>('[data-ai-block]')].map(anchor => anchor.dataset.aiBlock!)].filter(Boolean) })
-        } else blocks.push({ element: original, ids: [node.attrs.id], paragraph: node.type.name === 'paragraph' })
+      const originalIds: string[] = []
+      editor!.state.doc.forEach(node => originalIds.push(node.attrs.id))
+      const blocks: VisibleBlock[] = []
+      let originalIndex = 0
+      const addBlock = (element: HTMLElement, fallback?: string) => {
+        if (element.classList.contains('ai-original-hidden')) return
+        const ids = blockIds(element, fallback)
+        blocks.push({ element, ids, paragraph: element.classList.contains('main-paragraph') })
+      }
+      const addPreview = (preview: HTMLElement) => {
+        for (const element of [...preview.children]) if (layoutBlock(element)) addBlock(element)
+      }
+      for (const element of [...editor!.view.dom.children]) {
+        if (element.hasAttribute('data-space-preview')) { addBlock(element as HTMLElement); continue }
+        if (element.matches('.ai-text-preview, .ai-segment-preview')) addPreview(element as HTMLElement)
+        else if (layoutBlock(element)) {
+          const fallback = originalIds[originalIndex++]
+          addBlock(element, fallback)
+        }
+      }
+      // Widget wrappers and zero-height reservation controls are not flow
+      // boundaries. Resolve paragraph edge margins from visible block order.
+      for (const [index, { element, paragraph }] of blocks.entries()) if (paragraph) {
+        property(element, 'margin-top', index === 0 ? '0px' : 'var(--text-spaceBefore)')
+        property(element, 'margin-bottom', index === blocks.length - 1 ? '0px' : 'var(--text-spaceAfter)')
+      }
+      // A spacer separates margins that would otherwise collapse to their maximum.
+      const visible = new Set(blocks.map(block => block.element))
+      editor!.view.dom.querySelectorAll<HTMLElement>('[data-spacer]').forEach(element => {
+        if (!visible.has(element)) { element.style.removeProperty('--space-overlap'); return }
+        const index = blocks.findIndex(block => block.element === element)
+        const before = index > 0 ? blocks[index - 1].element : undefined
+        const after = index + 1 < blocks.length ? blocks[index + 1].element : undefined
+        const overlap = Math.min(before ? parseFloat(getComputedStyle(before).marginBottom) || 0 : 0, after ? parseFloat(getComputedStyle(after).marginTop) || 0 : 0)
+        property(element, '--space-overlap', `${overlap}px`)
       })
       for (const { element, ids, paragraph } of blocks) {
         const top = localTop(element)
-        // Resolve existing alias attachments, but new placements prefer the visible survivor.
+        // Resolve aliases for removed original blocks, but prefer the visible candidate.
         anchors.push(...ids.toReversed().map(id => ({ id, top })))
         elements.add(element)
         for (const note of floating) if (note.anchorId !== null && ids.includes(note.anchorId) && override[note.id]?.top === undefined) activate(note, top)

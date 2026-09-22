@@ -6,7 +6,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createMotedServer } from './moted.mjs'
 import { fakeRunner } from './runner.mjs'
-import { validateCandidate } from './validation.mjs'
+import { validateCandidate, validateRequest } from './validation.mjs'
 
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const svg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`
@@ -26,6 +26,39 @@ function document(kind = 'text') {
   return doc
 }
 function request(id, doc = document(), extra = {}) { return { id, document: doc, model: 'codex/gpt-5.6-luna', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
+function segmentDocument() {
+  const doc = document('text')
+  doc.content.content = [
+    { type: 'paragraph', attrs: { id: 'seg-p0', semantic: 'body' }, content: [{ type: 'text', text: 'First' }] },
+    { type: 'spacer', attrs: { id: 'seg-space', height: 80 } },
+    { type: 'paragraph', attrs: { id: 'seg-p2', semantic: 'body' }, content: [{ type: 'text', text: 'Last' }] },
+  ]
+  doc.floating = [
+    { id: 'seg-shape', kind: 'rectangle', anchorId: 'seg-space', x: 40, y: 24, width: 160, height: 60, textFlow: 'overlap', fill: 'key-idea:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true },
+    { id: 'seg-label', kind: 'label', anchorId: 'seg-space', x: 40, y: 24, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'Shape' }] }] }, attachment: { targetId: 'seg-shape', position: 'center' } },
+    { id: 'seg-widget', kind: 'html', anchorId: 'seg-p2', x: 40, y: 12, width: 120, height: 80, textFlow: 'overlap', html: '<p>source</p>', screenshot: svg, alt: 'Source widget' },
+  ]
+  return doc
+}
+function segmentTarget(overrides = {}) {
+  return { kind: 'segment', range: { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: ['seg-p0', 'seg-space'], objectIds: ['seg-shape', 'seg-label'], area: { x: 0, y: 0, width: 800, height: 180 }, ...overrides }
+}
+function segmentPayload(withWidgets = false) {
+  const content = [
+    { type: 'paragraph', attrs: { id: 'candidate-p', semantic: 'heading' }, content: [{ type: 'text', text: 'Generated composition' }] },
+    { type: 'spacer', attrs: { id: 'candidate-space', height: 72 } },
+  ]
+  const rectangle = { id: 'candidate-shape', kind: 'rectangle', anchorId: 'candidate-p', x: 32, y: 12, width: 160, height: 60, textFlow: 'overlap', fill: 'key-idea:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
+  const label = { id: 'candidate-label', kind: 'label', anchorId: 'candidate-p', x: 32, y: 12, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'Generated shape' }] }] }, attachment: { targetId: 'candidate-shape', position: 'center' } }
+  const floating = [rectangle, label]
+  const geometry = { 'candidate-shape': { x: 32, y: 12, width: 160, height: 60 }, 'candidate-label': { x: 32, y: 12, width: 160, height: 24 } }
+  if (withWidgets) for (const id of ['candidate-widget-a', 'candidate-widget-b']) {
+    floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, textFlow: 'overlap', html: `<button>${id}</button>`, alt: id })
+    geometry[id] = { x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80 }
+  }
+  return { version: 'V0', type: 'segment', content, floating, palette: [{ id: 'key-idea', name: 'Key idea', strong: '#355b43', soft: '#e9efdf' }], geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
+}
+function pngHeader(width, height) { const header = Buffer.alloc(24); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header); header.write('IHDR', 12); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20); return header }
 async function app(options = {}) {
   const stateDir = options.stateDir || await mkdtemp(path.join(os.tmpdir(), 'moted-test-'))
   const value = await createMotedServer({ ...options, stateDir, port: 0, useSystemd: false, defaultModel: 'codex/gpt-5.6-luna', env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: 'http://localhost:5173', MOTED_SHARED_MU_DIR: path.join(stateDir, 'unused-config'), MOTED_MU_ENV_SOURCE: '', ...(options.env || {}) } })
@@ -77,6 +110,66 @@ test('new floating reservations accept all supported kinds, not only HTML and im
     assert.equal(validateCandidate({ object, summary: 'Candidate' }, doc, target).object.kind, object.kind)
     if (object.kind !== 'html') assert.throws(() => validateCandidate({ object, summary: 'Candidate' }, doc, { ...target, isNew: false }), /retain target kind/)
   }
+})
+
+test('segment targets use canonical points and exact block/object ownership', () => {
+  const doc = segmentDocument()
+  const accepted = validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget() })).target
+  assert.equal(accepted.kind, 'segment')
+  assert.deepEqual(accepted.blockIds, ['seg-p0', 'seg-space'])
+  assert.deepEqual(accepted.objectIds, ['seg-shape', 'seg-label'])
+  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget({ objectIds: [] }) })), /objectIds does not match/)
+  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget({ blockIds: ['seg-p0'] }) })), /blockIds does not match/)
+  const partial = segmentTarget({ range: { start: { index: 1, offset: 20 }, end: { index: 1, offset: 60 } }, blockIds: ['seg-space'], objectIds: ['seg-shape', 'seg-label'] })
+  assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target: partial })).target.range.start.offset, 20)
+  const empty = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
+  assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target: empty })).target.kind, 'segment')
+  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...empty, objectIds: ['seg-widget'] } })), /objectIds does not match/)
+})
+
+test('segment candidate rejects external refs and accepts native composition payloads', () => {
+  const doc = segmentDocument(), target = segmentTarget()
+  const candidate = validateCandidate({ segment: segmentPayload(), summary: 'native segment' }, doc, target)
+  assert.equal(candidate.segment.type, 'segment')
+  assert.deepEqual(candidate.segment.floating.map(object => object.id), ['candidate-shape', 'candidate-label'])
+  const externalAnchor = segmentPayload(); externalAnchor.floating[0].anchorId = 'outside'
+  assert.throws(() => validateCandidate({ segment: externalAnchor, summary: 'bad' }, doc, target), /anchor is outside/)
+  const externalAttachment = segmentPayload(); externalAttachment.floating[1].attachment.targetId = 'outside'
+  assert.throws(() => validateCandidate({ segment: externalAttachment, summary: 'bad' }, doc, target), /attachment is outside/)
+  const externalGeometry = segmentPayload(); externalGeometry.geometry.outside = { x: 0, y: 0, width: 1, height: 1 }
+  assert.throws(() => validateCandidate({ segment: externalGeometry, summary: 'bad' }, doc, target), /geometry references/)
+  const unknownPalette = segmentPayload(); unknownPalette.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
+  assert.throws(() => validateCandidate({ segment: unknownPalette, summary: 'bad' }, doc, target), /unknown palette/)
+  const emptyTarget = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
+  assert.deepEqual(validateCandidate({ segment: { version: 'V0', type: 'segment', content: [], floating: [], palette: [], geometry: {}, anchorTops: {}, originTop: 0 }, summary: 'empty' }, doc, emptyTarget).segment.content, [])
+})
+
+test('fake segment task returns a deterministic native composition', async t => {
+  const value = await app(); t.after(() => value.close())
+  const id = crypto.randomUUID(); assert.equal((await post(value, request(id, segmentDocument(), { target: segmentTarget() }))).status, 202)
+  await waitReady(value, id)
+  const status = await (await get(value, id)).json()
+  assert.equal(status.status, 'ready')
+  assert.equal(status.candidate.summary, 'Fake candidate for segment target.')
+  assert.deepEqual(status.candidate.segment.content.map(node => node.type), ['paragraph', 'spacer'])
+  assert.deepEqual(status.candidate.segment.floating.map(object => object.kind), ['rectangle', 'label'])
+  assert.equal(status.candidate.segment.floating[1].attachment.targetId, status.candidate.segment.floating[0].id)
+  assert.deepEqual(Object.keys(status.candidate.segment.geometry).sort(), status.candidate.segment.floating.map(object => object.id).sort())
+})
+
+test('segment HTML screenshotPaths embed bounded screenshots for multiple widgets', async t => {
+  const payload = segmentPayload(true)
+  const value = await app({ runner: async context => {
+    await writeFile(path.join(context.outputDir, 'widget-a.png'), pngHeader(120, 80))
+    await writeFile(path.join(context.outputDir, 'widget-b.png'), pngHeader(120, 80))
+    await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ segment: payload, screenshotPaths: { 'candidate-widget-a': 'widget-a.png', 'candidate-widget-b': 'widget-b.png' }, summary: 'two widgets' }))
+  } }); t.after(() => value.close())
+  const id = crypto.randomUUID(); assert.equal((await post(value, request(id, segmentDocument(), { target: segmentTarget() }))).status, 202)
+  await waitReady(value, id)
+  const status = await (await get(value, id)).json()
+  assert.equal(status.status, 'ready')
+  assert.equal(status.candidate.screenshotPaths, undefined)
+  assert.ok(status.candidate.segment.floating.filter(object => object.kind === 'html').every(object => /^data:image\/png;base64,/.test(object.screenshot)))
 })
 
 test('a native KaTeX delivery reaches ready without HTML or screenshot artifacts', async t => {

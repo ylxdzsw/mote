@@ -74,7 +74,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       : 'content' in note ? <TextEditor content={note.content} editable={editable && contentActive && !locked} table={kind === 'table'} singleLabel={kind === 'label'}
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onFinish={onFinishLabel} onReady={value => { editor.current = value; if (editingLabel) value.commands.focus('end') }} /> : null}
-    {editable && selected && aiTask && aiReview && <ReviewControls task={aiTask} review={aiReview} />}
+    {editable && selected && aiTask && aiTask.target.kind !== 'segment' && aiReview && <ReviewControls task={aiTask} review={aiReview} />}
     {editable && !sizeLocked && !geometric && kind !== 'label' && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
       aria-label={`Resize floating ${kind} width`} aria-valuemin={kind === 'html' ? 16 : 120} aria-valuenow={Math.round(box.width)}
       onPointerDown={event => begin('width', event)} onFocus={() => onActive(editor.current)} />}

@@ -125,7 +125,9 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   useEffect(() => { ready() }, [editor])
   useLayoutEffect(() => { editor.setEditable(editable, false) }, [editor, editable])
   const reservations = JSON.stringify(history.lockedBlocks.current)
-  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, aiReview?.mainActive, editable])
+  const segmentPreviews = JSON.stringify(aiReview?.segmentPreviews ?? [])
+  const segmentRanges = JSON.stringify(aiReview?.segmentRanges ?? [])
+  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, aiReview?.mainActive, segmentPreviews, segmentRanges, aiReview?.activeSegmentId, editable])
 
   return <EditorContent className={`text-content${singleLabel ? ' label-editor' : ''}`} editor={editor} />
 }

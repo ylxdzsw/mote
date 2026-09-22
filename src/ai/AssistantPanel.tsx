@@ -5,7 +5,7 @@ import './assistant.css'
 
 const Transcript = lazy(() => import('./Transcript'))
 type Assistant = ReturnType<typeof useAssistant>
-const targetLabel = (task: AITask) => task.target.kind === 'text' ? 'Paragraphs' : task.target.isNew ? 'Floating area' : 'Object revision'
+const targetLabel = (task: AITask) => task.target.kind === 'segment' ? 'Segment' : task.target.kind === 'text' ? 'Paragraphs' : task.target.isNew ? 'Floating area' : 'Object revision'
 const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim().split('\n')[0].slice(0, 40) || `${targetLabel(task)} · ${task.id.slice(0, 4)}`
 const busyTask = (task: AITask) => ['preparing', 'queued', 'running'].includes(task.status)
 
@@ -29,7 +29,7 @@ export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; 
         <span className="ai-tab-title">{taskTitle(task)}</span>
       </button>)}
     </div>}
-    {!assistant.tasks.length && <p className="hint ai-empty">Use the paragraph or floating-object AI button in the toolbar to reserve a region and start a request.</p>}
+    {!assistant.tasks.length && <p className="hint ai-empty">Select a segment or place the text caret, then use the generate button in the toolbar. Use the floating-object AI button to work on one object or a drawn area.</p>}
     {assistant.tasks.map(task => <TaskView key={task.id} task={task} active={assistant.activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
     <details className="ai-info"><summary>About AI · Sign in</summary>
       <p className="hint">Generate sends the full document, its rendered snapshot, and the reserved area to Mu. Nothing is sent when you create a reservation. Content stays locked until accepted, discarded, or deleted. Floating areas can move, and resize before their first request.</p>

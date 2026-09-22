@@ -60,3 +60,70 @@ test('concurrent tasks reject overlap and accepted object preserves current geom
   assert.equal(applied.x, 70); assert.equal(applied.y, 80); assert.equal(applied.width, 320)
   assert.equal(applied.anchorId, 'd'); assert.equal('html' in applied && applied.html, 'after')
 })
+
+const segmentTarget = (range: { start: { index: number; offset: number }; end: { index: number; offset: number } }, blockIds: string[], objectIds: string[] = [], bookmarks = {
+  start: { blockId: blockIds[0] ?? 'b', offset: 0 }, end: { blockId: blockIds.at(-1) ?? 'a', offset: 0, after: true },
+}) => ({ kind: 'segment', range, blockIds, objectIds, area: { x: 0, y: 0, width: 100, height: 100 }, bookmarks })
+const segmentTask = (target: ReturnType<typeof segmentTarget>, blocks: ReturnType<typeof paragraph>[], objects: FloatingObject[] = []) => ({
+  id: 'segment-task', documentId: 'document', target, original: { version: 'V0', type: 'segment', content: structuredClone(blocks), floating: structuredClone(objects), palette: [], geometry: {}, anchorTops: {}, originTop: 0 },
+  segmentOriginalBlocks: structuredClone(blocks), segmentOriginalObjects: structuredClone(objects), status: 'draft', submitted: false,
+} as unknown as AITask)
+
+test('empty segment anchors survive unrelated text edits but not anchor loss', () => {
+  const target = segmentTarget({ start: { index: 1, offset: 0 }, end: { index: 1, offset: 0 } }, [], [], {
+    start: { blockId: 'b', offset: 0 }, end: { blockId: 'a', offset: 0, after: true },
+  })
+  const task = segmentTask(target, [])
+  assert.equal(permits([task], doc, { ...doc, content: { ...doc.content, content: [paragraph('a', 'edited'), paragraph('b'), paragraph('new')] } }), true)
+  assert.equal(permits([task], doc, { ...doc, content: { ...doc.content, content: [paragraph('a')] } }), false)
+})
+
+test('partial spacer reservations lock the touched spacer without locking surrounding paragraphs', () => {
+  const space = { type: 'spacer', attrs: { id: 'space', height: 100 } }
+  const spaced = { ...doc, content: { ...doc.content, content: [paragraph('a'), space, paragraph('b')] } }
+  const target = segmentTarget({ start: { index: 1, offset: 25 }, end: { index: 1, offset: 75 } }, ['space'], [], {
+    start: { blockId: 'space', offset: 25 }, end: { blockId: 'space', offset: 75 },
+  })
+  const task = segmentTask(target, [space])
+  assert.equal(permits([task], spaced, { ...spaced, content: { ...spaced.content, content: [paragraph('a', 'changed'), space, paragraph('b')] } }), true)
+  assert.equal(permits([task], spaced, { ...spaced, content: { ...spaced.content, content: [paragraph('a'), { ...space, attrs: { ...space.attrs, height: 120 } }, paragraph('b')] } }), false)
+})
+
+test('segment reservations overlap touched blocks, owned objects, and identical empty boundaries', () => {
+  const text = { kind: 'text', blockIds: ['space'] } as AITask['target']
+  const partial = segmentTarget({ start: { index: 1, offset: 10 }, end: { index: 1, offset: 20 } }, ['space'])
+  assert.equal(overlaps(text, partial), true)
+  assert.equal(overlaps(partial, { kind: 'object', objectId: 'box' } as AITask['target']), false)
+  const owned = { ...partial, objectIds: ['box'] }
+  assert.equal(overlaps(owned, { kind: 'object', objectId: 'box' } as AITask['target']), true)
+  const empty = segmentTarget({ start: { index: 1, offset: 0 }, end: { index: 1, offset: 0 } }, [], [], {
+    start: { blockId: 'b', offset: 0 }, end: { blockId: 'a', offset: 0, after: true },
+  })
+  assert.equal(overlaps(empty, { ...empty }), true)
+  const containing = segmentTarget({ start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, ['a', 'b'], [], {
+    start: { blockId: 'a', offset: 0 }, end: { blockId: 'b', offset: 0, after: true },
+  })
+  assert.equal(overlaps(empty, containing, doc), true)
+  assert.equal(overlaps(containing, empty, doc), true)
+  assert.equal(overlaps(empty, { ...textTask.target, blockIds: ['d'] } as AITask['target'], doc), false)
+})
+
+test('segment guards preserve outside edits and reject interleaving or owned composition moves', () => {
+  const base = { ...doc, floating: [], content: { ...doc.content, content: [paragraph('a'), paragraph('b'), paragraph('c')] } }
+  const target = segmentTarget({ start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, ['a', 'b'], [], {
+    start: { blockId: 'a', offset: 0 }, end: { blockId: 'b', offset: 0, after: true },
+  })
+  const task = segmentTask(target, [paragraph('a'), paragraph('b')])
+  assert.equal(permits([task], base, { ...base, content: { ...base.content, content: [paragraph('a'), paragraph('b'), paragraph('outside'), paragraph('c')] } }), true)
+  assert.equal(permits([task], base, { ...base, content: { ...base.content, content: [paragraph('a'), paragraph('new'), paragraph('b'), paragraph('c')] } }), false)
+
+  const composition = { ...base, floating: [{ ...object, anchorId: 'a' }, { ...object, id: 'other', anchorId: 'a', x: 20 }] }
+  const compositionTarget = { ...target, objectIds: ['box', 'other'] }
+  const compositionTask = segmentTask(compositionTarget, [paragraph('a'), paragraph('b')], composition.floating)
+  assert.equal(permits([compositionTask], composition, { ...composition, floating: composition.floating.map(note => note.id === 'other' ? { ...note, x: 21 } : note) }), false)
+
+  const single = { ...base, floating: [{ ...object, anchorId: 'a' }] }
+  const singleTarget = { ...target, objectIds: ['box'] }
+  const singleTask = segmentTask(singleTarget, [paragraph('a'), paragraph('b')], single.floating)
+  assert.equal(permits([singleTask], single, { ...single, floating: [{ ...single.floating[0], anchorId: 'c' }] }), false)
+})

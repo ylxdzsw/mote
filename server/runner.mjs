@@ -51,6 +51,24 @@ export async function fakeRunner(context) {
       const first = candidate.object.content.content[0]
       candidate.object.content = { ...candidate.object.content, content: [{ ...first, content: [{ type: 'text', text: `AI draft: ${textOf(first) || 'generated note'}` }] }, ...candidate.object.content.content.slice(1)] }
     }
+  } else if (context.target.kind === 'segment') {
+    const prefix = `fake-segment-${context.taskId}`
+    const paragraphId = `${prefix}-paragraph`
+    const spacerId = `${prefix}-spacer`
+    const rectangleId = `${prefix}-rectangle`
+    const labelId = `${prefix}-label`
+    const rectangleWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
+    const x = document.margins.left
+    const content = [
+      { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
+      { type: 'spacer', attrs: { id: spacerId, height: 96 } },
+    ]
+    const rectangle = { id: rectangleId, kind: 'rectangle', anchorId: spacerId, x, y: 12, width: rectangleWidth, height: 64, textFlow: 'overlap', fill: 'subtle', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
+    const label = { id: labelId, kind: 'label', anchorId: spacerId, x, y: 12, width: rectangleWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'AI shape' }] }] }, attachment: { targetId: rectangleId, position: 'center' } }
+    candidate.segment = { version: 'V0', type: 'segment', content, floating: [rectangle, label], palette: [], geometry: {
+      [rectangleId]: { x, y: 40, width: rectangleWidth, height: 64 },
+      [labelId]: { x, y: 40, width: rectangleWidth, height: 24 },
+    }, anchorTops: { [paragraphId]: 0, [spacerId]: 28 }, originTop: 0 }
   } else {
     const blocks = []
     const visit = node => { if (node?.attrs?.id && context.target.blockIds.includes(node.attrs.id)) blocks.push(structuredClone(node)); node.content?.forEach(visit) }

@@ -25,6 +25,7 @@ import { useAssistant } from '../ai/useAssistant'
 import { AssistantPanel } from '../ai/AssistantPanel'
 import type { Area, AITask } from '../ai/types'
 import { paragraphSelection } from '../ai/reservations'
+import { makeSegmentTarget } from '../ai/segments'
 
 const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
 <style>
@@ -77,7 +78,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   const { doc, setDoc } = history
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
-    id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)))
+    id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext())
   const [status, setStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const latest = useRef(doc)
   latest.current = doc
@@ -268,6 +269,12 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       return
     }
     if (!mainEditor || selectedIds.length) return
+    const segment = actions.current?.segmentSelection()
+    if (segment) {
+      const task = assistant.reserve(makeSegmentTarget(doc, segment.range, segment.area))
+      if (task) { setActiveEditor(null); actions.current?.locateSegment(task.id) }
+      return
+    }
     const { from, to } = mainEditor.state.selection
     const range = paragraphSelection(mainEditor.state.doc, from, to)
     if (!range) { assistant.setNotice('Select consecutive main-text paragraphs without crossing a space.'); return }
@@ -284,6 +291,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   }
   function locateTask(task: AITask) {
     setTool(null)
+    if (task.target.kind === 'segment') { actions.current?.locateSegment(task.id); return }
     if (task.target.kind === 'object') { setSelectedIds([task.target.objectId]); setActiveEditor(null) }
     else if (mainEditor) {
       const ids = task.target.blockIds
@@ -376,7 +384,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         </div>
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
         {editable && !viewSettingsOpen && <>
-        {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <section className="panel-section"><h2>AI content reservation</h2><p className="hint">You can move this object, and resize it before its first request. Accept or discard to edit its content.</p><button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' && task.target.objectId === selectedObject.id)!.id)}>Open AI task</button></section> : <>
+        {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <section className="panel-section"><h2>AI content reservation</h2><p className="hint">Accept or discard to edit reserved content. Individually reserved objects can move and resize before their first request; segment compositions stay together.</p><button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button></section> : <>
         {!selectedObject && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2><p className="hint">Drag the strip just left of the page to select a segment, then copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Drag other empty areas to select objects.</p><p className="hint">Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it.</p></section>}
         {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
         {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}

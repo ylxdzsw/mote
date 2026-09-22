@@ -20,11 +20,20 @@ import type { ViewSettings } from '../app/GlobalSettings'
 import './floating.css'
 import { aiPlaceholder } from '../ai/placeholder'
 import type { Area } from '../ai/types'
+import type { SegmentRange } from '../document/segment'
+import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
+import { projectSegments } from '../ai/segmentProjection'
+import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/ReviewControls'
 
 export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
-export interface CanvasActions { remove: () => void; duplicate: () => void; label: () => void; detach: () => void; insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[] }
+export interface CanvasActions {
+  remove: () => void; duplicate: () => void; label: () => void; detach: () => void
+  insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[]
+  segmentSelection: () => { range: SegmentRange; area: Area } | null
+  segmentContext: () => SegmentContext | undefined; locateSegment: (id: string) => void
+}
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
@@ -70,16 +79,55 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const newLabels = useRef(new Set<string>())
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
-  const layoutDoc = useMemo(() => ({ ...doc, theme: pasteGroup.current ? { ...doc.theme, palette: pasteGroup.current.palette } : doc.theme, floating: [...doc.floating.map(object => {
+  const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null)
+  const [contextReady, setContextReady] = useState(false)
+  const sourceContext = useRef<SegmentContext>({ anchors: [], geometry: {} })
+  const [measuredSource, setMeasuredSource] = useState<{ doc: MoteDocument; context: SegmentContext; signature: string } | null>(null)
+  const originalContext = measuredSource?.doc === doc ? measuredSource.context : sourceContext.current
+  const projected = useRef<{ doc: MoteDocument; editor: Editor | null; context: SegmentContext; tasks: { id: string; candidate: unknown }[]; value: ReturnType<typeof projectSegments> } | null>(null)
+  const candidates = editable && contextReady ? aiReview?.tasks.filter(task => task.target.kind === 'segment' && task.preview && task.candidate?.segment) ?? [] : []
+  if (!projected.current || projected.current.doc !== doc || projected.current.editor !== mainEditor || projected.current.context !== originalContext
+    || projected.current.tasks.length !== candidates.length || candidates.some((task, i) => projected.current!.tasks[i].id !== task.id || projected.current!.tasks[i].candidate !== task.candidate)) {
+    projected.current = { doc, editor: mainEditor, context: originalContext, tasks: candidates.map(task => ({ id: task.id, candidate: task.candidate })), value: projectSegments(doc, candidates, mainEditor, originalContext) }
+  }
+  const projection = projected.current.value
+  const layoutDoc = useMemo(() => ({ ...projection.document, theme: pasteGroup.current ? { ...projection.document.theme, palette: pasteGroup.current.palette } : projection.document.theme, floating: [...projection.document.floating.map(object => {
     const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
     return task && task.preview && task.candidate?.object ? currentPlacement(task.candidate.object, object) : object
-  }), ...inserting, ...(creating ? [creating] : [])] }), [doc, creating, inserting, editable, aiReview?.tasks])
+  }), ...inserting, ...(creating ? [creating] : [])] }), [projection, creating, inserting, editable, aiReview?.tasks])
   const { geometry, anchors, minHeight, sideInsets, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
-    onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
+    onStart: () => { cancel(); select([]); setActiveSegmentId(null); onActive(null); onToolChange(null) } })
+  useLayoutEffect(() => {
+    if (!projection.previews.length) {
+      sourceContext.current = segments.context()
+      if (!contextReady && anchors.length) setContextReady(true)
+    }
+  })
+  function selectAISegment(id: string) {
+    segments.clear(); select([]); onActive(null); setActiveSegmentId(id)
+  }
+  function segmentTask(id: string) {
+    const owner = projection.owners.get(id)
+    return aiReview?.tasks.find(task => task.target.kind === 'segment' && (task.id === owner || task.target.objectIds.includes(id)))
+  }
+  const segmentRanges = useMemo(() => {
+    if (!mainEditor || !editable) return []
+    const positions = [0]
+    mainEditor.schema.nodeFromJSON(doc.content).forEach(node => positions.push(positions.at(-1)! + node.nodeSize))
+    return (aiReview?.tasks ?? []).flatMap(task => {
+      if (task.target.kind !== 'segment') return []
+      const range = resolveSegmentRange(doc, task.target)
+      if (!range) return []
+      const empty = range.start.index === range.end.index && range.start.offset === range.end.offset
+      return [{ taskId: task.id, from: positions[range.start.index], to: positions[range.end.index + (range.end.offset && !empty ? 1 : 0)],
+        startOffset: range.start.offset, endOffset: range.end.offset || undefined }]
+    })
+  }, [doc, aiReview?.tasks, mainEditor, editable])
+  const canvasReview = aiReview && { ...aiReview, activeSegmentId, selectSegment: selectAISegment, segmentPreviews: projection.previews, segmentRanges }
 
   function sizeFootprint() {
     const wrapper = footprint.current!, height = getComputedStyle(sheet.current!).height
@@ -260,6 +308,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function begin(id: string, part: DragPart, event: PointerEvent) {
     if (event.button !== 0) return
+    const task = segmentTask(id)
+    if (task) { event.preventDefault(); event.stopPropagation(); selectAISegment(task.id); return }
     if (sizeLocked(id) && part !== 'move') { event.preventDefault(); event.stopPropagation(); return }
     capture(event)
     if (event.shiftKey && part === 'move') { const ids = selectedIds.includes(id) ? selectedIds.filter(value => value !== id) : [...selectedIds, id]; select(ids); onActive(null); if (ids.length) focusObject(ids.at(-1)!); return }
@@ -275,6 +325,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     segments.clear()
     const target = event.target as Element
     if (target.closest('[data-ai-controls], [data-ai-preview]')) return
+    const reservedObject = target.closest<HTMLElement>('[data-note-id]')
+    if (reservedObject && segmentTask(reservedObject.dataset.noteId!)) return
+    if (target.closest('[data-ai-segment]')) return
+    setActiveSegmentId(null)
     const inside = !!target.closest('.sheet')
     if (inside && spaces.begin(event)) return
     if (tool && inside) {
@@ -541,9 +595,25 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (object?.kind !== 'label' || !object.attachment) return
     onNoteChange(object.id, { ...anchorPoint(geometry[object.id], anchors), attachment: null })
   }
-  useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, without: withoutObjects, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) } }) })
+  useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, without: withoutObjects, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) },
+    segmentSelection: segments.selection,
+    segmentContext: () => candidates.length ? measuredSource?.doc === doc ? measuredSource.context : undefined : segments.context(),
+    locateSegment: id => {
+      selectAISegment(id)
+      requestAnimationFrame(() => {
+        const element = sheet.current?.querySelector<HTMLElement>(`[data-ai-segment-owner="${id}"], [data-ai-segment-tasks~="${id}"], [data-ai-segment="${id}"]`)
+        const target = element?.firstElementChild instanceof HTMLElement ? element.firstElementChild : element
+        target?.scrollIntoView({ block: 'center', inline: 'nearest' }); target?.focus({ preventScroll: true })
+      })
+    },
+  }) })
   function key(id: string, event: React.KeyboardEvent) {
     if (!editable || isComposingKey(event.nativeEvent)) return
+    const task = segmentTask(id)
+    if (task) {
+      if (['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); aiReview?.deleteTarget?.(task.id) }
+      return
+    }
     if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); return }
     if (event.key === 'Enter') { event.preventDefault(); label(id); return }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicate(); return }
@@ -596,7 +666,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         }}
         style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en'), '--ai-page-width': `${doc.width - 2}px`, '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
         <div className="main-text">
-          <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={aiReview}
+          <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
         </div>
         {editable && spaces.hint && <div className={`space-hint ${spaces.hint.dragging ? 'is-dragging' : ''}`} aria-hidden="true"
@@ -607,12 +677,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         {layoutDoc.floating.toSorted((a, b) => a.id.localeCompare(b.id)).map(original => {
           const note = { ...original, ...previews[original.id] } as FloatingObject
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
-          return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id)} sizeLocked={sizeLocked(note.id)} selected={selectedIds.includes(note.id) || creating?.id === note.id}
-            contentActive={selectedIds.length === 1 && selectedIds[0] === note.id && !manipulating}
-            aiReview={aiReview} aiTask={editable ? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
+          const segment = segmentTask(note.id)
+          return <FloatingObjectView key={note.id} note={note} geometry={box} editable={editable} locked={lockedIds.has(note.id) || !!segment} sizeLocked={sizeLocked(note.id) || !!segment} selected={segment ? activeSegmentId === segment.id : selectedIds.includes(note.id) || creating?.id === note.id}
+            contentActive={segment ? activeSegmentId === segment.id && note.kind === 'html' : selectedIds.length === 1 && selectedIds[0] === note.id && !manipulating}
+            aiReview={canvasReview} aiTask={editable ? segment ?? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             editingLabel={editingLabel === note.id} defaultColor={paletteColor(doc.theme, doc.theme.defaults.color)} defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
-            onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
+            onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (segment) { selectAISegment(segment.id); return }; if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
             onChange={patch => onNoteChange(note.id, patch)} onLabel={() => label(note.id)} onFinishLabel={() => { setEditingLabel(null); focusObject(note.id) }} onKey={event => key(note.id, event)} />
         })}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
@@ -624,6 +695,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       {segments.overlay}
       </div>
     </div>
+    {editable && aiReview?.tasks.some(task => task.target.kind === 'segment') && <OriginalGeometry doc={doc} onMeasure={(source, context) => {
+      const signature = JSON.stringify(context)
+      setMeasuredSource(previous => previous?.doc === source && previous.signature === signature ? previous : { doc: source, context, signature })
+    }} />}
     {(clipboardNotice || segments.notice) && <p className="segment-notice" role="status">{clipboardNotice || segments.notice}</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
