@@ -22,6 +22,7 @@ interface Drag {
 }
 const compare = (a: SegmentPoint, b: SegmentPoint) => a.index - b.index || a.offset - b.offset
 const equal = (range: SegmentRange) => compare(range.start, range.end) === 0
+const ordered = (a: SegmentPoint, b: SegmentPoint): SegmentRange => compare(a, b) <= 0 ? { start: a, end: b } : { start: b, end: a }
 const edge = (index: number): SegmentPoint => ({ index, offset: 0 })
 const escapeHTML = (text: string) => text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
 const marker = <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h5l9 7-9 7H3l7-7z" /></svg>
@@ -40,7 +41,6 @@ export function useSegmentSelection(props: Props) {
   const content = useRef(props.doc.content)
 
   function select(next: SegmentRange | null) {
-    if (next && equal(next)) next = null
     insertion.current = null
     selected.current = next; setRange(next); setNotice('')
   }
@@ -95,8 +95,8 @@ export function useSegmentSelection(props: Props) {
     const blocks = measure()
     if (!current || !blocks.length) return
     const objects = [...segmentObjectIds(doc, current)].flatMap(id => geometry[id] ? [{ ...geometry[id], id }] : [])
-    const top = boundaryY(current.start, 'start', blocks), bottom = boundaryY(current.end, 'end', blocks)
-    const bands = [{ x: 0, y: top, width: doc.width - 2, height: bottom - top }]
+    const top = boundaryY(current.start, 'start', blocks), bottom = equal(current) ? top : boundaryY(current.end, 'end', blocks)
+    const bands = equal(current) ? [] : [{ x: 0, y: top, width: doc.width - 2, height: bottom - top }]
     const next = { bands, objects, top, bottom }
     setPaint(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
   }
@@ -108,6 +108,7 @@ export function useSegmentSelection(props: Props) {
   function release() {
     const previous = drag.current
     drag.current = null
+    if (previous) document.documentElement.classList.remove('segment-dragging')
     const stage = live.current.stage.current
     if (previous && stage?.hasPointerCapture(previous.pointerId)) stage.releasePointerCapture(previous.pointerId)
   }
@@ -117,11 +118,8 @@ export function useSegmentSelection(props: Props) {
     if (!d) return
     const blocks = measure(), y = localY(d.y) + d.handleOffset
     let point = endpoint(y, d.alt, blocks)
-    if (d.handle && selected.current) {
-      const current = selected.current
-      if (d.handle === 'start' ? compare(point, current.end) < 0 : compare(point, current.start) > 0) {
-        select(d.handle === 'start' ? { start: point, end: current.end } : { start: current.start, end: point })
-      }
+    if (d.handle) {
+      select(ordered(d.anchor, point))
     } else {
       if (!d.moved) return
       const down = y >= d.originY
@@ -130,7 +128,7 @@ export function useSegmentSelection(props: Props) {
       const anchor = d.originBlock >= 0 ? edge(d.originBlock + (down ? 0 : 1)) : endpoint(d.originY, d.alt, blocks)
       // The original page position stays fixed while the viewport auto-scrolls.
       d.anchor = anchor
-      select(compare(d.anchor, point) <= 0 ? { start: d.anchor, end: point } : { start: point, end: d.anchor })
+      select(ordered(d.anchor, point))
     }
   }
   function begin(event: ReactPointerEvent) {
@@ -144,8 +142,10 @@ export function useSegmentSelection(props: Props) {
     onStart()
     stage.current!.focus({ preventScroll: true })
     window.getSelection()?.removeAllRanges()
-    drag.current = { pointerId: event.pointerId, y: event.clientY, originY: y, alt: event.altKey, moved: false, anchor, originBlock, handle,
-      handleOffset: handle && previous ? boundaryY(previous[handle], handle, blocks) - y : 0, previous }
+    drag.current = { pointerId: event.pointerId, y: event.clientY, originY: y, alt: event.altKey, moved: false,
+      anchor: handle && previous ? previous[handle === 'start' ? 'end' : 'start'] : anchor, originBlock, handle,
+      handleOffset: handle && previous ? boundaryY(previous[handle], equal(previous) ? 'start' : handle, blocks) - y : 0, previous }
+    document.documentElement.classList.add('segment-dragging')
     stage.current!.setPointerCapture(event.pointerId)
     if (!handle) select(originBlock >= 0 ? { start: edge(originBlock), end: edge(originBlock + 1) } : { start: anchor, end: anchor })
     tick.current()
@@ -333,9 +333,10 @@ export function useSegmentSelection(props: Props) {
         next = offset === block.height ? edge(index + 1) : { index, offset }
       }
     }
-    if (side === 'start' ? compare(next, current.end) < 0 : compare(next, current.start) > 0) {
-      select(side === 'start' ? { start: next, end: current.end } : { start: current.start, end: next })
-    }
+    const anchor = current[side === 'start' ? 'end' : 'start'], direction = compare(next, anchor)
+    select(ordered(anchor, next))
+    const nextSide = direction < 0 ? 'start' : direction > 0 ? 'end' : side
+    if (nextSide !== side) live.current.stage.current!.querySelector<HTMLButtonElement>(`[data-segment-control="${nextSide}"]`)!.focus({ preventScroll: true })
   }
   const styleBox = (box: Box) => ({ left: (box.x + 1) * props.scale, top: (box.y + 1) * props.scale, width: box.width * props.scale, height: box.height * props.scale })
   const overlay = props.editable && <div className={`segment-layer${range ? ' has-segment' : ''}`}>
