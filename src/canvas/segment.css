@@ -10,4 +10,5 @@ html.segment-dragging, html.segment-dragging * { cursor: var(--ui-segment-cursor
 .segment-handle { position: absolute; right: 100%; top: -12px; width: 24px; height: 24px; padding: 2px; border: 0; border-radius: 3px; pointer-events: auto; touch-action: none; cursor: var(--segment-cursor); color: var(--ui-accent); background: var(--ui-surface); }
 .segment-handle svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 .segment-handle:hover, .segment-handle:focus-visible { background: var(--ui-accent-surface); }
+.segment-handle:focus-visible { z-index: 1; }
 .segment-notice { position: absolute; z-index: 8; bottom: 12px; left: 24px; max-width: min(500px, calc(100% - 48px)); margin: 0; padding: 9px 12px; border: 1px solid var(--ui-accent-border); border-radius: 6px; background: var(--ui-surface); color: var(--ui-accent); font-size: 12px; box-shadow: 0 2px 8px var(--ui-shadow); }

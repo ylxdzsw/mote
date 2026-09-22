@@ -348,7 +348,7 @@ export function useSegmentSelection(props: Props) {
       {paint.bands.map((box, index) => <div className="segment-band" key={index} style={styleBox(box)} />)}
       {paint.objects.map(box => <div className="segment-object" data-segment-object={box.id} key={box.id} style={styleBox(box)} />)}
       {(['start', 'end'] as const).map(side => {
-        const offset = Math.max(0, 24 - (paint.bottom - paint.top) * props.scale) / 2 * (side === 'start' ? -1 : 1)
+        const offset = equal(range) ? 0 : Math.max(0, 24 - (paint.bottom - paint.top) * props.scale) / 2 * (side === 'start' ? -1 : 1)
         return <div className="segment-boundary" key={side} style={{ top: ((side === 'start' ? paint.top : paint.bottom) + 1) * props.scale }}>
         {!!offset && <span className="segment-handle-join" style={{ top: Math.min(0, offset), height: Math.abs(offset) }} />}
         <button className="segment-handle" data-segment-control={side} aria-label={`Segment ${side}`} title={`Drag to adjust ${side} · Alt splits spaces`}
