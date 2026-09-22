@@ -1,6 +1,8 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { createWriteStream, promises as fs } from 'node:fs'
 import { finished } from 'node:stream/promises'
+import { Transform } from 'node:stream'
+import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import net from 'node:net'
 
@@ -33,9 +35,14 @@ function textOf(node) { return (node?.content ?? []).filter(child => child.type 
 
 export async function fakeRunner(context) {
   context.progress('Fake runner is preparing a candidate')
-  await wait(Math.max(0, Number(context.env.MOTED_FAKE_DELAY_MS || 15)), context.signal)
+  const delay = Math.max(0, Number(context.env.MOTED_FAKE_DELAY_MS || 15))
+  const transcript = (kind, text) => context.emitTranscript?.(kind, text)
+  transcript('stdout', '\u001b[36m[mote fake]\u001b[0m starting candidate\n')
+  await wait(delay, context.signal)
   const document = await readJson(path.join(context.inputDir, 'document.json'))
   const candidate = { summary: `Fake candidate for ${context.target.kind} target.` }
+  transcript('stdout', `attempt ${context.attempt}: reading target\n`)
+  await wait(delay, context.signal)
   if (context.target.kind === 'object') {
     candidate.object = structuredClone(document.floating.find(object => object.id === context.target.objectId))
     if (candidate.object?.kind === 'html') {
@@ -52,6 +59,9 @@ export async function fakeRunner(context) {
     if (first >= 0) blocks[first] = { ...blocks[first], content: [{ type: 'text', text: `AI draft: ${textOf(blocks[first]) || 'generated note'}` }] }
     candidate.content = blocks
   }
+  transcript('stderr', '\u001b[33m[mote fake warning]\u001b[0m no model call made\n')
+  await wait(delay, context.signal)
+  transcript('stdout', 'candidate written\n')
   await fs.writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify(candidate), { flag: 'wx', mode: 0o660 })
   return { sessionId: context.sessionId || `fake-${context.taskId}` }
 }
@@ -123,8 +133,8 @@ export async function muRunner(context) {
   if (context.signal.aborted) throw new Error('aborted')
   const mu = context.env.MOTED_MU_BIN || 'mu'
   const muArgs = context.sessionId
-    ? ['--trap', 'off', '-o', 'final', '-s', context.sessionId, context.promptPath]
-    : ['--trap', 'off', '-o', 'final', '-m', context.model, context.promptPath]
+    ? ['--trap', 'off', '-o', 'concise', '-s', context.sessionId, context.promptPath]
+    : ['--trap', 'off', '-o', 'concise', '-m', context.model, context.promptPath]
   const environment = {
     PATH: context.env.PATH || '/usr/local/bin:/usr/bin:/bin',
     LANG: context.env.LANG || 'C.UTF-8',
@@ -153,8 +163,12 @@ export async function muRunner(context) {
     args.push('--', mu, ...muArgs)
     spawnOptions = { cwd: context.taskDir, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] }
   }
-  const stdout = createWriteStream(path.join(context.taskDir, 'logs', `${context.generation}.stdout.log`), { flags: 'a', mode: 0o600 })
-  const stderr = createWriteStream(path.join(context.taskDir, 'logs', `${context.generation}.stderr.log`), { flags: 'a', mode: 0o600 })
+  const configuredLogLimit = Number(context.env.MOTED_LOG_MAX_BYTES)
+  const logLimit = Math.max(1024, Number.isFinite(configuredLogLimit) && configuredLogLimit > 0 ? configuredLogLimit : 1024 * 1024)
+  const configuredLogTotal = Number(context.env.MOTED_LOG_TOTAL_MAX_BYTES)
+  const logTotalLimit = Math.max(logLimit * 2, Number.isFinite(configuredLogTotal) && configuredLogTotal > 0 ? configuredLogTotal : 4 * 1024 * 1024)
+  const stdout = await boundedLog(path.join(context.taskDir, 'logs', `${context.generation}.stdout.log`), logLimit)
+  const stderr = await boundedLog(path.join(context.taskDir, 'logs', `${context.generation}.stderr.log`), logLimit)
   let child
   let stopPromise
   const stopWorker = () => stopPromise ??= (async () => {
@@ -174,22 +188,74 @@ export async function muRunner(context) {
   context.signal.addEventListener('abort', onAbort, { once: true })
   if (context.signal.aborted) void stopWorker()
   let failure
-  const closeBridges = await providerBridges(context.taskDir)
+  let closeBridges = async () => {}
   try {
+    closeBridges = await providerBridges(context.taskDir)
     if (context.signal.aborted) throw new Error('aborted')
     await childWait(command, args, spawnOptions, value => {
       child = value
-      value.stdout?.pipe(stdout)
-      value.stderr?.pipe(stderr)
+      capture(value.stdout, stdout, 'stdout', context.emitTranscript)
+      capture(value.stderr, stderr, 'stderr', context.emitTranscript)
     })
   } catch (error) { failure = error }
   finally {
     await closeBridges()
     stdout.end(); stderr.end()
-    await Promise.all([finished(stdout).catch(() => {}), finished(stderr).catch(() => {})])
+    await Promise.all([stdout.done, stderr.done])
+    await trimLogs(path.join(context.taskDir, 'logs'), logTotalLimit, context.generation)
     context.signal.removeEventListener('abort', onAbort)
   }
   const sessionId = await readSessionId(context.taskDir)
   if (failure) { if (sessionId) failure.sessionId = sessionId; throw failure }
   return { sessionId, unit }
+}
+
+async function boundedLog(file, maxBytes) {
+  let existing = 0
+  try { existing = (await fs.stat(file)).size } catch (error) { if (error.code !== 'ENOENT') throw error }
+  if (existing > maxBytes) { await fs.truncate(file, maxBytes); existing = maxBytes }
+  let written = Math.min(existing, maxBytes)
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      const remaining = maxBytes - written
+      if (remaining <= 0) { callback(); return }
+      const output = chunk.subarray(0, remaining)
+      written += output.length
+      callback(null, output)
+    },
+  })
+  const output = createWriteStream(file, { flags: 'a', mode: 0o600 })
+  output.on('error', () => { limiter.unpipe(output); limiter.resume() })
+  limiter.done = Promise.all([finished(limiter).catch(() => {}), finished(output).catch(() => {})])
+  limiter.pipe(output)
+  return limiter
+}
+
+function capture(source, log, kind, emitTranscript) {
+  if (!source) return
+  const decoder = new StringDecoder('utf8')
+  source.pipe(log)
+  source.on('data', chunk => {
+    const text = decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+    if (text) emitTranscript?.(kind, text)
+  })
+  source.on('end', () => {
+    const text = decoder.end()
+    if (text) emitTranscript?.(kind, text)
+  })
+}
+
+async function trimLogs(directory, maxBytes, currentGeneration) {
+  const entries = []
+  for (const name of await fs.readdir(directory)) {
+    const match = /^(\d+)\.(stdout|stderr)\.log$/.exec(name)
+    if (!match) continue
+    const file = path.join(directory, name); const stat = await fs.stat(file)
+    if (stat.isFile()) entries.push({ file, generation: Number(match[1]), size: stat.size })
+  }
+  let total = entries.reduce((sum, entry) => sum + entry.size, 0)
+  for (const entry of entries.sort((a, b) => a.generation - b.generation || a.file.localeCompare(b.file))) {
+    if (total <= maxBytes || entry.generation === currentGeneration) continue
+    await fs.rm(entry.file, { force: true }); total -= entry.size
+  }
 }

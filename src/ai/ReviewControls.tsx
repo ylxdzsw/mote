@@ -9,7 +9,8 @@ export interface AIReview {
   discard: (id: string) => void
   stop: (id: string) => void
   toggle: (id: string) => void
-  open: () => void
+  open: (id: string) => void
+  deleteTarget?: (id: string) => void
 }
 
 export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${!!task.candidate}`
@@ -38,7 +39,8 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
   }
   if (busy) button('Stop', () => actions().stop(task.id))
   button('Discard', () => actions().discard(task.id))
-  button('Request…', () => actions().open())
+  button('Request…', () => actions().open(task.id))
+  if (actions().deleteTarget) button('Delete region', () => actions().deleteTarget!(task.id))
   return root
 }
 

@@ -35,11 +35,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const [loaded, setLoaded] = useState(false)
   const [notice, setNotice] = useState('')
   const [open, setOpen] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
   const state = useRef(tasks), currentDoc = useRef(history.doc!), bypass = useRef(false)
   const mounted = useRef(true)
   const preparations = useRef(new Map<string, symbol>())
   currentDoc.current = history.doc!
+  function openTask(id: string) { setActiveId(id); setOpen(true) }
   function save(task: AITask) { void storeTask(task).catch(() => setNotice('AI task recovery could not be saved. Keep this tab open until you accept or discard.')) }
   function update(id: string, patch: Partial<AITask>) {
     if (!mounted.current) return
@@ -75,7 +77,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         if (!valid) { void storeTask(task.id); if (task.submitted || task.requestSent) void aiRequest(`/tasks/${task.id}`, 'DELETE').catch(() => {}) }
         return valid
       }).map(task => task.status === 'preparing' ? { ...task, status: 'error' as const, error: 'Generation was interrupted before confirmation. Retry or discard.' } : task)
-      state.current = retained; setTasks(retained); setLoaded(true)
+        .sort((a, b) => (a.createdAt ?? a.expiresAt) - (b.createdAt ?? b.expiresAt))
+      state.current = retained; setTasks(retained); setActiveId(retained[0]?.id ?? null); setLoaded(true)
     }).catch(() => { if (active) { setNotice('AI task recovery is unavailable. Reload before starting AI tasks.'); setLoaded(true) } })
     return () => { active = false; mounted.current = false }
   }, [writable])
@@ -96,7 +99,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           }
           update(task.id, { error: undefined, ...remote })
         } catch (error) {
-          if (active) update(task.id, { ...(error instanceof AIServiceError && error.status === 404 ? { status: 'error' as const } : {}), error: (error as Error).message })
+          if (active) {
+            if (error instanceof AIServiceError && error.status === 404) missingRemote(task.id)
+            else update(task.id, { error: (error as Error).message })
+          }
         }
       }))
       pending = false
@@ -109,21 +115,25 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   function reserve(target: AITarget, snapshot = currentDoc.current) {
     if (!loaded || !writable) return
     if (target.kind === 'text' && !reservedText(snapshot.content, target.blockIds)) { setNotice('Select consecutive paragraphs without crossing a space.'); return }
-    if (state.current.some(task => overlaps(task.target, target))) { setNotice('This region is already reserved by an AI task.'); setOpen(true); return }
-    const task: AITask = { id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '',
+    const overlapping = state.current.find(task => overlaps(task.target, target))
+    if (overlapping) { openTask(overlapping.id); return }
+    const task: AITask = { id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
       original: structuredClone(target.kind === 'object' ? snapshot.floating.find(object => object.id === target.objectId)! : snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id))),
       snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false, expiresAt: Date.now() + 24 * 60 * 60 * 1000 }
-    state.current = [...state.current, task]; setTasks(state.current); save(task); setOpen(true); setNotice(''); history.boundary()
+    state.current = [...state.current, task]; setTasks(state.current); save(task); openTask(task.id); setNotice(''); history.boundary()
     return task
+  }
+  function missingRemote(id: string) {
+    update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then use the toolbar to start again.' })
   }
 
   async function start(id: string, prompt: string) {
     let task = state.current.find(task => task.id === id)
-    if (!task || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status)) return
+    if (!task || task.remoteMissing || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status)) return
     const run = Symbol()
     preparations.current.set(id, run)
     const preparing = () => preparations.current.get(id) === run && state.current.some(task => task.id === id && task.status === 'preparing')
-    update(id, { status: 'preparing', prompt, error: undefined, preview: false, progress: 'Preparing full document snapshot…' })
+    update(id, { status: 'preparing', prompt, draftPrompt: '', title: task.title || prompt.trim().split('\n')[0].slice(0, 60), error: undefined, preview: false, progress: 'Preparing full document snapshot…' })
     try {
       let remote: RemoteTask
       if (!task.submitted && (task.status === 'error' || task.requestSent)) {
@@ -164,7 +174,12 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         return
       }
       update(id, { ...remote, submitted: true, snapshotDocument: undefined })
-    } catch (error) { if (preparing()) update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message }) }
+    } catch (error) {
+      if (preparing()) {
+        if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
+        else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message })
+      }
+    }
     finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
   }
 
@@ -185,9 +200,14 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   function forget(id: string) {
     preparations.current.delete(id)
     const task = state.current.find(task => task.id === id)
+    const index = state.current.findIndex(task => task.id === id)
     state.current = state.current.filter(task => task.id !== id); setTasks(state.current)
+    setActiveId(current => current === id ? (state.current[index] ?? state.current[index - 1])?.id ?? null : current)
+    if (!state.current.length) setOpen(false)
     void storeTask(id).catch(() => setNotice('Could not clear saved task recovery.'))
-    if (task?.submitted || task?.requestSent || task?.status === 'preparing') void aiRequest(`/tasks/${id}`, 'DELETE').catch(() => {})
+    if (task?.submitted || task?.requestSent || task?.status === 'preparing') void aiRequest(`/tasks/${id}`, 'DELETE').catch(error => {
+      if (!(error instanceof AIServiceError && error.status === 404)) setNotice('The local reservation was released, but server cleanup was not confirmed. Its result will not be applied; server work expires automatically.')
+    })
   }
   function discard(id: string) {
     const task = state.current.find(task => task.id === id)
@@ -219,6 +239,31 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     } catch (error) { update(id, { error: (error as Error).message }) }
   }
   function abandonAll() { for (const task of [...state.current]) forget(task.id) }
-  return { tasks, loaded, open, setOpen, notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs,
+  function deleteObjects(floating: FloatingObject[]) {
+    const removed = state.current.filter(task => task.target.kind === 'object' && !floating.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
+    const next = { ...currentDoc.current, floating }
+    if (!permits(state.current.filter(task => !removed.includes(task)), currentDoc.current, next)) {
+      setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return false
+    }
+    for (const task of removed) forget(task.id)
+    history.boundary(); history.setDoc(next); history.boundary()
+    return true
+  }
+  function deleteTarget(id: string) {
+    const task = state.current.find(task => task.id === id)
+    if (!task) return
+    if (task.target.kind === 'object') {
+      deleteObjects(withoutObject(task.target.objectId) ?? currentDoc.current.floating.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
+      return
+    }
+    const ids = task.target.blockIds
+    const content = currentDoc.current.content.content!.filter(node => !ids.includes(node.attrs?.id))
+    const next = replaceMainContent(currentDoc.current, { ...currentDoc.current.content, content: content.length ? content : [paragraph('')] })
+    if (!permits(state.current.filter(other => other.id !== id), currentDoc.current, next)) {
+      setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return
+    }
+    forget(id); history.boundary(); history.setDoc(next); history.boundary()
+  }
+  return { tasks, loaded, open, setOpen, activeId, openTask, notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : [])) }
 }

@@ -27,12 +27,35 @@ function document(kind = 'text') {
 }
 function request(id, doc = document(), extra = {}) { return { id, document: doc, model: 'codex/gpt-5.6-luna', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
 async function app(options = {}) {
-  const stateDir = await mkdtemp(path.join(os.tmpdir(), 'moted-test-'))
+  const stateDir = options.stateDir || await mkdtemp(path.join(os.tmpdir(), 'moted-test-'))
   const value = await createMotedServer({ ...options, stateDir, port: 0, useSystemd: false, defaultModel: 'codex/gpt-5.6-luna', env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: 'http://localhost:5173', MOTED_SHARED_MU_DIR: path.join(stateDir, 'unused-config'), MOTED_MU_ENV_SOURCE: '', ...(options.env || {}) } })
-  await value.start(); return value
+  await value.start(); value.stateDir = stateDir; return value
 }
 async function post(app, body, pathName = '/api/ai/tasks', origin = 'http://localhost:5173') { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}${pathName}`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) }) }
 async function get(app, id) { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`) }
+async function events(app, id, suffix = '', headers = {}) { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}/events${suffix}`, { headers }) }
+async function waitReady(value, id) {
+  for (let i = 0; i < 60; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') return; await new Promise(resolve => setTimeout(resolve, 10)) }
+  throw new Error('task did not become ready')
+}
+async function takeEvents(response, count) {
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; const result = []
+  try {
+    while (result.length < count) {
+      const next = await reader.read(); if (next.done) break
+      buffer += decoder.decode(next.value, { stream: true })
+      let split
+      while ((split = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, split); buffer = buffer.slice(split + 2)
+        const fields = Object.fromEntries(frame.split('\n').filter(line => line.includes(': ')).map(line => { const at = line.indexOf(': '); return [line.slice(0, at), line.slice(at + 2)] }))
+        if (fields.event === 'transcript') result.push(JSON.parse(fields.data))
+        else if (fields.event === 'reset') result.push({ reset: true })
+        if (result.length >= count) break
+      }
+    }
+  } finally { await reader.cancel().catch(() => {}) }
+  return result
+}
 
 test('new floating reservations accept all supported kinds, not only HTML and images', () => {
   const doc = document('html'), original = doc.floating[0]
@@ -70,7 +93,7 @@ test('a native KaTeX delivery reaches ready without HTML or screenshot artifacts
   assert.equal(status.candidate.object.screenshot, undefined)
 })
 
- test('fake task reaches ready and status does not expose logs or document', async t => {
+test('fake task reaches ready and status does not expose logs or document', async t => {
   const value = await app(); t.after(() => value.close())
   const id = crypto.randomUUID(); const created = await post(value, request(id)); assert.equal(created.status, 202)
   const initial = await created.json(); assert.ok(['queued', 'running'].includes(initial.status)); assert.equal(initial.id, id); assert.equal('document' in initial, false)
@@ -78,6 +101,81 @@ test('a native KaTeX delivery reaches ready without HTML or screenshot artifacts
   for (let i = 0; i < 20; i++) { status = await (await get(value, id)).json(); if (status.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
   assert.equal(status.status, 'ready'); assert.equal(status.candidate.summary, 'Fake candidate for text target.'); assert.equal(status.candidate.content[0].content[0].text, 'AI draft: Hello'); assert.equal('logs' in status, false); assert.equal('prompt' in status, false)
  })
+
+test('fake transcript streams incremental ANSI/plain stdout and stderr', async t => {
+  const value = await app({ env: { MOTED_FAKE_DELAY_MS: '35' } }); t.after(() => value.close())
+  const id = crypto.randomUUID(); const body = request(id); await post(value, body)
+  const response = await events(value, id); assert.equal(response.status, 200); assert.match(response.headers.get('content-type'), /^text\/event-stream/)
+  const first = await takeEvents(response, 2)
+  assert.deepEqual(first.map(event => event.kind), ['request', 'stdout'])
+  assert.equal(first[0].text, body.prompt); assert.equal(first[0].attempt, 1); assert.match(first[1].text, /\u001b\[36m/)
+  await waitReady(value, id)
+  const journal = value.manager.tasks.get(id).transcript.events
+  assert.ok(journal.some(event => event.kind === 'stderr' && /no model call/.test(event.text)))
+})
+
+test('completed transcript replays from after and Last-Event-ID cursors', async t => {
+  const value = await app(); t.after(() => value.close())
+  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
+  const all = await takeEvents(await events(value, id, '?after=0'), 5)
+  assert.deepEqual(all.map(event => event.id), [1, 2, 3, 4, 5]); assert.ok(all.every(event => event.attempt === 1))
+  const after = await takeEvents(await events(value, id, '', { 'Last-Event-ID': '1' }), 4)
+  assert.deepEqual(after.map(event => event.id), [2, 3, 4, 5])
+  const reconnected = await takeEvents(await events(value, id, '?after=0', { 'Last-Event-ID': '3' }), 2)
+  assert.deepEqual(reconnected.map(event => event.id), [4, 5])
+})
+
+test('revisions append attempts to the same transcript journal', async t => {
+  const value = await app(); t.after(() => value.close())
+  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
+  assert.equal((await post(value, { prompt: 'Revise the transcript' }, `/api/ai/tasks/${id}/revise`)).status, 202); await waitReady(value, id)
+  const all = await takeEvents(await events(value, id, '?after=0'), 10)
+  assert.deepEqual(all.filter(event => event.kind === 'request').map(event => [event.attempt, event.text]), [[1, 'Improve the target'], [2, 'Revise the transcript']])
+  assert.deepEqual([...new Set(all.map(event => event.attempt))], [1, 2]); assert.deepEqual(all.map(event => event.id), [...Array(10)].map((_, index) => index + 1))
+})
+
+test('truncated replay announces reset and restart recovers the bounded journal', async t => {
+  const value = await app({ transcriptMaxEvents: 3 }); t.after(() => value.close())
+  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
+  const beforeRestart = await takeEvents(await events(value, id, '?after=0'), 4)
+  assert.equal(beforeRestart[0].reset, true); assert.deepEqual(beforeRestart.slice(1).map(event => event.id), [3, 4, 5])
+  const stateDir = value.stateDir; await value.close()
+  const restarted = await app({ stateDir, transcriptMaxEvents: 3 }); t.after(() => restarted.close())
+  const afterRestart = await takeEvents(await events(restarted, id, '?after=0'), 4)
+  assert.equal(afterRestart[0].reset, true); assert.deepEqual(afterRestart.slice(1).map(event => event.id), [3, 4, 5])
+})
+
+test('deleting a task closes its transcript and removes replay state', async t => {
+  const value = await app(); t.after(() => value.close())
+  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
+  const response = await events(value, id, '?after=0'); const reader = response.body.getReader(); await reader.read()
+  const address = value.server.address(); const deleted = await fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`, { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })
+  assert.equal(deleted.status, 200); await assert.rejects(reader.read()); assert.equal((await get(value, id)).status, 404)
+})
+
+test('concurrent revision and deletion cannot queue an orphaned worker', async t => {
+  const value = await app(); t.after(() => value.close())
+  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
+  const address = value.server.address()
+  const [revision, deletion] = await Promise.all([
+    post(value, { prompt: 'Concurrent revision' }, `/api/ai/tasks/${id}/revise`),
+    fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`, { method: 'DELETE', headers: { origin: 'http://localhost:5173' } }),
+  ])
+  assert.ok([202, 404].includes(revision.status)); assert.equal(deletion.status, 200)
+  assert.equal(value.manager.tasks.has(id), false)
+  assert.equal(value.manager.queue.some(task => task.id === id), false)
+  assert.equal(value.manager.active, 0)
+})
+
+test('queued requests remain in the transcript when stopped before a worker starts', async t => {
+  const value = await app({ maxConcurrent: 1, env: { MOTED_FAKE_DELAY_MS: '200' } }); t.after(() => value.close())
+  await post(value, request(crypto.randomUUID()))
+  const id = crypto.randomUUID(); await post(value, request(id))
+  assert.equal(value.manager.tasks.get(id).meta.status, 'queued')
+  await post(value, {}, `/api/ai/tasks/${id}/stop`)
+  const replay = await takeEvents(await events(value, id), 1)
+  assert.equal(replay[0].kind, 'request'); assert.equal(replay[0].text, 'Improve the target')
+})
 
 test('mutations require exact configured origin and IDs collide', async t => {
   const value = await app(); t.after(() => value.close())

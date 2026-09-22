@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import { HttpError, MAX_BODY, MAX_RESULT, MAX_SCREENSHOT, PROD_ORIGIN, UUID, validateCandidate, validatePngDataUrl, validateRequest, pngDataUrl, pngSignature } from './validation.mjs'
 import { configuredModel, fakeRunner, muRunner, readSessionId, workerUnit } from './runner.mjs'
+import { TranscriptJournal } from './transcript.mjs'
 
 const SERVER_ROOT = path.dirname(fileURLToPath(import.meta.url))
 
@@ -78,6 +79,81 @@ function responseHeaders(origin, env) {
 
 function send(response, status, body, origin, env) { response.writeHead(status, responseHeaders(origin, env)); response.end(body === undefined ? '' : JSON.stringify(body)) }
 
+function cursor(url, request) {
+  const value = request.headers['last-event-id'] ?? url.searchParams.get('after')
+  if (value === null || value === undefined || value === '') return null
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new HttpError(400, 'event cursor must be a non-negative integer')
+  return Number(value)
+}
+
+function sseFrame(event) {
+  return `id: ${event.id}\nevent: transcript\ndata: ${JSON.stringify(event)}\n\n`
+}
+
+function waitDrain(response) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { cleanup(); reject(new Error('SSE consumer is too slow')) }, 30000)
+    const cleanup = () => { clearTimeout(timer); response.removeListener('drain', done); response.removeListener('close', failed); response.removeListener('error', failed) }
+    const done = () => { cleanup(); resolve() }
+    const failed = () => { cleanup(); reject(new Error('SSE connection closed')) }
+    response.once('drain', done); response.once('close', failed); response.once('error', failed)
+  })
+}
+
+async function streamTranscript(task, response, origin, env, after, heartbeatMs) {
+  const headers = responseHeaders(origin, env)
+  headers['content-type'] = 'text/event-stream; charset=utf-8'
+  headers['cache-control'] = 'no-store, no-transform'
+  headers.connection = 'keep-alive'
+  headers['x-accel-buffering'] = 'no'
+  response.writeHead(200, headers); response.flushHeaders?.()
+  let closed = false; let replaying = true; let writing = false; let unsubscribe = () => {}; let resolveClosed
+  const closedPromise = new Promise(resolve => { resolveClosed = resolve })
+  const queue = []
+  let queuedBytes = 0
+  let sent = after ?? -1
+  let heartbeat
+  const close = destroy => {
+    if (closed) return
+    closed = true; clearInterval(heartbeat); unsubscribe(); queue.length = 0; resolveClosed()
+    if (destroy && !response.destroyed) response.destroy()
+  }
+  response.once('close', () => close(false)); response.once('error', () => close(false))
+  const write = async value => {
+    if (closed) return
+    if (!response.write(value)) await waitDrain(response)
+  }
+  const writeEvent = async event => {
+    if (event.id <= sent || closed) return
+    await write(sseFrame(event)); sent = event.id
+  }
+  const pump = async () => {
+    if (writing || replaying || closed) return
+    writing = true
+    try { while (queue.length && !closed) { const event = queue.shift(); queuedBytes -= Buffer.byteLength(event.text); await writeEvent(event) } } catch { close(true) }
+    finally { writing = false }
+  }
+  const onEvent = event => {
+    if (closed || event.id <= sent) return
+    queuedBytes += Buffer.byteLength(event.text)
+    if (queue.length >= 128 || queuedBytes > 512 * 1024) { close(true); return }
+    queue.push(event); void pump()
+  }
+  const warning = message => { if (!closed && !response.write(`event: warning\ndata: ${JSON.stringify({ message })}\n\n`)) close(true) }
+  unsubscribe = task.transcript.subscribe(onEvent, () => close(true), warning)
+  try {
+    if (task.transcript.warning) warning(task.transcript.warning)
+    if (task.transcript.wasTruncated(after)) { await write('event: reset\ndata: {}\n\n'); after = null; sent = -1 }
+    for (const event of task.transcript.replay(after)) await writeEvent(event)
+    replaying = false
+    await pump()
+    if (closed) return closedPromise
+    heartbeat = setInterval(() => { if (!closed && !response.write(': heartbeat\n\n')) close(true) }, heartbeatMs)
+    heartbeat.unref?.()
+  } catch { close(true) }
+  return closedPromise
+}
+
 export async function loadCandidate(outputDir, document, target) {
   const raw = await jsonFile(path.join(outputDir, 'result.json'), MAX_RESULT, 'result.json')
   const candidate = validateCandidate(raw, document, target, { allowScreenshotPath: true })
@@ -105,10 +181,17 @@ export class TaskManager {
     const timeout = options.timeoutMs !== undefined ? Number(options.timeoutMs) : Number(this.env.MOTED_TASK_TIMEOUT_MS || 900000)
     this.timeoutMs = options.timeoutMs !== undefined ? Math.max(10, Math.min(86400000, timeout)) : Math.max(10000, Math.min(86400000, timeout))
     this.ttlMs = Math.max(60000, Math.min(7 * 86400000, Number(options.ttlMs || this.env.MOTED_TASK_TTL_MS || 86400000)))
+    this.transcriptOptions = {
+      maxBytes: options.transcriptMaxBytes ?? this.env.MOTED_TRANSCRIPT_MAX_BYTES,
+      maxEvents: options.transcriptMaxEvents ?? this.env.MOTED_TRANSCRIPT_MAX_EVENTS,
+      maxEventText: options.transcriptMaxEventText ?? this.env.MOTED_TRANSCRIPT_MAX_EVENT_TEXT,
+      maxPending: options.transcriptMaxPending ?? this.env.MOTED_TRANSCRIPT_MAX_PENDING,
+    }
+    this.heartbeatMs = Math.max(10, Number(options.transcriptHeartbeatMs || this.env.MOTED_TRANSCRIPT_HEARTBEAT_MS || 15000))
     this.useSystemd = options.useSystemd ?? ['1', 'true', 'yes'].includes((this.env.MOTED_USE_SYSTEMD || 'true').toLowerCase())
     this.runner = options.runner || (this.env.MOTED_FAKE_RUNNER === '1' ? fakeRunner : muRunner)
     this.defaultModel = options.defaultModel || configuredModel(this.env, this.sourcePath)
-    this.tasks = new Map(); this.queue = []; this.active = 0; this.timer = null
+    this.tasks = new Map(); this.queue = []; this.active = 0; this.timer = null; this.operations = new WeakMap(); this.closing = false
   }
 
   async init() {
@@ -120,7 +203,8 @@ export class TaskManager {
       let meta
       try { meta = await jsonFile(path.join(dir, 'meta.json'), MAX_BODY, 'task metadata') } catch { continue }
       if (!['queued', 'running', 'ready', 'stopped', 'error'].includes(meta.status)) continue
-      const task = { id: entry.name, dir, meta, generation: Number(meta.generation || 0), current: null, abandoned: false }
+      const transcript = new TranscriptJournal(dir, this.transcriptOptions); await transcript.init()
+      const task = { id: entry.name, dir, meta, generation: Number(meta.generation || 0), current: null, abandoned: false, transcript }
       this.tasks.set(task.id, task)
       if (meta.expiresAt <= Date.now()) await this.remove(task).catch(() => {})
       else if (meta.status === 'queued' || meta.status === 'running') {
@@ -133,6 +217,14 @@ export class TaskManager {
   }
 
   async persist(task) { await writeAtomic(path.join(task.dir, 'meta.json'), JSON.stringify(task.meta)) }
+  async mutate(task, action) {
+    const operation = (this.operations.get(task) ?? Promise.resolve()).catch(() => {}).then(() => {
+      if (this.tasks.get(task.id) !== task) throw new HttpError(404, 'task not found')
+      return action()
+    })
+    this.operations.set(task, operation)
+    try { return await operation } finally { if (this.operations.get(task) === operation) this.operations.delete(task) }
+  }
   view(task) { const value = { id: task.id, status: task.meta.status, progress: task.meta.progress, expiresAt: task.meta.expiresAt }; if (task.meta.error) value.error = task.meta.error; if (task.meta.candidate) value.candidate = task.meta.candidate; return value }
 
   async loadRequest(task) {
@@ -185,12 +277,13 @@ export class TaskManager {
       await writeImmutable(path.join(dir, 'input', 'document.json'), JSON.stringify(request.document)); await writeImmutable(path.join(dir, 'input', 'target.json'), JSON.stringify(request.target)); await writeImmutable(path.join(dir, 'input', 'request.json'), JSON.stringify({ id: request.id, model: request.model, prompt: request.prompt, target: request.target, snapshot: request.snapshot ? 'input/snapshot.png' : undefined }))
       if (request.snapshot) { validatePngDataUrl(request.snapshot); await writeImmutable(path.join(dir, 'input', 'snapshot.png'), Buffer.from(request.snapshot.slice(request.snapshot.indexOf(',') + 1), 'base64')) }
       const model = request.model || this.defaultModel; if (!model) throw new HttpError(503, 'Mu has no configured default model')
-      const task = { id: request.id, dir, request, generation: 0, current: null, abandoned: false, meta: { id: request.id, status: 'queued', progress: 'Queued', expiresAt: Date.now() + this.ttlMs, generation: 0, model, prompt: request.prompt, target: request.target } }
-      await this.writePrompt(task, request.prompt, 0, false); await this.persist(task); this.tasks.set(task.id, task); this.queue.push(task); this.schedule(); return this.view(task)
+      const transcript = new TranscriptJournal(dir, this.transcriptOptions); await transcript.init()
+      const task = { id: request.id, dir, request, generation: 0, current: null, abandoned: false, transcript, meta: { id: request.id, status: 'queued', progress: 'Queued', expiresAt: Date.now() + this.ttlMs, generation: 0, attempt: 1, model, prompt: request.prompt, target: request.target } }
+      await this.writePrompt(task, request.prompt, 0, false); await task.transcript.append(1, 'request', request.prompt).catch(() => {}); await this.persist(task); this.tasks.set(task.id, task); this.queue.push(task); this.schedule(); return this.view(task)
     } catch (error) { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); throw error }
   }
 
-  schedule() { while (this.active < this.maxConcurrent && this.queue.length) { const task = this.queue.shift(); if (task.abandoned || task.meta.status !== 'queued') continue; this.active++; this.run(task).catch(() => {}).finally(() => { this.active--; this.schedule() }) } }
+  schedule() { while (!this.closing && this.active < this.maxConcurrent && this.queue.length) { const task = this.queue.shift(); if (task.abandoned || task.meta.status !== 'queued') continue; this.active++; this.run(task).catch(() => {}).finally(() => { this.active--; this.schedule() }) } }
 
   async discoverSession(task) {
     const sessionId = await readSessionId(task.dir)
@@ -215,20 +308,24 @@ export class TaskManager {
     const donePromise = new Promise(resolve => { resolveDone = resolve })
     const current = { generation, controller, promise: null, finished: false, stop: null, donePromise }
     task.current = current
+    const attempt = task.meta.attempt
     let deadline
     const context = {
       taskId: task.id, taskDir: task.dir, inputDir: path.join(task.dir, 'input'),
       outputDir: path.join(task.dir, 'runs', String(generation), 'output'),
       promptPath: path.join(task.dir, 'runs', String(generation), 'prompt.md'),
       target: task.meta.target, model: task.meta.model, generation,
+      attempt,
       sessionId: task.meta.sessionId, sourcePath: this.sourcePath, timeoutMs: this.timeoutMs,
       env: this.env, useSystemd: this.useSystemd, signal: controller.signal,
       stop: null,
+      emitTranscript: (kind, text) => { void task.transcript.append(attempt, kind, text).catch(() => {}) },
       progress: message => { if (task.generation === generation) { task.meta.progress = String(message).slice(0, 256); this.persist(task).catch(() => {}) } },
     }
     current.stop = () => context.stop?.()
     try {
       task.meta.status = 'running'; task.meta.progress = 'Running Mu'; task.meta.unit = unit
+      task.meta.attempt = attempt
       await this.persist(task)
       if (controller.signal.aborted || task.generation !== generation) return
       const run = await this.writePrompt(task, task.meta.prompt, generation, Boolean(task.meta.sessionId))
@@ -285,21 +382,23 @@ export class TaskManager {
     if (task.current?.finished) await settled(task.current.donePromise, Math.min(10000, Math.max(100, this.timeoutMs)))
     if (task.meta.status === 'queued' || task.meta.status === 'running' || task.current) await this.stop(task, 'Superseded by revision')
     task.abandoned = false; task.generation++; task.meta.generation = task.generation; task.meta.prompt = prompt; task.meta.status = 'queued'; task.meta.progress = 'Queued revision'; task.meta.feedback = task.meta.error; delete task.meta.error
-    await this.writePrompt(task, prompt, task.generation, Boolean(task.meta.sessionId)); await this.persist(task); this.queue.push(task); this.schedule(); return this.view(task)
+    task.meta.attempt = Math.max(Number(task.meta.attempt || 0), task.transcript.maxAttempt) + 1
+    await this.writePrompt(task, prompt, task.generation, Boolean(task.meta.sessionId)); await task.transcript.append(task.meta.attempt, 'request', prompt).catch(() => {}); await this.persist(task); this.queue.push(task); this.schedule(); return this.view(task)
   }
 
   async remove(task) {
     task.abandoned = true
     await this.stop(task, 'Abandoned by client')
     if (task.current) throw new Error('worker did not stop; task files were retained')
+    await task.transcript.close()
     this.tasks.delete(task.id)
     await fs.rm(task.dir, { recursive: true, force: false })
   }
 
   async killUnit(unit) { if (!/^moted-[0-9a-f-]+-\d+$/.test(unit)) return; await new Promise(resolve => { const child = spawn(this.env.MOTED_SYSTEMCTL || 'systemctl', ['kill', '--kill-who=all', '--signal=KILL', unit], { stdio: 'ignore' }); child.on('close', resolve); child.on('error', resolve) }) }
-  async cleanup() { for (const task of [...this.tasks.values()]) if (task.meta.expiresAt <= Date.now()) await this.remove(task).catch(() => {}) }
+  async cleanup() { for (const task of [...this.tasks.values()]) if (task.meta.expiresAt <= Date.now()) await this.mutate(task, () => this.remove(task)).catch(() => {}) }
 
-  async shutdown() { if (this.timer) clearInterval(this.timer); for (const task of this.tasks.values()) await this.stop(task, 'Stopped during server shutdown').catch(() => {}) }
+  async shutdown() { this.closing = true; if (this.timer) clearInterval(this.timer); for (const task of this.tasks.values()) { await this.mutate(task, () => this.stop(task, 'Stopped during server shutdown')).catch(() => {}); await task.transcript.close() } }
 }
 
 export async function createMotedServer(options = {}) {
@@ -316,11 +415,15 @@ export async function createMotedServer(options = {}) {
         if (id && !UUID.test(id)) throw new HttpError(404, 'not found')
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
         if (request.method === 'POST' && suffix === 'tasks') { send(response, 202, await manager.create(await readBody(request)), origin, manager.env); return }
+        if (request.method === 'GET' && id && action === 'events') {
+          const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found')
+          await streamTranscript(task, response, origin, manager.env, cursor(url, request), manager.heartbeatMs); return
+        }
         if (request.method === 'GET' && id && !action) { const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found'); send(response, 200, manager.view(task), origin, manager.env); return }
         const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found')
-        if (request.method === 'POST' && action === 'stop') { await manager.stop(task); send(response, 200, manager.view(task), origin, manager.env); return }
-        if (request.method === 'DELETE' && !action) { await manager.remove(task); send(response, 200, { ok: true }, origin, manager.env); return }
-        if (request.method === 'POST' && action === 'revise') { const body = await readBody(request); if (!body || typeof body.prompt !== 'string' || !body.prompt.trim()) throw new HttpError(400, 'prompt must be a non-empty string'); if (body.prompt.length > 32768) throw new HttpError(413, 'prompt is too large'); send(response, 202, await manager.revise(task, body.prompt), origin, manager.env); return }
+        if (request.method === 'POST' && action === 'stop') { await manager.mutate(task, () => manager.stop(task)); send(response, 200, manager.view(task), origin, manager.env); return }
+        if (request.method === 'DELETE' && !action) { await manager.mutate(task, () => manager.remove(task)); send(response, 200, { ok: true }, origin, manager.env); return }
+        if (request.method === 'POST' && action === 'revise') { const body = await readBody(request); if (!body || typeof body.prompt !== 'string' || !body.prompt.trim()) throw new HttpError(400, 'prompt must be a non-empty string'); if (body.prompt.length > 32768) throw new HttpError(413, 'prompt is too large'); send(response, 202, await manager.mutate(task, () => manager.revise(task, body.prompt)), origin, manager.env); return }
         throw new HttpError(404, 'not found')
       }
       throw new HttpError(404, 'not found')

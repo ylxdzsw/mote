@@ -39,6 +39,7 @@ interface Props {
   lockedIds?: Set<string>; onAICreate?: (object: FloatingObject, area: Area) => void
   aiWidgetIds?: Set<string>
   aiReview?: AIReview
+  onDeleteObjects?: (objects: FloatingObject[]) => boolean
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -50,7 +51,7 @@ const contentText = (content: JSONContent): string => (content.text ?? '') + (co
 const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
   || (object.kind === 'katex' && !object.latex.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -443,8 +444,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function remove() {
     if (!editable || !selectedIds.length) return
-    if (selectedIds.some(id => lockedIds.has(id))) return
-    history.boundary(); onFloatingChange(withoutObjects(selectedIds)); select([]); onActive(null)
+    const next = withoutObjects(selectedIds)
+    if (onDeleteObjects) { if (!onDeleteObjects(next)) return }
+    else { if (selectedIds.some(id => lockedIds.has(id))) return; history.boundary(); onFloatingChange(next) }
+    select([]); onActive(null)
   }
   useLayoutEffect(() => {
     if (!editable) return

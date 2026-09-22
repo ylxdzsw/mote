@@ -10,6 +10,10 @@ export interface RemoteTask {
   error?: string; candidate?: Candidate; expiresAt: number
 }
 export interface AITask extends Omit<RemoteTask, 'status'> {
+  title?: string
+  draftPrompt?: string
+  createdAt?: number
+  remoteMissing?: boolean
   documentId: string; target: AITarget; prompt: string; original: FloatingObject | JSONContent[]
   status: RemoteTask['status'] | 'draft' | 'preparing'; submitted: boolean; preview: boolean
   requestSent?: boolean

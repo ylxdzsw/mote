@@ -1,5 +1,8 @@
 // Development uses a fake local service. Production has one explicit pre-release backend.
 const base = import.meta.env.DEV ? '/api/ai' : 'https://mote.ylxdzsw.com/api/ai'
+export function transcriptSource(id: string, after: number) {
+  return new EventSource(`${base}/tasks/${id}/events?after=${after}`, { withCredentials: true })
+}
 export class AIServiceError extends Error {
   status: number
   constructor(message: string, status: number) { super(message); this.status = status }

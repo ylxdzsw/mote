@@ -20,6 +20,7 @@
     "@tiptap/extensions": "3.31.3",
     "@tiptap/pm": "3.31.3",
     "@tiptap/react": "3.31.3",
+    "ansi_up": "6.0.6",
     "katex": "0.18.7",
     "react": "19.2.8",
     "react-dom": "19.2.8"
