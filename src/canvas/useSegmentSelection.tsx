@@ -3,7 +3,7 @@ import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import { useHistory } from '../document/history'
 import type { MoteDocument } from '../document/model'
-import { copySegment, parseSegment, replaceSegment, segmentObjectIds, segmentText, serializeSegment, SEGMENT_MIME, type SegmentClipboard, type SegmentPoint, type SegmentRange } from '../document/segment'
+import { copySegment, moveSegment, parseSegment, replaceSegment, segmentObjectIds, segmentPointAt, segmentPosition, segmentText, serializeSegment, SEGMENT_MIME, type SegmentClipboard, type SegmentPoint, type SegmentRange } from '../document/segment'
 import { isComposingKey } from '../editor/composition'
 import { floatingClipboardJSON } from '../document/floatingClipboard'
 import type { Anchor, Box, Geometries } from './floatingGeometry'
@@ -17,8 +17,9 @@ interface Props {
 interface Block { top: number; bottom: number; height: number; space: boolean }
 interface Paint { bands: Box[]; objects: (Box & { id: string })[]; top: number; bottom: number }
 interface Drag {
-  pointerId: number; y: number; originY: number; alt: boolean; moved: boolean
+  pointerId: number; y: number; originY: number; originClientY: number; alt: boolean; moved: boolean
   anchor: SegmentPoint; originBlock: number; handle?: 'start' | 'end'; handleOffset: number; previous: SegmentRange | null
+  moving: boolean; destination?: SegmentPoint
 }
 const compare = (a: SegmentPoint, b: SegmentPoint) => a.index - b.index || a.offset - b.offset
 const equal = (range: SegmentRange) => compare(range.start, range.end) === 0
@@ -36,6 +37,7 @@ export function useSegmentSelection(props: Props) {
   const [range, setRange] = useState<SegmentRange | null>(null)
   const [paint, setPaint] = useState<Paint>({ bands: [], objects: [], top: 0, bottom: 0 })
   const [notice, setNotice] = useState('')
+  const [dropY, setDropY] = useState<number | null>(null)
   const drag = useRef<Drag | null>(null)
   const tick = useRef<() => void>(() => {})
   const content = useRef(props.doc.content)
@@ -108,7 +110,8 @@ export function useSegmentSelection(props: Props) {
   function release() {
     const previous = drag.current
     drag.current = null
-    if (previous) document.documentElement.classList.remove('segment-dragging')
+    if (previous) document.documentElement.classList.remove('segment-dragging', 'segment-moving')
+    setDropY(null)
     const stage = live.current.stage.current
     if (previous && stage?.hasPointerCapture(previous.pointerId)) stage.releasePointerCapture(previous.pointerId)
   }
@@ -118,6 +121,13 @@ export function useSegmentSelection(props: Props) {
     if (!d) return
     const blocks = measure(), y = localY(d.y) + d.handleOffset
     let point = endpoint(y, d.alt, blocks)
+    if (d.moving) {
+      if (!d.moved) return
+      const source = d.previous!
+      d.destination = compare(point, source.start) < 0 || compare(point, source.end) > 0 ? point : undefined
+      setDropY(d.destination ? boundaryY(point, 'start', blocks) : null)
+      return
+    }
     if (d.handle) {
       select(ordered(d.anchor, point))
     } else {
@@ -136,18 +146,22 @@ export function useSegmentSelection(props: Props) {
     const target = (event.target as Element).closest<HTMLElement>('[data-segment-control]')
     if (!editable || !editor || !target || event.button !== 0 || !event.isPrimary) return false
     event.preventDefault(); event.stopPropagation()
-    const previous = selected.current, handle = target.dataset.segmentControl === 'gutter' ? undefined : target.dataset.segmentControl as 'start' | 'end'
+    const previous = selected.current, control = target.dataset.segmentControl
+    const moving = control === 'move', handle = control === 'start' || control === 'end' ? control : undefined
+    if (moving && (!previous || equal(previous))) return true
+    if (moving && reserved(previous!)) { setNotice('Accept or discard the selected AI task before moving this segment.'); return true }
     const y = localY(event.clientY), blocks = measure(), anchor = endpoint(y, event.altKey, blocks)
     const originBlock = blocks.findIndex(block => !block.space && y >= block.top && y < block.bottom)
     onStart()
     stage.current!.focus({ preventScroll: true })
     window.getSelection()?.removeAllRanges()
-    drag.current = { pointerId: event.pointerId, y: event.clientY, originY: y, alt: event.altKey, moved: false,
+    drag.current = { pointerId: event.pointerId, y: event.clientY, originY: y, originClientY: event.clientY, alt: event.altKey, moved: false, moving,
       anchor: handle && previous ? previous[handle === 'start' ? 'end' : 'start'] : anchor, originBlock, handle,
       handleOffset: handle && previous ? boundaryY(previous[handle], equal(previous) ? 'start' : handle, blocks) - y : 0, previous }
     document.documentElement.classList.add('segment-dragging')
+    if (moving) document.documentElement.classList.add('segment-moving')
     stage.current!.setPointerCapture(event.pointerId)
-    if (!handle) select(originBlock >= 0 ? { start: edge(originBlock), end: edge(originBlock + 1) } : { start: anchor, end: anchor })
+    if (!handle && !moving) select(originBlock >= 0 ? { start: edge(originBlock), end: edge(originBlock + 1) } : { start: anchor, end: anchor })
     tick.current()
     return true
   }
@@ -167,19 +181,15 @@ export function useSegmentSelection(props: Props) {
     return next
   }
   function commit(next: MoteDocument, current: SegmentRange, payload: SegmentClipboard | null = null) {
-    const { history, editor, stage, doc } = live.current
+    const { doc } = live.current
     // Locate both insertion boundaries even when adjacent spaces merge.
-    const extent = (node: NonNullable<MoteDocument['content']['content']>[number]) => node.type === 'spacer' ? node.attrs!.height as number : 1
-    const prefix = doc.content.content!.slice(0, current.start.index).reduce((sum, node) => sum + extent(node), current.start.offset)
-    function pointAt(remaining: number) {
-      for (const [index, node] of next.content.content!.entries()) {
-        const size = extent(node)
-        if (remaining < size - .0001) return { index, offset: node.type === 'spacer' ? Math.max(0, remaining) : 0 }
-        remaining -= size
-      }
-      return edge(next.content.content!.length)
-    }
-    const start = pointAt(prefix), end = pointAt(prefix + (payload?.content.reduce((sum, node) => sum + extent(node), 0) ?? 0))
+    const prefix = segmentPosition(doc.content.content!, current.start)
+    const size = payload ? segmentPosition(payload.content, edge(payload.content.length)) : 0
+    commitSelection(next, { start: segmentPointAt(next.content.content!, prefix), end: segmentPointAt(next.content.content!, prefix + size) }, !!payload)
+  }
+  function commitSelection(next: MoteDocument, selection: SegmentRange, keepSelection = true) {
+    const { history, editor, stage } = live.current
+    const { start, end } = selection
     history.boundary(); history.setDoc(next); history.boundary()
     select(null)
     requestAnimationFrame(() => {
@@ -189,9 +199,22 @@ export function useSegmentSelection(props: Props) {
       editor.view.dispatch(editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(position))))
       stage.current!.focus({ preventScroll: true })
       content.current = next.content
-      if (payload) select({ start, end })
+      if (keepSelection) select({ start, end })
       else insertion.current = start
     })
+  }
+  function drop() {
+    const d = drag.current
+    release()
+    if (!d?.moving || !d.moved || !d.destination || !d.previous) return
+    const { doc, geometry, history } = live.current
+    try {
+      if (reserved(d.previous)) throw new Error('Accept or discard the selected AI task before moving this segment.')
+      const next = moveSegment(doc, d.previous, d.destination, snapshotAnchors(), geometry)
+      if (next.doc === doc) return
+      if (!history.guard.current(doc, next.doc)) throw new Error('Accept or discard the affected AI task before moving this segment.')
+      commitSelection(next.doc, next.range)
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'This segment could not be moved.') }
   }
   function copy(event: ClipboardEvent) {
     const current = selected.current, { editable, doc, anchors, geometry } = live.current
@@ -241,8 +264,8 @@ export function useSegmentSelection(props: Props) {
       if (live.current.doc === doc) commit(next, target, payload)
     } catch (error) { setNotice(error instanceof Error ? error.message : 'The clipboard does not contain a valid Mote segment.') }
   }
-  const actions = useRef({ adjust, release, select, clear, copy, paste, refresh })
-  actions.current = { adjust, release, select, clear, copy, paste, refresh }
+  const actions = useRef({ adjust, release, select, clear, copy, paste, refresh, drop })
+  actions.current = { adjust, release, select, clear, copy, paste, refresh, drop }
   useLayoutEffect(() => {
     if (!props.editable || !props.editor) return
     let frame = 0
@@ -263,12 +286,13 @@ export function useSegmentSelection(props: Props) {
       const d = drag.current
       if (!d || event.pointerId !== d.pointerId) return
       event.preventDefault()
-      if (Math.abs(event.clientY - d.y) >= 1) d.moved = true
+      if (Math.abs(event.clientY - (d.moving ? d.originClientY : d.y)) >= (d.moving ? 4 : 1)) d.moved = true
       d.y = event.clientY; d.alt = event.altKey
       actions.current.adjust()
     }
-    function finish(event: PointerEvent) { if (event.pointerId === drag.current?.pointerId) actions.current.release() }
-    function cancel() {
+    function finish(event: PointerEvent) { if (event.pointerId === drag.current?.pointerId) actions.current.drop() }
+    function cancel(event?: Event) {
+      if (event instanceof PointerEvent && event.pointerId !== drag.current?.pointerId) return
       const d = drag.current
       actions.current.release()
       if (d) actions.current.select(d.previous)
@@ -345,8 +369,8 @@ export function useSegmentSelection(props: Props) {
   const overlay = props.editable && <div className={`segment-layer${range ? ' has-segment' : ''}`}>
     <div className="segment-gutter" data-segment-control="gutter" title="Drag to select a segment · Alt splits explicit spaces" />
     {range && <>
-      {paint.bands.map((box, index) => <div className="segment-band" key={index} style={styleBox(box)} />)}
-      {paint.objects.map(box => <div className="segment-object" data-segment-object={box.id} key={box.id} style={styleBox(box)} />)}
+      {paint.bands.map((box, index) => <div className="segment-band" data-segment-control="move" title="Drag to move segment · Alt splits spaces" key={index} style={styleBox(box)} />)}
+      {paint.objects.map(box => <div className="segment-object" data-segment-control="move" title="Drag to move segment · Alt splits spaces" data-segment-object={box.id} key={box.id} style={styleBox(box)} />)}
       {(['start', 'end'] as const).map(side => {
         const offset = equal(range) ? 0 : Math.max(0, 24 - (paint.bottom - paint.top) * props.scale) / 2 * (side === 'start' ? -1 : 1)
         return <div className="segment-boundary" key={side} style={{ top: ((side === 'start' ? paint.top : paint.bottom) + 1) * props.scale }}>
@@ -355,6 +379,7 @@ export function useSegmentSelection(props: Props) {
           style={{ transform: `translateY(${offset}px)` }}
           onKeyDown={event => handleKey(side, event)}>{marker}</button>
       </div>})}
+      {dropY !== null && <div className="segment-drop" style={{ top: (dropY + 1) * props.scale }}><span>Move here</span></div>}
     </>}
   </div>
   return { begin, clear, overlay, notice,

@@ -1,9 +1,10 @@
 .segment-layer { --segment-cursor: var(--ui-segment-cursor); }
 .segment-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
 html.segment-dragging, html.segment-dragging * { cursor: var(--ui-segment-cursor) !important; }
+html.segment-moving, html.segment-moving * { cursor: grabbing !important; }
 .stage:focus { outline: none; }
 .segment-gutter { position: absolute; left: -24px; top: 0; bottom: 0; width: 24px; pointer-events: auto; cursor: var(--segment-cursor); touch-action: none; }
-.segment-band, .segment-object { position: absolute; background: var(--ui-accent-tint-strong); }
+.segment-band, .segment-object { position: absolute; background: var(--ui-accent-tint-strong); pointer-events: auto; touch-action: none; cursor: grab; }
 .segment-object { outline: 1px solid var(--ui-accent-border); border-radius: 2px; }
 .segment-boundary { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--ui-accent); }
 .segment-handle-join { position: absolute; left: -3px; width: 3px; border-left: 1px solid var(--ui-accent); border-block: 1px solid var(--ui-accent); }
@@ -11,4 +12,6 @@ html.segment-dragging, html.segment-dragging * { cursor: var(--ui-segment-cursor
 .segment-handle svg { display: block; width: 20px; height: 20px; fill: currentColor; }
 .segment-handle:hover, .segment-handle:focus-visible { background: var(--ui-accent-surface); }
 .segment-handle:focus-visible { z-index: 1; }
+.segment-drop { position: absolute; left: 0; right: 0; border-top: 2px solid var(--ui-accent); }
+.segment-drop span { position: absolute; top: 3px; left: 4px; padding: 2px 5px; border-radius: 3px; background: var(--ui-accent); color: var(--ui-on-accent); font-size: 10px; }
 .segment-notice { position: absolute; z-index: 8; bottom: 12px; left: 24px; max-width: min(500px, calc(100% - 48px)); margin: 0; padding: 9px 12px; border: 1px solid var(--ui-accent-border); border-radius: 6px; background: var(--ui-surface); color: var(--ui-accent); font-size: 12px; box-shadow: 0 2px 8px var(--ui-shadow); }

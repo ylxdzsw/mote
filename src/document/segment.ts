@@ -526,6 +526,80 @@ function payloadEndpointPoint(payload: SegmentClipboard, end: LineEnd, geometry:
   return { x: end.x, y: sourcePayloadAnchorTop(payload, end.anchorId) + end.y }
 }
 
+const segmentExtent = (node: JSONContent) => isSpacer(node) ? blockHeight(node) : 1
+
+export function segmentPosition(content: JSONContent[], point: SegmentPoint) {
+  return content.slice(0, point.index).reduce((sum, node) => sum + segmentExtent(node), point.offset)
+}
+
+export function segmentPointAt(content: JSONContent[], position: number): SegmentPoint {
+  for (const [index, node] of content.entries()) {
+    const size = segmentExtent(node)
+    if (position < size - .0001) return { index, offset: isSpacer(node) ? Math.max(0, position) : 0 }
+    position -= size
+  }
+  return { index: content.length, offset: 0 }
+}
+
+export function moveSegment(doc: MoteDocument, range: SegmentRange, destination: SegmentPoint,
+  anchors: readonly { id: string; top: number; bottom?: number }[], geometry: Geometries): { doc: MoteDocument; range: SegmentRange } {
+  const canonical = canonicalRange(doc, range), blocks = blocksOf(doc)
+  const target = canonicalPoint(destination, blocks)
+  const start = segmentPosition(blocks, canonical.start), end = segmentPosition(blocks, canonical.end), at = segmentPosition(blocks, target)
+  if (start === end || at >= start && at <= end) return { doc, range: canonical }
+
+  const payload = copySegment(doc, canonical, anchors, geometry)
+  const used = new Set<string>()
+  collectNodeIds(doc.content, used)
+  for (const object of doc.floating) { used.add(object.id); if ('content' in object) collectNodeIds(object.content, used) }
+  let position = 0
+  // Split only the source and destination spaces. Ordinary blocks keep their IDs.
+  const pieces = blocks.flatMap(block => {
+    const from = position, size = segmentExtent(block)
+    position += size
+    const cuts = [0, ...[...new Set([start, end, at])].filter(cut => cut > from && cut < position).map(cut => cut - from).sort((a, b) => a - b), size]
+    return cuts.slice(0, -1).map((offset, i) => ({
+      originalId: blockId(block)!, offset, from: from + offset, moved: from + offset >= start && from + offset < end,
+      block: { ...clone(block), attrs: { ...block.attrs, id: i ? freshId(used) : blockId(block), ...(isSpacer(block) && { height: cuts[i + 1] - offset }) } },
+    }))
+  })
+  const moving = pieces.filter(piece => piece.moved), retained = pieces.filter(piece => !piece.moved)
+  const prefix = retained.filter(piece => piece.from < at)
+  const ordered = [...prefix, ...moving, ...retained.filter(piece => piece.from >= at)]
+  const removedHeight = at > end ? topAtPoint(canonical.end, blocks, anchors) - payload.originTop : 0
+  const insertionTop = topAtPoint(target, blocks, anchors) - removedHeight
+  const prefixAnchors = prefix.map(piece => ({ id: blockId(piece.block)!,
+    top: anchorTop(piece.originalId, anchors) + piece.offset - (piece.from >= end ? removedHeight : 0) }))
+  const { blocks: content, aliases } = normalizeSpacers(ordered.map(piece => piece.block))
+  const mapRetained = (point: AnchorMapping) => {
+    const piece = pieces.findLast(piece => piece.originalId === point.anchorId && piece.offset <= point.y)
+    return piece ? applyAlias({ anchorId: blockId(piece.block)!, y: point.y - piece.offset }, aliases) : point
+  }
+  const mapMoved = (point: AnchorMapping, absoluteY?: number) => {
+    const piece = moving.find(piece => piece.originalId === point.anchorId)
+    if (piece) return applyAlias({ anchorId: blockId(piece.block)!, y: point.y }, aliases)
+    const offset = (absoluteY ?? sourcePayloadAnchorTop(payload, point.anchorId) + point.y) - payload.originTop
+    // Upward-extending free endpoints need a preceding anchor, not clamping to the segment's top.
+    const mapped = offset < 0 ? absoluteToAnchor({ x: 0, y: Math.max(0, insertionTop + offset) }, prefixAnchors)
+      : { anchorId: blockId(moving[0].block)!, y: offset }
+    return applyAlias(mapped, aliases)
+  }
+  const movedObjects = new Map(payload.floating.map(object => [object.id, object]))
+  const floating = doc.floating.map(original => {
+    const moved = movedObjects.get(original.id), object = moved ?? original
+    const next = { ...object, ...(moved ? mapMoved(object, geometry[object.id]?.y) : mapRetained(object)) }
+    if (next.kind === 'line' && original.kind === 'line' && object.kind === 'line') {
+      const mapEnd = (end: LineEnd, source: LineEnd) => ({ ...end, ...(moved ? mapMoved(end) : mapRetained(end)), ...(source.connection && { connection: source.connection }) })
+      next.start = mapEnd(object.start, original.start)
+      next.end = mapEnd(object.end, original.end)
+    }
+    return next
+  })
+  const insertion = at < start ? at : at - (end - start)
+  return { doc: { ...doc, content: { ...doc.content, content }, floating },
+    range: { start: segmentPointAt(content, insertion), end: segmentPointAt(content, insertion + end - start) } }
+}
+
 export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: SegmentClipboard | null, anchors: readonly { id: string; top: number }[], geometry: Geometries): MoteDocument {
   const canonical = canonicalRange(doc, range)
   if (payload) validateClipboard(payload)
