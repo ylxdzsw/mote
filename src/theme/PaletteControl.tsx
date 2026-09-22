@@ -172,7 +172,7 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
     <div className="palette-entries">
       <article className="palette-entry palette-primary" aria-label="Primary family">
         <div className="palette-entry-heading"><strong>Primary</strong></div>
-        <p className="hint">Theme hue colors the interface and Primary. Its Strong and Soft tones are automatic.</p>
+        <p className="hint">Theme hue colors interface accents and Primary. Its Strong and Soft tones are automatic.</p>
         <label className="theme-hue-label" htmlFor="theme-hue">Theme hue <output>{theme.hue}°</output></label>
         <input id="theme-hue" className="theme-hue" aria-label="Theme hue" type="range" min="0" max="359" step="1" value={theme.hue}
           onFocus={() => history.begin('theme-hue')} onBlur={history.boundary}
