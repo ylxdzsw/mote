@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
-import { paletteColor } from './palette'
+import { paletteColor, paletteEntries } from './palette'
 import { PaletteControl, PaletteEditor } from './PaletteControl'
 import { MathView } from '../canvas/MathView'
 
@@ -16,7 +16,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
     '--inline-neutral-surface': subtle,
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
   }
-  for (const entry of theme.palette) {
+  for (const entry of paletteEntries(theme)) {
     const soft = entry.soft ?? subtle
     variables[`--palette-${entry.id}`] = entry.strong
     variables[`--palette-${entry.id}-soft`] = soft

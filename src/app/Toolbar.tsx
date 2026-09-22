@@ -6,7 +6,7 @@ import { blockClasses, type BlockClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
 import { classLabel } from '../theme/ThemePanel'
-import { neutralIds, paletteColor } from '../theme/palette'
+import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
 import type { CreationTool } from '../canvas/DocumentCanvas'
 import './toolbar.css'
 
@@ -171,13 +171,13 @@ const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Ima
 const neutralSet = new Set<string>(neutralIds)
 
 function colorEntries(theme: Theme) {
-  return theme.palette.filter(entry => entry.id === 'ink' || entry.id === 'muted' || !neutralSet.has(entry.id))
+  return paletteEntries(theme).filter(entry => entry.id === 'ink' || entry.id === 'muted' || !neutralSet.has(entry.id))
 }
 
 function swatchColor(theme: Theme, reference: string | null | 'mixed') {
   if (!reference || reference === 'mixed') return undefined
   const [id, tone] = reference.split(':')
-  const entry = theme.palette.find(value => value.id === id)
+  const entry = paletteEntries(theme).find(value => value.id === id)
   return tone === 'soft' ? entry?.soft ?? entry?.strong : entry?.strong
 }
 

@@ -77,6 +77,7 @@ function themeStyle(value: unknown, path: string): void {
 
 function checkTheme(value: unknown): void {
   const theme = record(value, 'theme')
+  if (finite(theme.hue, 'theme.hue', 0) >= 360) invalid('theme.hue must be less than 360')
   if ('autospace' in theme && typeof theme.autospace !== 'boolean') invalid('theme.autospace must be a boolean')
   const defaults = record(theme.defaults, 'theme.defaults')
   for (const property of ['family', 'size', 'color', 'background', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {

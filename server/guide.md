@@ -8,7 +8,7 @@ Mote is a local-first browser application. The read-only source tree has `src/do
 
 Supported floating kinds are text (the omitted kind is text), table, image, rectangle, ellipse, line, label, katex, and html. An HTML widget stores author HTML and an embedded screenshot; its HTML is untrusted and must not be executed by the backend or placed in an authenticated Mote page. For an object target, candidate geometry is not authoritative: retain the target ID and let the frontend rebind exact target geometry. Existing-object candidates retain the existing kind. A new placeholder (`target.isNew: true`) may become any supported floating kind; the frontend keeps the selected kind stable for later revisions. For a segment target, author the composition's native geometry and anchors as described below; the segment has no single object ID or fixed-height box.
 
-The current palette uses references such as `ink`, `muted`, `key-idea`, or `key-idea:soft`; raw native colors do not belong in a candidate. Rich text uses paragraph nodes, text and hard breaks, and only the current bold, color, and box/underline marks. Preserve stable paragraph IDs when returning text content.
+The current palette uses references such as `ink`, `muted`, `primary`, or `primary:soft`; raw native colors do not belong in a candidate. Primary is a permanent family generated from `theme.hue` (OKLCH degrees, 0 inclusive to 360 exclusive). It is not stored in `theme.palette` or segment/clipboard palettes; both Primary references always follow the destination theme hue. `src/theme/colors.ts` defines its generated Strong and Soft tones. The four neutral roles remain, and user-defined families have explicit Strong/Soft hex colors. Rich text uses paragraph nodes, text and hard breaks, and only the current bold, color, and box/underline marks. Preserve stable paragraph IDs when returning text content.
 
 A drawn reservation is a **generic floating-object area**, not a request for an image or HTML widget. Its empty HTML placeholder is only a size/placement carrier, not an output-kind instruction. Choose the native kind that fits: **katex for formulas/equations**, text for rich prose, table for structured cells, rectangle/ellipse/line/label for simple diagrams, image for raster artwork, and html for actual interactivity or custom web rendering. Prefer native KaTeX over HTML or a screenshot for mathematical notation. Native objects do not need an HTML harness or screenshot.
 
@@ -46,10 +46,10 @@ For example, this is a complete small segment:
       {"type":"spacer","attrs":{"id":"ai-space","height":96}}
     ],
     "floating": [
-      {"id":"ai-shape","kind":"rectangle","anchorId":"ai-space","x":120,"y":12,"width":180,"height":64,"textFlow":"overlap","fill":"key-idea:soft","stroke":"ink","strokeWidth":1,"dashed":false,"rounded":true},
+      {"id":"ai-shape","kind":"rectangle","anchorId":"ai-space","x":120,"y":12,"width":180,"height":64,"textFlow":"overlap","fill":"primary:soft","stroke":"ink","strokeWidth":1,"dashed":false,"rounded":true},
       {"id":"ai-label","kind":"label","anchorId":"ai-space","x":120,"y":12,"width":180,"textFlow":"overlap","content":{"type":"doc","content":[{"type":"paragraph","attrs":{"semantic":"label"},"content":[{"type":"text","text":"A native shape"}]}]},"attachment":{"targetId":"ai-shape","position":"center"}}
     ],
-    "palette":[{"id":"key-idea","name":"Key idea","strong":"#355b43","soft":"#e9efdf"}],
+    "palette":[],
     "geometry":{"ai-shape":{"x":120,"y":40,"width":180,"height":64},"ai-label":{"x":120,"y":40,"width":180,"height":24}},
     "anchorTops":{"ai-paragraph":0,"ai-space":28},
     "originTop":0

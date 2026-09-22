@@ -11,12 +11,12 @@ import { validateCandidate, validateRequest } from './validation.mjs'
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const svg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`
 const theme = {
+  hue: 145,
   defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: { title: {}, heading: {}, body: {}, caption: {}, code: {}, list: {}, table: {}, label: {}, math: {} },
   palette: [
     { id: 'ink', name: 'Ink', strong: '#303830' }, { id: 'muted', name: 'Muted', strong: '#687166' },
     { id: 'subtle', name: 'Subtle', strong: '#e8ece3' }, { id: 'paper', name: 'Paper', strong: '#fffefa' },
-    { id: 'key-idea', name: 'Key idea', strong: '#355b43', soft: '#e9efdf' },
   ],
 }
 function document(kind = 'text') {
@@ -34,7 +34,7 @@ function segmentDocument() {
     { type: 'paragraph', attrs: { id: 'seg-p2', semantic: 'body' }, content: [{ type: 'text', text: 'Last' }] },
   ]
   doc.floating = [
-    { id: 'seg-shape', kind: 'rectangle', anchorId: 'seg-space', x: 40, y: 24, width: 160, height: 60, textFlow: 'overlap', fill: 'key-idea:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true },
+    { id: 'seg-shape', kind: 'rectangle', anchorId: 'seg-space', x: 40, y: 24, width: 160, height: 60, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true },
     { id: 'seg-label', kind: 'label', anchorId: 'seg-space', x: 40, y: 24, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'Shape' }] }] }, attachment: { targetId: 'seg-shape', position: 'center' } },
     { id: 'seg-widget', kind: 'html', anchorId: 'seg-p2', x: 40, y: 12, width: 120, height: 80, textFlow: 'overlap', html: '<p>source</p>', screenshot: svg, alt: 'Source widget' },
   ]
@@ -48,7 +48,7 @@ function segmentPayload(withWidgets = false) {
     { type: 'paragraph', attrs: { id: 'candidate-p', semantic: 'heading' }, content: [{ type: 'text', text: 'Generated composition' }] },
     { type: 'spacer', attrs: { id: 'candidate-space', height: 72 } },
   ]
-  const rectangle = { id: 'candidate-shape', kind: 'rectangle', anchorId: 'candidate-p', x: 32, y: 12, width: 160, height: 60, textFlow: 'overlap', fill: 'key-idea:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
+  const rectangle = { id: 'candidate-shape', kind: 'rectangle', anchorId: 'candidate-p', x: 32, y: 12, width: 160, height: 60, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
   const label = { id: 'candidate-label', kind: 'label', anchorId: 'candidate-p', x: 32, y: 12, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'Generated shape' }] }] }, attachment: { targetId: 'candidate-shape', position: 'center' } }
   const floating = [rectangle, label]
   const geometry = { 'candidate-shape': { x: 32, y: 12, width: 160, height: 60 }, 'candidate-label': { x: 32, y: 12, width: 160, height: 24 } }
@@ -56,7 +56,7 @@ function segmentPayload(withWidgets = false) {
     floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, textFlow: 'overlap', html: `<button>${id}</button>`, alt: id })
     geometry[id] = { x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80 }
   }
-  return { version: 'V0', type: 'segment', content, floating, palette: [{ id: 'key-idea', name: 'Key idea', strong: '#355b43', soft: '#e9efdf' }], geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
+  return { version: 'V0', type: 'segment', content, floating, palette: [], geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
 }
 function pngHeader(width, height) { const header = Buffer.alloc(24); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header); header.write('IHDR', 12); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20); return header }
 async function app(options = {}) {

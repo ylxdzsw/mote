@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { ReadDocument } from '../canvas/ReadDocument'
 import type { MoteDocument } from '../document/model'
 import { useMedia } from '../app/useMedia'
+import { uiThemeVariables } from '../theme/ui'
 import '../app/styles.css'
 
 function readDocument(): MoteDocument {
@@ -13,7 +14,7 @@ function readDocument(): MoteDocument {
 
 function Reader({ initial }: { initial: MoteDocument }) {
   const smallScreen = useMedia('(max-width: 1050px)')
-  return <div className="app">
+  return <div className="app" style={uiThemeVariables(initial.theme.hue)}>
     <main className="workspace reader">
       <ReadDocument initial={initial} minimap={!smallScreen} />
     </main>

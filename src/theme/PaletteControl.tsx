@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import type { PaletteEntry, Theme } from '../document/model'
 import { useHistory } from '../document/history'
-import { neutralIds, paletteColor, replacePaletteEntry } from './palette'
+import { neutralIds, paletteColor, paletteEntries, paletteEntryUsed, replacePaletteEntry } from './palette'
+import { primaryEntry } from './colors'
 import './palette.css'
 
 export type PaletteControlOptional = 'none' | 'default'
@@ -33,7 +34,7 @@ export function PaletteControl({ theme, label, value, onChange, optional, fallba
       {tones && <span aria-hidden="true" />}
       <label className="palette-choice-name" htmlFor={`${group}-optional`}>{optionalName}</label>
     </div>}
-    {theme.palette.map(entry => <div className="palette-choice-row" key={entry.id}>
+    {paletteEntries(theme).map(entry => <div className="palette-choice-row" key={entry.id}>
       {choice(entry.id, entry.soft ? `${entry.name} · Strong` : entry.name, entry.strong)}
       {tones && (entry.soft ? choice(`${entry.id}:soft`, `${entry.name} · Soft`, entry.soft) : <span aria-hidden="true" />)}
       <label className="palette-choice-name" htmlFor={`${group}-${entry.id}`}>{entry.name}</label>
@@ -141,9 +142,14 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
   }
   function startDelete(entry: PaletteEntry) {
     if (isNeutral(entry.id)) return
+    history.boundary()
+    if (doc && !paletteEntryUsed(doc, entry.id)) {
+      onChange({ ...theme, palette: theme.palette.filter(value => value.id !== entry.id) })
+      setDeleting(null)
+      return
+    }
     setDeleting(entry.id)
     setReplacement('')
-    history.boundary()
   }
   function removeEntry() {
     if (!deleting || !replacement) return
@@ -159,10 +165,31 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
 
   const deletingEntry = theme.palette.find(entry => entry.id === deleting)
   const page = paletteColor(theme, theme.defaults.background)
+  const primary = primaryEntry(theme.hue)
   return <section className="panel-section palette-editor" aria-label="Document palette">
     <h2>Palette</h2>
     <p className="hint">Named colors are shared by text and floating objects. Strong colors are used for ink; soft colors are for surfaces.</p>
     <div className="palette-entries">
+      <article className="palette-entry palette-primary" aria-label="Primary family">
+        <div className="palette-entry-heading"><strong>Primary</strong></div>
+        <p className="hint">Theme hue colors the interface and Primary. Its Strong and Soft tones are automatic.</p>
+        <label className="theme-hue-label" htmlFor="theme-hue">Theme hue <output>{theme.hue}°</output></label>
+        <input id="theme-hue" className="theme-hue" aria-label="Theme hue" type="range" min="0" max="359" step="1" value={theme.hue}
+          onFocus={() => history.begin('theme-hue')} onBlur={history.boundary}
+          onPointerDown={() => history.begin('theme-hue')} onPointerUp={history.boundary} onPointerCancel={history.boundary}
+          onChange={event => { history.begin('theme-hue'); onChange({ ...theme, hue: Number(event.target.value) }) }} />
+        <div className="palette-primary-tones">
+          <span><i style={{ background: primary.strong }} />Strong <code>{primary.strong.toUpperCase()}</code></span>
+          <span><i style={{ background: primary.soft }} />Soft <code>{primary.soft.toUpperCase()}</code></span>
+        </div>
+        <div className="palette-tone-preview" aria-label="Primary preview" style={{ color: primary.strong }}>
+          <span style={{ background: page }}>Aa</span><span style={{ background: primary.soft }}>Aa</span>
+        </div>
+        <div className="palette-contrast-list" aria-label="Primary contrast checks">
+          <ContrastCheck label="Strong / page" first={primary.strong} second={page} />
+          <ContrastCheck label="Strong / soft" first={primary.strong} second={primary.soft} />
+        </div>
+      </article>
       {theme.palette.map(entry => <PaletteEntryRow key={entry.id} entry={entry} theme={theme}
         onChange={(patch, field) => editEntry(entry.id, patch, field)} onDelete={() => startDelete(entry)} />)}
     </div>

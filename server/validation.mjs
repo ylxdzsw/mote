@@ -9,6 +9,7 @@ const MAX_STRING = 8 * 1024 * 1024
 const DANGEROUS = new Set(['__proto__', 'constructor', 'prototype'])
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 const NEUTRALS = new Set(['ink', 'muted', 'subtle', 'paper'])
+const PRIMARY = new Set(['primary', 'primary-soft', 'primary-surface'])
 
 export class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -92,11 +93,12 @@ function embeddedImage(value, label) {
 }
 
 function palette(document) {
-  const entries = new Map()
+  const entries = new Map([['primary', { soft: true }]])
   if (!Array.isArray(document.theme.palette)) throw new HttpError(400, 'theme.palette must be an array')
   for (const value of document.theme.palette) {
     const entry = record(value, 'theme.palette entry')
     safeId(entry.id, 'theme.palette.id')
+    if (PRIMARY.has(entry.id)) throw new HttpError(400, 'Primary is generated from theme.hue, not stored in the palette')
     if (entries.has(entry.id)) throw new HttpError(400, 'duplicate palette ID')
     text(entry.name, 'theme.palette.name', 256, true)
     for (const [key, colorValue] of [['strong', entry.strong], ['soft', entry.soft]]) {
@@ -114,6 +116,7 @@ function palette(document) {
   }
   ref(document.theme.defaults.color, 'theme.defaults.color')
   ref(document.theme.defaults.background, 'theme.defaults.background')
+  for (const style of Object.values(document.theme.blocks)) if (style.color !== undefined) ref(style.color, 'theme block color')
   const visit = node => {
     for (const mark of node.marks ?? []) if (mark.type === 'color') ref(record(mark.attrs, 'mark.attrs').color, 'mark color')
     node.content?.forEach(visit)
@@ -127,6 +130,7 @@ function palette(document) {
 
 function theme(value) {
   const valueObject = record(value, 'theme')
+  if (finite(valueObject.hue, 'theme.hue', 0) >= 360) throw new HttpError(400, 'theme.hue must be less than 360')
   if (valueObject.autospace !== undefined && typeof valueObject.autospace !== 'boolean') throw new HttpError(400, 'theme.autospace must be a boolean')
   const defaults = record(valueObject.defaults, 'theme.defaults')
   for (const key of ['family', 'size', 'color', 'background', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) if (!(key in defaults)) throw new HttpError(400, `theme.defaults.${key} is missing`)
@@ -199,6 +203,7 @@ function validateSegmentPalette(entries) {
   for (const [index, value] of entries.entries()) {
     const entry = record(value, `candidate.segment.palette[${index}]`)
     safeId(entry.id, `candidate.segment.palette[${index}].id`)
+    if (PRIMARY.has(entry.id)) throw new HttpError(400, 'Primary follows the destination theme; omit it from the segment palette')
     if (byId.has(entry.id)) throw new HttpError(400, 'candidate.segment.palette IDs must be unique')
     text(entry.name, `candidate.segment.palette[${index}].name`, 256, true)
     if (!/^#[0-9a-f]{6}$/i.test(entry.strong ?? '')) throw new HttpError(400, 'candidate.segment palette colors must be six-digit hex')
@@ -312,10 +317,10 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   const references = new Set()
   for (const node of payload.content) segmentPaletteReferences(node, references)
   for (const object of objects.values()) segmentObjectPaletteReferences(object, references)
-  const available = new Set(['ink', 'muted', 'subtle', 'paper', ...paletteById.keys()])
+  const available = new Set(['primary', 'ink', 'muted', 'subtle', 'paper', ...paletteById.keys()])
   for (const reference of references) {
     const [id, tone, ...rest] = reference.split(':')
-    if (rest.length || !available.has(id) || (tone !== undefined && (tone !== 'soft' || !paletteById.get(id)?.soft))) throw new HttpError(400, 'candidate.segment references an unknown palette color')
+    if (rest.length || !available.has(id) || (tone !== undefined && (tone !== 'soft' || (id !== 'primary' && !paletteById.get(id)?.soft)))) throw new HttpError(400, 'candidate.segment references an unknown palette color')
   }
   for (const object of objects.values()) if (object.kind === 'html' && object.screenshot === undefined && !screenshotIds.has(object.id)) throw new HttpError(400, 'candidate.segment HTML objects need screenshots')
   const paths = segmentScreenshotPathMap(options.screenshotPaths, payload)
@@ -504,9 +509,11 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     const candidateObject = hasScreenshotPath && (candidate.object.kind ?? 'text') === 'html' ? { ...candidate.object } : candidate.object
     if (hasScreenshotPath) delete candidateObject.screenshot
     validateFloating(candidateObject, 'candidate.object', { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath }); output.object = candidateObject
+    palette({ ...document, content: { type: 'doc' }, floating: [candidateObject] })
   } else if (selectedTarget.kind === 'text') {
     if (!Array.isArray(candidate.content) || !candidate.content.length || candidate.content.length > 128) throw new HttpError(400, 'candidate.content is required')
     candidate.content.forEach((node, i) => content(node, `candidate.content[${i}]`)); output.content = candidate.content
+    palette({ ...document, content: { type: 'doc', content: candidate.content }, floating: [] })
   } else {
     if (!candidate.segment) throw new HttpError(400, 'candidate.segment is required')
     let screenshotPaths

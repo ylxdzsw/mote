@@ -3,7 +3,7 @@ import type { FloatingObject, LineEnd, MoteDocument, PaletteEntry } from './mode
 import { defaultTheme } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
-import { neutralIds } from '../theme/palette'
+import { neutralIds, primaryVariables } from '../theme/palette'
 import type { Geometry, Geometries } from '../canvas/floatingGeometry'
 
 export const SEGMENT_MIME = 'application/x-mote-segment+json'
@@ -320,7 +320,7 @@ function uniquePaletteId(id: string, existing: Set<string>) {
 export function mergePalette(doc: MoteDocument, payload: Pick<SegmentClipboard, 'content' | 'floating' | 'palette'>) {
   const palette = doc.theme.palette.map(clone)
   const byId = new Map(palette.map(entry => [entry.id, entry]))
-  const ids = new Set(palette.flatMap(entry => paletteNames(entry.id)))
+  const ids = new Set([...primaryVariables, ...palette.flatMap(entry => paletteNames(entry.id))])
   const references = new Set<string>()
   for (const block of payload.content) paletteReferences(block, references)
   for (const object of payload.floating) objectPaletteReferences(object, references)

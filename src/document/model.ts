@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { SpaceMerge, SpaceShift } from '../editor/spaces'
+import { defaultHue } from '../theme/colors'
 import exampleMath from './examples/math.tex?raw'
 import attentionHTML from './examples/attention.html?raw'
 import attentionScreenshot from './examples/attention.png?inline'
@@ -32,6 +33,7 @@ export interface PaletteEntry {
 }
 
 export interface Theme {
+  hue: number
   autospace?: boolean
   defaults: Omit<BlockStyle, 'size'> & { size: number; background: string }
   blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
@@ -39,6 +41,7 @@ export interface Theme {
 }
 
 export const defaultTheme: Theme = {
+  hue: defaultHue,
   defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
     title: { size: '3em', color: 'ink', family: 'serif', lineHeight: '3.5em' },
@@ -56,7 +59,6 @@ export const defaultTheme: Theme = {
     { id: 'muted', name: 'Muted', strong: '#687166' },
     { id: 'subtle', name: 'Subtle', strong: '#e8ece3' },
     { id: 'paper', name: 'Paper', strong: '#fffefa' },
-    { id: 'key-idea', name: 'Key idea', strong: '#355b43', soft: '#e9efdf' },
     { id: 'detail', name: 'Detail', strong: '#425f87', soft: '#e8eef7' },
     { id: 'term', name: 'Term', strong: '#875a35', soft: '#f6edde' },
     { id: 'caution', name: 'Caution', strong: '#984b38', soft: '#fae9e1' },
@@ -202,7 +204,7 @@ export function createDocument(): MoteDocument {
           ...paragraph(''),
           content: [
             { type: 'text', text: 'Some thoughts want a line. Others need ' },
-            { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'key-idea' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
+            { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'primary' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
             { type: 'text', text: '. Mote brings both into the same document.' },
           ],
         },
@@ -280,7 +282,7 @@ export function createDocument(): MoteDocument {
       textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: true,
     }, {
       id: ellipseId, kind: 'ellipse', anchorId: spaceId, x: 304, y: 48, width: 96, height: 80,
-      textFlow: 'overlap', fill: 'key-idea:soft', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
+      textFlow: 'overlap', fill: 'primary:soft', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
     }, {
       id: crypto.randomUUID(), kind: 'line', anchorId: spaceId, x: 247, y: 88, width: 57,
       textFlow: 'overlap', stroke: null, strokeWidth: 1, dashed: true, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true,
