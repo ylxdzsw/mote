@@ -11,6 +11,8 @@ import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
 import { reservationExtension } from './reservations'
 import type { AIReview } from '../ai/ReviewControls'
+import { paragraphClipboard } from './paragraphClipboard'
+import type { MoteDocument, PaletteEntry } from '../document/model'
 
 interface Props {
   content: JSONContent
@@ -29,6 +31,8 @@ interface Props {
 
 export function TextEditor({ content, editable, spatial = false, table = false, singleLabel = false, onFinish, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
   const history = useHistory()
+  const clipboardHistory = useRef(history)
+  clipboardHistory.current = history
   const palette = useRef(new Set<string>())
   palette.current = new Set(paletteSwatches(history.doc!.theme).map(swatch => swatch.value))
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
@@ -36,7 +40,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const syncedRevision = useRef(-1)
   const review = useRef(aiReview)
   review.current = editable ? aiReview : undefined
-  const schema = useMemo(() => [...extensions(spatial, table, singleLabel, onFinish), reservationExtension(history, historyId, review)], [spatial, table, singleLabel, onFinish, historyId])
+  const schema = useMemo(() => [...extensions(spatial, table, singleLabel, onFinish), paragraphClipboard(clipboardHistory, historyId, !table && !singleLabel), reservationExtension(history, historyId, review)], [spatial, table, singleLabel, onFinish, historyId])
   const editor = useEditor({
     extensions: schema,
     content,
@@ -76,13 +80,19 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
       onActive(editor)
     },
     onUpdate: ({ editor, transaction }) => {
+      const pastedPalette = transaction.getMeta('paragraphPalette') as PaletteEntry[] | undefined
+      const pastedDocument = transaction.getMeta('paragraphDocument') as MoteDocument | undefined
       const typing = !transaction.getMeta('historyBoundary') && !transaction.getMeta('paste') && transaction.steps.length === 1
         && transaction.steps[0] instanceof ReplaceStep && transaction.steps[0].slice.content.childCount <= 1
         && (!transaction.steps[0].slice.content.firstChild || transaction.steps[0].slice.content.firstChild.isText)
       history.edit({ editorId: historyId, before: before.current,
         composition: transaction.getMeta('composition'),
-        group: typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
-      () => onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift')))
+        group: pastedPalette ? crypto.randomUUID() : typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
+      () => {
+        if (pastedDocument) history.setDoc({ ...pastedDocument, content: editor.getJSON() })
+        else onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift'))
+        if (pastedPalette) history.setDoc(doc => doc && ({ ...doc, theme: { ...doc.theme, palette: pastedPalette } }))
+      })
     },
   })
 

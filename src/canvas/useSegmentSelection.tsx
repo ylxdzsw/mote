@@ -6,6 +6,7 @@ import type { MoteDocument } from '../document/model'
 import { copySegment, moveSegment, parseSegment, replaceSegment, segmentObjectIds, segmentPointAt, segmentPosition, segmentText, serializeSegment, SEGMENT_MIME, type SegmentClipboard, type SegmentPoint, type SegmentRange } from '../document/segment'
 import { isComposingKey } from '../editor/composition'
 import { floatingClipboardJSON } from '../document/floatingClipboard'
+import { paragraphClipboardJSON, parseParagraphs } from '../document/paragraphClipboard'
 import type { Anchor, Box, Geometries } from './floatingGeometry'
 import './segment.css'
 
@@ -236,7 +237,9 @@ export function useSegmentSelection(props: Props) {
     if (floatingClipboardJSON(event.clipboardData)) return
     const current = selected.current
     if (!current && !insertion.current && !editor.isFocused) return
-    let json = event.clipboardData.getData(SEGMENT_MIME)
+    const paragraphs = paragraphClipboardJSON(event.clipboardData)
+    if (paragraphs && !current && !insertion.current) return
+    let json = paragraphs || event.clipboardData.getData(SEGMENT_MIME)
     if (!json) {
       const html = event.clipboardData.getData('text/html')
       if (html.includes('data-mote-segment')) json = new DOMParser().parseFromString(html, 'text/html').querySelector('[data-mote-segment]')?.getAttribute('data-mote-segment') ?? ''
@@ -247,12 +250,14 @@ export function useSegmentSelection(props: Props) {
     }
     event.preventDefault(); event.stopImmediatePropagation()
     try {
-      const payload = parseSegment(json)
+      const payload = paragraphs ? parseParagraphs(json) : parseSegment(json)
       let target = current ?? (insertion.current ? { start: insertion.current, end: insertion.current } : null)
       if (!target) {
         const selection = editor.state.selection, start = selection.$from.index(0)
         if (selection.empty) {
-          const index = start + (selection.$from.depth > 0 && selection.$from.parentOffset === selection.$from.parent.content.size && selection.$from.parent.content.size > 0 ? 1 : 0)
+          const paragraph = selection.$from.parent.type.name === 'paragraph'
+          const empty = paragraph && !selection.$from.parent.content.size
+          const index = start + (paragraph && !empty ? 1 : 0)
           target = { start: edge(index), end: edge(index) }
         } else {
           const end = Math.min(doc.content.content!.length, selection.$to.index(0) + (selection.$to.depth > 0 && selection.$to.parentOffset > 0 ? 1 : 0))
