@@ -11,6 +11,7 @@ import { paletteColor } from '../theme/palette'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
+import { useParagraphInsertion } from './useParagraphInsertion'
 import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
@@ -27,7 +28,7 @@ import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/ReviewControls'
 
-export type CreationTool = 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
+export type CreationTool = 'paragraph' | 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
 export interface CanvasActions {
   remove: () => void; duplicate: () => void; label: () => void; detach: () => void
   insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[]
@@ -101,6 +102,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     onStart: () => { cancel(); select([]); setActiveSegmentId(null); onActive(null); onToolChange(null) } })
+  const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
+  useLayoutEffect(() => { if (tool === 'paragraph') { segments.clear(); setActiveSegmentId(null) } }, [tool])
   useLayoutEffect(() => {
     if (!projection.previews.length) {
       sourceContext.current = segments.context()
@@ -321,6 +324,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
+    if (tool === 'paragraph') { paragraphs.insert(event); return }
     if (segments.begin(event)) return
     segments.clear()
     const target = event.target as Element
@@ -655,7 +659,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         '--scaled-page-width': `${doc.width * scale}px`, '--crop-left': sideSpace ? sideInsets.left / sideSpace : 0,
         height: `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
-      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && (tool || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
+      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((tool && tool !== 'paragraph') || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
@@ -693,6 +697,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         </g>)}</svg>}
       </div>
       {segments.overlay}
+      {paragraphs.hint && <div className="segment-layer" aria-hidden="true"><div className="segment-drop" style={{ top: (paragraphs.hint.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Insert paragraph</span></div></div>}
       </div>
     </div>
     {editable && aiReview?.tasks.some(task => task.target.kind === 'segment') && <OriginalGeometry doc={doc} onMeasure={(source, context) => {
@@ -700,6 +705,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       setMeasuredSource(previous => previous?.doc === source && previous.signature === signature ? previous : { doc: source, context, signature })
     }} />}
     {(clipboardNotice || segments.notice) && <p className="segment-notice" role="status">{clipboardNotice || segments.notice}</p>}
+    {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
       <button aria-label="Zoom out" disabled={scale <= minScale} onClick={() => zoomBy(1 / 1.1)}>−</button>

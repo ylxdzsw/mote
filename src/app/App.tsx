@@ -361,7 +361,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       }}
       theme={doc.theme} onPalette={() => openThemeClass('palette')} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
       onInsert={(kind, columns, rows) => {
-        if (kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
+        if (kind === 'paragraph' || kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
         } else {
           setTool(null)

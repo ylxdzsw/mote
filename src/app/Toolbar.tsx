@@ -10,12 +10,13 @@ import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
 import type { CreationTool } from '../canvas/DocumentCanvas'
 import './toolbar.css'
 
-type InsertKind = 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
+type InsertKind = 'paragraph' | 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
 type IconName = BlockClass | InsertKind | 'ai-text' | 'ai-object' | 'plain' | 'bold' | 'color' | 'box' | 'underline' | 'clear' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, ReactNode> = {
     body: <path d="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" />,
+    paragraph: <path d="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" />,
     heading: <path d="M6 5v14M18 5v14M6 12h12" />,
     title: <path d="M4 8V4h16v4M12 4v13M8 17h8M5 21h14" />,
     caption: <><rect x="4" y="4" width="16" height="9" rx="1" /><path d="M7 17h10M9 20h6" /></>,
@@ -166,8 +167,8 @@ function selectedClasses(editor: Editor | null) {
 }
 
 const paragraphQuick = ['heading', 'list', 'code'] as const
-const insertKinds: InsertKind[] = ['text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
-const insertLabels: Record<InsertKind, string> = { text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
+const insertKinds: InsertKind[] = ['paragraph', 'text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
+const insertLabels: Record<InsertKind, string> = { paragraph: 'Paragraph', text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
 const neutralSet = new Set<string>(neutralIds)
 
 function colorEntries(theme: Theme) {
@@ -208,7 +209,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalett
     else chain.setMark('decoration', { decoration }).run()
   }
   const clearInline = () => editor?.chain().focus().unsetMark('bold').unsetMark('color').unsetMark('decoration').run()
-  const insertionDisabled = (kind: InsertKind) => ['text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
+  const insertionDisabled = (kind: InsertKind) => ['paragraph', 'text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
   const insertionLabel = (kind: InsertKind) => kind === 'image' && imageLoading ? 'Opening image…' : kind === 'html' && imageLoading ? 'Opening screenshot…' : `${['rectangle', 'ellipse', 'line'].includes(kind) ? 'Draw' : 'Insert'} ${insertLabels[kind].toLowerCase()}`
   const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
   const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
@@ -254,7 +255,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalett
     <div className="tool-group" role="group" aria-label="Insert">
       <ToolMenu label={tool ? `Insert · ${classLabel(tool)} tool active` : 'Insert'} armed={!!tool} items={insertKinds.map(kind => ({
         id: kind, label: insertLabels[kind], icon: <Icon name={kind} />, action: () => onInsert(kind), disabled: insertionDisabled(kind),
-        separator: ['image', 'rectangle'].includes(kind), checked: ['rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
+        separator: ['text', 'image', 'rectangle'].includes(kind), checked: ['paragraph', 'rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
         hint: ['image', 'html'].includes(kind) && imageLoading ? 'Opening…' : undefined,
       }))}><Icon name="plus" /></ToolMenu>
       <TablePicker disabled={!canInsert} onInsert={(columns, rows) => onInsert('table', columns, rows)} />
