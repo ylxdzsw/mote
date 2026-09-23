@@ -24,22 +24,22 @@
 .ai-transcript-entry.request { font-family: inherit; margin: 14px 0 12px; padding: 9px 11px; background: var(--ui-accent-soft); border-radius: 5px; }
 .ai-transcript-entry.request:first-child { margin-top: 0; }
 .ai-transcript-entry h3, .ai-agent-label { margin: 0 0 4px; font: 600 10px/1.5 system-ui, sans-serif; color: var(--ui-muted); }
-.ai-transcript :is(.ansi-black-fg, .ansi-bright-black-fg) { color: #526052; }
-.ai-transcript :is(.ansi-red-fg, .ansi-bright-red-fg) { color: #a33430; }
-.ai-transcript :is(.ansi-green-fg, .ansi-bright-green-fg) { color: #38633c; }
-.ai-transcript :is(.ansi-yellow-fg, .ansi-bright-yellow-fg) { color: #806016; }
-.ai-transcript :is(.ansi-blue-fg, .ansi-bright-blue-fg) { color: #345d9a; }
-.ai-transcript :is(.ansi-magenta-fg, .ansi-bright-magenta-fg) { color: #83517d; }
-.ai-transcript :is(.ansi-cyan-fg, .ansi-bright-cyan-fg) { color: #287278; }
-.ai-transcript :is(.ansi-white-fg, .ansi-bright-white-fg) { color: #526052; }
-.ai-transcript :is(.ansi-black-bg, .ansi-bright-black-bg) { background: #e4e7e1; }
-.ai-transcript :is(.ansi-red-bg, .ansi-bright-red-bg) { background: #f5e1dc; }
-.ai-transcript :is(.ansi-green-bg, .ansi-bright-green-bg) { background: #e4efdf; }
-.ai-transcript :is(.ansi-yellow-bg, .ansi-bright-yellow-bg) { background: #f4ecd0; }
-.ai-transcript :is(.ansi-blue-bg, .ansi-bright-blue-bg) { background: #e1eaf6; }
-.ai-transcript :is(.ansi-magenta-bg, .ansi-bright-magenta-bg) { background: #eee0ec; }
-.ai-transcript :is(.ansi-cyan-bg, .ansi-bright-cyan-bg) { background: #dcefed; }
-.ai-transcript :is(.ansi-white-bg, .ansi-bright-white-bg) { background: #fffefa; }
+.ai-transcript :is(.ansi-black-fg, .ansi-bright-black-fg) { color: var(--ui-ansi-black); }
+.ai-transcript :is(.ansi-red-fg, .ansi-bright-red-fg) { color: var(--ui-ansi-red); }
+.ai-transcript :is(.ansi-green-fg, .ansi-bright-green-fg) { color: var(--ui-ansi-green); }
+.ai-transcript :is(.ansi-yellow-fg, .ansi-bright-yellow-fg) { color: var(--ui-ansi-yellow); }
+.ai-transcript :is(.ansi-blue-fg, .ansi-bright-blue-fg) { color: var(--ui-ansi-blue); }
+.ai-transcript :is(.ansi-magenta-fg, .ansi-bright-magenta-fg) { color: var(--ui-ansi-magenta); }
+.ai-transcript :is(.ansi-cyan-fg, .ansi-bright-cyan-fg) { color: var(--ui-ansi-cyan); }
+.ai-transcript :is(.ansi-white-fg, .ansi-bright-white-fg) { color: var(--ui-ansi-white); }
+.ai-transcript :is(.ansi-black-bg, .ansi-bright-black-bg) { background: var(--ui-ansi-black-bg); }
+.ai-transcript :is(.ansi-red-bg, .ansi-bright-red-bg) { background: var(--ui-ansi-red-bg); }
+.ai-transcript :is(.ansi-green-bg, .ansi-bright-green-bg) { background: var(--ui-ansi-green-bg); }
+.ai-transcript :is(.ansi-yellow-bg, .ansi-bright-yellow-bg) { background: var(--ui-ansi-yellow-bg); }
+.ai-transcript :is(.ansi-blue-bg, .ansi-bright-blue-bg) { background: var(--ui-ansi-blue-bg); }
+.ai-transcript :is(.ansi-magenta-bg, .ansi-bright-magenta-bg) { background: var(--ui-ansi-magenta-bg); }
+.ai-transcript :is(.ansi-cyan-bg, .ansi-bright-cyan-bg) { background: var(--ui-ansi-cyan-bg); }
+.ai-transcript :is(.ansi-white-bg, .ansi-bright-white-bg) { background: var(--ui-ansi-white-bg); }
 .ai-latest { position: absolute; bottom: 8px; right: 16px; background: var(--ui-surface); box-shadow: 0 2px 6px var(--ui-shadow); }
 .ai-connection { padding: 7px 16px; color: var(--ui-muted); font-size: 11px; }
 .ai-task-result { flex: none; max-height: 24vh; overflow: auto; padding: 0 16px; font-size: 11px; }

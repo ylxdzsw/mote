@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { StrictMode, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ReadDocument } from '../canvas/ReadDocument'
 import type { MoteDocument } from '../document/model'
@@ -14,7 +14,8 @@ function readDocument(): MoteDocument {
 
 function Reader({ initial }: { initial: MoteDocument }) {
   const smallScreen = useMedia('(max-width: 1050px)')
-  return <div className="app" style={uiThemeVariables(initial.theme.hue)}>
+  const uiStyle = useMemo(() => uiThemeVariables(initial.theme), [initial.theme])
+  return <div className="app" style={uiStyle}>
     <main className="workspace reader">
       <ReadDocument initial={initial} minimap={!smallScreen} />
     </main>

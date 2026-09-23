@@ -1,5 +1,23 @@
 export const defaultHue = 145
 
+function channels(hex: string) {
+  return [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16))
+}
+
+export function mixHex(from: string, to: string, amount: number) {
+  const target = channels(to)
+  return `#${channels(from).map((value, index) => Math.round(value + (target[index] - value) * amount).toString(16).padStart(2, '0')).join('')}`
+}
+
+export function contrastRatio(first: string, second: string) {
+  const luminance = (hex: string) => channels(hex).reduce((sum, channel, index) => {
+    const value = channel / 255
+    return sum + (value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4) * [.2126, .7152, .0722][index]
+  }, 0)
+  const a = luminance(first), b = luminance(second)
+  return (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
+}
+
 // Reduce chroma at fixed perceived lightness/hue to stay inside sRGB.
 export function oklchHex(lightness: number, chroma: number, hue: number): string {
   const angle = hue * Math.PI / 180

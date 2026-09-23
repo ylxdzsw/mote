@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -77,6 +77,7 @@ function DraftSession(props: DraftProps) {
 function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftProps & { onImport: (doc: MoteDocument) => void }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
+  const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme) : undefined, [doc?.theme])
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext())
@@ -320,7 +321,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     ? newArea ? 'Floating area' : selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : selectedObject.kind === 'rectangle' ? 'Rectangle' : selectedObject.kind === 'ellipse' ? 'Ellipse' : selectedObject.kind === 'line' ? 'Line' : selectedObject.kind === 'label' ? 'Label' : selectedObject.kind === 'katex' ? 'KaTeX' : selectedObject.kind === 'html' ? 'HTML widget' : 'Floating text'
     : 'Main text'
 
-  return <HistoryContext value={history}><div className="app" style={uiThemeVariables(doc.theme.hue)}>
+  return <HistoryContext value={history}><div className="app" style={uiStyle}>
     <header className={`app-header ${editable ? '' : 'floating-header'}`} hidden={mobile}>
       <a className="brand" href="./" aria-label="Mote home"><span className="brand-mark">m</span>Mote</a>
       <div className="document-label">Untitled notebook <span className="version">V0</span></div>

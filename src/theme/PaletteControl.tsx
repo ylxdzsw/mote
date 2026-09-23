@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
 import type { PaletteEntry, Theme } from '../document/model'
 import { useHistory } from '../document/history'
 import { neutralIds, paletteColor, paletteEntries, paletteEntryUsed, replacePaletteEntry } from './palette'
-import { primaryEntry } from './colors'
+import { contrastRatio, primaryEntry } from './colors'
 import './palette.css'
 
 export type PaletteControlOptional = 'none' | 'default'
@@ -52,21 +52,6 @@ function parseHex(value: string): [number, number, number] | null {
   return [0, 1, 2].map(index => parseInt(match[1].slice(index * 2, index * 2 + 2), 16)) as [number, number, number]
 }
 
-function luminance(value: string) {
-  const rgb = parseHex(value)
-  if (!rgb) return null
-  return rgb.reduce((sum, channel, index) => {
-    const linear = channel / 255 <= .03928 ? channel / 255 / 12.92 : ((channel / 255 + .055) / 1.055) ** 2.4
-    return sum + linear * [.2126, .7152, .0722][index]
-  }, 0)
-}
-
-function contrast(first: string, second: string) {
-  const a = luminance(first), b = luminance(second)
-  if (a === null || b === null) return null
-  return (Math.max(a, b) + .05) / (Math.min(a, b) + .05)
-}
-
 function suggestSoft(value: string) {
   const rgb = parseHex(value) ?? [48, 88, 56]
   return `#${rgb.map(channel => Math.round(channel + (255 - channel) * .88).toString(16).padStart(2, '0')).join('')}`
@@ -77,8 +62,7 @@ function isNeutral(id: string) {
 }
 
 function ContrastCheck({ label, first, second }: { label: string; first: string; second: string }) {
-  const ratio = contrast(first, second)
-  if (ratio === null) return null
+  const ratio = contrastRatio(first, second)
   const low = ratio < 4.5
   return <span className={`palette-contrast ${low ? 'is-warning' : 'is-ok'}`} title={`${label}: ${ratio.toFixed(2)}:1; target 4.5:1`}>
     {low ? '⚠ ' : ''}{label} {ratio.toFixed(1)}:1
@@ -168,7 +152,8 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
   const primary = primaryEntry(theme.hue)
   return <section className="panel-section palette-editor" aria-label="Document palette">
     <h2>Palette</h2>
-    <p className="hint">Named colors are shared by text and floating objects. Strong colors are used for ink; soft colors are for surfaces.</p>
+    <p className="hint">Named colors are shared by the document and interface. Ink and Muted color UI text; Subtle colors secondary surfaces. The interface follows Page background in Defaults.</p>
+    <p className="hint">Interface colors adapt when needed for readable contrast. Your palette and document colors stay unchanged.</p>
     <div className="palette-entries">
       <article className="palette-entry palette-primary" aria-label="Primary family">
         <div className="palette-entry-heading"><strong>Primary</strong></div>

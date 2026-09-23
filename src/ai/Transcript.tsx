@@ -40,6 +40,13 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
             container.append(label); state.nodes.push({ element: label, bytes: 0 }); state.agentLabel = true
           }
           block.innerHTML = state[entry.kind].ansi_to_html(entry.text)
+          // Extended terminal colors bypass ANSI classes and may assume a dark
+          // terminal. Use the guarded UI colors; retain bold/italic formatting.
+          for (const span of block.querySelectorAll<HTMLElement>('[style]')) {
+            span.style.removeProperty('color')
+            span.style.removeProperty('background-color')
+            span.style.removeProperty('opacity')
+          }
           block.setAttribute('aria-label', entry.kind === 'stderr' ? 'Agent diagnostic' : 'Agent output')
         }
         container.append(block); state.nodes.push({ element: block, bytes: entry.text.length }); state.bytes += entry.text.length
