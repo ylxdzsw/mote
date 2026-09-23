@@ -2,7 +2,7 @@ import type { MoteDocument, Theme } from '../document/model'
 import type { JSONContent } from '@tiptap/core'
 import { primaryEntry } from './colors'
 
-export const neutralIds = ['ink', 'muted', 'subtle', 'paper'] as const
+export const neutralIds = ['ink', 'muted', 'paper'] as const
 export const primaryVariables = ['primary', 'primary-soft', 'primary-surface']
 export function paletteEntries(theme: Theme) {
   return [primaryEntry(theme.hue), ...theme.palette]
@@ -23,7 +23,7 @@ export function paletteSwatches(theme: Theme) {
 }
 export function softReference(theme: Theme, reference: string) {
   const id = reference.split(':')[0]
-  return paletteEntries(theme).find(entry => entry.id === id)?.soft ? `${id}:soft` : 'subtle'
+  return paletteEntries(theme).find(entry => entry.id === id)?.soft ? `${id}:soft` : 'primary:soft'
 }
 
 export function paletteEntryUsed(doc: MoteDocument, id: string): boolean {

@@ -8,7 +8,7 @@ const MAX_NODES = 100000
 const MAX_STRING = 8 * 1024 * 1024
 const DANGEROUS = new Set(['__proto__', 'constructor', 'prototype'])
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-const NEUTRALS = new Set(['ink', 'muted', 'subtle', 'paper'])
+const NEUTRALS = new Set(['ink', 'muted', 'paper'])
 const PRIMARY = new Set(['primary', 'primary-soft', 'primary-surface'])
 
 export class HttpError extends Error {
@@ -317,7 +317,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   const references = new Set()
   for (const node of payload.content) segmentPaletteReferences(node, references)
   for (const object of objects.values()) segmentObjectPaletteReferences(object, references)
-  const available = new Set(['primary', 'ink', 'muted', 'subtle', 'paper', ...paletteById.keys()])
+  const available = new Set(['primary', ...NEUTRALS, ...paletteById.keys()])
   for (const reference of references) {
     const [id, tone, ...rest] = reference.split(':')
     if (rest.length || !available.has(id) || (tone !== undefined && (tone !== 'soft' || (id !== 'primary' && !paletteById.get(id)?.soft)))) throw new HttpError(400, 'candidate.segment references an unknown palette color')

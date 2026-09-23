@@ -63,7 +63,7 @@ export async function fakeRunner(context) {
       { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
       { type: 'spacer', attrs: { id: spacerId, height: 96 } },
     ]
-    const rectangle = { id: rectangleId, kind: 'rectangle', anchorId: spacerId, x, y: 12, width: rectangleWidth, height: 64, textFlow: 'overlap', fill: 'subtle', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
+    const rectangle = { id: rectangleId, kind: 'rectangle', anchorId: spacerId, x, y: 12, width: rectangleWidth, height: 64, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
     const label = { id: labelId, kind: 'label', anchorId: spacerId, x, y: 12, width: rectangleWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'AI shape' }] }] }, attachment: { targetId: rectangleId, position: 'center' } }
     candidate.segment = { version: 'V0', type: 'segment', content, floating: [rectangle, label], palette: [], geometry: {
       [rectangleId]: { x, y: 40, width: rectangleWidth, height: 64 },

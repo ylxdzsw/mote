@@ -16,7 +16,7 @@ const theme = {
   blocks: { title: {}, heading: {}, body: {}, caption: {}, code: {}, list: {}, table: {}, label: {}, math: {} },
   palette: [
     { id: 'ink', name: 'Ink', strong: '#303830' }, { id: 'muted', name: 'Muted', strong: '#687166' },
-    { id: 'subtle', name: 'Subtle', strong: '#e8ece3' }, { id: 'paper', name: 'Paper', strong: '#fffefa' },
+    { id: 'paper', name: 'Paper', strong: '#fffefa' },
   ],
 }
 function document(kind = 'text') {

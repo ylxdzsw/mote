@@ -5,6 +5,7 @@
 .ai-tabs { display: flex; flex: none; overflow-x: auto; gap: 4px; padding: 0 12px 8px; scrollbar-width: thin; border-bottom: 1px solid var(--border); }
 .ai-tabs button { display: flex; align-items: center; flex: 0 0 auto; gap: 6px; max-width: 160px; padding: 7px 9px; background: transparent; }
 .ai-tabs button[aria-selected=true] { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-border); }
+.ai-tabs button[aria-selected=true]:hover { background: var(--ui-accent-surface); }
 .ai-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ai-tab-status { color: var(--ui-faint); }
 .ai-tab-status:is(.running, .preparing, .queued, .ready) { color: var(--ui-success-strong); }

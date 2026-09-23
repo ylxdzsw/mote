@@ -1,7 +1,8 @@
 .toolbar { position: relative; z-index: 6; display: flex; flex-shrink: 0; gap: 10px; align-items: center; height: 37px; padding: 3px 28px; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); font-size: 12px; }
 .toolbar .tool-group { display: flex; align-items: center; gap: 3px; padding-right: 10px; border-right: 1px solid var(--border); flex-shrink: 0; }
 .toolbar button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 29px; padding: 4px 6px; white-space: nowrap; }
-.toolbar button[aria-pressed='true'], .toolbar .armed { background: var(--ui-accent-surface); border-color: var(--ui-accent-border); color: var(--ui-accent); }
+.toolbar button[aria-pressed='true'], .toolbar .armed { background: var(--ui-accent-soft); border-color: var(--ui-accent-border); color: var(--ui-accent); }
+.toolbar button[aria-pressed='true']:hover, .toolbar .armed:hover { background: var(--ui-accent-surface); }
 .toolbar .tool-quick { min-width: 30px; }
 .tool-icon { display: block; width: 18px; height: 18px; flex-shrink: 0; }
 .tool-menu { position: relative; }
@@ -11,7 +12,8 @@
 .tool-menu-panel { position: absolute; top: calc(100% + 5px); left: 0; min-width: 240px; padding: 5px; border: 1px solid var(--ui-border); border-radius: 9px; background: var(--ui-surface-raised); box-shadow: 0 8px 24px var(--ui-shadow-strong); max-height: calc(100dvh - 100px); overflow-y: auto; }
 .toolbar .tool-menu-panel button { display: flex; width: 100%; height: 34px; gap: 10px; padding-inline: 8px; text-align: left; }
 .tool-menu-panel button:focus-visible { outline-offset: -2px; background: var(--ui-surface-hover); }
-.tool-menu-panel button[aria-checked='true'] { background: var(--ui-accent-soft); }
+.tool-menu-panel button[aria-checked='true'] { color: var(--ui-accent); background: var(--ui-accent-soft); }
+.tool-menu-panel button[aria-checked='true']:is(:hover, :focus-visible) { background: var(--ui-accent-surface); }
 .tool-menu-label { flex: 1; }
 .tool-menu-hint { font-size: 10px; color: var(--muted); }
 .tool-menu-check { width: 12px; color: var(--accent); }

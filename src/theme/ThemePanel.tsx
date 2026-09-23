@@ -10,14 +10,13 @@ export function pixels(value: ThemeLength, base: number) {
 }
 
 export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
-  const subtle = paletteColor(theme, 'subtle')
+  const primarySoft = paletteColor(theme, 'primary:soft')
   const variables: Record<string, string> = {
     '--page-background': paletteColor(theme, theme.defaults.background),
-    '--inline-neutral-surface': subtle,
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
   }
   for (const entry of paletteEntries(theme)) {
-    const soft = entry.soft ?? subtle
+    const soft = entry.soft ?? primarySoft
     variables[`--palette-${entry.id}`] = entry.strong
     variables[`--palette-${entry.id}-soft`] = soft
     variables[`--palette-${entry.id}-surface`] = soft

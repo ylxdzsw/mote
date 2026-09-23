@@ -57,7 +57,6 @@ export const defaultTheme: Theme = {
   palette: [
     { id: 'ink', name: 'Ink', strong: '#303830' },
     { id: 'muted', name: 'Muted', strong: '#687166' },
-    { id: 'subtle', name: 'Subtle', strong: '#e8ece3' },
     { id: 'paper', name: 'Paper', strong: '#fffefa' },
     { id: 'detail', name: 'Detail', strong: '#425f87', soft: '#e8eef7' },
     { id: 'term', name: 'Term', strong: '#875a35', soft: '#f6edde' },

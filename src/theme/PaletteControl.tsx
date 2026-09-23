@@ -152,8 +152,8 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
   const primary = primaryEntry(theme.hue)
   return <section className="panel-section palette-editor" aria-label="Document palette">
     <h2>Palette</h2>
-    <p className="hint">Named colors are shared by the document and interface. Ink and Muted color UI text; Subtle colors secondary surfaces. The interface follows Page background in Defaults.</p>
-    <p className="hint">Interface colors adapt when needed for readable contrast. Your palette and document colors stay unchanged.</p>
+    <p className="hint">Named colors style the document. Theme hue links Primary and the interface, with separate tones for readable controls and subtle surfaces.</p>
+    <p className="hint">Main panels and the minimap share the page background. The canvas surround stays neutral gray on every side. Interface light/dark mode follows the page brightness.</p>
     <div className="palette-entries">
       <article className="palette-entry palette-primary" aria-label="Primary family">
         <div className="palette-entry-heading"><strong>Primary</strong></div>

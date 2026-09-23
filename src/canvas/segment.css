@@ -8,9 +8,9 @@ html.segment-moving, html.segment-moving * { cursor: grabbing !important; }
 .segment-object { outline: 1px solid var(--ui-accent-border); border-radius: 2px; }
 .segment-boundary { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--ui-accent); }
 .segment-handle-join { position: absolute; left: -3px; width: 3px; border-left: 1px solid var(--ui-accent); border-block: 1px solid var(--ui-accent); }
-.segment-handle { position: absolute; right: 100%; top: -12px; width: 24px; height: 24px; padding: 2px; border: 0; border-radius: 3px; pointer-events: auto; touch-action: none; cursor: var(--segment-cursor); color: var(--ui-accent); background: var(--ui-surface); }
+.segment-handle { position: absolute; right: 100%; top: -12px; width: 24px; height: 24px; padding: 2px; border: 0; border-radius: 3px; pointer-events: auto; touch-action: none; cursor: var(--segment-cursor); color: var(--ui-accent); background: var(--ui-gutter); }
 .segment-handle svg { display: block; width: 20px; height: 20px; fill: currentColor; }
-.segment-handle:hover, .segment-handle:focus-visible { background: var(--ui-accent-surface); }
+.segment-handle:hover, .segment-handle:focus-visible { background: var(--ui-workspace-hover); }
 .segment-handle:focus-visible { z-index: 1; }
 .segment-drop { position: absolute; left: 0; right: 0; border-top: 2px solid var(--ui-accent); }
 .segment-drop span { position: absolute; top: 3px; left: 4px; padding: 2px 5px; border-radius: 3px; background: var(--ui-accent); color: var(--ui-on-accent); font-size: 10px; }
