@@ -11,6 +11,7 @@ import { paletteColor } from '../theme/palette'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
+import { useScrollFloor } from './useScrollFloor'
 import { useParagraphInsertion } from './useParagraphInsertion'
 import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
@@ -66,6 +67,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
   const footprint = useRef<HTMLDivElement>(null)
+  const scrollFloor = useScrollFloor(stage, footprint)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const { scale, minScale, automatic, zoomTo, zoomBy, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
@@ -99,7 +101,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const { geometry, anchors, minHeight, sideInsets, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
-  const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) })
+  const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
+  useLayoutEffect(scrollFloor.reset, [doc.id, editable, scale, scrollFloor.reset])
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     onStart: () => { cancel(); select([]); setActiveSegmentId(null); onActive(null); onToolChange(null) } })
   const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
@@ -654,6 +657,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
+      <div className="canvas-scroll-floor" ref={scrollFloor.container}>
       <div className="sheet-footprint" ref={footprint} style={{
         width: editable ? doc.width * scale : `clamp(${(doc.width - sideSpace) * scale}px, 100%, ${doc.width * scale}px)`,
         '--scaled-page-width': `${doc.width * scale}px`, '--crop-left': sideSpace ? sideInsets.left / sideSpace : 0,
@@ -698,6 +702,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       </div>
       {segments.overlay}
       {paragraphs.hint && <div className="segment-layer" aria-hidden="true"><div className="segment-drop" style={{ top: (paragraphs.hint.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Insert paragraph</span></div></div>}
+      </div>
       </div>
     </div>
     {editable && aiReview?.tasks.some(task => task.target.kind === 'segment') && <OriginalGeometry doc={doc} onMeasure={(source, context) => {

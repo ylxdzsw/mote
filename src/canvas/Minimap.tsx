@@ -151,6 +151,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     resize.observe(viewport)
     resize.observe(source)
     resize.observe(source.parentElement!)
+    resize.observe(source.parentElement!.parentElement!)
     resize.observe(rail)
     document.fonts.addEventListener('loadingdone', refresh)
     viewport.addEventListener('scroll', schedule, { passive: true })

@@ -8,7 +8,7 @@ import { isComposingKey } from '../editor/composition'
 interface Target extends SpacePreview { top: number }
 interface Drag { target: Target; y: number; height: number; moved: boolean; pointerId: number; shift?: SpaceShift }
 
-export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, editable: boolean, scale: number, reflow: () => unknown, onActive: () => void) {
+export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, editable: boolean, scale: number, reflow: () => unknown, onActive: () => void, scrollFloor: { begin: () => void; end: () => void }) {
   const history = useHistory()
   const drag = useRef<Drag | null>(null)
   const [hint, setHint] = useState<{ top: number; height: number; dragging: boolean; existing: boolean } | null>(null)
@@ -62,6 +62,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       drag.current = null
       if (previous) {
         preview(null)
+        scrollFloor.end()
         if (surface.hasPointerCapture(previous.pointerId)) surface.releasePointerCapture(previous.pointerId)
       }
       hover()
@@ -101,6 +102,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       }
       editor!.view.dispatch(transaction)
       reflow()
+      scrollFloor.end()
       if (surface.hasPointerCapture(current.pointerId)) surface.releasePointerCapture(current.pointerId)
       hover()
     }
@@ -137,7 +139,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       cancel()
       setHint(null)
     }
-  }, [editor, sheet, editable, scale, reflow, history.revision])
+  }, [editor, sheet, editable, scale, reflow, history.revision, scrollFloor.end])
 
   function begin(event: ReactPointerEvent) {
     if (!event.altKey || !event.isPrimary || !editable || !editor) return false
@@ -155,6 +157,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       })
       shift = { anchors, from: Math.max(target.top, Math.min(target.top + target.height, (event.clientY - rect.top) / scale - surface.clientTop)), delta: 0 }
     }
+    scrollFloor.begin()
     drag.current = { target, y: event.clientY, height: target.height, moved: false, pointerId: event.pointerId, shift }
     sheet.current!.setPointerCapture(event.pointerId)
     setHint({ top: target.top, height: target.height, existing: target.existing, dragging: true })
