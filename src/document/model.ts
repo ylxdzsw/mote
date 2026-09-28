@@ -45,13 +45,13 @@ export const defaultTheme: Theme = {
   defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
     title: { size: '3em', color: 'ink', family: 'serif', lineHeight: '3.5em' },
-    heading: { size: '1.5em', color: 'ink', family: 'serif', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
+    heading: { size: '1.5em', color: 'ink', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
     body: { size: '1em' },
     table: { size: '1em' },
     label: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
     math: {},
     caption: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
-    code: { family: 'mono', size: '0.875em', lineHeight: '1.375em' },
+    code: { size: '0.875em', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
   },
   palette: [
