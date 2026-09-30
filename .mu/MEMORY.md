@@ -899,3 +899,9 @@ Deployed and verified public HTML/all six JS/CSS assets match the final build wi
 The default theme now keeps an explicit serif family only on Title. All other text classes inherit Defaults (sans serif), including Heading and Code; class sizes, spacing, weights, and the available theme typeface choices are unchanged. Existing saved documents retain their authored themes; fresh drafts and Reset to example use the new defaults. Mathematical typesetting and self-contained widget styles are unaffected.
 
 Build/type and whitespace checks passed. Redeployed the demo and verified live computed Title serif and matching sans families for Heading, Body, Caption, Code, List, Table, and Label in an isolated browser, with no application errors. Public HTML matches the build and retains Cache-Control: no-store. The existing bundle-size advisory remains. Test browser closed.
+
+## 2026-09-30 — Single selection-inspector heading
+
+Removed the small element-type title above the left selection inspector; the larger first-section heading now identifies the selection on its own, including main text and multi-object selections. View settings, Document settings, and AI assistant keep their distinct panel titles and close controls.
+
+Build/type and whitespace checks passed. Redeployed and checked main-text and floating-text headings in the live desktop browser, visually reviewed the selected-object panel, and verified View settings still opens/closes. No application browser errors; live HTML matches the build and returns Cache-Control: no-store. Existing bundle-size advisory remains.

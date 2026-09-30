@@ -316,11 +316,6 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
 
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
 
-  const newArea = assistant.tasks.some(task => task.target.kind === 'object' && task.target.isNew && task.target.objectId === selectedObject?.id)
-  const itemType = selectedIds.length > 1 ? `${selectedIds.length} floating objects` : selectedObject
-    ? newArea ? 'Floating area' : selectedObject.kind === 'image' ? 'Floating image' : selectedObject.kind === 'table' ? 'Floating table' : selectedObject.kind === 'rectangle' ? 'Rectangle' : selectedObject.kind === 'ellipse' ? 'Ellipse' : selectedObject.kind === 'line' ? 'Line' : selectedObject.kind === 'label' ? 'Label' : selectedObject.kind === 'katex' ? 'KaTeX' : selectedObject.kind === 'html' ? 'HTML widget' : 'Floating text'
-    : 'Main text'
-
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
     <header className={`app-header ${editable ? '' : 'floating-header'}`} hidden={mobile}>
       <a className="brand" href="./" aria-label="Mote home"><span className="brand-mark">m</span>Mote</a>
@@ -381,9 +376,9 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
       : showInspector && <aside className="inspector" id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
-        <div className="inspector-heading">{viewSettingsOpen || !editable ? 'VIEW SETTINGS' : itemType}
+        {(viewSettingsOpen || !editable) && <div className="inspector-heading">VIEW SETTINGS
           {viewSettingsOpen && <button aria-label="Close view settings" onClick={() => setViewSettingsOpen(false)}>×</button>}
-        </div>
+        </div>}
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
         {editable && !viewSettingsOpen && <>
         {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <section className="panel-section"><h2>AI content reservation</h2><p className="hint">Accept or discard to edit reserved content. Individually reserved objects can move and resize before their first request; segment compositions stay together.</p><button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button></section> : <>
