@@ -31,6 +31,7 @@ import type { AIReview } from '../ai/ReviewControls'
 
 export type CreationTool = 'paragraph' | 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
 export interface CanvasActions {
+  clearSelection: () => void
   remove: () => void; duplicate: () => void; label: () => void; detach: () => void
   insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[]
   segmentSelection: () => { range: SegmentRange; area: Area } | null
@@ -40,6 +41,7 @@ const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
   selectedIds: string[]; onSelect: (ids: string[]) => void
+  onInteraction?: (event: React.SyntheticEvent) => void
   tool: CreationTool; onToolChange: (tool: CreationTool) => void
   onMainChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
@@ -62,7 +64,7 @@ const contentText = (content: JSONContent): string => (content.text ?? '') + (co
 const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
   || (object.kind === 'katex' && !object.latex.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -603,6 +605,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     onNoteChange(object.id, { ...anchorPoint(geometry[object.id], anchors), attachment: null })
   }
   useLayoutEffect(() => { onActions({ remove, duplicate, label, detach, without: withoutObjects, insert: objects => { if (editable) setInserting(current => [...current, ...objects]) },
+    clearSelection: () => {
+      cancel(); segments.clear(); setActiveSegmentId(null); select([])
+      const focused = document.activeElement
+      if (focused instanceof HTMLElement && stage.current?.contains(focused)) focused.blur()
+      const selection = window.getSelection()
+      if (selection?.anchorNode && stage.current?.contains(selection.anchorNode)) selection.removeAllRanges()
+    },
     segmentSelection: segments.selection,
     segmentContext: () => candidates.length ? measuredSource?.doc === doc ? measuredSource.context : undefined : segments.context(),
     locateSegment: id => {
@@ -653,7 +662,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     return lockedIds.has(id) && !aiReview?.tasks.some(task => task.target.kind === 'object' && task.target.objectId === id && canResizeReservation(task))
   }
 
+  function interact(event: React.SyntheticEvent) {
+    // Zoom controls are portaled into the header, outside the document surface.
+    if (event.currentTarget.contains(event.target as Node)) onInteraction?.(event)
+  }
+
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
+    onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
+    onWheelCapture={interact} onDropCapture={interact}
     style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>

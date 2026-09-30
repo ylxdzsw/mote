@@ -107,6 +107,45 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
   const [imageError, setImageError] = useState('')
   const [imageLoading, setImageLoading] = useState(false)
+  const workspace = useRef<HTMLElement>(null)
+  const [panelGesture, setPanelGesture] = useState<{ width: number; pointerId: number } | null>(null)
+
+  useEffect(() => {
+    if (!panelGesture) return
+    let frame = 0
+    const finish = (event: Event) => {
+      if (event instanceof PointerEvent && event.pointerId !== panelGesture.pointerId) return
+      // Let document handlers commit the gesture before Auto zoom sees the new panel width.
+      frame = requestAnimationFrame(() => setPanelGesture(null))
+    }
+    window.addEventListener('pointerup', finish, true)
+    window.addEventListener('pointercancel', finish, true)
+    window.addEventListener('blur', finish)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('pointerup', finish, true)
+      window.removeEventListener('pointercancel', finish, true)
+      window.removeEventListener('blur', finish)
+    }
+  }, [panelGesture])
+
+  useEffect(() => {
+    if (!documentSettingsOpen && !viewSettingsOpen && !assistant.open) return
+    actions.current?.clearSelection()
+    setActiveEditor(null)
+  }, [documentSettingsOpen, viewSettingsOpen, assistant.open])
+
+  function showContext(event?: React.SyntheticEvent) {
+    if (!editable || !documentSettingsOpen && !viewSettingsOpen && !assistant.open) return
+    if (event?.type === 'pointerdown') {
+      setPanelGesture({ width: workspace.current!.firstElementChild!.getBoundingClientRect().width,
+        pointerId: (event as React.PointerEvent).pointerId })
+    }
+    history.boundary()
+    setDocumentSettingsOpen(false)
+    setViewSettingsOpen(false)
+    assistant.setOpen(false)
+  }
 
   useEffect(() => {
     if (selectedIds.some(id => !doc?.floating.some(object => object.id === id))) {
@@ -247,6 +286,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     setSettingsTab('theme')
     setDocumentSettingsOpen(true)
     setViewSettingsOpen(false)
+    assistant.setOpen(false)
   }
 
   function runWidget(id: string) {
@@ -335,7 +375,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
         aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
-        aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen); assistant.setOpen(false) }}>View</button>
+        aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen); setDocumentSettingsOpen(false); assistant.setOpen(false) }}>View</button>
       {!mobile && (writable ? <div className="mode-switch" role="group" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
@@ -371,7 +411,8 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>×</button></div>}
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}<button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>×</button></div>}
 
-    <main className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
+    <main ref={workspace} style={panelGesture && editable ? { gridTemplateColumns: `${panelGesture.width}px minmax(0, 1fr)` } : undefined}
+      className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
       {editable && assistant.open ? <AssistantPanel assistant={assistant} onLocate={locateTask} />
       : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
@@ -425,12 +466,13 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
         </>}
       </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
+        onInteraction={showContext}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}
         aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
           toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: assistant.openTask, deleteTarget: assistant.deleteTarget }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
-        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
+        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { if (ids.length) showContext(); setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
