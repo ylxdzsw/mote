@@ -36,7 +36,7 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
           block.append(label, text)
         } else {
           if (!state.agentLabel) {
-            const label = document.createElement('h3'); label.className = 'ai-agent-label'; label.textContent = 'Agent'
+            const label = document.createElement('h3'); label.className = 'ai-agent-label'; label.textContent = 'Mu'
             container.append(label); state.nodes.push({ element: label, bytes: 0 }); state.agentLabel = true
           }
           block.innerHTML = state[entry.kind].ansi_to_html(entry.text)
@@ -102,6 +102,6 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
     </div>
     {paused && <button className="ai-latest" onClick={() => { following.current = true; setPaused(false); viewport.current!.scrollTop = viewport.current!.scrollHeight }}>↓ Latest</button>}
     {warning && <p className="ai-connection" role="status">{warning}</p>}
-    {connection && <div className="ai-connection" role="status">{connection} <button onClick={() => setRetry(value => value + 1)}>Reconnect</button>{/sign in/i.test(connection) && <> <a href="https://mote.ylxdzsw.com/ai-login" target="_blank" rel="noopener noreferrer">Sign in ↗</a></>}</div>}
+    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button onClick={() => setRetry(value => value + 1)}>Reconnect</button>}{/sign in/i.test(connection) && <> <a href="https://mote.ylxdzsw.com/ai-login" target="_blank" rel="noopener noreferrer">Sign in ↗</a></>}</div>}
   </div>
 }
