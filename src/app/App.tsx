@@ -15,6 +15,7 @@ import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { Toolbar } from './Toolbar'
+import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DocumentFiles } from './DocumentFiles'
 import { useMedia } from './useMedia'
@@ -77,6 +78,7 @@ function DraftSession(props: DraftProps) {
 function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftProps & { onImport: (doc: MoteDocument) => void }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
+  const recentColors = useRecentColors(doc?.id ?? initial.id, doc?.theme ?? initial.theme)
   const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme) : undefined, [doc?.theme])
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
@@ -389,6 +391,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     </div>}
 
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
+      recentColors={recentColors.colors} onColorApplied={recentColors.remember}
       canAIParagraphs={!!mainEditor && !selectedIds.length}
       onAIParagraphs={() => { setTool(null); reserveSelection() }}
       onAIObject={() => {

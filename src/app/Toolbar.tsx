@@ -184,13 +184,14 @@ function swatchColor(theme: Theme, reference: string | null | 'mixed') {
 
 interface Props {
   editor: Editor | null; canInsert: boolean; imageLoading: boolean; theme: Theme; tool: CreationTool
+  recentColors: string[]; onColorApplied: (color: string) => void
   onPalette?: () => void
   onInsert: (kind: InsertKind, columns?: number, rows?: number) => void
   canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void
   onAIParagraphs: () => void; onAIObject: () => void; canAIParagraphs: boolean
 }
 
-export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalette, onInsert, canUndo, canRedo, undo, redo, onAIParagraphs, onAIObject, canAIParagraphs }: Props) {
+export function Toolbar({ editor, canInsert, imageLoading, theme, tool, recentColors, onColorApplied, onPalette, onInsert, canUndo, canRedo, undo, redo, onAIParagraphs, onAIObject, canAIParagraphs }: Props) {
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
   const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
   const inlineDisabled = !editor?.isEditable || !selection.text || selection.code
@@ -199,7 +200,9 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalett
   const applyColor = (color: string | null) => {
     if (!editor) return
     const chain = editor.chain().focus()
-    if (color) chain.setMark('color', { color }).run()
+    if (color) {
+      if (chain.setMark('color', { color }).run()) onColorApplied(color)
+    }
     else chain.unsetMark('color').run()
   }
   const applyDecoration = (decoration: InlineDecorationValue, toggle = true) => {
@@ -241,6 +244,16 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, onPalett
         { id: 'edit-palette', label: 'Edit document palette…', icon: <Icon name="color" />, separator: true, disabled: !onPalette, action: () => onPalette?.() },
         { id: 'clear-inline-color', label: 'Clear inline formatting', icon: <Icon name="clear" />, action: clearInline },
       ]}><span className={`color-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} /></ToolMenu>
+      <div className="recent-colors" role="group" aria-label="Recent text colors">
+        {recentColors.map(color => {
+          const entry = colorEntries(theme).find(entry => entry.id === color)!
+          return <button key={color} aria-label={`Text color: ${entry.name}`} title={`${entry.name} · Click again to inherit`}
+            aria-pressed={!inlineDisabled && selection.color === color} disabled={inlineDisabled}
+            onMouseDown={event => event.preventDefault()} onClick={() => applyColor(selection.color === color ? null : color)}>
+            <span className="palette-swatch" style={{ backgroundColor: entry.strong }} />
+          </button>
+        })}
+      </div>
       <ToolMenu label="Text decoration" className="decoration-compact" disabled={inlineDisabled} items={[
         { id: 'none', label: 'None', icon: <Icon name="plain" />, checked: selection.decoration === null, action: () => editor?.chain().focus().unsetMark('decoration').run() },
         { id: 'box', label: 'Box', icon: <Icon name="box" />, checked: selection.decoration === 'box', action: () => applyDecoration('box', false) },
