@@ -90,7 +90,7 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
 
 export function floatingText(payload: FloatingClipboard) {
   const text = (node: JSONContent): string => node.text ?? (node.type === 'hardBreak' ? '\n' : node.content?.map(text).join(node.type === 'tableRow' ? '\t' : node.type === 'doc' || node.type === 'table' ? '\n' : '') ?? '')
-  return payload.floating.map(object => 'content' in object ? text(object.content) : object.kind === 'katex' ? object.latex : object.kind === 'image' ? object.alt : `[${object.kind}]`).join('\n')
+  return payload.floating.map(object => 'content' in object ? text(object.content) : object.kind === 'code' ? object.source : object.kind === 'katex' ? object.latex : object.kind === 'image' ? object.alt : `[${object.kind}]`).join('\n')
 }
 
 export function floatingClipboardJSON(data: DataTransfer) {

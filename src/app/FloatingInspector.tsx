@@ -6,6 +6,7 @@ import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
 import { neutralIds, softReference } from '../theme/palette'
 import { InspectorField, InspectorGroup, InspectorHelp, InspectorRow } from './Inspector'
+import { codeLanguages } from '../document/code'
 
 interface Props {
   object: FloatingObject
@@ -29,7 +30,7 @@ interface Props {
   onReplaceImage: () => void
 }
 
-const kindName = (object: FloatingObject) => object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'label' ? 'Label' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
+const kindName = (object: FloatingObject) => object.kind === 'code' ? 'Code' : object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'label' ? 'Label' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
 export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, targetKind, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage }: Props) {
   const shape = object.kind === 'rectangle' || object.kind === 'ellipse' ? object as FloatingShape : null
@@ -38,11 +39,21 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = !object.kind || object.kind === 'text'
-  const hasFlow = text || ['image', 'table', 'katex', 'html'].includes(object.kind!)
+  const hasFlow = text || ['image', 'table', 'katex', 'html', 'code'].includes(object.kind!)
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
     <h2>{count > 1 ? `${count} objects` : name}</h2>
     {count === 1 && <>
+      {object.kind === 'code' && <InspectorGroup title="Content">
+        <label className="inspector-field">Language<select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
+          {!codeLanguages.some(language => language.value === object.language) && <option value={object.language}>{object.language || 'Plain text'}</option>}
+          {codeLanguages.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
+        </select></label>
+        <label className="inspector-field">Color scheme<select aria-label="Code color scheme" value={object.scheme} onChange={event => onChange({ scheme: event.target.value as 'light' | 'dark' })}>
+          <option value="light">Light</option><option value="dark">Dark</option>
+        </select></label>
+        <button onClick={() => onTheme('code')}>Code style…</button>
+      </InspectorGroup>}
       {widget && <HTMLWidgetControls value={widget} onChange={onChange} imageLoading={imageLoading} onReplaceScreenshot={onReplaceScreenshot}
         onRun={() => onWidgetRun(widget.id)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {object.kind === 'image' && <InspectorGroup title="Content">
@@ -66,13 +77,14 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       {label && <LabelControls label={label} targetKind={targetKind} onAction={onAction} onChange={onChange} />}
       {katex && <KaTeXControls value={katex} onChange={onChange} onTheme={onTheme} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {hasFlow && <InspectorGroup title="Layout">
+        {object.kind === 'code' && <InspectorField label="Width"><NumberField label="Code width" value={object.width} min={120} max={Math.max(120, maxWidth)} onChange={width => onChange({ width })} /></InspectorField>}
         {widget && <InspectorRow>
           <InspectorField label="Width"><NumberField label="Widget width" value={widget.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
           <InspectorField label="Height"><NumberField label="Widget height" value={widget.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
         </InspectorRow>}
         <label className="inspector-field">Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>
       </InspectorGroup>}
-      {!widget && !katex && <InspectorGroup title={text || label || object.kind === 'table' ? 'Style' : 'Colors'}>
+      {!widget && !katex && object.kind !== 'code' && <InspectorGroup title={text || label || object.kind === 'table' ? 'Style' : 'Colors'}>
         {(text || label || object.kind === 'table') && <button onClick={() => onTheme(label ? 'label' : object.kind === 'table' ? 'table' : textStyle ?? 'body')}>
           {label ? 'Label style…' : object.kind === 'table' ? 'Table style…' : textStyle ? `${classLabel(textStyle)} style…` : 'Text styles…'}
         </button>}
@@ -199,6 +211,7 @@ function LabelControls({ label, targetKind, onAction, onChange }: { label: Float
 function FloatingHelp({ object, count }: { object: FloatingObject; count: number }) {
   if (count > 1) return <p>Drag any selected object to move the group. Select one object alone to edit its contents. Shift-click adds or removes objects from the selection.</p>
   switch (object.kind) {
+    case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. The selected light or dark syntax scheme supplies its own colors independently of the document palette.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
     case 'image': return <p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click to select or create a label. Image files stay in this browser; up to 10 MB per file.</p>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
@@ -206,6 +219,6 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
     case 'line': return <p>Drag the line to move it. Drag an endpoint to reshape or connect it to another object. Alt bypasses snapping. Double-click to select or create a label.</p>
     case 'rectangle': case 'ellipse': return <p>Drag the outline or a filled interior to move the shape. Transparent interiors are click-through. Select it to resize with the corner handles. Alt bypasses snapping. Double-click to select or create a label.</p>
     case 'katex': return <p>Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
-    default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents. Code keeps literal whitespace and uses Tab for two spaces.</p></>
+    default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents.</p></>
   }
 }

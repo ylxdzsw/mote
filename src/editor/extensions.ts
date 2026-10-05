@@ -20,7 +20,6 @@ const SemanticParagraph = Paragraph.extend({
         default: 'body',
         keepOnSplit: false,
         parseHTML: element => {
-          if (element.tagName === 'PRE') return 'code'
           const value = element.getAttribute('data-semantic')
           return blockClasses.find(name => name === value) ?? 'body'
         },
@@ -33,18 +32,16 @@ const SemanticParagraph = Paragraph.extend({
       },
     }
   },
-  parseHTML: () => [{ tag: 'pre', preserveWhitespace: 'full' }, { tag: 'p' }],
-  renderHTML: ({ node, HTMLAttributes }) => node.attrs.semantic === 'code'
-    ? ['pre', HTMLAttributes, ['code', 0]] : ['p', HTMLAttributes, 0],
+  parseHTML: () => [{ tag: 'p' }],
+  renderHTML: ({ HTMLAttributes }) => ['p', HTMLAttributes, 0],
 })
 
 const MainParagraph = SemanticParagraph.extend({
   addNodeView() {
     return ({ node }) => {
-      const code = node.attrs.semantic === 'code'
-      const dom = document.createElement(code ? 'pre' : 'p')
+      const dom = document.createElement('p')
       dom.className = 'main-paragraph'
-      const contentDOM = document.createElement(code ? 'code' : 'span')
+      const contentDOM = document.createElement('span')
       contentDOM.className = 'paragraph-content'
       dom.append(contentDOM)
       const attributes = (value: typeof node) => {
@@ -62,7 +59,7 @@ const MainParagraph = SemanticParagraph.extend({
       return {
         dom, contentDOM,
         update(next) {
-          if (next.type !== node.type || (next.attrs.semantic === 'code') !== code) return false
+          if (next.type !== node.type) return false
           attributes(next)
           return true
         },

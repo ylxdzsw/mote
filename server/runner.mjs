@@ -47,6 +47,8 @@ export async function fakeRunner(context) {
     candidate.object = structuredClone(document.floating.find(object => object.id === context.target.objectId))
     if (candidate.object?.kind === 'html') {
       candidate.object.html = '<button id="mote-fake-button" type="button">AI draft: 0</button><script>document.querySelector("button").addEventListener("click", event => { event.currentTarget.textContent = `AI draft: ${Number(event.currentTarget.textContent.split(\": \")[1] || 0) + 1}` })</script>'
+    } else if (candidate.object?.kind === 'code') {
+      candidate.object.source = `AI draft\n${candidate.object.source}`
     } else if ((candidate.object?.kind ?? 'text') === 'text' && candidate.object.content?.content?.[0]) {
       const first = candidate.object.content.content[0]
       candidate.object.content = { ...candidate.object.content, content: [{ ...first, content: [{ type: 'text', text: `AI draft: ${textOf(first) || 'generated note'}` }] }, ...candidate.object.content.content.slice(1)] }

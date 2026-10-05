@@ -6,6 +6,7 @@ export const MAX_RESULT = 8 * 1024 * 1024
 export const MAX_SCREENSHOT = 10 * 1024 * 1024
 const MAX_NODES = 100000
 const MAX_STRING = 8 * 1024 * 1024
+const SAFE_LANGUAGE = /^[A-Za-z0-9][A-Za-z0-9_+.-]{0,63}$/
 const DANGEROUS = new Set(['__proto__', 'constructor', 'prototype'])
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 const NEUTRALS = new Set(['ink', 'muted', 'paper'])
@@ -49,6 +50,7 @@ function content(value, label = 'content', state = { count: 0, depth: 0 }) {
   if ('text' in node) text(node.text, `${label}.text`)
   if ('attrs' in node && node.attrs != null) {
     const attrs = record(node.attrs, `${label}.attrs`)
+    if (node.type === 'paragraph' && attrs.semantic === 'code') throw new HttpError(400, `${label}.attrs.semantic code paragraphs are unsupported`)
     if ('id' in attrs) safeId(attrs.id, `${label}.attrs.id`)
     if ('height' in attrs) finite(attrs.height, `${label}.attrs.height`, 0)
     if ('listLevel' in attrs) { finite(attrs.listLevel, `${label}.attrs.listLevel`, 0); if (!Number.isInteger(attrs.listLevel)) throw new HttpError(400, `${label}.attrs.listLevel must be an integer`) }
@@ -168,10 +170,16 @@ export function validateFloating(value, label = 'floating object', options = {})
   if (kind === 'image') { embeddedImage(object.src, `${label}.src`); text(object.alt, `${label}.alt`, 4096) }
   else if (kind === 'katex') text(object.latex, `${label}.latex`)
   else if (kind === 'html') { text(object.html, `${label}.html`); if (!(options.allowMissingScreenshot && object.screenshot === undefined)) embeddedImage(object.screenshot, `${label}.screenshot`); text(object.alt, `${label}.alt`, 4096); finite(object.height, `${label}.height`, Number.MIN_VALUE) }
+  else if (kind === 'code') {
+    text(object.source, `${label}.source`)
+    const language = text(object.language, `${label}.language`, 64, true)
+    if (!SAFE_LANGUAGE.test(language)) throw new HttpError(400, `${label}.language must be a safe identifier`)
+    if (!['light', 'dark'].includes(object.scheme)) throw new HttpError(400, `${label}.scheme must be light or dark`)
+  }
   else if (kind === 'rectangle' || kind === 'ellipse') { finite(object.height, `${label}.height`, Number.MIN_VALUE); for (const key of ['fill', 'stroke']) if (object[key] !== null) text(object[key], `${label}.${key}`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); if (typeof object.dashed !== 'boolean' || typeof object.rounded !== 'boolean') throw new HttpError(400, 'invalid shape settings') }
   else if (kind === 'line') { lineEnd(object.start, `${label}.start`); lineEnd(object.end, `${label}.end`); if (object.stroke !== null) text(object.stroke, `${label}.stroke`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); finite(object.bend, `${label}.bend`); if (!['straight', 'elbow'].includes(object.route) || typeof object.dashed !== 'boolean' || typeof object.arrowStart !== 'boolean' || typeof object.arrowEnd !== 'boolean') throw new HttpError(400, 'invalid line settings') }
   else if (kind === 'label') { if (!(object.attachment === null || object.attachment && typeof object.attachment === 'object')) throw new HttpError(400, 'invalid label attachment'); if (object.attachment) { safeId(object.attachment.targetId, 'label target'); if (!['center', 'top-inside', 'top-outside', 'bottom-inside', 'bottom-outside', 'left', 'right', 'above', 'below'].includes(object.attachment.position)) throw new HttpError(400, 'invalid label position') } }
-  else if (!['text', 'table', 'image', 'katex', 'html', 'rectangle', 'ellipse', 'line'].includes(kind)) throw new HttpError(400, 'unsupported floating kind')
+  else if (!['text', 'table', 'image', 'katex', 'html', 'code', 'rectangle', 'ellipse', 'line'].includes(kind)) throw new HttpError(400, 'unsupported floating kind')
   return object
 }
 
@@ -282,7 +290,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     if (topIds.has(attrs.id)) throw new HttpError(400, 'candidate.segment.content block IDs must be unique')
     topIds.add(attrs.id)
     if (node.type === 'spacer') finite(attrs.height, `candidate.segment.content[${index}].attrs.height`, 0)
-    if (node.type === 'paragraph' && attrs.semantic !== undefined && !['title', 'heading', 'body', 'caption', 'code', 'list'].includes(attrs.semantic)) throw new HttpError(400, 'candidate.segment paragraph semantic is unsupported')
+    if (node.type === 'paragraph' && attrs.semantic !== undefined && !['title', 'heading', 'body', 'caption', 'list'].includes(attrs.semantic)) throw new HttpError(400, 'candidate.segment paragraph semantic is unsupported')
   }
   const nodeIds = new Set()
   for (const node of payload.content) segmentNodeIds(node, nodeIds)

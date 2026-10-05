@@ -102,6 +102,7 @@ function inspectContent(value: unknown, path: string): void {
     if ('id' in attrs) identifier(attrs.id, `${path}.attrs.id`)
     if (node.type === 'spacer' && 'height' in attrs) finite(attrs.height, `${path}.attrs.height`, 0)
     if (node.type === 'paragraph' && 'listLevel' in attrs) finite(attrs.listLevel, `${path}.attrs.listLevel`, 0)
+    if (node.type === 'paragraph' && attrs.semantic === 'code') invalid(`${path}: Code is a floating object, not a paragraph class`)
     if (node.type === 'table' && attrs.columns !== null && attrs.columns !== undefined) {
       if (!Array.isArray(attrs.columns)) invalid(`${path}.attrs.columns must be an array`)
       let total = 0
@@ -204,6 +205,12 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   }
   if (kind === 'katex') {
     text(object.latex, `${path}.latex`)
+    return
+  }
+  if (kind === 'code') {
+    text(object.source, `${path}.source`)
+    if (!/^[A-Za-z0-9][A-Za-z0-9_+.-]{0,63}$/.test(text(object.language, `${path}.language`))) invalid(`${path}.language is unsupported`)
+    if (!['light', 'dark'].includes(object.scheme as string)) invalid(`${path}.scheme is unsupported`)
     return
   }
   if (kind === 'html') {

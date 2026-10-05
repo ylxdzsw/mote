@@ -136,7 +136,6 @@ export function paragraphClipboard(history: RefObject<ReturnType<typeof useDocum
                 tr.replaceWith(target.from, target.to, nodes)
                 tr.setSelection(TextSelection.create(tr.doc, target.from + nodes.size - 1))
               } else {
-                if (selection.$from.sameParent(selection.$to) && selection.$from.parent.attrs.semantic === 'code') return false
                 tr.replaceSelection(new Slice(nodes, 1, 1))
               }
               view.dispatch(tr.setMeta('paragraphPalette', palette).setMeta('paste', true).setMeta('uiEvent', 'paste').scrollIntoView())

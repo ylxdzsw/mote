@@ -90,13 +90,6 @@ export const InlineBold = Mark.create({
         const { selection } = editor.state
         if (!editor.isEditable || selection instanceof NodeSelection) return false
         if (!selection.$from.parent.isTextblock && !(selection instanceof CellSelection)) return false
-        if (selection.ranges.some(({ $from, $to }) => {
-          let code = $from.parent.attrs.semantic === 'code' || $to.parent.attrs.semantic === 'code'
-          editor.state.doc.nodesBetween($from.pos, $to.pos, node => {
-            if (node.type.name === 'paragraph' && node.attrs.semantic === 'code') code = true
-          })
-          return code
-        })) return true
         return editor.commands.toggleMark('bold')
       },
     }

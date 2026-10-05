@@ -62,18 +62,8 @@ export const ParagraphBehavior = Extension.create({
   addKeyboardShortcuts() {
     const editor = this.editor
     const current = () => editor.state.selection.$from.parent.attrs.semantic
-    const exitCode = () => {
-      if (current() !== 'code') return false
-      return editor.commands.command(({ tr, state }) => {
-        const pos = tr.selection.$from.after()
-        tr.insert(pos, state.schema.nodes.paragraph.create({ id: crypto.randomUUID(), semantic: 'body' }))
-        tr.setSelection(TextSelection.create(tr.doc, pos + 1)).setMeta('historyBoundary', true).scrollIntoView()
-        return true
-      })
-    }
     return {
       Enter: () => {
-        if (current() === 'code') return editor.commands.setHardBreak()
         if (current() !== 'list') return false
         return editor.commands.command(({ tr }) => {
           tr.deleteSelection()
@@ -83,45 +73,32 @@ export const ParagraphBehavior = Extension.create({
           return true
         })
       },
-      'Ctrl-Enter': exitCode,
-      'Meta-Enter': exitCode,
       Tab: () => {
-        const { $from, $to } = editor.state.selection
-        return current() === 'code' && $from.sameParent($to) ? editor.commands.insertContent('  ') : changeListLevel(editor, 1, true)
+        return changeListLevel(editor, 1, true)
       },
       'Shift-Tab': () => changeListLevel(editor, -1),
       Backspace: () => {
         const selection = editor.state.selection
         const node = selection instanceof NodeSelection ? selection.node : selection.empty && selection.$from.parentOffset === 0 ? selection.$from.parent : null
         if (node?.attrs.semantic === 'list') return changeListLevel(editor, -1)
-        if (node?.attrs.semantic === 'code') return setParagraphClass(editor, 'body')
         return false
       },
     }
   },
   addProseMirrorPlugins() {
-    const editor = this.editor
     return [new Plugin({
       props: {
         transformPastedHTML: flattenLists,
-        handlePaste: (view, event, slice) => {
+        handlePaste: (view, _event, slice) => {
           const { $from, $to } = view.state.selection
           if (!$from.sameParent($to)) return false
-          if ($from.parent.attrs.semantic !== 'code') {
-            const first = slice.content.firstChild
-            if ($from.parentOffset !== 0 || $to.parentOffset !== $to.parent.content.size || !['code', 'list'].includes(first?.attrs.semantic)) return false
-            const tr = view.state.tr.setNodeMarkup($from.before(), undefined, {
-              ...$from.parent.attrs, semantic: first!.attrs.semantic, listLevel: first!.attrs.listLevel,
-            })
-            view.dispatch(tr.replaceSelection(slice).setMeta('paste', true).scrollIntoView())
-            return true
-          }
-          const text = event.clipboardData?.getData('text/plain')
-          if (text === undefined) return false
-          const content = text.replace(/\r\n?/g, '\n').split('\n').flatMap((line, index) => [
-            ...(index ? [{ type: 'hardBreak' }] : []), ...(line ? [{ type: 'text', text: line }] : []),
-          ])
-          return editor.commands.insertContent(content)
+          const first = slice.content.firstChild
+          if ($from.parentOffset !== 0 || $to.parentOffset !== $to.parent.content.size || first?.attrs.semantic !== 'list') return false
+          const tr = view.state.tr.setNodeMarkup($from.before(), undefined, {
+            ...$from.parent.attrs, semantic: first.attrs.semantic, listLevel: first.attrs.listLevel,
+          })
+          view.dispatch(tr.replaceSelection(slice).setMeta('paste', true).scrollIntoView())
+          return true
         },
       },
       appendTransaction: (transactions, _old, state) => {
@@ -130,10 +107,9 @@ export const ParagraphBehavior = Extension.create({
         state.doc.descendants((node, pos) => {
           if (node.type.name !== 'paragraph') return
           if (node.attrs.semantic !== 'list' && node.attrs.listLevel !== 0) tr.setNodeAttribute(pos, 'listLevel', 0)
-          const code = node.attrs.semantic === 'code'
-          if (node.content.content.some(child => child.text?.includes('\n') || (code && child.marks.length))) {
+          if (node.content.content.some(child => child.text?.includes('\n'))) {
             const content = node.content.content.flatMap(child => {
-              const marks = code ? [] : child.marks
+              const marks = child.marks
               return child.isText ? child.text!.split('\n').flatMap((line, index) => [
                 ...(index ? [state.schema.nodes.hardBreak.create(null, null, marks)] : []),
                 ...(line ? [state.schema.text(line, marks)] : []),
@@ -143,7 +119,6 @@ export const ParagraphBehavior = Extension.create({
           }
           return false
         })
-        if (state.selection.$from.parent.attrs.semantic === 'code' && state.storedMarks?.length) tr.setStoredMarks([])
         return tr.docChanged || tr.storedMarksSet ? tr : null
       },
     })]

@@ -2,8 +2,10 @@ import { getSchema } from '@tiptap/core'
 import { extensions } from '../editor/extensions'
 import type { MoteDocument } from './model'
 import { validatePaletteReferences } from '../theme/palette'
+import { validateDocument } from './validate'
 
 export function initializeDocument(draft: MoteDocument): MoteDocument {
+  validateDocument(draft)
   if (draft.version !== 'V0') throw new Error('Unsupported document version')
   if (draft.language !== undefined && !['en', 'zh-Hans'].includes(draft.language)) throw new Error('Unsupported document language')
   if (draft.aiModel !== undefined && (typeof draft.aiModel !== 'string' || draft.aiModel.length > 256 || /[\u0000-\u001F\u007F-\u009F]/.test(draft.aiModel))) throw new Error('Invalid AI model')

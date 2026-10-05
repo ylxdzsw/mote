@@ -7,8 +7,8 @@ import attentionScreenshot from './examples/attention.png?inline'
 import motionHTML from './examples/motion.html?raw'
 import motionScreenshot from './examples/motion.png?inline'
 
-export const blockClasses = ['title', 'heading', 'body', 'caption', 'code', 'list'] as const
-export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math'] as const
+export const blockClasses = ['title', 'heading', 'body', 'caption', 'list'] as const
+export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math', 'code'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
 
@@ -97,6 +97,13 @@ export interface FloatingKaTeX extends FloatingGeometry {
   latex: string
 }
 
+export interface FloatingCode extends FloatingGeometry {
+  kind: 'code'
+  source: string
+  language: string
+  scheme: 'light' | 'dark'
+}
+
 export interface FloatingHTMLWidget extends FloatingGeometry {
   kind: 'html'
   html: string
@@ -132,13 +139,14 @@ export interface FloatingLabel extends FloatingGeometry {
   content: JSONContent
   attachment: LabelAttachment | null
 }
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingLabel | FloatingKaTeX | FloatingHTMLWidget
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingLabel | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
 export type FloatingKind = NonNullable<FloatingObject['kind']>
 export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stroke> & {
   content?: JSONContent; src?: string; alt?: string; height?: number; fill?: string | null; rounded?: boolean
   start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
   attachment?: LabelAttachment | null
   latex?: string; html?: string; screenshot?: string
+  source?: string; language?: string; scheme?: 'light' | 'dark'
   background?: string | null; borderColor?: string | null; padding?: ThemeLength
 }
 
@@ -183,6 +191,7 @@ export function createDocument(): MoteDocument {
   const sketchSpaceId = crypto.randomUUID()
   const reviewSpaceId = crypto.randomUUID()
   const mathSpaceId = crypto.randomUUID()
+  const codeSpaceId = crypto.randomUUID()
   const attentionSpaceId = crypto.randomUUID()
   const motionSpaceId = crypto.randomUUID()
   const rectangleId = crypto.randomUUID(), ellipseId = crypto.randomUUID()
@@ -231,6 +240,9 @@ export function createDocument(): MoteDocument {
         paragraph('A little mathematical language', 'heading'),
         paragraph('One KaTeX object, many ways to express an idea: fractions and roots, Greek letters and sums, integrals and derivatives, matrices, cases, and vectors. Select the formula to explore its LaTeX source.'),
         { type: 'spacer', attrs: { id: mathSpaceId, height: 360 } },
+        paragraph('Keep the source nearby', 'heading'),
+        paragraph('Code has its own small place: a language label, line numbers, and syntax colors. Select it to edit, or copy the source without its frame. Each snippet can use a light or dark scheme.'),
+        { type: 'spacer', attrs: { id: codeSpaceId, height: 200 } },
         paragraph('Let the reader explore', 'heading'),
         paragraph('This ECharts widget lives inside an <attention-chart> custom element with its own shadow DOM. Change the measure, filter a series with its legend, or click a bar: the chart and the detail below it respond together.'),
         paragraph('In editing mode, select a chart to interact with it; deselect it to drag it elsewhere. In reading mode, use it directly. Both charts load ECharts from a CDN and need an internet connection.', 'caption'),
@@ -299,6 +311,10 @@ export function createDocument(): MoteDocument {
     }, {
       id: crypto.randomUUID(), kind: 'katex', anchorId: mathSpaceId,
       x: 135, y: 16, width: 690, textFlow: 'overlap', latex: exampleMath.trim(),
+    }, {
+      id: crypto.randomUUID(), kind: 'code', anchorId: codeSpaceId,
+      x: 135, y: 16, width: 690, textFlow: 'overlap', language: 'javascript', scheme: 'light',
+      source: '// Leave a little room for what comes next.\nconst note = {\n  title: "A little room to think",\n  thoughts: ["Write", "Explore", "Return"],\n}\nconsole.log(note.title)',
     }, {
       id: crypto.randomUUID(), kind: 'html', anchorId: attentionSpaceId,
       x: 135, y: 16, width: 690, height: 400, textFlow: 'overlap',

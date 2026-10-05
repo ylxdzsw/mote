@@ -25,17 +25,15 @@ export function InspectorHelp({ children }: { children: ReactNode }) {
 
 export function TextInspector({ semantic, listLevel, onTheme }: { semantic: string; listLevel: number; onTheme: (name: string) => void }) {
   return <div className="context-inspector">
-    <h2>{semantic === 'code' ? 'Code block' : semantic === 'list' ? `List item · Level ${listLevel + 1}` : 'Text & space'}</h2>
+    <h2>{semantic === 'list' ? `List item · Level ${listLevel + 1}` : 'Text & space'}</h2>
     <InspectorGroup title="Style">
       <button onClick={() => onTheme(semantic)}>{classLabel(semantic)} style…</button>
       <button onClick={() => onTheme('palette')}>Document palette…</button>
       <p className="hint">Styles apply to every paragraph of this class.</p>
     </InspectorGroup>
     {semantic === 'body' && <p className="hint">Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
-    {semantic === 'code' && <p className="hint">Plain text with preserved whitespace. Tab inserts two spaces.</p>}
     {semantic === 'list' && <p className="hint">Tab / Shift+Tab changes this item’s indentation.</p>}
     <InspectorHelp key={semantic}>
-      {semantic === 'code' && <p>Enter inserts a newline. Ctrl/⌘Enter starts a Body paragraph after this block. Backspace at the start returns it to Body.</p>}
       {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
       <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>
       <p>Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection.</p>

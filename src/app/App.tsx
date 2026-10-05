@@ -177,7 +177,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       if (!editable || isComposingKey(event)) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
-      if (target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])')) return
+      if (!target.matches('[data-code-source]') && target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])')) return
       event.preventDefault(); event.stopPropagation()
       if (key === 'y' || event.shiftKey) history.redo(); else history.undo()
     }
@@ -400,7 +400,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       }}
       theme={doc.theme} onPalette={() => openThemeClass('palette')} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
       onInsert={(kind, columns, rows) => {
-        if (kind === 'paragraph' || kind === 'text' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
+        if (kind === 'paragraph' || kind === 'text' || kind === 'code' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
           setTool(tool === kind ? null : kind); setSelectedIds([])
         } else {
           setTool(null)

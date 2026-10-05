@@ -5,6 +5,7 @@ import { TextEditor } from '../editor/TextEditor'
 import { arrowPoints, type Geometry, type Point } from './floatingGeometry'
 import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
+import { CodeView } from './CodeView'
 import { pixels } from '../theme/ThemePanel'
 import { paletteCSS } from '../theme/palette'
 import { ReviewControls, type AIReview } from '../ai/ReviewControls'
@@ -49,11 +50,15 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
     }}
     onDoubleClick={event => {
       if (!editable || locked) return
+      if (kind === 'code') return
       if ('content' in note && event.target !== event.currentTarget) return
       event.preventDefault(); event.stopPropagation(); onLabel()
     }}>
     {note.kind === 'image' ? <img src={note.src} alt={note.alt} draggable={false} />
       : note.kind === 'katex' ? <MathView latex={note.latex} />
+      : note.kind === 'code' ? <CodeView note={note} editable={editable && contentActive && !locked} staticOnly={staticWidgets}
+        onActive={() => onActive(null)} onBegin={event => begin('move', event)}
+        onChange={source => onChange({ source })} />
       : note.kind === 'html' ? <HTMLWidgetView key={locked ? note.html : undefined} note={note} editable={editable} selected={contentActive} run={widgetRun}
         staticOnly={staticWidgets || !!(aiTask?.target.kind === 'object' && aiTask.target.isNew && !(aiTask.preview && aiTask.candidate))} restoreRevision={restoreWidgetRevision} />
       : note.kind === 'rectangle' || note.kind === 'ellipse' ? <svg className="floating-vector" width="100%" height="100%" overflow="visible">

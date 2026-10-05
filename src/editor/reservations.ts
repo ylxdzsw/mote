@@ -51,16 +51,10 @@ function candidateBlock(state: EditorState, serializer: DOMSerializer, json: JSO
   element.classList.add('ai-reserved', 'ai-candidate')
   if (node.type.name === 'paragraph') {
     element.classList.add('main-paragraph')
-    if (element.tagName === 'PRE') {
-      const content = element.firstElementChild ?? document.createElement('code')
-      if (!content.parentElement) { content.append(...element.childNodes); element.append(content) }
-      content.className = 'paragraph-content'
-    } else {
-      const content = document.createElement('span')
-      content.className = 'paragraph-content'
-      content.append(...element.childNodes)
-      element.append(content)
-    }
+    const content = document.createElement('span')
+    content.className = 'paragraph-content'
+    content.append(...element.childNodes)
+    element.append(content)
   } else if (node.type.name === 'spacer') {
     element.dataset.spacer = ''
   }
@@ -230,8 +224,9 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
               element.className = 'main-paragraph ai-reserved ai-candidate'
               element.tabIndex = 0
               element.setAttribute('aria-label', 'AI paragraph preview')
-              const content = element.tagName === 'PRE' ? element.firstElementChild! : document.createElement('span')
-              if (element.tagName !== 'PRE') { content.append(...element.childNodes); element.append(content) }
+              const content = document.createElement('span')
+              content.append(...element.childNodes)
+              element.append(content)
               content.className = 'paragraph-content'
               root.append(element)
             }

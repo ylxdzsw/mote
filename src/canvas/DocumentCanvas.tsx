@@ -29,7 +29,7 @@ import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/ReviewControls'
 
-export type CreationTool = 'paragraph' | 'text' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
+export type CreationTool = 'paragraph' | 'text' | 'code' | 'rectangle' | 'ellipse' | 'line' | 'label' | 'ai' | null
 export interface CanvasActions {
   clearSelection: () => void
   remove: () => void; duplicate: () => void; label: () => void; detach: () => void
@@ -63,6 +63,7 @@ const rectangle = (a: Point, b: Point): Box => ({ x: Math.min(a.x, b.x), y: Math
 const contentText = (content: JSONContent): string => (content.text ?? '') + (content.content?.map(contentText).join('') ?? '')
 const emptyContent = (object: FloatingObject) => ('content' in object && object.kind !== 'table' && !contentText(object.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, ''))
   || (object.kind === 'katex' && !object.latex.trim())
+  || (object.kind === 'code' && !object.source.trim())
 
 export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects }: Props) {
   const history = useHistory()
@@ -183,7 +184,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       return { ...object, ...anchorPoint(position, measured.anchors) }
     })
     history.boundary(); onFloatingChange([...doc.floating, ...placed]); setInserting([])
-    select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id, placed[0].kind === 'text')
+    select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id, placed[0].kind === 'text' || placed[0].kind === 'code')
   }, [inserting, doc])
 
   const previousEdit = useRef({ ids: selectedIds, label: editingLabel, editable, revision: history.revision })
@@ -219,7 +220,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (ids.length !== 1 || !ids.includes(editingLabel ?? '')) setEditingLabel(null)
   }
   function focusObject(id: string, text = false) {
-    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' .tiptap' : ''}`)?.focus({ preventScroll: true }))
+    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' :is(.tiptap, [data-code-source])' : ''}`)?.focus({ preventScroll: true }))
   }
   function cancel() {
     drag.current = null; setManipulating(false); setPreviews(previous => Object.keys(previous).length ? {} : previous); setCreating(null); setMarquee(null); setGuides([])
@@ -348,6 +349,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const note: FloatingObject = tool === 'ai' ? aiPlaceholder({ ...base, width: boundedWidth(start.x, 340, 120) })
         : tool === 'label' ? { ...base, kind: 'label', content: labelContent(), attachment: null }
         : tool === 'text' ? { ...base, kind: 'text', width: boundedWidth(start.x, 340, 120), background: null, borderColor: null, content: { type: 'doc', content: [paragraph('')] } }
+        : tool === 'code' ? { ...base, kind: 'code', width: boundedWidth(start.x, 420, 120), source: '', language: 'plaintext', scheme: 'light' }
         : tool === 'line' ? { ...base, kind: 'line', stroke: null, strokeWidth: 1, dashed: false, start: snapEndpoint(start, event.altKey), end: anchorPoint(start, anchors), route: 'straight', bend: 0, arrowStart: false, arrowEnd: true }
         : { ...base, kind: tool, height: 80, fill: null, rounded: false, stroke: null, strokeWidth: 1, dashed: false }
       drag.current = { part: 'create', id: note.id, ids: [note.id], start, objects: doc.floating, geometry, patches: {}, moved: false, additive: [], created: note }
@@ -409,7 +411,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       else if (object.kind === 'label') {
         const placement = snapLabel(p, geometry[object.id] ?? { ...p, width: 12, height: 24 }, object.id, event.altKey)
         patch = { x: placement.point.x, top: placement.point.y, attachment: placement.attachment }
-      } else if (object.kind === 'text') {
+      } else if (object.kind === 'text' || object.kind === 'code') {
         const end = boundedPoint(snap(p, event.altKey))
         const x = Math.min(d.start.x, end.x)
         patch = { x, top: d.start.y, width: boundedWidth(x, Math.abs(end.x - d.start.x), 120) }
@@ -478,7 +480,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       }
       onFloatingChange([...doc.floating, next])
       select([object.id]); onToolChange(null)
-      if (object.kind === 'label') { newLabels.current.add(object.id); setEditingLabel(object.id) } else focusObject(object.id, object.kind === 'text')
+      if (object.kind === 'label') { newLabels.current.add(object.id); setEditingLabel(object.id) } else focusObject(object.id, object.kind === 'text' || object.kind === 'code')
     } else if (d.moved) {
       const next = applyPatches(doc.floating, d.patches)
       const object = next.find(object => object.id === d.id)!
@@ -631,7 +633,12 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       return
     }
     if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); return }
-    if (event.key === 'Enter') { event.preventDefault(); label(id); return }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      if (doc.floating.find(object => object.id === id)?.kind === 'code' && !lockedIds.has(id)) { select([id]); focusObject(id, true) }
+      else label(id)
+      return
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicate(); return }
     const directions: Record<string, Point> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }
     const direction = directions[event.key]

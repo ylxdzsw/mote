@@ -10,7 +10,7 @@ import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
 import type { CreationTool } from '../canvas/DocumentCanvas'
 import './toolbar.css'
 
-type InsertKind = 'paragraph' | 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
+type InsertKind = 'code' | 'paragraph' | 'text' | 'image' | 'table' | 'katex' | 'html' | 'rectangle' | 'ellipse' | 'line' | 'label'
 type IconName = BlockClass | InsertKind | 'ai-text' | 'ai-object' | 'plain' | 'bold' | 'color' | 'box' | 'underline' | 'clear' | 'plus' | 'chevron' | 'undo' | 'redo' | 'outdent' | 'indent'
 
 function Icon({ name }: { name: IconName }) {
@@ -148,7 +148,7 @@ function TablePicker({ disabled, onInsert }: { disabled: boolean; onInsert: (col
 // Inspect every selected range, including rectangular cell selections and unmarked text.
 function selectedClasses(editor: Editor | null) {
   const paragraphs = new Set<string>()
-  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', text: false, code: false, list: false, fixed: '', ...selectedInlineMarks(null) }
+  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', text: false, list: false, fixed: '', ...selectedInlineMarks(null) }
   const { selection, doc } = editor.state
   for (const { $from, $to } of selection.ranges) {
     doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
@@ -160,15 +160,15 @@ function selectedClasses(editor: Editor | null) {
   const inline = selectedInlineMarks(editor)
   return {
     paragraph: paragraphs.size === 1 ? [...paragraphs][0] : '',
-    text: paragraphs.size > 0, code: paragraphs.has('code'), list: paragraphs.has('list'),
+    text: paragraphs.size > 0, list: paragraphs.has('list'),
     fixed: editor.schema.nodes.table ? 'Table' : !editor.schema.nodes.paragraph.spec.attrs?.semantic ? 'Label' : '',
     ...inline,
   }
 }
 
-const paragraphQuick = ['heading', 'list', 'code'] as const
-const insertKinds: InsertKind[] = ['paragraph', 'text', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
-const insertLabels: Record<InsertKind, string> = { paragraph: 'Paragraph', text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
+const paragraphQuick = ['heading', 'list'] as const
+const insertKinds: InsertKind[] = ['paragraph', 'text', 'code', 'label', 'image', 'table', 'katex', 'html', 'rectangle', 'ellipse', 'line']
+const insertLabels: Record<InsertKind, string> = { code: 'Code', paragraph: 'Paragraph', text: 'Text box', image: 'Image', table: 'Table', katex: 'KaTeX', html: 'HTML widget', rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line', label: 'Label' }
 const neutralSet = new Set<string>(neutralIds)
 
 function colorEntries(theme: Theme) {
@@ -194,7 +194,7 @@ interface Props {
 export function Toolbar({ editor, canInsert, imageLoading, theme, tool, recentColors, onColorApplied, onPalette, onInsert, canUndo, canRedo, undo, redo, onAIParagraphs, onAIObject, canAIParagraphs }: Props) {
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
   const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
-  const inlineDisabled = !editor?.isEditable || !selection.text || selection.code
+  const inlineDisabled = !editor?.isEditable || !selection.text
   const applyParagraph = (name: BlockClass) => { if (editor) setParagraphClass(editor, name) }
   const applyBold = () => editor?.chain().focus().toggleMark('bold').run()
   const applyColor = (color: string | null) => {
@@ -212,7 +212,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, recentCo
     else chain.setMark('decoration', { decoration }).run()
   }
   const clearInline = () => editor?.chain().focus().unsetMark('bold').unsetMark('color').unsetMark('decoration').run()
-  const insertionDisabled = (kind: InsertKind) => ['paragraph', 'text', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
+  const insertionDisabled = (kind: InsertKind) => ['paragraph', 'text', 'code', 'image', 'table', 'katex', 'html'].includes(kind) && (!canInsert || (['image', 'html'].includes(kind) && imageLoading))
   const insertionLabel = (kind: InsertKind) => kind === 'image' && imageLoading ? 'Opening image…' : kind === 'html' && imageLoading ? 'Opening screenshot…' : `${['rectangle', 'ellipse', 'line'].includes(kind) ? 'Draw' : 'Insert'} ${insertLabels[kind].toLowerCase()}`
   const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
   const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
@@ -230,7 +230,7 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, recentCo
       ]}>
         <span className="class-menu-value">{selection.fixed || (selection.text ? selection.paragraph ? classLabel(selection.paragraph) : 'Mixed' : 'Paragraph')}</span>
       </ToolMenu>
-      {paragraphQuick.map(name => <button key={name} className={`tool-quick tier-${name === 'code' ? 'wide' : 'medium'}`} aria-label={classLabel(name)}
+      {paragraphQuick.map(name => <button key={name} className="tool-quick tier-medium" aria-label={classLabel(name)}
         title={`${classLabel(name)} · Click again for Body`} aria-pressed={!paragraphDisabled && selection.paragraph === name} disabled={paragraphDisabled}
         onMouseDown={event => event.preventDefault()} onClick={() => applyParagraph(selection.paragraph === name ? 'body' : name)}><Icon name={name} /></button>)}
     </div>
@@ -268,11 +268,11 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, recentCo
     <div className="tool-group" role="group" aria-label="Insert">
       <ToolMenu label={tool ? `Insert · ${classLabel(tool)} tool active` : 'Insert'} armed={!!tool} items={insertKinds.map(kind => ({
         id: kind, label: insertLabels[kind], icon: <Icon name={kind} />, action: () => onInsert(kind), disabled: insertionDisabled(kind),
-        separator: ['text', 'image', 'rectangle'].includes(kind), checked: ['paragraph', 'rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
+        separator: ['text', 'image', 'rectangle'].includes(kind), checked: ['paragraph', 'text', 'code', 'rectangle', 'ellipse', 'line', 'label'].includes(kind) ? tool === kind : undefined,
         hint: ['image', 'html'].includes(kind) && imageLoading ? 'Opening…' : undefined,
       }))}><Icon name="plus" /></ToolMenu>
       <TablePicker disabled={!canInsert} onInsert={(columns, rows) => onInsert('table', columns, rows)} />
-      {(['text', 'rectangle', 'line'] as const).map(kind => <button key={kind} className={`tool-quick tier-${kind === 'text' ? 'medium' : 'wide'}`}
+      {(['text', 'code', 'rectangle', 'line'] as const).map(kind => <button key={kind} className={`tool-quick tier-${kind === 'text' ? 'medium' : 'wide'}`}
         aria-label={insertionLabel(kind)} title={insertionLabel(kind)} disabled={insertionDisabled(kind)} aria-pressed={kind === 'rectangle' || kind === 'line' ? tool === kind : undefined}
         onMouseDown={event => event.preventDefault()} onClick={() => onInsert(kind)}><Icon name={kind} /></button>)}
     </div>
