@@ -14,7 +14,7 @@ Review these before making actual release.
 
 ## Final Goal
 
-A note taking web app, which emphasis simplicity, unification, and coherence. The main text is a rich text, with semantic styles (lines and characters can be put into semantic classes, but not directly styled; A global theme edits the style of each class). Vertical spaces can be inserted into the document. PPT-like spatical placement is a key feature, on top of the automatically layout main text.
+A local-first note-taking web app emphasizing simplicity, unification, and coherence. Naturally flowing rich text, explicit vertical spaces, and anchor-relative, PPT-like spatial placement share one continuous page. Paragraph typography is controlled by semantic classes and a document-wide theme. Inline formatting composes Bold, named palette colors, and None/Box/Underline decoration; arbitrary inline fonts and sizes are not supported. Native text and floating objects share one document palette.
 
 ## Guiding Rules and Key Decisions
 
@@ -25,7 +25,7 @@ A note taking web app, which emphasis simplicity, unification, and coherence. Th
 
 These features are planned but explicit not V1. They need rediscussion and design before implementation.
 
-- Import and export Markdown or other formats.
+- Markdown import/export and additional interchange formats; PDF export is deferred. Native `.mote` import/export and PNG/standalone HTML exports are already implemented.
 - Cloud features, including save/load.
 - Native bundled binary version.
 
@@ -37,7 +37,7 @@ Deployed at `https://mote.ylxdzsw.com` through `/var/www/mote` and `/etc/nginx/c
 
 ## File Structure
 
-`src/app/`: shell, controls, CSS. `src/document/`: V0 model, example, IndexedDB. `src/editor/`: constrained semantic Tiptap schema. `src/canvas/`: measured anchors and floating rich-text boxes. `src/theme/`: central semantic styling. `src/ai/`: reservations, task state, service client, and review UI. `server/`: moted, worker isolation, guide, preview/delivery helpers, and fake runner. See README.md for demo boundaries.
+`src/app/`: shell, controls, CSS. `src/document/`: V0 model, examples, IndexedDB, history, validation, file codecs/PNG export, and clipboard transformations. `src/editor/`: constrained Tiptap schemas, inline formatting, and editor interactions. `src/canvas/`: measured anchors, all floating-object kinds, spatial interactions, shared reader, zoom, and minimap. `src/theme/`: semantic styling, shared palette, and theme-derived UI colors. `src/reader/`: standalone HTML reader entry and export. `src/ai/`: reservations, task state, service client, and review UI. `server/`: moted, worker isolation, guide, preview/delivery helpers, and fake runner. See README.md for demo boundaries.
 
 ## Dev Notes
 

@@ -51,7 +51,7 @@ export const defaultTheme: Theme = {
     label: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
     math: {},
     caption: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
-    code: { size: '0.875em', lineHeight: '1.375em' },
+    code: { size: '0.875em', family: 'mono', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
   },
   palette: [
