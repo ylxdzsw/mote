@@ -6,15 +6,17 @@ export function setParagraphClass(editor: Editor, semantic: BlockClass) {
   return editor.chain().focus().updateAttributes('paragraph', { semantic, listLevel: 0 }).run()
 }
 
-export function changeListLevel(editor: Editor, delta: number) {
+export function changeListLevel(editor: Editor, delta: number, convertBody = false) {
   return editor.commands.command(({ tr, dispatch }) => {
     const { from, to } = tr.selection
     let found = false
     tr.doc.nodesBetween(from, to, (node, pos) => {
-      if (node.type.name !== 'paragraph' || node.attrs.semantic !== 'list' || (from !== to && pos + 1 === to)) return
+      if (node.type.name !== 'paragraph' || (from !== to && pos + 1 === to)) return
+      const body = convertBody && delta > 0 && node.attrs.semantic === 'body'
+      if (node.attrs.semantic !== 'list' && !body) return
       found = true
       if (dispatch) {
-        const level = node.attrs.listLevel + delta
+        const level = body ? 0 : node.attrs.listLevel + delta
         tr.setNodeMarkup(pos, undefined, { ...node.attrs, semantic: level < 0 ? 'body' : 'list', listLevel: Math.max(0, level) })
       }
       return false
@@ -83,7 +85,10 @@ export const ParagraphBehavior = Extension.create({
       },
       'Ctrl-Enter': exitCode,
       'Meta-Enter': exitCode,
-      Tab: () => current() === 'code' ? editor.commands.insertContent('  ') : changeListLevel(editor, 1),
+      Tab: () => {
+        const { $from, $to } = editor.state.selection
+        return current() === 'code' && $from.sameParent($to) ? editor.commands.insertContent('  ') : changeListLevel(editor, 1, true)
+      },
       'Shift-Tab': () => changeListLevel(editor, -1),
       Backspace: () => {
         const selection = editor.state.selection
