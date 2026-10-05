@@ -115,6 +115,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .minimap-bookmarks button { pointer-events: auto; }
 .minimap-bookmarks::-webkit-scrollbar { display: none; }
 .minimap-bookmark { position: absolute; right: 0; max-width: calc(100% - 6px); height: 18px; padding: 1px 4px; border: 1px solid var(--ui-border); border-right: 2px solid var(--ui-border-strong); border-radius: 4px 0 0 4px; background: var(--ui-surface); color: var(--ui-muted); font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.minimap-bookmark-title { font-weight: 600; border-right-width: 4px; }
 .minimap-bookmark[aria-current='location'] { color: var(--ui-accent); background: var(--ui-accent-surface); border-color: var(--ui-accent-border); }
 .minimap-pane:not(:hover) .minimap-bookmark:not(:focus-visible) { max-width: 10px; padding-inline: 0; color: transparent; text-overflow: clip; }
 .minimap-bookmark:focus-visible { outline-offset: -2px; }

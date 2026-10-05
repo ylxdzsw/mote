@@ -18,7 +18,7 @@ interface Geometry {
 }
 
 interface Bookmark {
-  heading: HTMLElement
+  paragraph: HTMLElement
   button: HTMLButtonElement
   y: number
   scrollY: number
@@ -44,7 +44,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     let dirty = true
     let bookmarks: Bookmark[] = []
 
-    function headingFocusOffset() { return Math.min(120, viewport.clientHeight * .15) }
+    function bookmarkFocusOffset() { return Math.min(120, viewport.clientHeight * .15) }
 
     function paint() {
       frame = 0
@@ -82,27 +82,33 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         miniature.style.transform = `translate(6px, ${pageTop * y}px) scale(${x}, ${y})`
         image.current!.replaceChildren(miniature)
 
-        const existing = new Map(bookmarks.map(bookmark => [bookmark.heading, bookmark.button]))
-        bookmarks = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic="heading"]:not(.ai-original-hidden)')].map(heading => {
-          let button = existing.get(heading)
+        const paragraphs = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic]:not(.ai-original-hidden)')]
+        const titles = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'title')
+        const hiddenTitle = titles.length === 1 && titles[0] === paragraphs[0] ? titles[0] : null
+        const existing = new Map(bookmarks.map(bookmark => [bookmark.paragraph, bookmark.button]))
+        bookmarks = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'heading'
+          || paragraph.dataset.semantic === 'title' && paragraph !== hiddenTitle).map(paragraph => {
+          const semantic = paragraph.dataset.semantic!
+          let button = existing.get(paragraph)
           if (!button) {
             button = document.createElement('button')
             button.type = 'button'
             button.className = 'minimap-bookmark'
             button.onpointerdown = event => event.preventDefault()
             button.onclick = () => {
-              viewport.scrollTop = Math.ceil(viewport.scrollTop + heading.getBoundingClientRect().top - viewport.getBoundingClientRect().top - viewport.clientTop - headingFocusOffset())
+              viewport.scrollTop = Math.ceil(viewport.scrollTop + paragraph.getBoundingClientRect().top - viewport.getBoundingClientRect().top - viewport.clientTop - bookmarkFocusOffset())
             }
           }
-          const text = heading.textContent?.trim() || 'Untitled heading'
+          button.classList.toggle('minimap-bookmark-title', semantic === 'title')
+          const text = paragraph.textContent?.trim() || `Untitled ${semantic}`
           if (button.textContent !== text) button.textContent = text
           button.title = text
-          button.setAttribute('aria-label', `Go to heading: ${text}`)
-          const scrollY = heading.getBoundingClientRect().top - rect.top + pageTop * zoom
-          return { heading, button, y: scrollY / zoom * y, scrollY }
+          button.setAttribute('aria-label', `Go to ${semantic}: ${text}`)
+          const scrollY = paragraph.getBoundingClientRect().top - rect.top + pageTop * zoom
+          return { paragraph, button, y: scrollY / zoom * y, scrollY }
         }).sort((a, b) => a.y - b.y)
-        for (const [heading, button] of existing) {
-          if (!bookmarks.some(bookmark => bookmark.heading === heading)) button.remove()
+        for (const [paragraph, button] of existing) {
+          if (!bookmarks.some(bookmark => bookmark.paragraph === paragraph)) button.remove()
         }
         bookmarks.forEach(({ button }, index) => {
           if (navigation.children[index] !== button) navigation.insertBefore(button, navigation.children[index] ?? null)
@@ -123,14 +129,14 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       rail.dataset.scrollable = String(maximum > 0)
 
       const offset = progress * overflow
-      const current = bookmarks.findLast(bookmark => bookmark.scrollY <= viewport.scrollTop + headingFocusOffset())
+      const current = bookmarks.findLast(bookmark => bookmark.scrollY <= viewport.scrollTop + bookmarkFocusOffset())
       const visible = bookmarks.filter(({ button, y }) => {
         button.hidden = y < offset || y > offset + rail.clientHeight
         if (button === current?.button) button.setAttribute('aria-current', 'location')
         else button.removeAttribute('aria-current')
         return !button.hidden
       })
-      // Keep nearby headings readable without changing their navigation targets.
+      // Keep nearby landmarks readable without changing their navigation targets.
       const tops: number[] = []
       visible.forEach((bookmark, index) => {
         tops.push(Math.max(bookmark.y - offset - 9, index ? tops[index - 1] + 20 : 0))
@@ -217,6 +223,6 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     <div className="minimap-viewport" ref={thumb} aria-hidden="true" />
     <div className="minimap-hit" ref={hit} aria-hidden="true" />
     </div>
-    <nav className="minimap-bookmarks" ref={labels} aria-label="Heading bookmarks" />
+    <nav className="minimap-bookmarks" ref={labels} aria-label="Title and heading bookmarks" />
   </div>
 }
