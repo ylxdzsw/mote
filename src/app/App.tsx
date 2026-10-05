@@ -3,14 +3,14 @@ import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
-import { addRowAfter, deleteRow, isInTable, selectedRect } from '@tiptap/pm/tables'
+import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
 import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
-import { alignColumns, changeColumns, columnAlignment } from '../editor/table'
+import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { saveDraft } from '../document/storage'
 import { useLocalDraft } from '../document/useLocalDraft'
-import { classLabel, type ThemeClass } from '../theme/ThemePanel'
+import type { ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
@@ -19,7 +19,7 @@ import { FloatingInspector } from './FloatingInspector'
 import { DocumentFiles } from './DocumentFiles'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
-import './floating-controls.css'
+import { InspectorHelp, TableControls, TextInspector } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
 import { AssistantPanel } from '../ai/AssistantPanel'
@@ -416,53 +416,29 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
       {editable && assistant.open ? <AssistantPanel assistant={assistant} onLocate={locateTask} />
       : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
-      : showInspector && <aside className="inspector" id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
+      : showInspector && <aside key={viewSettingsOpen ? 'view' : selectedObject?.id ?? 'text'} className={`inspector${editable && !viewSettingsOpen ? ' selection-inspector' : ''}`} id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
         {(viewSettingsOpen || !editable) && <div className="inspector-heading">VIEW SETTINGS
           {viewSettingsOpen && <button aria-label="Close view settings" onClick={() => setViewSettingsOpen(false)}>×</button>}
         </div>}
         {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
         {editable && !viewSettingsOpen && <>
-        {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <section className="panel-section"><h2>AI content reservation</h2><p className="hint">Accept or discard to edit reserved content. Individually reserved objects can move and resize before their first request; segment compositions stay together.</p><button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button></section> : <>
-        {!selectedObject && !['code', 'list'].includes(selection?.semantic) && <section className="panel-section"><h2>Text & space</h2>{selection?.semantic === 'body' && <p className="hint">Tab turns Body paragraphs into top-level list items. Shift+Tab turns top-level items back into Body.</p>}<p className="hint">With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p><p className="hint">Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection. Drag other empty areas to select objects.</p><p className="hint">Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it.</p></section>}
-
-        {selection?.semantic === 'code' && <section className="panel-section"><h2>Code block</h2><p className="hint">Plain text with preserved whitespace. Enter inserts a newline; Tab inserts two spaces. Ctrl/⌘Enter starts a Body paragraph after this block.</p></section>}
-        {selection?.semantic === 'list' && <section className="panel-section"><h2>List item · Level {selection.listLevel + 1}</h2><p className="hint">Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within this item. Tab / Shift+Tab changes indentation. Backspace at the start decreases the level, or returns a top-level item to Body.</p></section>}
-        {selectedObject && <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
-          targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
-          onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
-          onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
-          maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)} />}
-        {selectedIds.length === 1 && selectedObject?.kind === 'image' && <section className="panel-section">
-          <h2>Selected image</h2>
-          <label>Image description
-            <input type="text" value={selectedObject.alt} onFocus={() => history.begin(`description:${selectedObject.id}`)} onBlur={history.boundary}
-              onChange={event => updateObject(selectedObject.id, { alt: event.target.value })} />
-          </label>
-          <button disabled={imageLoading} onClick={() => chooseImage(selectedObject)}>{imageLoading ? 'Opening image…' : 'Replace image'}</button>
-          <p className="hint">Drag the image or its top, left, or bottom border to move; the right border resizes. Proportions stay intact. Double-click to select or create a label. Image files stay in this browser. Up to 10 MB.</p>
-        </section>}
-        {selection?.table && <section className="panel-section">
-          <h2>Selected table</h2>
-          <div className="table-tools" onMouseDown={event => event.preventDefault()}>
-            <button disabled={!selection.tableRect} onClick={() => tableCommand(addRowAfter)}>Add row below</button>
-            <button disabled={!selection.tableRect} onClick={() => tableCommand(changeColumns())}>Add column after</button>
-            <button disabled={!selection.tableRect?.removeRow} onClick={() => tableCommand(deleteRow)}>Remove row</button>
-            <button disabled={!selection.tableRect?.removeColumn} onClick={() => tableCommand(changeColumns(true))}>Remove column</button>
+        {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <div className="context-inspector">
+          <h2>AI content reservation</h2>
+          <div className="inspector-stack">
+            <p className="hint">Accept or discard the AI task to edit this content.</p>
+            <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
           </div>
-          <div className="column-alignment" role="group" aria-label="Column alignment" onMouseDown={event => event.preventDefault()}>
-            {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={!selection.tableRect}
-              aria-pressed={selection.columnAlignment === align} onClick={() => tableCommand(alignColumns(align))}>{classLabel(align)}</button>)}
-          </div>
-          <p className="hint">Alignment applies to entire selected columns. Enter / Shift+Enter adds a newline within a cell; Tab / Shift+Tab moves between cells. All cells use the Table style; bold, palette colors, and decorations remain available.</p>
-          <p className="hint">Drag an internal divider to resize adjacent columns without changing table width. The outer right border resizes the whole table proportionally; the top, left, and bottom borders move it. Focus the outer border and press Delete to remove the table.</p>
-        </section>}
-        {selectedObject?.kind !== 'katex' && selectedObject?.kind !== 'html' && <section className="panel-section">
-          <h2>Edit style</h2>
-          <div className="style-actions" onMouseDown={event => event.preventDefault()}>
-            <button disabled={selectedIds.length > 1 || (selectedObject?.kind !== 'label' && !selection?.paragraph && !selection?.tableRect)} onClick={() => openThemeClass(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')}>{classLabel(selectedObject?.kind === 'label' ? 'label' : selection?.semantic || 'body')} style…</button>
-            <button onClick={() => openThemeClass('palette')}>Document palette…</button>
-          </div>
-        </section>}
+          <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
+        </div> : <>
+          {selectedObject ? <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
+            targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
+            textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
+            tableControls={<TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
+            onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
+            onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
+            maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
+            onReplaceImage={() => chooseImage(selectedObject)} />
+          : <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />}
         </>}
         </>}
       </aside>}

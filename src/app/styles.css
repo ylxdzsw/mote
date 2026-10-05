@@ -203,8 +203,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .floating-table td { position: relative; border: 1px solid var(--palette-primary-soft); padding: 9px 11px; vertical-align: top; min-width: 0; }
 .floating-table td p:last-child { margin-bottom: 0; }
 .floating-table .selectedCell::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--ui-accent-tint-strong); }
-.table-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.table-tools button { margin-top: 0; padding: 7px 5px; }
 .column-alignment { display: flex; gap: 6px; }
 .column-alignment button { flex: 1; padding-inline: 5px; }
 .column-alignment [aria-pressed='true'] { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-border); }
