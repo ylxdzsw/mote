@@ -237,22 +237,24 @@ export function Toolbar({ editor, canInsert, imageLoading, theme, tool, recentCo
     <div className="tool-group" role="group" aria-label="Inline">
       <button className="tool-quick" aria-label="Bold" title="Bold · Ctrl/⌘B" aria-pressed={inlineDisabled ? false : selection.bold}
         disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={applyBold}><Icon name="bold" /></button>
-      <ToolMenu label="Text color" disabled={inlineDisabled} items={[
-        { id: 'inherit', label: 'Inherit', icon: <span className="palette-swatch palette-swatch-inherit" />, checked: selection.color === null, action: () => applyColor(null) },
-        ...colorEntries(theme).map(entry => ({ id: entry.id, label: entry.name, icon: <span className="palette-swatch" style={{ backgroundColor: entry.strong }} />, checked: selection.color === entry.id,
-          action: () => applyColor(entry.id) })),
-        { id: 'edit-palette', label: 'Edit document palette…', icon: <Icon name="color" />, separator: true, disabled: !onPalette, action: () => onPalette?.() },
-        { id: 'clear-inline-color', label: 'Clear inline formatting', icon: <Icon name="clear" />, action: clearInline },
-      ]}><span className={`color-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} /></ToolMenu>
-      <div className="recent-colors" role="group" aria-label="Recent text colors">
-        {recentColors.map(color => {
-          const entry = colorEntries(theme).find(entry => entry.id === color)!
-          return <button key={color} aria-label={`Text color: ${entry.name}`} title={`${entry.name} · Click again to inherit`}
-            aria-pressed={!inlineDisabled && selection.color === color} disabled={inlineDisabled}
-            onMouseDown={event => event.preventDefault()} onClick={() => applyColor(selection.color === color ? null : color)}>
-            <span className="palette-swatch" style={{ backgroundColor: entry.strong }} />
-          </button>
-        })}
+      <div className="color-tools" role="group" aria-label="Text colors">
+        <ToolMenu label="Text color" disabled={inlineDisabled} items={[
+          { id: 'inherit', label: 'Inherit', icon: <span className="palette-swatch palette-swatch-inherit" />, checked: selection.color === null, action: () => applyColor(null) },
+          ...colorEntries(theme).map(entry => ({ id: entry.id, label: entry.name, icon: <span className="palette-swatch" style={{ backgroundColor: entry.strong }} />, checked: selection.color === entry.id,
+            action: () => applyColor(entry.id) })),
+          { id: 'edit-palette', label: 'Edit document palette…', icon: <Icon name="color" />, separator: true, disabled: !onPalette, action: () => onPalette?.() },
+          { id: 'clear-inline-color', label: 'Clear inline formatting', icon: <Icon name="clear" />, action: clearInline },
+        ]}><span className={`color-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} /></ToolMenu>
+        <div className="recent-colors" role="group" aria-label="Recent text colors">
+          {recentColors.map(color => {
+            const entry = colorEntries(theme).find(entry => entry.id === color)!
+            return <button key={color} aria-label={`Text color: ${entry.name}`} title={`${entry.name} · Click again to inherit`}
+              aria-pressed={!inlineDisabled && selection.color === color} disabled={inlineDisabled}
+              onMouseDown={event => event.preventDefault()} onClick={() => applyColor(selection.color === color ? null : color)}>
+              <span className="palette-swatch" style={{ backgroundColor: entry.strong }} />
+            </button>
+          })}
+        </div>
       </div>
       <ToolMenu label="Text decoration" className="decoration-compact" disabled={inlineDisabled} items={[
         { id: 'none', label: 'None', icon: <Icon name="plain" />, checked: selection.decoration === null, action: () => editor?.chain().focus().unsetMark('decoration').run() },
