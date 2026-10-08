@@ -5,6 +5,7 @@ import { Transform } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import net from 'node:net'
+import { storagePaths } from './storage-paths.mjs'
 
 const SAFE_SESSION = /^[A-Za-z0-9_-]{1,128}$/
 
@@ -100,10 +101,22 @@ async function prepareWorkerPaths(context) {
   const gidResult = spawnSync('id', ['-g', user], { encoding: 'utf8' })
   const uid = Number(uidResult.stdout?.trim()); const gid = Number(gidResult.stdout?.trim())
   if (uidResult.status !== 0 || gidResult.status !== 0 || !Number.isInteger(uid) || !Number.isInteger(gid) || uid <= 0 || gid <= 0) throw new Error('configured AI worker must be an existing non-root user')
+  await fs.chown(context.taskDir, 0, gid); await fs.chmod(context.taskDir, 0o750)
   const directories = [path.join(context.taskDir, '.mu'), path.join(context.taskDir, '.mu', 'sessions'), path.join(context.taskDir, '.mu', 'objects'), path.join(context.taskDir, 'tmp'), path.join(context.taskDir, '.agent-browser'), path.join(context.taskDir, '.config'), path.join(context.taskDir, '.cache'), context.outputDir]
   for (const directory of directories) await fs.chown(directory, uid, gid)
   const credential = path.join(context.taskDir, '.mu', '.env')
   await fs.chown(credential, uid, gid).then(() => fs.chmod(credential, 0o400)).catch(error => { if (error.code !== 'ENOENT') throw error })
+}
+
+export function workerStorageProperties(context) {
+  const defaults = storagePaths({}, context.env)
+  const quote = value => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%')}"`
+  const tasksDir = context.tasksDir || path.dirname(context.taskDir)
+  return [
+    // Each worker sees only its own bind-mounted task, never sibling sessions.
+    `TemporaryFileSystem=${quote(tasksDir)}:ro,mode=0711`,
+    `InaccessiblePaths=${quote(context.dataDir || defaults.dataDir)} -${quote(context.backupDir || defaults.backupDir)} -/etc/nginx`,
+  ]
 }
 
 export async function readSessionId(taskDir) {
@@ -179,6 +192,7 @@ export async function muRunner(context) {
     command = context.env.MOTED_SYSTEMD_RUN || 'systemd-run'
     const property = value => `--property=${value}`
     args = ['--quiet', '--pipe', '--wait', '--collect', '--unit', unit, '--service-type=exec', property('KillMode=control-group'), property('RemainAfterExit=no'), property(`RuntimeMaxSec=${Math.ceil(context.timeoutMs / 1000)}`), property(`CPUQuota=${context.env.MOTED_CPU_QUOTA || '200%'}`), property(`MemoryMax=${context.env.MOTED_MEMORY_MAX || '2G'}`), property(`TasksMax=${context.env.MOTED_TASKS_MAX || '256'}`), property('NoNewPrivileges=yes'), property('CapabilityBoundingSet='), property('AmbientCapabilities='), property('ProtectSystem=strict'), property('ProtectHome=read-only'), property('PrivateTmp=yes'), property('PrivatePIDs=yes'), property('PrivateDevices=yes'), property('ProtectControlGroups=yes'), property('ProtectKernelTunables=yes'), property('ProtectKernelModules=yes'), property('ProtectHostname=yes'), property('RestrictSUIDSGID=yes'), property('LockPersonality=yes'), property(`BindReadOnlyPaths=${context.taskDir}`), property(`BindReadOnlyPaths=${context.sourcePath}`), property(`ReadOnlyPaths=${path.join(context.taskDir, 'input')}`), property(`ReadOnlyPaths=${context.promptPath}`), property('ReadOnlyPaths=/root/.mu'), property(`BindPaths=${path.join(context.taskDir, '.mu')}`), property(`BindPaths=${path.join(context.taskDir, 'tmp')}`), property(`BindPaths=${path.join(context.taskDir, '.config')}`), property(`BindPaths=${path.join(context.taskDir, '.cache')}`), property(`BindPaths=${path.join(context.taskDir, '.agent-browser')}`), property(`BindPaths=${context.outputDir}`), property(`ReadOnlyPaths=${path.join(context.taskDir, '.mu', 'config.jsonc')}`), property(`ReadOnlyPaths=${path.join(context.taskDir, '.mu', 'AGENTS.md')}`), property(`ReadOnlyPaths=-${path.join(context.taskDir, '.mu', '.env')}`), property('InaccessiblePaths=-/run/dbus -/run/systemd -/run/docker.sock -/var/run/docker.sock -/run/moted -/run/user -/root/.mu/.env'), property(`WorkingDirectory=${context.taskDir}`), `--uid=${context.env.MOTED_WORKER_USER || 'mote-ai'}`]
+    args.push(...workerStorageProperties(context).map(property))
     for (const [key, value] of Object.entries(environment)) args.push(`--setenv=${key}=${value}`)
     args.push('--', mu, ...muArgs)
     spawnOptions = { cwd: context.taskDir, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] }

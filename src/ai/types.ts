@@ -25,7 +25,7 @@ export type Candidate = CandidateBase & (
 )
 export interface RemoteTask {
   id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error'; progress: string
-  error?: string; candidate?: Candidate; expiresAt: number
+  error?: string; candidate?: Candidate; expiresAt?: number
 }
 export interface AITask extends Omit<RemoteTask, 'status'> {
   title?: string
@@ -36,6 +36,16 @@ export interface AITask extends Omit<RemoteTask, 'status'> {
   status: RemoteTask['status'] | 'draft' | 'preparing'; submitted: boolean; preview: boolean
   requestSent?: boolean
   snapshotDocument?: MoteDocument
+  cloudDocumentId?: string
+  baseRevision?: string
+  preparingCopyId?: string
+  acceptance?: { workingCopyId: string; document: MoteDocument }
   segmentOriginalBlocks?: JSONContent[]
   segmentOriginalObjects?: FloatingObject[]
 }
+export interface AssistantCloud {
+  documentId: string
+  workingCopyId: string
+  sync: () => Promise<{ revision: string; document: MoteDocument } | null>
+}
+export interface AssistantCloudState { revision: string; tasks: AITask[] }

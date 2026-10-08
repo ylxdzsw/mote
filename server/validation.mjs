@@ -1,7 +1,7 @@
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 export const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/
-export const MAX_BODY = 64 * 1024 * 1024
+export const MAX_BODY = 128 * 1024 * 1024
 export const MAX_RESULT = 8 * 1024 * 1024
 export const MAX_SCREENSHOT = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -13,7 +13,7 @@ const NEUTRALS = new Set(['ink', 'muted', 'paper'])
 const PRIMARY = new Set(['primary', 'primary-soft', 'primary-surface'])
 
 export class HttpError extends Error {
-  constructor(status, message) { super(message); this.status = status }
+  constructor(status, message, current) { super(message); this.status = status; if (current !== undefined) this.current = current }
 }
 
 export function record(value, label) {

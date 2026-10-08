@@ -102,6 +102,6 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
     </div>
     {paused && <button className="ai-latest" onClick={() => { following.current = true; setPaused(false); viewport.current!.scrollTop = viewport.current!.scrollHeight }}>↓ Latest</button>}
     {warning && <p className="ai-connection" role="status">{warning}</p>}
-    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button onClick={() => setRetry(value => value + 1)}>Reconnect</button>}{/sign in/i.test(connection) && <> <a href="https://mote.ylxdzsw.com/ai-login" target="_blank" rel="noopener noreferrer">Sign in ↗</a></>}</div>}
+    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button onClick={() => setRetry(value => value + 1)}>Reconnect</button>}</div>}
   </div>
 }

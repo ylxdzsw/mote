@@ -183,6 +183,24 @@ export function reservedText(content: JSONContent, ids: string[]) {
   return found.map(node => ({ ...node, attrs: { ...node.attrs, semantic: node.attrs?.semantic ?? 'body', listLevel: node.attrs?.listLevel ?? 0, minSegmentHeight: undefined } }))
 }
 
+export function inactiveTaskReason(task: AITask, doc: MoteDocument): string | null {
+  if (task.documentId !== doc.id) return 'This task belongs to another document. Its request and result are retained for recovery.'
+  if (task.acceptance) return 'Applied to a local working copy. The result is retained until that exact document is saved to the cloud; it does not lock this document.'
+  const target = task.target
+  const intact = target.kind === 'object' ? (() => {
+    const object = doc.floating.find(object => object.id === target.objectId)
+    return !!object && sameContent(reservedObjectContent(task, object), reservedObjectContent(task, task.original as FloatingObject))
+  })() : target.kind === 'segment' ? segmentReservationIntact(task, doc)
+    : !!reservedText(doc.content, target.blockIds) && sameContent(reservedText(doc.content, target.blockIds), reservedText({ type: 'doc', content: task.original as JSONContent[] }, target.blockIds))
+  return intact ? null : 'The original target has changed or is missing. This task is recovery-only: no document locks, preview, or application. Its original snapshot and result remain available.'
+}
+
+export function compatibleTasks(tasks: AITask[], doc: MoteDocument) {
+  const active: AITask[] = []
+  for (const task of tasks) if (!inactiveTaskReason(task, doc) && !active.some(other => overlaps(other.target, task.target, doc))) active.push(task)
+  return active
+}
+
 export function overlaps(a: AITarget, b: AITarget, doc?: MoteDocument): boolean {
   if (doc && (a.kind === 'segment' || b.kind === 'segment') && a.kind !== 'object' && b.kind !== 'object') {
     const rangeOf = (target: typeof a) => {

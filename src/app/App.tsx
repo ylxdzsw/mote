@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -8,8 +8,10 @@ import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas
 import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
-import { saveDraft } from '../document/storage'
-import { useLocalDraft } from '../document/useLocalDraft'
+import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
+import { WorkingCopy } from '../cloud/WorkingCopy'
+import { ShareWindow } from '../cloud/ShareWindow'
+import { deleteWorkingCopy } from '../cloud/workingCopies'
 import type { ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
@@ -41,49 +43,27 @@ const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</
 </script>`
 
 export function App() {
-  const mobile = useMedia('(max-width: 767px)')
-  const session = useLocalDraft(!mobile)
-  useEffect(() => {
-    function saveShortcut(event: KeyboardEvent) {
-      if (isComposingKey(event)) return
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
-        event.preventDefault(); event.stopPropagation()
-      }
-    }
-    window.addEventListener('keydown', saveShortcut, true)
-    return () => window.removeEventListener('keydown', saveShortcut, true)
-  }, [])
-  if (session.state !== 'ready') return <main className="loading"><h1>Mote</h1>
-    <p>{session.state === 'loading' ? 'Opening your local draft…'
-      : session.state === 'storage-error' ? 'Local storage could not be opened. Check that browser storage is available.'
-      : session.state === 'lock-error' ? 'Editing access could not be acquired.'
-      : 'This local draft could not be opened. The saved draft has not been changed.'}</p>
-    {session.access === 'blocked' && <p>This draft is being edited in another tab.</p>}
-    {session.state !== 'loading' && <button onClick={() => session.retry()}>Retry</button>}
-    {session.state === 'document-error' && session.access !== 'writer' && !mobile && <button onClick={session.tryEditing}>Try editing</button>}
-  </main>
-  return <DraftSession initial={session.doc} writable={session.access === 'writer'} blocked={session.access === 'blocked'} onTryEditing={session.tryEditing} />
+  return <CloudWorkspace renderDocument={(copy, onFiles, onOpen) => <DraftSession key={copy.getSnapshot().record.key} copy={copy} onFiles={onFiles} onOpen={onOpen} />} />
 }
 
-interface DraftProps {
-  initial: MoteDocument; writable: boolean; blocked: boolean; onTryEditing: () => void
+interface CloudEditorProps { copy: WorkingCopy; onFiles: () => void; onOpen: (id: string) => void }
+function DraftSession({ copy, onFiles, onOpen }: CloudEditorProps) {
+  const state = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
+  return <DraftApp key={state.epoch} initial={state.record.document} copy={copy} onFiles={onFiles} onOpen={onOpen} />
 }
 
-function DraftSession(props: DraftProps) {
-  const [replacement, setReplacement] = useState({ doc: props.initial, revision: 0 })
-  return <DraftApp {...props} key={replacement.revision} initial={replacement.doc}
-    onImport={doc => setReplacement(current => ({ doc, revision: current.revision + 1 }))} />
-}
-
-function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftProps & { onImport: (doc: MoteDocument) => void }) {
+function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initial: MoteDocument }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
+  const cloud = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
+  const writable = true
+  const [shareOpen, setShareOpen] = useState(false)
   const recentColors = useRecentColors(doc?.id ?? initial.id, doc?.theme ?? initial.theme)
   const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme) : undefined, [doc?.theme])
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
-    id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext())
-  const [status, setStatus] = useState<'saving' | 'saved' | 'error'>('saving')
+    id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
+    { documentId: cloud.record.meta.id, sync: copy.sync, workingCopyId: cloud.record.key })
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')
@@ -155,20 +135,29 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     }
   }, [doc?.floating, selectedIds, mainEditor])
 
-  useEffect(() => {
-    if (!writable || !doc) return
-    setStatus('saving')
-    saveDraft(doc).then(() => {
-      if (latest.current === doc) setStatus('saved')
-    }).catch(() => { if (latest.current === doc) setStatus('error') })
-  }, [doc, writable])
+  useLayoutEffect(() => { if (doc) copy.update(doc) }, [doc, copy])
 
   useEffect(() => {
-    if (!writable || status === 'saved') return
+    const timer = window.setInterval(() => {
+      if (copy.getSnapshot().record.dirty) void copy.sync()
+      else void copy.checkRemote()
+    }, 10000)
+    function saveShortcut(event: KeyboardEvent) {
+      if (isComposingKey(event)) return
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
+        event.preventDefault(); event.stopPropagation(); void copy.sync()
+      }
+    }
+    window.addEventListener('keydown', saveShortcut, true)
+    return () => { clearInterval(timer); window.removeEventListener('keydown', saveShortcut, true) }
+  }, [copy])
+
+  useEffect(() => {
+    if (cloud.local === 'saved') return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
-  }, [status, writable])
+  }, [cloud.local])
 
   useEffect(() => {
     function keydown(event: KeyboardEvent) {
@@ -356,38 +345,65 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     })
   }
 
-  if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening your local draft…</p></main>
+  if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening document…</p></main>
+  const status = cloud.local === 'error' || cloud.error || cloud.conflict || cloud.deleted ? 'error' : cloud.syncing || cloud.record.dirty ? 'saving' : 'saved'
+  const statusText = cloud.local === 'error' ? 'Local save failed' : cloud.conflict ? 'Conflict · action required'
+    : cloud.deleted ? 'Deleted on server' : cloud.auth ? 'Sign in to sync' : cloud.syncing ? 'Syncing…'
+    : cloud.error ? 'Offline · saved locally' : cloud.local === 'saving' ? 'Saving locally…'
+    : cloud.record.dirty ? 'Saved locally · changes pending' : 'Synced'
 
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
-    <header className={`app-header ${editable ? '' : 'floating-header'}`} hidden={mobile}>
-      <a className="brand" href="./" aria-label="Mote home"><span className="brand-mark">m</span>Mote</a>
-      <div className="document-label">Untitled notebook <span className="version">V0</span></div>
+    <header className={`app-header cloud-header ${editable ? '' : 'floating-header'}`}>
+      <button className="brand" onClick={onFiles} aria-label="Mote files"><span className="brand-mark">m</span>Mote</button>
+      <button className="cloud-files-button" onClick={onFiles}>Files</button>
+      <div className="document-label" title={cloud.record.meta.name}>{cloud.record.meta.name}</div>
       {editable && <button className="reset-example" onClick={() => {
-        if (!window.confirm('Replace your local draft with the example? This cannot be undone.')) return
+        if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
         assistant.abandonAll()
-        setMainEditor(null); setActiveEditor(null); setSelectedIds([]); setTool(null); setImageError(''); setDoc(createDocument())
+        const replacement = { ...createDocument(), id: doc.id }
+        copy.replaceLocal(replacement)
+        void copy.sync()
       }}>Reset to example</button>}
-      <div className={`save-status ${writable ? status : 'reading'}`} role="status"><span className="status-dot" />
-        <span className="save-message">{!writable ? 'Reading local draft' : status === 'saved' ? 'Saved in this browser' : status === 'saving' ? 'Saving locally…' : 'Local save failed'}</span>
-        {writable && status === 'error' && <button onClick={() => setDoc({ ...doc })}>Retry</button>}
+      <div className={`save-status ${status}`} role="status" title={statusText}><span className="status-dot" />
+        <span className="save-message">{statusText}</span>
+        <button disabled={cloud.syncing || !!cloud.conflict || cloud.deleted} onClick={() => cloud.local === 'error' ? copy.retryLocal() : void copy.sync()}>Sync</button>
       </div>
       <div className="header-zoom" ref={setZoomHost} />
-      <DocumentFiles doc={doc} active={editable} onImport={writable && !mobile ? imported => { assistant.abandonAll(); onImport(imported) } : undefined} />
-      {editable && <button className="view-settings-toggle" aria-label="AI assistant" aria-expanded={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>AI{assistant.tasks.length ? ` · ${assistant.tasks.length}` : ''}</button>}
+      <DocumentFiles doc={doc} active={editable} />
+      <button className="view-settings-toggle" onClick={() => setShareOpen(true)}>Share</button>
+      {editable && <button className="view-settings-toggle" aria-label="AI assistant" aria-expanded={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>AI{assistant.allTasks.length ? ` · ${assistant.allTasks.length}` : ''}</button>}
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
         aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
         aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen); setDocumentSettingsOpen(false); assistant.setOpen(false) }}>View</button>
-      {!mobile && (writable ? <div className="mode-switch" role="group" aria-label="Document mode">
+      {!mobile && <div className="mode-switch" role="group" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
-      </div> : <button className="reader-return"
-        title={blocked ? 'This draft is being edited in another tab. Try to acquire editing access.' : 'Edit this local draft'}
-        onClick={onTryEditing}>Try editing</button>)}
+      </div>}
     </header>
 
-    {!editable && writable && status === 'error' && <div className="image-error" role="alert">
-      <span>Local save failed</span><button onClick={() => setDoc({ ...doc })}>Retry</button>
+    <ShareWindow open={shareOpen} onClose={() => setShareOpen(false)} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} />
+    {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
+      <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
+        : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`
+        : cloud.deleted ? 'This document was deleted on the server. Your working copy is preserved.' : cloud.error}</p>
+      {cloud.auth && <a href={loginURL()} target="_blank" rel="noopener noreferrer">Sign in</a>}
+      {cloud.local === 'error' && <button onClick={copy.retryLocal}>Retry local save</button>}
+      {(cloud.conflict || cloud.deleted) ? <>
+        <button disabled={cloud.syncing} onClick={() => {
+          const name = window.prompt('Name for the new cloud document', `${cloud.record.meta.name} (copy)`)
+          if (name?.trim()) void copy.saveAs(name.trim()).then(result => { if (result) onOpen(result.id) })
+        }}>Save as copy</button>
+        <button disabled={cloud.syncing} onClick={() => {
+          if (!window.confirm('Discard this local working copy’s changes? This cannot be undone.')) return
+          if (cloud.deleted) {
+            void copy.flushLocal().then(() => deleteWorkingCopy(cloud.record.key)).then(() => { location.assign('/') }).catch(() => copy.retryLocal())
+          } else void copy.discard()
+        }}>Discard local changes</button>
+        {cloud.conflict && <button disabled={cloud.syncing} onClick={() => {
+          if (window.confirm('Overwrite the cloud version with this working copy? No recovery copy will be created.')) void copy.overwrite()
+        }}>Overwrite cloud version</button>}
+      </> : <button disabled={cloud.syncing} onClick={() => void copy.sync()}>Retry sync</button>}
     </div>}
 
     {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
@@ -412,7 +428,7 @@ function DraftApp({ initial, writable, blocked, onTryEditing, onImport }: DraftP
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file && imageTarget.current) void uploadImages([file], imageTarget.current) }} />
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>×</button></div>}
-    {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}<button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>×</button></div>}
+    {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>×</button>}</div>}
 
     <main ref={workspace} style={panelGesture && editable ? { gridTemplateColumns: `${panelGesture.width}px minmax(0, 1fr)` } : undefined}
       className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>

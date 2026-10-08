@@ -7,8 +7,11 @@ import crypto from 'node:crypto'
 import { HttpError, MAX_BODY, MAX_RESULT, MAX_SCREENSHOT, PROD_ORIGIN, UUID, validateCandidate, validatePngDataUrl, validateRequest, pngDataUrl, pngSignature } from './validation.mjs'
 import { configuredModel, fakeRunner, muRunner, readSessionId, workerUnit } from './runner.mjs'
 import { TranscriptJournal } from './transcript.mjs'
+import { cloudApi } from './cloud-api.mjs'
+import { storagePaths } from './storage-paths.mjs'
 
 const SERVER_ROOT = path.dirname(fileURLToPath(import.meta.url))
+const DURABLE_EXPIRY = 253402300799999
 
 async function mkdirSafe(directory, mode) {
   try {
@@ -65,14 +68,15 @@ function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 function settled(promise, ms) { return new Promise(resolve => { const timer = setTimeout(() => resolve(false), ms); promise.then(() => { clearTimeout(timer); resolve(true) }, () => { clearTimeout(timer); resolve(true) }) }) }
 
 async function readBody(request) {
+  if (Number(request.headers['content-length']) > MAX_BODY) { request.resume(); throw new HttpError(413, 'request body is too large') }
   const chunks = []; let size = 0
-  for await (const chunk of request) { size += chunk.length; if (size > MAX_BODY) throw new HttpError(413, 'request body is too large'); chunks.push(chunk) }
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) { size += chunk.length; if (size > MAX_BODY) { request.resume(); throw new HttpError(413, 'request body is too large') }; chunks.push(chunk) }
   if (!chunks.length) throw new HttpError(400, 'request body is required')
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new HttpError(400, 'request body must be JSON') }
 }
 
 function responseHeaders(origin, env) {
-  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }
+  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-robots-tag': 'noindex, nofollow' }
   if (allowedOrigin(env, origin)) { headers['access-control-allow-origin'] = origin; headers.vary = 'Origin'; headers['access-control-allow-credentials'] = 'true' }
   return headers
 }
@@ -192,13 +196,14 @@ export async function loadCandidate(outputDir, document, target) {
 export class TaskManager {
   constructor(options = {}) {
     this.env = { ...process.env, ...(options.env || {}) }
-    this.stateDir = path.resolve(options.stateDir || this.env.MOTED_STATE_DIR || '/tmp/moted')
+    Object.assign(this, storagePaths(options, this.env))
+    this.store = options.store
+    this.allowDirectTasks = options.allowDirectTasks ?? this.env.MOTED_FAKE_RUNNER === '1'
     this.tasksDir = path.join(this.stateDir, 'tasks')
     this.sourcePath = path.resolve(options.sourcePath || this.env.MOTED_SOURCE_PATH || path.resolve(SERVER_ROOT, '..'))
     this.maxConcurrent = Math.max(1, Math.min(32, Number(options.maxConcurrent || this.env.MOTED_CONCURRENCY || 2)))
     const timeout = options.timeoutMs !== undefined ? Number(options.timeoutMs) : Number(this.env.MOTED_TASK_TIMEOUT_MS || 900000)
     this.timeoutMs = options.timeoutMs !== undefined ? Math.max(10, Math.min(86400000, timeout)) : Math.max(10000, Math.min(86400000, timeout))
-    this.ttlMs = Math.max(60000, Math.min(7 * 86400000, Number(options.ttlMs || this.env.MOTED_TASK_TTL_MS || 86400000)))
     this.transcriptOptions = {
       maxBytes: options.transcriptMaxBytes ?? this.env.MOTED_TRANSCRIPT_MAX_BYTES,
       maxEvents: options.transcriptMaxEvents ?? this.env.MOTED_TRANSCRIPT_MAX_EVENTS,
@@ -209,32 +214,36 @@ export class TaskManager {
     this.useSystemd = options.useSystemd ?? ['1', 'true', 'yes'].includes((this.env.MOTED_USE_SYSTEMD || 'true').toLowerCase())
     this.runner = options.runner || (this.env.MOTED_FAKE_RUNNER === '1' ? fakeRunner : muRunner)
     this.defaultModel = options.defaultModel || configuredModel(this.env, this.sourcePath)
-    this.tasks = new Map(); this.queue = []; this.active = 0; this.timer = null; this.operations = new WeakMap(); this.closing = false
+    this.tasks = new Map(); this.queue = []; this.active = 0; this.operations = new WeakMap(); this.persistence = new WeakMap(); this.closing = false
   }
 
   async init() {
-    await mkdirSafe(this.stateDir, 0o711); await mkdirSafe(this.tasksDir, 0o711)
-    await fs.chmod(this.stateDir, 0o711); await fs.chmod(this.tasksDir, 0o711)
+    await mkdirSafe(this.stateDir, 0o711); await mkdirSafe(this.tasksDir, 0o700)
     for (const entry of await fs.readdir(this.tasksDir, { withFileTypes: true })) {
       if (!entry.isDirectory() || !UUID.test(entry.name)) continue
       const dir = path.join(this.tasksDir, entry.name)
+      await fs.chmod(dir, 0o700)
       let meta
       try { meta = await jsonFile(path.join(dir, 'meta.json'), MAX_BODY, 'task metadata') } catch { continue }
       if (!['queued', 'running', 'ready', 'stopped', 'error'].includes(meta.status)) continue
       const transcript = new TranscriptJournal(dir, this.transcriptOptions); await transcript.init()
       const task = { id: entry.name, dir, meta, generation: Number(meta.generation || 0), current: null, abandoned: false, transcript }
       this.tasks.set(task.id, task)
-      if (meta.expiresAt <= Date.now()) await this.remove(task).catch(() => {})
-      else if (meta.status === 'queued' || meta.status === 'running') {
+      meta.expiresAt = DURABLE_EXPIRY
+      if (meta.status === 'queued' || meta.status === 'running') {
         if (this.useSystemd) await this.killUnit(meta.unit || `moted-${task.id}-${task.generation}`)
         task.meta.status = 'stopped'; task.meta.progress = 'Stopped after moted restart'; task.meta.error = 'Service restarted; task was not rerun.'
-        await this.persist(task)
       }
+      await this.persist(task)
     }
-    this.timer = setInterval(() => this.cleanup().catch(() => {}), 60000); this.timer.unref?.()
   }
 
-  async persist(task) { await writeAtomic(path.join(task.dir, 'meta.json'), JSON.stringify(task.meta)) }
+  async persist(task) {
+    const json = JSON.stringify(task.meta)
+    const pending = (this.persistence.get(task) ?? Promise.resolve()).catch(() => {}).then(() => writeAtomic(path.join(task.dir, 'meta.json'), json))
+    this.persistence.set(task, pending)
+    try { await pending } finally { if (this.persistence.get(task) === pending) this.persistence.delete(task) }
+  }
   async mutate(task, action) {
     const operation = (this.operations.get(task) ?? Promise.resolve()).catch(() => {}).then(() => {
       if (this.tasks.get(task.id) !== task) throw new HttpError(404, 'task not found')
@@ -243,7 +252,7 @@ export class TaskManager {
     this.operations.set(task, operation)
     try { return await operation } finally { if (this.operations.get(task) === operation) this.operations.delete(task) }
   }
-  view(task) { const value = { id: task.id, status: task.meta.status, progress: task.meta.progress, expiresAt: task.meta.expiresAt }; if (task.meta.error) value.error = task.meta.error; if (task.meta.candidate) value.candidate = task.meta.candidate; return value }
+  view(task) { const value = { id: task.id, status: task.meta.status, progress: task.meta.progress, expiresAt: DURABLE_EXPIRY }; if (task.meta.documentId) Object.assign(value, { documentId: task.meta.documentId, baseRevision: task.meta.revision, revision: task.meta.revision }); if (task.meta.error) value.error = task.meta.error; if (task.meta.candidate) value.candidate = task.meta.candidate; return value }
 
   async loadRequest(task) {
     if (task.request) return task.request
@@ -286,18 +295,21 @@ export class TaskManager {
   }
 
   async create(body) {
-    const request = validateRequest(body); await this.cleanup()
+    if (body?.cloudDocumentId !== undefined) body = this.store.taskSnapshot(body)
+    else if (!this.allowDirectTasks) throw new HttpError(400, 'cloudDocumentId and baseRevision are required')
+    const request = validateRequest(body)
     const dir = path.join(this.tasksDir, request.id)
-    try { await fs.mkdir(dir, { mode: 0o755 }) } catch (error) { if (error.code === 'EEXIST') throw new HttpError(409, 'task ID already exists'); throw error }
-    await fs.chmod(dir, 0o755)
+    try { await fs.mkdir(dir, { mode: 0o700 }) } catch (error) { if (error.code === 'EEXIST') throw new HttpError(409, 'task ID already exists'); throw error }
     try {
       await mkdirSafe(path.join(dir, 'input'), 0o755); await mkdirSafe(path.join(dir, 'runs'), 0o755); await mkdirSafe(path.join(dir, 'logs'), 0o700); await mkdirSafe(path.join(dir, 'tmp'), 0o700); await mkdirSafe(path.join(dir, '.agent-browser'), 0o700); await mkdirSafe(path.join(dir, '.config'), 0o700); await mkdirSafe(path.join(dir, '.cache'), 0o700); await this.prepareScope(dir)
       await writeImmutable(path.join(dir, 'input', 'document.json'), JSON.stringify(request.document)); await writeImmutable(path.join(dir, 'input', 'target.json'), JSON.stringify(request.target)); await writeImmutable(path.join(dir, 'input', 'request.json'), JSON.stringify({ id: request.id, model: request.model, prompt: request.prompt, target: request.target, snapshot: request.snapshot ? 'input/snapshot.png' : undefined }))
       if (request.snapshot) { validatePngDataUrl(request.snapshot); await writeImmutable(path.join(dir, 'input', 'snapshot.png'), Buffer.from(request.snapshot.slice(request.snapshot.indexOf(',') + 1), 'base64')) }
       const model = request.model || this.defaultModel; if (!model) throw new HttpError(503, 'Mu has no configured default model')
       const transcript = new TranscriptJournal(dir, this.transcriptOptions); await transcript.init()
-      const task = { id: request.id, dir, request, generation: 0, current: null, abandoned: false, transcript, meta: { id: request.id, status: 'queued', progress: 'Queued', expiresAt: Date.now() + this.ttlMs, generation: 0, attempt: 1, model, prompt: request.prompt, target: request.target } }
-      await this.writePrompt(task, request.prompt, 0, false); await task.transcript.append(1, 'request', request.prompt).catch(() => {}); await this.persist(task); this.tasks.set(task.id, task); this.queue.push(task); this.schedule(); return this.view(task)
+      const task = { id: request.id, dir, request, generation: 0, current: null, abandoned: false, transcript, meta: { id: request.id, status: 'queued', progress: 'Queued', expiresAt: DURABLE_EXPIRY, generation: 0, attempt: 1, model, prompt: request.prompt, target: request.target, ...(body.cloudDocumentId ? { documentId: body.cloudDocumentId, revision: body.baseRevision } : {}) } }
+      await this.writePrompt(task, request.prompt, 0, false); await task.transcript.append(1, 'request', request.prompt).catch(() => {}); await this.persist(task)
+      if (body.cloudDocumentId) this.store.bindTask(task.id, body.cloudDocumentId, body.baseRevision)
+      this.tasks.set(task.id, task); this.queue.push(task); this.schedule(); return this.view(task)
     } catch (error) { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); throw error }
   }
 
@@ -336,6 +348,7 @@ export class TaskManager {
       attempt,
       sessionId: task.meta.sessionId, sourcePath: this.sourcePath, timeoutMs: this.timeoutMs,
       env: this.env, useSystemd: this.useSystemd, signal: controller.signal,
+      dataDir: this.dataDir, backupDir: this.backupDir, tasksDir: this.tasksDir,
       stop: null,
       emitTranscript: (kind, text) => { void task.transcript.append(attempt, kind, text).catch(() => {}) },
       progress: message => { if (task.generation === generation) { task.meta.progress = String(message).slice(0, 256); this.persist(task).catch(() => {}) } },
@@ -395,6 +408,7 @@ export class TaskManager {
   }
 
   async revise(task, prompt) {
+    if (task.meta.documentId) this.store.row(task.meta.documentId)
     const request = await this.loadRequest(task); request.prompt = prompt
     await this.discoverSession(task)
     if (task.current?.finished) await settled(task.current.donePromise, Math.min(10000, Math.max(100, this.timeoutMs)))
@@ -414,17 +428,23 @@ export class TaskManager {
   }
 
   async killUnit(unit) { if (!/^moted-[0-9a-f-]+-\d+$/.test(unit)) return; await new Promise(resolve => { const child = spawn(this.env.MOTED_SYSTEMCTL || 'systemctl', ['kill', '--kill-who=all', '--signal=KILL', unit], { stdio: 'ignore' }); child.on('close', resolve); child.on('error', resolve) }) }
-  async cleanup() { for (const task of [...this.tasks.values()]) if (task.meta.expiresAt <= Date.now()) await this.mutate(task, () => this.remove(task)).catch(() => {}) }
-
-  async shutdown() { this.closing = true; if (this.timer) clearInterval(this.timer); for (const task of this.tasks.values()) { await this.mutate(task, () => this.stop(task, 'Stopped during server shutdown')).catch(() => {}); await task.transcript.close() } }
+  async shutdown() { this.closing = true; for (const task of this.tasks.values()) { await this.mutate(task, () => this.stop(task, 'Stopped during server shutdown')).catch(() => {}); await task.transcript.close() } }
 }
 
 export async function createMotedServer(options = {}) {
+  // Worker delivery checks import loadCandidate without needing SQLite's 22.12 flag.
+  const { CloudStore } = await import('./cloud-store.mjs')
   const manager = new TaskManager(options); await manager.init()
+  const store = await CloudStore.open(options, manager.env); manager.store = store
   const server = http.createServer(async (request, response) => {
     const origin = request.headers.origin
     try {
       const url = new URL(request.url, 'http://moted.local')
+      if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/') || url.pathname.startsWith('/api/shared/')) {
+        if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
+        const result = await cloudApi(store, request, url.pathname, readBody)
+        send(response, result.status, result.body, origin, manager.env); return
+      }
       if (url.pathname === '/api/ai' || url.pathname.startsWith('/api/ai/')) {
         if (request.method === 'OPTIONS') { if (!allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed'); response.writeHead(204, responseHeaders(origin, manager.env)); response.end(); return }
         const base = '/api/ai'; const suffix = url.pathname.slice(base.length).replace(/^\//, '')
@@ -445,9 +465,10 @@ export async function createMotedServer(options = {}) {
         throw new HttpError(404, 'not found')
       }
       throw new HttpError(404, 'not found')
-    } catch (error) { const status = error instanceof HttpError ? error.status : 500; send(response, status, { error: status === 500 ? 'internal server error' : safeError(error) }, origin, manager.env) }
+    } catch (error) { const status = error instanceof HttpError ? error.status : 500; send(response, status, { error: status === 500 ? 'internal server error' : safeError(error), ...(error instanceof HttpError && error.current !== undefined ? { current: error.current } : {}) }, origin, manager.env) }
   })
-  return { manager, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || null); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, async close() { await manager.shutdown(); await new Promise(resolve => server.close(() => resolve())) } }
+  let closing
+  return { manager, store, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { await manager.shutdown(); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -21,14 +21,3 @@ export async function loadDraft(): Promise<MoteDocument | undefined> {
     transaction.onerror = () => reject(transaction.error)
   })
 }
-
-export async function saveDraft(doc: MoteDocument): Promise<void> {
-  const db = await openDatabase()
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction('drafts', 'readwrite')
-    transaction.objectStore('drafts').put(doc, 'current')
-    transaction.oncomplete = () => resolve()
-    transaction.onabort = () => reject(transaction.error)
-    transaction.onerror = () => reject(transaction.error)
-  })
-}

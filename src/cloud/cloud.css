@@ -1,0 +1,68 @@
+.cloud-dialog { width: min(760px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface); color: var(--ui-ink); box-shadow: 0 16px 80px var(--ui-shadow-strong); font-size: 12px; line-height: 1.5; overflow: hidden; }
+.cloud-dialog[open] { display: flex; flex-direction: column; }
+.cloud-dialog::backdrop { background: var(--ui-backdrop); }
+.cloud-share { width: min(560px, calc(100vw - 32px)); }
+.cloud-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 24px 16px; flex-shrink: 0; border-bottom: 1px solid var(--ui-border); }
+.cloud-heading h1 { margin: 0; font-size: 18px; line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
+.cloud-button { min-height: 34px; padding: 6px 11px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-surface); color: var(--ui-ink); font: inherit; cursor: pointer; }
+.cloud-button:hover:not(:disabled) { background: var(--ui-surface-hover); }
+.cloud-button:disabled, .cloud-file-choice:disabled { cursor: default; opacity: .45; }
+.cloud-button:focus-visible, .cloud-file-choice:focus-visible, .cloud-field input:focus-visible, .cloud-link:focus-visible, .cloud-share-mode input:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+.cloud-close { flex-shrink: 0; min-width: 34px; padding: 0 7px; font-size: 22px; line-height: 1; border-color: transparent; }
+.cloud-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 20px 24px; }
+.cloud-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cloud-section-title { margin: 18px 0 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.cloud-hint { margin: 0 0 12px; color: var(--ui-muted); line-height: 1.65; overflow-wrap: anywhere; }
+.cloud-detail { display: block; color: var(--ui-muted); font-size: 11px; font-weight: 400; line-height: 1.6; overflow-wrap: anywhere; }
+.cloud-field { display: grid; gap: 6px; margin: 16px 0; color: var(--ui-muted); }
+.cloud-field input, .cloud-link { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-surface-raised); color: var(--ui-ink); font: inherit; }
+.cloud-field input:disabled, .cloud-link:disabled { opacity: .6; }
+.cloud-local-import { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ui-border); }
+.cloud-file-list { max-height: min(42dvh, 380px); overflow: auto; overscroll-behavior: contain; margin-bottom: 16px; border-block: 1px solid var(--ui-border); }
+.cloud-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.cloud-table th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); padding: 9px 10px; color: var(--ui-muted); font-weight: 500; text-align: left; }
+.cloud-table th:last-child { width: 35%; }
+.cloud-table td { border-top: 1px solid var(--ui-border); padding: 9px 10px; vertical-align: middle; overflow-wrap: anywhere; }
+.cloud-table td:first-child { padding: 3px; }
+.cloud-table td:last-child { color: var(--ui-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.cloud-table tbody tr { cursor: pointer; }
+.cloud-table tbody tr:hover { background: var(--ui-surface-hover); }
+.cloud-table .cloud-selected, .cloud-table .cloud-selected:hover { background: var(--ui-accent-soft); color: var(--ui-accent); }
+.cloud-file-choice { display: block; width: 100%; min-height: 40px; padding: 8px 7px; text-align: left; background: transparent; color: inherit; border: 1px solid transparent; border-radius: 4px; font: inherit; }
+.cloud-file-choice:hover:not(:disabled) { background: transparent; }
+.cloud-file-choice:focus-visible { outline-offset: -2px; }
+.cloud-file-name { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.cloud-empty { margin: 0; padding: 20px 10px; color: var(--ui-muted); text-align: center; }
+.cloud-confirm { margin-top: 16px; padding: 14px; border: 1px solid var(--ui-border); border-radius: 6px; }
+.cloud-confirm .cloud-field { margin-top: 0; }
+.cloud-danger { color: var(--ui-error-text); }
+.cloud-pending { display: block; margin: 8px 0; color: var(--ui-warning-text); font-size: 11px; overflow-wrap: anywhere; }
+.cloud-file-choice .cloud-pending { margin: 2px 0 0; }
+.cloud-feedback { flex-shrink: 0; padding: 0 24px 16px; max-height: 35dvh; overflow: auto; }
+.cloud-status { margin: 0; color: var(--ui-muted); overflow-wrap: anywhere; }
+.cloud-status:empty { display: none; }
+.cloud-error { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--ui-error-border); border-radius: 6px; background: var(--ui-error-surface); color: var(--ui-error-text); overflow-wrap: anywhere; }
+.cloud-share-list { list-style: none; padding: 0; margin: 0; }
+.cloud-preview-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-block: 16px 12px; }
+.cloud-preview-heading .cloud-section-title { margin: 0; }
+.cloud-share-modes { display: grid; gap: 10px; margin: 18px 0 16px; padding: 0; border: 0; min-width: 0; }
+.cloud-share-modes legend { margin-bottom: 10px; font-weight: 600; }
+.cloud-share-mode { display: flex; align-items: flex-start; gap: 9px; padding: 12px; border: 1px solid var(--ui-border); border-radius: 6px; cursor: pointer; }
+.cloud-share-mode:has(input:checked) { border-color: var(--ui-accent-border); background: var(--ui-accent-soft); }
+.cloud-share-mode input { margin: 3px 0 0; accent-color: var(--ui-accent); }
+.cloud-share-mode strong { display: block; margin-bottom: 4px; font-weight: 600; }
+.cloud-share-modes:disabled .cloud-share-mode { cursor: default; opacity: .6; }
+.cloud-shares { margin-top: 20px; border-top: 1px solid var(--ui-border); }
+.cloud-share-list > li { padding-block: 16px; border-top: 1px solid var(--ui-border); }
+.cloud-share-list > li:first-child { padding-top: 0; border-top: 0; }
+.cloud-link { display: block; margin: 10px 0; }
+@media (max-width: 600px) {
+  .cloud-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); border-radius: 8px; }
+  .cloud-heading { padding: 16px; }
+  .cloud-body { padding: 16px; }
+  .cloud-feedback { padding: 0 16px 16px; }
+  .cloud-button, .cloud-file-choice { min-height: 40px; }
+  .cloud-table th:last-child { width: 38%; }
+  .cloud-table td { padding-inline: 7px; }
+  .cloud-field input, .cloud-link { font-size: 16px; }
+}

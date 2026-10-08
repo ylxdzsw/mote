@@ -79,11 +79,11 @@ export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; ac
   }
 
   return <>
-    <button className="view-settings-toggle" aria-haspopup="dialog" onClick={() => { setError(''); setResult(''); dialog.current!.showModal() }}>File</button>
+    <button className="view-settings-toggle" aria-haspopup="dialog" onClick={() => { setError(''); setResult(''); dialog.current!.showModal() }}>Export</button>
     <dialog ref={dialog} className="document-files" aria-labelledby="document-files-title" onCancel={event => { if (busy) event.preventDefault() }}>
       <div className="files-heading"><h1 id="document-files-title">Document files</h1><button aria-label="Close document files" disabled={!!busy} onClick={() => dialog.current!.close()}>×</button></div>
       <h2>Export</h2>
-      <p>Export the current document, including changes not yet saved in this browser.</p>
+      <p>Export the current working copy, including changes not yet synced to the cloud.</p>
       <label className="export-filename">Filename
         <input type="text" value={filename} disabled={!!busy} aria-invalid={invalidName || undefined} aria-describedby="filename-hint"
           onFocus={event => event.currentTarget.select()} onChange={event => setFilename(event.target.value)} />

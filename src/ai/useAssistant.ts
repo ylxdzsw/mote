@@ -4,12 +4,15 @@ import { DEFAULT_AI_MODEL, paragraph, replaceMainContent, type FloatingObject, t
 import { initializeDocument } from '../document/initialize'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
-import { currentPlacement, overlaps, permits, permitsEditor, reservedObjectContent, reservedText, sameContent, segmentReservationIntact } from './reservations'
+import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, reservedText, sameContent } from './reservations'
 import { aiRequest, AIServiceError } from './api'
-import { loadTasks, storeTask } from './storage'
-import type { Area, AITarget, AITask, RemoteTask } from './types'
+import { useAssistantState } from './useAssistantState'
+import type { AssistantState } from './cloudState'
+import type { Area, AITarget, AITask, AssistantCloud, RemoteTask } from './types'
 import { applySegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
 import { copySegment, type SegmentClipboard } from '../document/segment'
+import { getSchema } from '@tiptap/core'
+import { extensions } from '../editor/extensions'
 
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
 
@@ -52,78 +55,75 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = t
   })
 }
 
-export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined) {
-  const [tasks, setTasks] = useState<AITask[]>([])
-  const [loaded, setLoaded] = useState(false)
+export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined, cloud?: AssistantCloud) {
+  const persistence = useAssistantState(cloud, writable)
+  const { tasks: allTasks, state, loaded } = persistence
   const [notice, setNotice] = useState('')
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
-  const state = useRef(tasks), currentDoc = useRef(history.doc!), bypass = useRef(false)
+  const currentDoc = useRef(history.doc!), bypass = useRef(false)
   const mounted = useRef(true)
   const preparations = useRef(new Map<string, symbol>())
+  const discarded = useRef(new Set<string>())
+  const acceptanceAttempts = useRef(new Set<string>())
+  const cloudRef = useRef(cloud)
+  cloudRef.current = cloud
   currentDoc.current = history.doc!
+  const tasks = compatibleTasks(allTasks, currentDoc.current)
+  const activeTasks = (doc = currentDoc.current) => compatibleTasks(state.current, doc)
+  const inactiveReason = (task: AITask) => inactiveTaskReason(task, currentDoc.current)
+    ?? (!activeTasks().some(active => active.id === task.id) ? 'Another task reserves this target. This copy is retained for inspection and cannot lock or change the document.' : null)
   function openTask(id: string) { setActiveId(id); setOpen(true) }
-  function save(task: AITask) { void storeTask(task).catch(() => setNotice('AI task recovery could not be saved. Keep this tab open until you accept or discard.')) }
   function update(id: string, patch: Partial<AITask>) {
     if (!mounted.current) return
-    state.current = state.current.map(task => {
+    persistence.replace(state.current.map(task => {
       if (task.id !== id) return task
-      const next = { ...task, ...(patch.candidate ? { preview: true } : {}), ...patch }; save(next); return next
-    })
-    setTasks(state.current)
+      return { ...task, ...(patch.candidate ? { preview: true } : {}), ...patch }
+    }))
   }
   function unrestricted(action: () => void) {
     bypass.current = true
     try { history.boundary(); action(); history.boundary() } finally { bypass.current = false }
   }
   history.guard.current = (before, after) => {
-    const allowed = bypass.current || permits(state.current, before, after)
+    const allowed = bypass.current || permits(activeTasks(before), before, after)
     if (!allowed) setNotice('That change would edit a reserved region. Accept or discard its AI task first.')
     return allowed
   }
-  history.guardEditor.current = (id, before, after) => bypass.current || permitsEditor(state.current, id, before, after)
+  history.guardEditor.current = (id, before, after) => bypass.current || permitsEditor(activeTasks(), id, before, after)
   history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' || task.target.kind === 'segment' ? task.target.blockIds.map(id => [id, task.id]) : []))
 
   useEffect(() => {
     mounted.current = true
-    let active = true
-    if (!writable) { setLoaded(true); return }
-    void loadTasks().then(saved => {
-      if (!active) return
-      const doc = currentDoc.current
-      const retained = saved.filter(task => {
-        const valid = task.documentId === doc.id && task.expiresAt > Date.now() && (task.target.kind === 'object'
-          ? sameContent(reservedObjectContent(task, doc.floating.find(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId) ?? {} as never), reservedObjectContent(task, task.original as never))
-          : task.target.kind === 'segment' ? segmentReservationIntact(task, doc)
-          : sameContent(reservedText(doc.content, task.target.blockIds), reservedText({ type: 'doc', content: task.original as JSONContent[] }, task.target.blockIds)))
-        if (!valid) { void storeTask(task.id); if (task.submitted || task.requestSent) void aiRequest(`/tasks/${task.id}`, 'DELETE').catch(() => {}) }
-        return valid
-      }).map(task => task.status === 'preparing' ? { ...task, status: 'error' as const, error: 'Generation was interrupted before confirmation. Retry or discard.' } : task)
-        .sort((a, b) => (a.createdAt ?? a.expiresAt) - (b.createdAt ?? b.expiresAt))
-      state.current = retained; setTasks(retained); setActiveId(retained[0]?.id ?? null); setLoaded(true)
-    }).catch(() => { if (active) { setNotice('AI task recovery is unavailable. Reload before starting AI tasks.'); setLoaded(true) } })
-    return () => { active = false; mounted.current = false }
-  }, [writable])
+    return () => { mounted.current = false; preparations.current.clear() }
+  }, [cloud?.documentId, cloud?.workingCopyId, writable])
+  useEffect(() => {
+    setActiveId(current => allTasks.some(task => task.id === current) ? current : allTasks[0]?.id ?? null)
+  }, [allTasks])
 
   useEffect(() => {
     if (!writable || !loaded) return
     let active = true, pending = false
+    const awaitingResult = (task: AITask) => task.submitted ? ['queued', 'running'].includes(task.status)
+      : task.requestSent && ['preparing', 'error'].includes(task.status)
     async function poll() {
       if (pending) return
       pending = true
-      await Promise.all(state.current.filter(task => task.submitted && ['queued', 'running'].includes(task.status)).map(async task => {
+      await Promise.all(state.current.filter(awaitingResult).map(async task => {
         try {
           const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
-          if (!active || !state.current.some(current => current.id === task.id && ['queued', 'running'].includes(current.status))) return
-          if (remote.candidate) {
+          if (!active || !state.current.some(current => current.id === task.id && awaitingResult(current))) return
+          if (remote.candidate && !inactiveReason(task)) {
             try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
-            catch (error) { update(task.id, { status: 'error', error: `Invalid candidate: ${(error as Error).message}` }); return }
+            catch (error) { update(task.id, { ...remote, submitted: true, status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
           }
-          update(task.id, { error: undefined, ...remote })
+          update(task.id, { error: undefined, ...remote, submitted: true })
         } catch (error) {
           if (active) {
-            if (error instanceof AIServiceError && error.status === 404) missingRemote(task.id)
+            // requestSent is persisted before POST: another device can observe
+            // the claim before the execution exists. Keep it recoverable.
+            if (error instanceof AIServiceError && error.status === 404) { if (task.submitted) missingRemote(task.id) }
             else update(task.id, { error: (error as Error).message })
           }
         }
@@ -133,10 +133,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     void poll()
     const timer = window.setInterval(() => void poll(), 1200)
     return () => { active = false; window.clearInterval(timer) }
-  }, [loaded, writable])
+  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId])
 
   function reserve(target: AITarget, snapshot = currentDoc.current) {
-    if (!loaded || !writable) return
+    if (!loaded || !writable || !cloud || cloud.documentId !== snapshot.id || !persistence.engine.current?.ready) { setNotice('Connect this working copy to its cloud document before starting an AI task.'); return }
     if (target.kind === 'text' && !reservedText(snapshot.content, target.blockIds)) { setNotice('Select consecutive paragraphs without crossing a space.'); return }
     if (target.kind === 'segment') {
       const range = resolveSegmentRange(snapshot, target)
@@ -145,7 +145,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (!sameContent(fresh.blockIds, target.blockIds) || !sameContent(fresh.objectIds, target.objectIds)) { setNotice('The selected segment changed.'); return }
       target = fresh
     }
-    const overlapping = state.current.find(task => overlaps(task.target, target, snapshot))
+    const overlapping = activeTasks(snapshot).find(task => overlaps(task.target, target, snapshot))
     if (overlapping) { openTask(overlapping.id); return }
     let original: FloatingObject | JSONContent[] | SegmentClipboard
     let segmentOriginalBlocks: JSONContent[] | undefined
@@ -160,10 +160,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     const task: AITask = { id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
       original,
-      snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false, expiresAt: Date.now() + 24 * 60 * 60 * 1000 }
+      snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false }
     if (segmentOriginalBlocks) task.segmentOriginalBlocks = segmentOriginalBlocks
     if (segmentOriginalObjects) task.segmentOriginalObjects = segmentOriginalObjects
-    state.current = [...state.current, task]; setTasks(state.current); save(task); openTask(task.id); setNotice(''); history.boundary()
+    persistence.replace([...state.current, task]); openTask(task.id); setNotice(''); history.boundary()
     return task
   }
   function missingRemote(id: string) {
@@ -172,17 +172,27 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
 
   async function start(id: string, prompt: string) {
     let task = state.current.find(task => task.id === id)
-    if (!task || task.remoteMissing || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status)) return
+    const connection = cloudRef.current, store = persistence.engine.current
+    if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
+    if (!task || inactiveReason(task) || task.remoteMissing || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status)) return
+    // Resizing is allowed before the first request. Freeze the current object,
+    // not the dimensions from when the reservation was first drawn.
+    if (!task.submitted && !task.requestSent && task.target.kind === 'object') {
+      const objectId = task.target.objectId
+      task = { ...task, original: structuredClone(currentDoc.current.floating.find(object => object.id === objectId)!) }
+      update(id, { original: task.original })
+    }
     const run = Symbol()
     preparations.current.set(id, run)
-    const preparing = () => preparations.current.get(id) === run && state.current.some(task => task.id === id && task.status === 'preparing')
-    update(id, { status: 'preparing', prompt, draftPrompt: '', title: task.title || prompt.trim().split('\n')[0].slice(0, 60), error: undefined, preview: false, progress: 'Preparing full document snapshot…' })
+    const preparing = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
+      && state.current.some(task => task.id === id && task.status === 'preparing')
+    update(id, { status: 'preparing', preparingCopyId: connection.workingCopyId, prompt, draftPrompt: '', title: task.title || prompt.trim().split('\n')[0].slice(0, 60), error: undefined, preview: false, progress: 'Saving document and preparing snapshot…' })
     try {
       let remote: RemoteTask
-      if (!task.submitted && (task.status === 'error' || task.requestSent)) {
+      if (!task.submitted && task.requestSent) {
         try {
           remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-          if (preparing()) update(id, { ...remote, submitted: true, snapshotDocument: undefined })
+          if (preparing()) update(id, { ...remote, submitted: true })
           return
         } catch (error) {
           if (!(error instanceof AIServiceError) || error.status !== 404) throw error
@@ -190,45 +200,74 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           task = { ...task, requestSent: false }; update(id, { requestSent: false })
         }
       }
-      if (task.submitted) remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt })
-      else {
-        if (!task.requestSent && task.target.kind === 'object') {
-          const objectId = task.target.objectId
-          const snapshotDocument = structuredClone(currentDoc.current)
-          const original = snapshotDocument.floating.find(object => object.id === objectId)!
-          const target = { ...task.target, area: objectArea(objectId) }
-          task = { ...task, snapshotDocument, original, target }
-          update(id, { snapshotDocument, original, target })
-        } else if (!task.requestSent && task.target.kind === 'segment') {
-          if (!segmentReservationIntact(task, currentDoc.current)) throw new Error('The reserved segment changed. Discard it and start a new request.')
-          const range = resolveSegmentRange(currentDoc.current, task.target)
-          if (!range) throw new Error('The reserved segment anchor is no longer available.')
-          const refreshed = makeSegmentTarget(currentDoc.current, range, task.target.area)
-          const context = segmentContext?.() ?? { anchors: [], geometry: {} }
-          const snapshotDocument = structuredClone(currentDoc.current)
-          const original = copySegment(snapshotDocument, range, context.anchors, context.geometry)
-          const segmentOriginalBlocks = structuredClone(snapshotDocument.content.content!.filter(node => refreshed.blockIds.includes(node.attrs?.id)))
-          const segmentOriginalObjects = structuredClone(snapshotDocument.floating.filter(object => refreshed.objectIds.includes(object.id)))
-          task = { ...task, snapshotDocument, original, target: refreshed, segmentOriginalBlocks, segmentOriginalObjects }
-          update(id, { snapshotDocument, original, target: refreshed, segmentOriginalBlocks, segmentOriginalObjects })
+      if (task.submitted) {
+        if (!await store.flush()) throw new Error('Save or resolve the cloud assistant state before revising.')
+        if (!preparing()) return
+        remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt })
+      } else {
+        const saved = await connection.sync()
+        if (!preparing()) return
+        if (!saved) throw new Error('The document could not be saved to the cloud. Resolve its sync status, then retry.')
+        const snapshotDocument = structuredClone(saved.document)
+        if (snapshotDocument.id !== connection.documentId || !sameContent(snapshotDocument, currentDoc.current)) {
+          throw new Error('The working copy changed while saving. Retry with the current document after resolving any sync conflict.')
         }
-        const document = task.snapshotDocument!
+        const stale = inactiveTaskReason(task, snapshotDocument)
+        if (stale) throw new Error(stale)
+        let target = task.target, original = task.original
+        let segmentOriginalBlocks = task.segmentOriginalBlocks, segmentOriginalObjects = task.segmentOriginalObjects
+        const context = segmentContext?.()
+        if (target.kind === 'object') {
+          const objectId = target.objectId
+          original = structuredClone(snapshotDocument.floating.find(object => object.id === objectId)!)
+          target = { ...target, area: objectArea(objectId) }
+        } else if (target.kind === 'segment') {
+          const range = resolveSegmentRange(snapshotDocument, target)
+          if (!range || !context) throw new Error('The reserved segment geometry is not available. Retry after the document finishes rendering.')
+          target = makeSegmentTarget(snapshotDocument, range, { ...target.area, width: snapshotDocument.width })
+          original = copySegment(snapshotDocument, range, context.anchors, context.geometry)
+          const { blockIds, objectIds } = target
+          segmentOriginalBlocks = structuredClone(snapshotDocument.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
+          segmentOriginalObjects = structuredClone(snapshotDocument.floating.filter(object => objectIds.includes(object.id)))
+        } else {
+          const node = getSchema(extensions(true)).nodeFromJSON(snapshotDocument.content)
+          const { blockIds } = target
+          let from = 0, to = 0
+          node.forEach((child, position) => {
+            if (child.attrs.id === blockIds[0]) from = position + 1
+            if (child.attrs.id === blockIds.at(-1)) to = position + child.nodeSize - 1
+          })
+          const selection = paragraphSelection(node, from, to)
+          if (!selection || !sameContent(selection.blockIds, blockIds)) throw new Error('The selected paragraphs changed. Start a new request for the current selection.')
+          const first = context?.anchors.find(anchor => anchor.id === blockIds[0]), last = context?.anchors.find(anchor => anchor.id === blockIds.at(-1))
+          const area = first && last ? { x: snapshotDocument.margins.left, y: first.top,
+            width: snapshotDocument.width - snapshotDocument.margins.left - snapshotDocument.margins.right,
+            height: (last.bottom ?? last.top) - first.top } : target.area
+          target = { ...target, ...selection, area }
+          original = structuredClone(snapshotDocument.content.content!.filter(block => blockIds.includes(block.attrs?.id)))
+        }
+        const input = { snapshotDocument, original, target, segmentOriginalBlocks, segmentOriginalObjects,
+          cloudDocumentId: connection.documentId, baseRevision: saved.revision }
+        task = { ...task, ...input }; update(id, input)
         const { exportPng } = await import('../document/png')
-        const blob = await exportPng(document)
+        const blob = await exportPng(snapshotDocument)
         const snapshot = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
         })
         if (!preparing()) return
         update(id, { requestSent: true })
-        remote = await aiRequest('/tasks', 'POST', { id, document, target: task.target, prompt, model: currentDoc.current.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot })
+        if (!await store.flush()) throw new Error('The request is retained locally. Resolve cloud assistant saving before generating.')
+        if (!preparing()) return
+        remote = await aiRequest('/tasks', 'POST', { id, document: snapshotDocument, snapshotDocument,
+          cloudDocumentId: connection.documentId, baseRevision: saved.revision, target, prompt,
+          model: snapshotDocument.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot })
       }
       if (!preparing()) {
-        const current = state.current.find(task => task.id === id)
-        if (!current) void aiRequest(`/tasks/${id}`, 'DELETE').catch(() => {})
-        else if (current.status === 'stopped') void aiRequest(`/tasks/${id}/stop`, 'POST').catch(() => {})
+        if (discarded.current.has(id)) void cleanup(id, store)
+        else if (mounted.current && state.current.some(task => task.id === id && task.status === 'stopped')) void aiRequest(`/tasks/${id}/stop`, 'POST').catch(() => {})
         return
       }
-      update(id, { ...remote, submitted: true, snapshotDocument: undefined })
+      update(id, { ...remote, submitted: true })
     } catch (error) {
       if (preparing()) {
         if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
@@ -240,34 +279,47 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
 
   async function stop(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!task) return
+    const store = persistence.engine.current
+    if (!writable || !task) return
     preparations.current.delete(id)
     update(id, { status: 'stopped', progress: 'Stopping…' })
     if (!task.submitted && !task.requestSent) { update(id, { progress: 'Stopped' }); return }
     try {
       const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
-      if (state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { ...remote, submitted: true, status: 'stopped' })
+      if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { ...remote, submitted: true, status: 'stopped' })
     } catch (error) {
-      if (state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. Discard to abandon this result.' })
+      if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. The request and any result are retained.' })
     }
   }
 
+  async function cleanup(id: string, store: AssistantState) {
+    // The document (for acceptance) and the assistant removal must both be
+    // durable before deleting the only execution artifact. Uncertain cleanup
+    // leaks a retained artifact rather than losing a result.
+    if (!await store.flush() || store.record.tasks.some(task => task.id === id)
+      || store.record.archives.some(archive => archive.tasks.some(task => task.id === id))) return
+    try { await aiRequest(`/tasks/${id}`, 'DELETE') }
+    catch (error) {
+      if (!(error instanceof AIServiceError && error.status === 404) && mounted.current) setNotice('The task was released, but execution cleanup was not confirmed. The server artifact is retained.')
+    }
+  }
   function forget(id: string) {
     preparations.current.delete(id)
     const task = state.current.find(task => task.id === id)
     const index = state.current.findIndex(task => task.id === id)
-    state.current = state.current.filter(task => task.id !== id); setTasks(state.current)
+    discarded.current.add(id)
+    persistence.replace(state.current.filter(task => task.id !== id))
     setActiveId(current => current === id ? (state.current[index] ?? state.current[index - 1])?.id ?? null : current)
     if (!state.current.length) setOpen(false)
-    void storeTask(id).catch(() => setNotice('Could not clear saved task recovery.'))
-    if (task?.submitted || task?.requestSent || task?.status === 'preparing') void aiRequest(`/tasks/${id}`, 'DELETE').catch(error => {
-      if (!(error instanceof AIServiceError && error.status === 404)) setNotice('The local reservation was released, but server cleanup was not confirmed. Its result will not be applied; server work expires automatically.')
-    })
+    const store = persistence.engine.current
+    if (store && (task?.submitted || task?.requestSent)) void cleanup(id, store)
   }
   function discard(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!task) return
+    if (!writable || !task) return
+    const inactive = inactiveReason(task)
     forget(id)
+    if (inactive) return
     const target = task.target
     if (target.kind === 'segment') return
     unrestricted(() => history.setDoc(doc => {
@@ -282,23 +334,48 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   function accept(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!task?.candidate || ['running', 'queued', 'preparing'].includes(task.status)) return
+    if (!writable || !cloud || !task?.candidate || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
     try {
-      if (task.expiresAt <= Date.now()) throw new Error('This task has expired. Discard it and start a new request.')
       const next = candidateDocument(currentDoc.current, task, task.candidate, segmentContext?.())
-      if (!permits(state.current.filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
-      unrestricted(() => history.setDoc(next)); forget(id); setNotice('')
+      if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
+      unrestricted(() => history.setDoc(next))
+      update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next }, preview: false, error: undefined })
+      setNotice('Applied locally. The AI result is retained until the accepted document is saved to the cloud.')
       if (task.target.kind === 'object') {
         const objectId = task.target.objectId
         setRuns(current => ({ ...current, [objectId]: (current[objectId] ?? 0) + 1 }))
       }
     } catch (error) { update(id, { error: (error as Error).message }) }
   }
-  function abandonAll() { for (const task of [...state.current]) forget(task.id) }
+  async function syncAcceptance(id: string) {
+    const task = state.current.find(task => task.id === id), connection = cloudRef.current, store = persistence.engine.current
+    if (!task?.acceptance || !connection || task.acceptance.workingCopyId !== connection.workingCopyId) return
+    try {
+      const saved = await connection.sync()
+      if (!mounted.current || store !== persistence.engine.current || !state.current.some(current => current.id === id && sameContent(current.acceptance, task.acceptance))) return
+      if (!saved || !sameContent(saved.document, task.acceptance.document)) {
+        update(id, { error: 'The exact accepted document has not been confirmed in the cloud. The working copy may have changed or conflicted. Your original input and candidate are retained below.' }); return
+      }
+      forget(id); setNotice('Accepted document saved to the cloud.')
+    } catch (error) {
+      if (mounted.current && store === persistence.engine.current) update(id, { error: `The result is retained: ${(error as Error).message}` })
+    }
+  }
+  useEffect(() => {
+    // Parent effects first copy the committed history document into its sync
+    // controller. Calling sync during this hook's effect would save the old doc.
+    const timer = window.setTimeout(() => {
+      for (const task of allTasks) if (task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
+        acceptanceAttempts.current.add(task.id); void syncAcceptance(task.id)
+      }
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [allTasks, cloud?.workingCopyId])
+  function abandonAll() { for (const task of [...state.current]) if (task.documentId === currentDoc.current.id) forget(task.id) }
   function deleteObjects(floating: FloatingObject[]) {
-    const removed = state.current.filter(task => task.target.kind === 'object' && !floating.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
+    const removed = activeTasks().filter(task => task.target.kind === 'object' && !floating.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
     const next = { ...currentDoc.current, floating }
-    if (!permits(state.current.filter(task => !removed.includes(task)), currentDoc.current, next)) {
+    if (!permits(activeTasks().filter(task => !removed.includes(task)), currentDoc.current, next)) {
       setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return false
     }
     for (const task of removed) forget(task.id)
@@ -307,7 +384,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   function deleteTarget(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!task) return
+    if (!writable || !task || inactiveReason(task)) return
     if (task.target.kind === 'object') {
       deleteObjects(withoutObject(task.target.objectId) ?? currentDoc.current.floating.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
       return
@@ -316,7 +393,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (!task.target.blockIds.length && !task.target.objectIds.length) { forget(id); return }
       try {
         const next = applySegmentCandidate(currentDoc.current, task.target, null, segmentContext?.() ?? { anchors: [], geometry: {} })
-        if (!permits(state.current.filter(other => other.id !== id), currentDoc.current, next)) {
+        if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) {
           setNotice('That deletion would change another reserved region. Resolve that task first.'); return
         }
         forget(id)
@@ -328,11 +405,15 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     const ids = task.target.blockIds
     const content = currentDoc.current.content.content!.filter(node => !ids.includes(node.attrs?.id))
     const next = replaceMainContent(currentDoc.current, { ...currentDoc.current.content, content: content.length ? content : [paragraph('')] })
-    if (!permits(state.current.filter(other => other.id !== id), currentDoc.current, next)) {
+    if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) {
       setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return
     }
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
-  return { tasks, loaded, open, setOpen, activeId, openTask, notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
+  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
+    inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
+    cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,
+    retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },
+    discardArchive: (id: string) => persistence.engine.current?.discardArchive(id),
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }
 }
