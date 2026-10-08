@@ -13,6 +13,7 @@ import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
 import { useScrollFloor } from './useScrollFloor'
 import { useParagraphInsertion } from './useParagraphInsertion'
+import { useImagePlacement } from './useImagePlacement'
 import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
@@ -109,6 +110,16 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     onStart: () => { cancel(); select([]); setActiveSegmentId(null); onActive(null); onToolChange(null) } })
   const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
+  const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage, sheet, editor: mainEditor,
+    insertion: () => { const selection = segments.selection(); return selection ? { x: doc.margins.left, y: selection.area.y } : undefined },
+    onStart: () => { cancel(); segments.clear(); setActiveSegmentId(null); select([]); onActive(null); onToolChange(null) },
+    onCommit: (image, position) => {
+      const next = { ...image, ...anchorPoint(position, anchors) }
+      if (!history.guard.current(doc, { ...doc, floating: [...doc.floating, next] })) { setClipboardNotice('Accept or discard the affected AI task before pasting.'); return }
+      history.boundary(); onFloatingChange([...doc.floating, next]); history.boundary()
+      select([next.id]); onActive(null); focusObject(next.id)
+    },
+  })
   useLayoutEffect(() => { if (tool === 'paragraph') { segments.clear(); setActiveSegmentId(null) } }, [tool])
   useLayoutEffect(() => {
     if (!projection.previews.length) {
@@ -686,7 +697,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         '--scaled-page-width': `${doc.width * scale}px`, '--crop-left': sideSpace ? sideInsets.left / sideSpace : 0,
         height: `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
-      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((tool && tool !== 'paragraph') || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
+      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((tool && tool !== 'paragraph') || imagePlacement.active || creating || Object.keys(previews).length > 0) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${imagePlacement.active ? 'has-image-placement' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
@@ -717,6 +728,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (segment) { selectAISegment(segment.id); return }; if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
             onChange={patch => onNoteChange(note.id, patch)} onLabel={() => label(note.id)} onFinishLabel={() => { setEditingLabel(null); focusObject(note.id) }} onKey={event => key(note.id, event)} />
         })}
+        {imagePlacement.preview}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
         {editable && guides.length > 0 && <svg className="attachment-guides" width="100%" height="100%" aria-hidden="true">{guides.map((guide, i) => <g key={i}>
           {guide.box && <rect x={guide.box.x} y={guide.box.y} width={guide.box.width} height={guide.box.height} />}
@@ -733,6 +745,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       setMeasuredSource(previous => previous?.doc === source && previous.signature === signature ? previous : { doc: source, context, signature })
     }} />}
     {(clipboardNotice || segments.notice) && <p className="segment-notice" role="status">{clipboardNotice || segments.notice}</p>}
+    {imagePlacement.notice && <p className="segment-notice" role="status">{imagePlacement.notice}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
