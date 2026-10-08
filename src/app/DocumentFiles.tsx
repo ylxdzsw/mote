@@ -70,11 +70,11 @@ export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; ac
 
   async function importing(file: File) {
     if (!onImport) return
-    setBusy('Opening .mote document…'); setError(''); setResult('')
+    setBusy('Opening document…'); setError(''); setResult('')
     try {
-      const next = await (await import('../document/file')).decodeMote(file)
-      if (window.confirm('Replace your local draft with this .mote document? This clears undo history and cannot be undone. Export your current draft first if you want to keep it.')) onImport(next)
-    } catch (error) { setError(error instanceof Error ? error.message : 'This .mote document could not be opened.') }
+      const next = await (await import('../document/file')).decodeDocument(file)
+      if (window.confirm('Replace your local draft with this document? This clears undo history and cannot be undone. Export your current draft first if you want to keep it.')) onImport(next)
+    } catch (error) { setError(error instanceof Error ? error.message : 'This document could not be opened.') }
     finally { setBusy('') }
   }
 
@@ -91,13 +91,13 @@ export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; ac
       <p id="filename-hint">{invalidName ? 'Enter a filename without / \\ : * ? " < > |.' : 'The selected format’s extension is added automatically.'}</p>
       <div className="export-formats">
         <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width)}px wide · native resolution</span></button>
-        <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · embedded document and images</span></button>
+        <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · can be imported back</span></button>
         <button disabled={!!busy || invalidName} onClick={() => void exporting('mote')}><strong>Mote document <small>.mote</small></strong><span>Compressed editable document · can be imported back</span></button>
       </div>
       {doc.floating.some(object => object.kind === 'html') && <p>HTML widgets stay interactive in HTML exports; their online resources still need a connection. PNG uses the screenshots you supplied.</p>}
-      {onImport && <section className="files-import"><h2>Import</h2><p>Only .mote documents can be imported. Import replaces the local draft after confirmation.</p>
-        <button disabled={!!busy} onClick={() => input.current!.click()}>Import .mote…</button>
-        <input ref={input} type="file" accept=".mote" hidden aria-label="Mote document file" onChange={event => {
+      {onImport && <section className="files-import"><h2>Import</h2><p>Import a .mote file or Mote-exported HTML. Import replaces the local draft after confirmation.</p>
+        <button disabled={!!busy} onClick={() => input.current!.click()}>Import .mote / HTML…</button>
+        <input ref={input} type="file" accept=".mote,.html,.htm" hidden aria-label="Mote document or Mote-exported HTML file" onChange={event => {
           const file = event.target.files?.[0]; event.target.value = ''; if (file) void importing(file)
         }} /></section>}
       <p className="files-status" role="status">{busy || result}</p>

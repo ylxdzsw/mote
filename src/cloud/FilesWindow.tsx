@@ -103,10 +103,10 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
   }
 
   function importFile(file: File) {
-    void run('Importing .mote as a new document…', async () => {
-      const { decodeMote } = await import('../document/file')
-      const document = await decodeMote(file)
-      if (active.current) await create(document, file.name.replace(/\.mote$/i, '').trim() || 'Untitled')
+    void run('Importing as a new document…', async () => {
+      const { decodeDocument } = await import('../document/file')
+      const document = await decodeDocument(file)
+      if (active.current) await create(document, file.name.replace(/\.(mote|html?)$/i, '').trim() || 'Untitled')
     })
   }
 
@@ -116,14 +116,15 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
       <button type="button" className="cloud-button cloud-close" aria-label="Close files" disabled={!!busy} onClick={onClose}>×</button>
     </header>
     <div className="cloud-body">
+      <p className="cloud-hint">Import a .mote file or Mote-exported HTML as a new document. Existing files are unchanged.</p>
       <div className="cloud-actions">
         <button type="button" className="cloud-button" disabled={!!busy} onClick={() => newDocument()}>New document</button>
         <button type="button" className="cloud-button" disabled={!!busy} onClick={() => newDocument(true)}>Create from example</button>
-        <button type="button" className="cloud-button" disabled={!!busy} onClick={() => input.current!.click()}>Import .mote…</button>
+        <button type="button" className="cloud-button" disabled={!!busy} onClick={() => input.current!.click()}>Import .mote / HTML…</button>
         <button type="button" className="cloud-button" disabled={!!busy} onClick={() => { void run('Refreshing files…', refresh) }}>Refresh</button>
         {onLocalRecovery && <button type="button" className="cloud-button" disabled={!!busy} onClick={onLocalRecovery}>Local recovery</button>}
       </div>
-      <input ref={input} type="file" accept=".mote" hidden disabled={!!busy} aria-label="Import a Mote document" onChange={event => {
+      <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or Mote-exported HTML" onChange={event => {
         const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file)
       }} />
       {hasLocalDraft && onImportLocal && <div className="cloud-local-import">

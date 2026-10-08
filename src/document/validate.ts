@@ -14,7 +14,7 @@ function isRecord(value: unknown): value is RecordValue {
 }
 
 function invalid(message: string): never {
-  throw new MoteFileError(`Invalid .mote document: ${message}`)
+  throw new MoteFileError(`Invalid Mote document: ${message}`)
 }
 
 function record(value: unknown, path: string): RecordValue {

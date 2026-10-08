@@ -67,14 +67,37 @@ export async function decodeMote(file: File): Promise<MoteDocument> {
   catch { throw new MoteFileError('The .mote file could not be read.') }
   if (compressed.length < 2 || compressed[0] !== 0x1f || compressed[1] !== 0x8b) throw new MoteFileError('The .mote file is not gzip-compressed.')
 
-  const json = await gunzip(file)
+  return parseDocument(await gunzip(file))
+}
+
+function parseDocument(json: string): MoteDocument {
+  if (new Blob([json]).size > maxDecompressedBytes) throw new MoteFileError('The document payload exceeds the 128 MiB limit.')
   let value: unknown
   try { value = JSON.parse(json) }
-  catch { throw new MoteFileError('The .mote file does not contain valid JSON.') }
+  catch { throw new MoteFileError('The document payload does not contain valid JSON.') }
   validateDocument(value)
   try { return initializeDocument(value) }
   catch (error) {
     const detail = error instanceof Error && error.message ? `: ${error.message}` : ''
-    throw new MoteFileError(`The .mote document content is not valid for V0${detail}`)
+    throw new MoteFileError(`The document content is not valid for V0${detail}`)
   }
+}
+
+export async function decodeDocument(file: File): Promise<MoteDocument> {
+  if (/\.mote$/i.test(file.name)) return decodeMote(file)
+  if (!/\.html?$/i.test(file.name)) throw new MoteFileError('Choose a .mote file or a Mote-exported HTML file.')
+  if (file.size > maxDecompressedBytes) throw new MoteFileError('The HTML file is larger than the 128 MiB limit.')
+
+  let html: string
+  try { html = await file.text() }
+  catch { throw new MoteFileError('The HTML file could not be read.') }
+  // Template contents are inert: no scripts, custom elements, or resource loads.
+  const template = document.createElement('template')
+  template.innerHTML = html
+  const payloads = template.content.querySelectorAll('[id="mote-document"]')
+  const payload = payloads[0]
+  if (payloads.length !== 1 || payload?.tagName !== 'SCRIPT' || payload.getAttribute('type') !== 'application/json') {
+    throw new MoteFileError('This HTML file must contain exactly one embedded Mote document. Choose an HTML file exported by Mote.')
+  }
+  return parseDocument(payload.textContent ?? '')
 }
