@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { createWriteStream, promises as fs } from 'node:fs'
 import { finished } from 'node:stream/promises'
 import { Transform } from 'node:stream'
@@ -15,12 +15,23 @@ export function workerUnit(taskId, generation) { return `moted-${taskId}-${gener
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-async function unitEmpty(unit, env) {
-  const output = await new Promise(resolve => {
-    const child = spawn(env.MOTED_SYSTEMCTL || 'systemctl', ['show', '--property=LoadState', '--property=ActiveState', '--property=ControlGroup', unit], { stdio: ['ignore', 'pipe', 'ignore'] })
-    let value = ''
-    child.stdout.on('data', chunk => { value += chunk }); child.on('error', () => resolve('')); child.on('close', () => resolve(value))
+function systemctl(args, env) {
+  return new Promise((resolve, reject) => {
+    execFile(env.MOTED_SYSTEMCTL || 'systemctl', args, { timeout: 2000, killSignal: 'SIGKILL', maxBuffer: 65536, encoding: 'utf8' },
+      (error, stdout) => error ? reject(error) : resolve(stdout))
   })
+}
+
+async function confirmStopped(check) {
+  for (const ms of [0, 250, 500, 1000, 2000, 4000]) {
+    if (ms) await delay(ms)
+    if (await check()) return
+  }
+  throw new Error('Worker cleanup could not be confirmed; further built-in runs are paused until service recovery.')
+}
+
+async function unitEmpty(unit, env) {
+  const output = await systemctl(['show', '--property=LoadState', '--property=ActiveState', '--property=ControlGroup', unit], env).catch(() => '')
   const state = Object.fromEntries(output.trim().split('\n').map(line => { const at = line.indexOf('='); return [line.slice(0, at), line.slice(at + 1)] }))
   if (state.LoadState !== 'not-found' && !['inactive', 'failed'].includes(state.ActiveState)) return false
   const group = state.ControlGroup || `/system.slice/${unit}.service`
@@ -30,24 +41,22 @@ async function unitEmpty(unit, env) {
 
 export async function stopWorkerUnit(unit, env) {
   if (!/^moted-[0-9a-f-]+-\d+$/i.test(unit)) throw new Error('invalid worker unit')
-  const systemctl = env.MOTED_SYSTEMCTL || 'systemctl'
-  await childWait(systemctl, ['kill', '--kill-who=all', '--signal=TERM', unit], { stdio: 'ignore' }).catch(() => {})
+  await systemctl(['kill', '--kill-who=all', '--signal=TERM', unit], env).catch(() => {})
   await delay(250)
-  await childWait(systemctl, ['kill', '--kill-who=all', '--signal=KILL', unit], { stdio: 'ignore' }).catch(() => {})
-  await childWait(systemctl, ['stop', '--job-mode=replace-irreversibly', unit], { stdio: 'ignore' }).catch(() => {})
-  // Failed cancellation must not make a later generation runnable. On an unreadable
-  // systemd state, keep waiting rather than guessing that its process tree is gone.
-  while (!await unitEmpty(unit, env)) await delay(250)
+  await systemctl(['kill', '--kill-who=all', '--signal=KILL', unit], env).catch(() => {})
+  await systemctl(['stop', '--job-mode=replace-irreversibly', unit], env).catch(() => {})
+  // Failure is bounded, but must keep later generations fenced off.
+  await confirmStopped(() => unitEmpty(unit, env))
 }
 
 async function stopProcessGroup(pid) {
   try { process.kill(-pid, 'SIGTERM') } catch (error) { if (error.code === 'ESRCH') return }
   await delay(250)
   try { process.kill(-pid, 'SIGKILL') } catch (error) { if (error.code === 'ESRCH') return }
-  for (;;) {
-    try { process.kill(-pid, 0) } catch (error) { if (error.code === 'ESRCH') return }
-    await delay(250)
-  }
+  await confirmStopped(() => {
+    try { process.kill(-pid, 0) } catch (error) { if (error.code === 'ESRCH') return true }
+    return false
+  })
 }
 
 async function readJson(file) { return JSON.parse(await fs.readFile(file, 'utf8')) }
@@ -139,11 +148,15 @@ export async function fakeRunner(context) {
   return { sessionId: context.sessionId || `fake-${context.taskId}` }
 }
 
-export function configuredModel(env, cwd) {
+export async function configuredModel(env, cwd) {
   if (env.MOTED_MU_DEFAULT_MODEL) return env.MOTED_MU_DEFAULT_MODEL
-  const result = spawnSync(env.MOTED_MU_BIN || 'mu', ['status', '--json'], { cwd, env, encoding: 'utf8', timeout: 5000 })
-  if (result.status !== 0) return undefined
-  try { return JSON.parse(result.stdout).model.canonical } catch { return undefined }
+  // Only an explicit generation request resolves Mu's default. Never block the
+  // service event loop (or contact a provider) to open/save a document or settings.
+  const output = await new Promise(resolve => {
+    execFile(env.MOTED_MU_BIN || 'mu', ['status', '--json'], { cwd, env, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 },
+      (error, stdout) => resolve(error ? '' : stdout))
+  })
+  try { return JSON.parse(output).model.canonical } catch { return undefined }
 }
 
 async function prepareWorkerPaths(context) {
@@ -265,11 +278,11 @@ export async function muRunner(context) {
   const stopWorker = () => stopPromise ??= (async () => {
     if (context.useSystemd) await stopWorkerUnit(unit, context.env)
     else if (child?.pid) await stopProcessGroup(child.pid)
-  })()
+  })().catch(error => { context.cleanupFailed = true; throw error })
   context.stop = stopWorker
-  const onAbort = () => { void stopWorker() }
+  const onAbort = () => { void stopWorker().catch(() => {}) }
   context.signal.addEventListener('abort', onAbort, { once: true })
-  if (context.signal.aborted) void stopWorker()
+  if (context.signal.aborted) onAbort()
   let failure
   let closeBridges = async () => {}
   try {
@@ -284,7 +297,7 @@ export async function muRunner(context) {
   finally {
     // Even normal main-process exit can leave browser/background descendants.
     // The runner promise covers their death AND all shared provider/log cleanup.
-    await stopWorker()
+    try { await stopWorker() } catch (error) { failure ??= error }
     try { await closeBridges() } catch (error) { failure ??= error }
     stdout.end(); stderr.end()
     await Promise.all([stdout.done, stderr.done])

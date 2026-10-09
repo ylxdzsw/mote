@@ -66,6 +66,7 @@
 .ai-latest { position: absolute; bottom: 8px; right: 16px; background: var(--ui-surface); box-shadow: 0 2px 6px var(--ui-shadow); }
 .ai-connection { flex: none; padding: 8px 16px; color: var(--ui-muted); font-size: 12px; overflow-wrap: anywhere; }
 .ai-task-feedback { flex: none; padding: 0 16px; }
+.ai-task-feedback > button { margin-bottom: 8px; }
 .ai-result { flex: none; margin: 8px 16px 16px; padding: 14px; border: 1px solid var(--ui-border); border-radius: 8px; }
 .ai-result h3 { margin: 0; font-size: 13px; font-weight: 600; }
 .ai-summary { margin: 6px 0 14px; }

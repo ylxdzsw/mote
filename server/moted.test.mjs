@@ -5,7 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createMotedServer } from './moted.mjs'
-import { fakeRunner } from './runner.mjs'
+import { fakeRunner, stopWorkerUnit } from './runner.mjs'
 import { agentRequest, submitResult } from './submit.mjs'
 import { pathToFileURL } from 'node:url'
 import { validateCandidate, validateRequest } from './validation.mjs'
@@ -339,6 +339,50 @@ test('failed first turn can retry without a recorded session', async t => {
   assert.equal((await post(value, { executorRevision: 0, prompt: 'Retry after failure' }, `/api/ai/tasks/${id}/revise`)).status, 202)
   for (let i = 0; i < 30; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
   assert.equal(value.manager.tasks.get(id).meta.status, 'ready'); assert.equal(runs, 2)
+})
+
+test('workspace defaults apply only to new sessions and explicit document model wins', async t => {
+  const value = await app(); t.after(() => value.close())
+  value.store.putSettings({ baseRevision: 0, models: { builtin: 'workspace/first', indexing: 'workspace/indexer' } })
+  const id = crypto.randomUUID()
+  assert.equal((await post(value, request(id, document(), { model: undefined }))).status, 202)
+  await waitReady(value, id)
+  assert.equal(value.manager.tasks.get(id).meta.model, 'workspace/first')
+  value.store.putSettings({ baseRevision: 1, models: { builtin: 'workspace/second', indexing: '' } })
+  await post(value, { prompt: 'Continue', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)
+  await waitReady(value, id)
+  assert.equal(value.manager.tasks.get(id).meta.model, 'workspace/first')
+  const explicit = crypto.randomUUID()
+  await post(value, request(explicit, document(), { model: 'document/override' }))
+  await waitReady(value, explicit)
+  assert.equal(value.manager.tasks.get(explicit).meta.model, 'document/override')
+})
+
+test('unconfirmed worker cleanup stays fenced without requeue or unsafe artifact deletion', async t => {
+  let runs = 0
+  const value = await app({ runner: async context => { runs++; context.cleanupFailed = true; throw new Error('cleanup unavailable') } })
+  t.after(() => value.close())
+  const id = crypto.randomUUID()
+  await post(value, request(id))
+  for (let i = 0; i < 100 && ![...value.manager.tasks.get(id).executions].some(run => run.cleanupFailed); i++) await new Promise(resolve => setTimeout(resolve, 10))
+  const task = value.manager.tasks.get(id)
+  assert.equal(task.executions.size, 1)
+  assert.match(task.meta.error, /cleanup could not be confirmed/)
+  assert.ok(task.meta.workerUnit)
+  assert.equal((await post(value, { prompt: 'Retry', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 503)
+  assert.equal((await fetch(endpoint(value, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 409)
+  await readFile(path.join(task.dir, 'meta.json'))
+  assert.equal(runs, 1)
+})
+
+test('unavailable systemd cleanup probes have finite attempts with backoff', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mote-cleanup-test-'))
+  const bin = path.join(root, 'systemctl'), log = path.join(root, 'calls')
+  await writeFile(bin, `#!/usr/bin/node\nrequire('node:fs').appendFileSync(${JSON.stringify(log)}, process.argv[2] + '\\n'); process.exit(1)\n`, { mode: 0o700 })
+  await assert.rejects(stopWorkerUnit(`moted-${crypto.randomUUID()}-0`, { MOTED_SYSTEMCTL: bin }), /cleanup could not be confirmed/)
+  const calls = (await readFile(log, 'utf8')).trim().split('\n')
+  assert.deepEqual(calls.slice(0, 3), ['kill', 'kill', 'stop'])
+  assert.equal(calls.filter(call => call === 'show').length, 6)
 })
 
 const endpoint = (value, suffix) => `http://127.0.0.1:${value.server.address().port}${suffix}`

@@ -156,8 +156,6 @@ export function labelContent(text = ''): JSONContent {
 
 export type DocumentLanguage = 'en' | 'zh-Hans'
 
-export const DEFAULT_AI_MODEL = 'codex/gpt-5.6-luna'
-
 export interface MoteDocument {
   version: 'V0'
   id: string
@@ -199,7 +197,6 @@ export function createDocument(): MoteDocument {
   return {
     version: 'V0',
     id: crypto.randomUUID(),
-    aiModel: DEFAULT_AI_MODEL,
     width: 960,
     margins: { top: 48, right: 48, bottom: 48, left: 48 },
     theme: structuredClone(defaultTheme),

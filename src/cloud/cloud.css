@@ -18,6 +18,17 @@
 .cloud-field input, .cloud-link { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-surface-raised); color: var(--ui-ink); font: inherit; }
 .cloud-field input:disabled, .cloud-link:disabled { opacity: .6; }
 .cloud-local-import { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--ui-border); }
+.cloud-management { margin: 16px 0; border: 1px solid var(--ui-border); border-radius: 6px; }
+.cloud-management-toggle { display: flex; width: 100%; justify-content: space-between; align-items: center; border: 0; text-align: left; font-weight: 600; }
+.cloud-management-toggle[aria-expanded='true'] { color: var(--ui-accent); background: var(--ui-accent-soft); border-radius: 5px 5px 0 0; }
+.cloud-management-panel { padding: 12px; border-top: 1px solid var(--ui-border); }
+.cloud-management-panel .cloud-hint { margin-bottom: 12px; }
+.cloud-management-panel .cloud-field { margin: 12px 0 6px; }
+.cloud-management-panel .cloud-field input { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.cloud-management-actions { margin-top: 14px; }
+.cloud-management-panel code { overflow-wrap: anywhere; }
+.cloud-management-conflict { margin: 10px 0 0; color: var(--ui-warning-text); font-weight: 500; }
+.cloud-management-signin { display: inline-block; margin-top: 8px; color: var(--ui-accent); }
 .cloud-file-list { max-height: min(42dvh, 380px); overflow: auto; overscroll-behavior: contain; margin-bottom: 16px; border-block: 1px solid var(--ui-border); }
 .cloud-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .cloud-table th { position: sticky; top: 0; z-index: 1; background: var(--ui-surface); padding: 9px 10px; color: var(--ui-muted); font-weight: 500; text-align: left; }

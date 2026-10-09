@@ -167,7 +167,7 @@ export class TaskManager {
     this.sourcePath = path.resolve(options.sourcePath || this.env.MOTED_SOURCE_PATH || path.resolve(SERVER_ROOT, '..'))
     this.maxConcurrent = Math.max(1, Math.min(32, Number(options.maxConcurrent || this.env.MOTED_CONCURRENCY || 2)))
     const timeout = options.timeoutMs !== undefined ? Number(options.timeoutMs) : Number(this.env.MOTED_TASK_TIMEOUT_MS || 900000)
-    this.timeoutMs = options.timeoutMs !== undefined ? Math.max(10, Math.min(86400000, timeout)) : Math.max(10000, Math.min(86400000, timeout))
+    this.timeoutMs = Math.max(options.timeoutMs !== undefined ? 10 : 10000, Math.min(86400000, Number.isFinite(timeout) ? timeout : 900000))
     this.transcriptOptions = {
       maxBytes: options.transcriptMaxBytes ?? this.env.MOTED_TRANSCRIPT_MAX_BYTES,
       maxEvents: options.transcriptMaxEvents ?? this.env.MOTED_TRANSCRIPT_MAX_EVENTS,
@@ -212,7 +212,7 @@ export class TaskManager {
         const unit = meta.workerUnit, controller = new AbortController()
         const current = { unit, controller, promise: stopWorkerUnit(unit, this.env) }
         task.executions.add(current)
-        current.donePromise = current.promise.then(() => this.retireExecution(task, current))
+        current.donePromise = current.promise.then(() => this.retireExecution(task, current), () => this.blockCleanup(task, current))
         void current.donePromise.catch(() => {})
       }
     }
@@ -485,7 +485,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     else if (!this.allowDirectTasks) throw new HttpError(400, 'cloudDocumentId and baseRevision are required')
     const request = validateRequest(body)
     const privacy = request.executor === 'external' && body.cloudDocumentId ? this.store.assertExternal(body.cloudDocumentId) : undefined
-    const model = request.executor === 'builtin' ? request.model || this.defaultModel || configuredModel(this.env, this.sourcePath) : undefined
+    const model = request.model || (request.executor === 'builtin' ? await this.resolveModel() : undefined)
     if (request.executor === 'builtin' && !model) throw new HttpError(503, 'Mu has no configured default model')
     const dir = path.join(this.tasksDir, request.id)
     try { await fs.mkdir(dir, { mode: 0o700 }) } catch (error) { if (error.code === 'EEXIST') throw new HttpError(409, 'task ID already exists'); throw error }
@@ -532,6 +532,18 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     this.schedule()
   }
 
+  async blockCleanup(task, current) {
+    current.cleanupFailed = true
+    // Keep the execution and workerUnit: a service restart must retry cleanup,
+    // never assume an old process is gone and hand it a future generation's scope.
+    await this.mutate(task, async () => {
+      if (task.meta.executor !== 'builtin' || !this.isActive(task)) return
+      task.meta.status = 'error'; task.meta.progress = 'Worker cleanup unconfirmed'
+      task.meta.error = 'Worker cleanup could not be confirmed. Further built-in runs are paused until service recovery; manual editing and external handoff remain available.'
+      await this.persist(task)
+    }).catch(() => {})
+  }
+
   async discoverSession(task) {
     const sessionId = await readSessionId(task.dir)
     if (sessionId) task.meta.sessionId = sessionId
@@ -546,7 +558,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     await settled(stop, limit)
     const stopped = await settled(current.promise || Promise.resolve(), limit)
     const completed = !waitForRun || await settled(current.donePromise, limit)
-    return stopped && completed
+    return stopped && completed && !current.cleanupFailed
   }
 
   async run(task) {
@@ -609,7 +621,11 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
       clearTimeout(deadline)
       await current.closeSocket?.().catch(() => {})
       if (task.current === current) task.current = null
-      const retire = async () => { await this.retireExecution(task, current); resolveDone() }
+      const retire = async () => {
+        if (context.cleanupFailed) await this.blockCleanup(task, current)
+        else await this.retireExecution(task, current)
+        resolveDone()
+      }
       const cleanup = Promise.all([current.promise, current.stopPromise].map(promise => Promise.resolve(promise).catch(() => {})))
       if (current.finished || !current.promise) { await cleanup; await retire() }
       else void cleanup.then(retire)
@@ -630,13 +646,18 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     this.assertActive(task)
     counter(executorRevision, 'executorRevision')
     if (task.meta.executor !== 'builtin' || task.meta.executorRevision !== executorRevision) throw new HttpError(409, 'executor revision conflict', this.view(task))
-    const model = task.meta.model || this.defaultModel || configuredModel(this.env, this.sourcePath)
+    if ([...task.executions].some(current => current.cleanupFailed)) throw new HttpError(503, 'Worker cleanup is unconfirmed; service recovery is required before another built-in run.')
+    const model = task.meta.model || await this.resolveModel()
     if (!model) throw new HttpError(503, 'Mu has no configured default model')
     this.invalidateRun(task)
     task.meta.model = model; task.meta.prompt = prompt; task.meta.status = 'queued'; task.meta.progress = task.executions.size ? 'Waiting for previous worker cleanup' : 'Queued revision'; task.meta.feedback = task.meta.error; delete task.meta.error
     task.meta.attempt = Math.max(Number(task.meta.attempt || 0), task.transcript.maxAttempt) + 1
     await task.transcript.append(task.meta.attempt, 'request', prompt).catch(() => {})
     await this.persist(task); this.queue.push(task); this.schedule(); return this.view(task)
+  }
+
+  async resolveModel() {
+    return this.store?.settings().models.builtin || this.defaultModel || await configuredModel(this.env, this.sourcePath)
   }
 
   async remove(task) {
@@ -681,6 +702,12 @@ export async function createMotedServer(options = {}) {
     try {
       const url = new URL(request.url, 'http://moted.local')
       if (url.pathname.startsWith('/api/agent/')) { await manager.agentApi(request, response); return }
+      if (url.pathname === '/api/settings') {
+        if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
+        if (!['GET', 'PUT'].includes(request.method)) throw new HttpError(404, 'not found')
+        const settings = request.method === 'GET' ? store.settings() : store.putSettings(await readBody(request))
+        send(response, 200, { ...settings, serverDefaultModel: manager.defaultModel || manager.env.MOTED_MU_DEFAULT_MODEL || null }, origin, manager.env); return
+      }
       if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/') || url.pathname.startsWith('/api/shared/')) {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
         const privacyChange = request.method === 'PUT' && /^\/api\/documents\/[^/]+\/privacy$/.test(url.pathname)

@@ -41,18 +41,27 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
   useEffect(() => {
     if (!loaded || !writable) return
     const current = engine.current
-    if (!current?.ready || current.conflict || current.warning || !current.record.dirty && !current.record.pending) return
+    if (!current?.ready || current.busy || current.conflict || current.warning || current.localWarning || !current.record.dirty && !current.record.pending) return
     const timer = window.setTimeout(() => { void current.flush() }, 650)
     return () => window.clearTimeout(timer)
   }, [tasks, loaded, writable, tick])
   useEffect(() => {
     if (!loaded || !writable) return
-    const timer = window.setInterval(() => {
+    let active = true, timer = 0
+    async function refreshWhenReady() {
       const current = engine.current
-      if (!current) return
-      void (current.ready ? current.record.dirty || current.record.pending ? current.flush() : current.refresh() : current.initialize())
-    }, 5000)
-    return () => window.clearInterval(timer)
+      try {
+        if (current && !current.busy && !current.warning && !current.localWarning && !current.conflict) {
+          if (!current.ready) await current.initialize()
+          else if (current.record.dirty || current.record.pending) await current.flush()
+          else await current.refresh()
+        }
+      } finally {
+        if (active) timer = window.setTimeout(() => { void refreshWhenReady() }, 5000)
+      }
+    }
+    timer = window.setTimeout(() => { void refreshWhenReady() }, 5000)
+    return () => { active = false; window.clearTimeout(timer) }
   }, [loaded, writable])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -67,6 +76,12 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
     warning: error || engine.current?.localWarning || engine.current?.warning || (!cloud ? 'Open a cloud document to use the assistant.' : ''),
     conflict: engine.current?.conflict ?? null,
     archives: engine.current?.record.archives ?? [],
-    retry: () => { const current = engine.current; if (!current) setRetry(value => value + 1); else void (current.ready ? current.flush() : current.initialize()) },
+    retry: () => {
+      const current = engine.current
+      if (!current) setRetry(value => value + 1)
+      else if (!current.ready) void current.initialize()
+      else if (current.record.dirty || current.record.pending) void current.flush()
+      else void current.refresh()
+    },
   }
 }

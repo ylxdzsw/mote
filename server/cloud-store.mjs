@@ -54,7 +54,12 @@ export class CloudStore {
       );
       CREATE TABLE IF NOT EXISTS task_revocations (
         taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL, revokedAt INTEGER NOT NULL
-      );`)
+      );
+      CREATE TABLE IF NOT EXISTS workspace_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL,
+        builtin TEXT NOT NULL, indexing TEXT NOT NULL
+      );
+      INSERT OR IGNORE INTO workspace_settings VALUES (1,0,'','');`)
     this.transaction(() => {
       const columns = new Set(db.prepare('PRAGMA table_info(documents)').all().map(column => column.name))
       if (!columns.has('private')) db.exec('ALTER TABLE documents ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1))')
@@ -63,6 +68,28 @@ export class CloudStore {
   }
 
   close() { this.db.close() }
+  settings() {
+    const { revision, builtin, indexing } = this.db.prepare('SELECT revision,builtin,indexing FROM workspace_settings WHERE id=1').get()
+    return { revision, models: { builtin, indexing } }
+  }
+  putSettings(value) {
+    const body = record(value, 'settings'), models = record(body.models, 'models')
+    const baseRevision = privacyRevision(body.baseRevision, 'baseRevision')
+    const model = key => {
+      const value = text(models[key], `models.${key}`, 256).trim()
+      if (/[\x00-\x1f\x7f]/.test(value)) throw new HttpError(400, `models.${key} contains an invalid character`)
+      return value
+    }
+    const builtin = model('builtin'), indexing = model('indexing')
+    return this.transaction(() => {
+      const current = this.settings()
+      if (current.revision !== baseRevision) throw new HttpError(409, 'Workspace settings changed. Reload before saving.', current)
+      if (current.models.builtin === builtin && current.models.indexing === indexing) return current
+      if (!Number.isSafeInteger(baseRevision + 1)) throw new HttpError(409, 'settings revision exhausted')
+      this.db.prepare('UPDATE workspace_settings SET revision=revision+1,builtin=?,indexing=? WHERE id=1').run(builtin, indexing)
+      return this.settings()
+    })
+  }
   transaction(action) {
     this.db.exec('BEGIN IMMEDIATE')
     try { const result = action(); this.db.exec('COMMIT'); return result } catch (error) { this.db.exec('ROLLBACK'); throw error }

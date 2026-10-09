@@ -53,15 +53,16 @@ export class CloudError extends Error {
 }
 
 export async function cloudRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  const signal = AbortSignal.timeout(15_000)
   let response: Response
   try {
     response = await fetch(path, {
-      method, credentials: 'same-origin', cache: 'no-store',
+      method, credentials: 'same-origin', cache: 'no-store', signal,
       headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
   } catch {
-    throw new CloudError('Could not reach the cloud service. Check your connection and try again.', 0)
+    throw new CloudError(signal.aborted ? 'The cloud request timed out. Your working copy is retained; retry when ready.' : 'Could not reach the cloud service. Check your connection and try again.', 0)
   }
   if (!response.ok) {
     const detail = await response.json().catch(() => null)
@@ -74,5 +75,5 @@ export async function cloudRequest<T>(path: string, method = 'GET', body?: unkno
   }
   if (response.status === 204) return undefined as T
   try { return await response.json() as T }
-  catch { throw new CloudError('The cloud service returned an invalid response. Refresh the list before retrying a change.', response.status) }
+  catch { throw new CloudError(signal.aborted ? 'The cloud request timed out. Your working copy is retained; retry when ready.' : 'The cloud service returned an invalid response. Refresh the list before retrying a change.', signal.aborted ? 0 : response.status) }
 }

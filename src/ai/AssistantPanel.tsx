@@ -60,6 +60,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   const busy = busyTask(task), executorBusy = assistant.executorBusy(task)
   const executor = task.executor ?? 'builtin', external = executor === 'external'
   const status = displayedStatus(task)
+  const statusIssue = assistant.statusIssue(task.id)
   const prompt = task.draftPrompt ?? (task.submitted ? '' : task.prompt)
   const agentLink = assistant.agentLink(task)
   const showProgress = !!task.progress && (busy || executorBusy && (!!task.pendingExecutor || !external))
@@ -123,6 +124,10 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       {(task.error || showProgress) && <div className="ai-task-feedback">
         {showProgress && <p className="ai-progress" role="status">{task.progress}</p>}
         {task.error && <p className="ai-error" role="alert">{task.error}</p>}
+      </div>}
+      {statusIssue && <div className="ai-task-feedback">
+        <p className="ai-progress" role="status">{statusIssue.message}</p>
+        {statusIssue.paused && <button type="button" onClick={() => assistant.checkStatus(task.id)}>Check status</button>}
       </div>}
       {task.candidate && <section className="ai-result" aria-label="Review changes">
         <h3>{inactive ? 'Retained result' : busy ? 'Previous result' : 'Review changes'}</h3>

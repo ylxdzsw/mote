@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
-import { DEFAULT_AI_MODEL, paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
+import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
@@ -67,6 +67,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const privateDocument = cloud?.privateDocument ?? false
   const externalBlocked = cloud?.externalBlocked ?? false
   const [notice, setNotice] = useState('')
+  const [statusIssues, setStatusIssues] = useState<Record<string, { message: string; paused: boolean }>>({})
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
@@ -77,6 +78,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const mutations = useRef(new Map<string, number>())
   const discarded = useRef(new Set<string>())
   const acceptanceAttempts = useRef(new Set<string>())
+  const checkStatusRef = useRef<(id: string) => void>(() => {})
   const cloudRef = useRef(cloud)
   cloudRef.current = cloud
   currentDoc.current = history.doc!
@@ -144,44 +146,108 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }, [allTasks])
 
   useEffect(() => {
-    if (!writable || !loaded) return
-    let active = true, pending = false
+    if (!writable || !loaded) { checkStatusRef.current = () => {}; setStatusIssues({}); return }
+    setStatusIssues({})
+    let active = true, pending = false, authPaused = false
+    const failures = new Map<string, number>(), paused = new Set<string>(), nextAt = new Map<string, number>(), requested = new Set<string>()
+    const authPausedTasks = new Set<string>()
     const awaitingResult = (task: AITask) => (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
       && !task.acceptance && !task.remoteMissing
       && (task.submitted || task.requestSent)
-    async function poll() {
-      if (pending) return
-      pending = true
-      await Promise.all(state.current.filter(task => awaitingResult(task) && !preparations.current.has(task.id)).map(async task => {
-        const mutation = mutations.current.get(task.id)
-        const valid = () => active && mutations.current.get(task.id) === mutation && !preparations.current.has(task.id)
-          && state.current.some(current => current.id === task.id && awaitingResult(current))
-        try {
-          const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
-          if (!valid()) return
-          if (remote.candidate && !inactiveReason(task)) {
-            try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
-            catch (error) { receive(remote, { status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
-          }
-          receive(remote, { creation: undefined, ...(privateDocument ? { pendingExecutor: undefined } : {}) })
-        } catch (error) {
-          if (valid()) {
-            // requestSent is persisted before POST: another device can observe
-            // the claim before the execution exists. Keep it recoverable.
-            if (error instanceof AIServiceError && error.status === 404) {
-              const current = state.current.find(item => item.id === task.id)
-              if (current?.submitted) missingRemote(task.id)
-              else if (privateDocument && current?.requestSent && current.creation?.executor === 'external') rejectPrivateExternalDraft(task.id)
-            }
-            else update(task.id, { error: (error as Error).message })
-          }
+    function setIssue(id: string, value?: { message: string; paused: boolean }) {
+      setStatusIssues(current => {
+        if (!value) {
+          if (!current[id]) return current
+          const next = { ...current }; delete next[id]; return next
         }
-      }))
+        if (current[id]?.message === value.message && current[id]?.paused === value.paused) return current
+        return { ...current, [id]: value }
+      })
+    }
+    async function checkTask(task: AITask) {
+      const mutation = mutations.current.get(task.id)
+      const valid = () => active && mutations.current.get(task.id) === mutation && !preparations.current.has(task.id)
+        && state.current.some(current => current.id === task.id && awaitingResult(current))
+      try {
+        const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
+        if (!valid()) return
+        failures.delete(task.id); paused.delete(task.id)
+        nextAt.set(task.id, Date.now() + (['queued', 'running', 'waiting'].includes(remote.status) ? 1200 : 10_000)); setIssue(task.id)
+        if (remote.candidate && !inactiveReason(task)) {
+          try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
+          catch (error) { receive(remote, { status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
+        }
+        receive(remote, { creation: undefined, ...(privateDocument ? { pendingExecutor: undefined } : {}) })
+      } catch (error) {
+        if (!valid()) return
+        const current = state.current.find(item => item.id === task.id)
+        if (error instanceof AIServiceError && error.status === 404) {
+          // requestSent is persisted before POST: another device can observe
+          // the claim before the execution exists. Keep it recoverable.
+          if (current?.submitted) { setIssue(task.id); missingRemote(task.id); return }
+          if (privateDocument && current?.requestSent && current.creation?.executor === 'external') { setIssue(task.id); rejectPrivateExternalDraft(task.id); return }
+        }
+        const message = (error as Error).message
+        if (error instanceof AIServiceError && (error.status === 401 || error.status === 403)) {
+          authPaused = true
+          for (const current of state.current.filter(awaitingResult)) {
+            paused.add(current.id); authPausedTasks.add(current.id)
+            setIssue(current.id, { message: `${message} Status checks have stopped. Sign in, then choose Check status. Generation was not retried.`, paused: true })
+          }
+          return
+        }
+        if (error instanceof AIServiceError && error.status >= 400 && error.status < 500 && error.status !== 404 && error.status !== 429) {
+          paused.add(task.id)
+          setIssue(task.id, { message: `Status checks paused: ${message} Choose Check status to try again. Generation was not retried.`, paused: true })
+          return
+        }
+        const count = (failures.get(task.id) ?? 0) + 1
+        failures.set(task.id, count)
+        if (count >= 4) {
+          paused.add(task.id)
+          setIssue(task.id, { message: `Status checks paused after ${count} consecutive failures: ${message} Choose Check status to try again. Generation was not retried.`, paused: true })
+        } else {
+          const delay = Math.min(60_000, 10_000 * 2 ** (count - 1))
+          nextAt.set(task.id, Date.now() + delay)
+          setIssue(task.id, { message: `Status check failed (${count}/4): ${message} Retrying status in ${delay / 1000}s. Generation was not retried.`, paused: false })
+        }
+      }
+    }
+    async function poll() {
+      if (pending || !active || authPaused) return
+      pending = true
+      const now = Date.now()
+      const due = state.current.filter(task => awaitingResult(task) && !preparations.current.has(task.id)
+        && !paused.has(task.id) && (requested.has(task.id) || (nextAt.get(task.id) ?? 0) <= now))
+      for (const task of due) {
+        requested.delete(task.id)
+        if (!active || authPaused) break
+        await checkTask(task)
+      }
       pending = false
     }
+    const checkStatus = (id: string) => {
+      const task = state.current.find(item => item.id === id)
+      if (!task || !awaitingResult(task) || preparations.current.has(id)) return
+      if (authPaused) {
+        authPaused = false
+        for (const pausedId of authPausedTasks) {
+          paused.delete(pausedId); failures.delete(pausedId); nextAt.set(pausedId, 0)
+          setIssue(pausedId, { message: 'Checking status…', paused: false })
+        }
+        authPausedTasks.clear()
+      }
+      failures.delete(id); paused.delete(id); nextAt.set(id, 0); requested.add(id)
+      setIssue(id, { message: 'Checking status…', paused: false })
+      void poll()
+    }
+    checkStatusRef.current = checkStatus
     void poll()
-    const timer = window.setInterval(() => void poll(), 1200)
-    return () => { active = false; window.clearInterval(timer) }
+    const timer = window.setInterval(() => void poll(), 1000)
+    return () => {
+      active = false; window.clearInterval(timer)
+      if (checkStatusRef.current === checkStatus) checkStatusRef.current = () => {}
+    }
   }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument])
 
   function reserve(target: AITarget, snapshot = currentDoc.current) {
@@ -326,8 +392,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
         })
         if (!preparing()) return
+        const model = snapshotDocument.aiModel?.trim()
         const creation = { executor, operationId: task.pendingExecutor?.operationId ?? task.id, prompt,
-          model: snapshotDocument.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot }
+          ...(model ? { model } : {}), snapshot }
         if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
         task = { ...task, requestSent: true, creation }
         update(id, { requestSent: true, creation })
@@ -350,7 +417,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message })
       }
     }
-    finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
+    finally {
+      if (preparations.current.get(id) === run) { preparations.current.delete(id); checkStatusRef.current(id) }
+    }
   }
 
   async function stop(id: string) {
@@ -367,7 +436,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) receive(remote)
     } catch (error) {
       if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. The request and any result are retained.' })
-    } finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
+    } finally {
+      if (preparations.current.get(id) === run) { preparations.current.delete(id); checkStatusRef.current(id) }
+    }
   }
 
   async function switchExecutor(id: string, executor: Executor) {
@@ -438,7 +509,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           if (current()) update(id, { error: `Agent switch was not confirmed: ${(recoveryError as Error).message}`, progress: 'Retry confirmation before continuing.' })
         }
       } else update(id, { error: `Agent switch was not confirmed: ${(error as Error).message}`, progress: 'Retry confirmation before continuing.' })
-    } finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
+    } finally {
+      if (preparations.current.get(id) === run) { preparations.current.delete(id); checkStatusRef.current(id) }
+    }
   }
   async function retryExecutor(id: string) {
     const task = state.current.find(task => task.id === id)
@@ -577,6 +650,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     executorWorking: (task: AITask) => !!task.pendingExecutor && preparations.current.has(task.id),
     inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
     cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,
+    statusIssue: (id: string) => statusIssues[id], checkStatus: (id: string) => checkStatusRef.current(id),
     retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },
     discardArchive: (id: string) => persistence.engine.current?.discardArchive(id),
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }

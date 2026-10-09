@@ -65,7 +65,11 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
       if (disposed) return
       source = transcriptSource(taskId, cursor.current)
       source.onopen = () => { if (!disposed) setConnection('') }
-      source.onerror = () => { if (!disposed) setConnection(source?.readyState === EventSource.CLOSED ? 'Transcript unavailable. Reconnect to try again.' : 'Connection interrupted. Reconnecting…') }
+      source.onerror = () => {
+        if (disposed) return
+        source?.close(); source = undefined
+        setConnection('Transcript connection interrupted. Reconnect to try again.')
+      }
       source.addEventListener('warning', event => { if (!disposed) setWarning(JSON.parse((event as MessageEvent).data).message) })
       source.addEventListener('reset', () => {
         if (disposed) return

@@ -20,6 +20,8 @@ export class AssistantState {
   private transport: Transport
   private writes = Promise.resolve()
   private network = Promise.resolve(true)
+  private pendingOperations = 0
+  get busy() { return this.pendingOperations > 0 }
 
   constructor(record: AssistantRecovery, transport: Transport) {
     this.record = record
@@ -53,10 +55,11 @@ export class AssistantState {
     this.ready = true
   }
   private serialized(action: () => Promise<boolean>) {
+    this.pendingOperations++
     this.network = this.network.catch(() => false).then(action).catch(error => {
       this.warning = `${(error as Error).message} AI cloud saving is paused; this working copy is retained.`
       this.emit(); return false
-    })
+    }).finally(() => { this.pendingOperations--; this.emit() })
     return this.network
   }
   initialize() {
@@ -89,13 +92,16 @@ export class AssistantState {
   flush() {
     return this.serialized(async () => {
       if (!this.ready || this.conflict) return false
-      while (this.record.dirty || this.record.pending) {
+      if (this.record.dirty || this.record.pending) {
         this.record = { ...this.record, pending: this.record.pending ?? {
           baseRevision: this.record.revision!, tasks: this.record.tasks, operationId: crypto.randomUUID(),
         } }
         // Do not send an operation whose recovery record failed to persist.
         await this.save()
         if (!await this.send()) return false
+        // Changes made during this request stay dirty for a later flush rather
+        // than chaining writes in a tight loop; callers cannot assume they were saved.
+        if (this.record.dirty || this.record.pending) return false
       }
       this.warning = ''; this.emit(); return true
     })
@@ -103,7 +109,13 @@ export class AssistantState {
   refresh() {
     return this.serialized(async () => {
       if (this.conflict || this.record.dirty || this.record.pending) return false
-      this.compare(await this.transport.get())
+      const remote = await this.transport.get()
+      if (this.record.dirty || this.record.pending) return false
+      if (remote.revision === this.record.revision) {
+        if (this.localWarning) await this.save()
+        this.warning = ''; this.emit(); return true
+      }
+      this.compare(remote)
       if (!this.conflict) this.warning = ''
       await this.save(); this.emit(); return !this.conflict
     })

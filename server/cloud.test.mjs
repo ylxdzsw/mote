@@ -1,13 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, stat, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createMotedServer } from './moted.mjs'
 import { backupDatabase } from './backup.mjs'
-import { workerStorageProperties } from './runner.mjs'
+import { muRunner, workerStorageProperties } from './runner.mjs'
 import { MAX_BODY } from './validation.mjs'
 
 const origin = 'http://localhost:5173'
@@ -22,7 +22,7 @@ function document(id = randomUUID(), value = 'Hello') {
 async function app(t, options = {}) {
   const root = options.root || await mkdtemp(path.join(os.tmpdir(), 'mote-cloud-test-'))
   if (!options.root) t.after(() => rm(root, { recursive: true, force: true }))
-  const value = await createMotedServer({ stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, defaultModel: 'fake', allowDirectTasks: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0' } })
+  const value = await createMotedServer({ ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, defaultModel: options.defaultModel ?? 'fake', allowDirectTasks: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0', ...options.env } })
   await value.start()
   t.after(() => value.close())
   value.root = root
@@ -37,6 +37,73 @@ async function create(value, doc = document()) {
   assert.equal(result.status, 201, JSON.stringify(result.body)); assert.equal(typeof result.body.createdAt, 'number'); assert.equal(typeof result.body.updatedAt, 'number'); return result.body
 }
 const save = (envelope, text, extra = {}) => ({ baseRevision: envelope.revision, document: document(envelope.id, text), operationId: randomUUID(), ...extra })
+
+test('workspace model defaults are provider-free, durable, validated and revision checked', async t => {
+  let runs = 0
+  const value = await app(t, { runner: async () => { runs++ } })
+  const original = await create(value)
+  const initial = await value.call('GET', 'settings')
+  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '', indexing: '' }, serverDefaultModel: 'fake' })
+  assert.equal(initial.headers.get('cache-control'), 'no-store')
+  const models = { builtin: 'provider/author:high', indexing: 'provider/indexer:low' }
+  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models }, { origin: 'https://other.invalid' })).status, 403)
+  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { ...models, builtin: 'bad\nmodel' } })).status, 400)
+  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { ...models, indexing: 1 } })).status, 400)
+  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models })).status, 200)
+  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { builtin: '', indexing: '' } })).status, 409)
+  assert.equal(await value.manager.resolveModel(), models.builtin)
+  assert.deepEqual((await value.call('GET', `documents/${original.id}`)).body, original)
+  assert.equal(runs, 0)
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  assert.deepEqual((await restarted.call('GET', 'settings')).body.models, models)
+  assert.equal((await restarted.call('PUT', 'settings', { baseRevision: 1, models: { builtin: '', indexing: '' } })).status, 200)
+  assert.equal(await restarted.manager.resolveModel(), 'fake')
+})
+
+test('missing Mu and failed workers leave cloud documents usable without automatic execution retries', async t => {
+  const value = await app(t, { runner: muRunner, env: { MOTED_MU_BIN: '/mote-test-missing-mu' } })
+  const shared = value.manager.env.MOTED_SHARED_MU_DIR
+  await mkdir(shared); await writeFile(path.join(shared, 'config.jsonc'), '{}')
+  const original = await create(value), id = randomUUID()
+  const body = { id, cloudDocumentId: original.id, baseRevision: original.revision, operationId: randomUUID(),
+    document: original.document, prompt: 'Test unavailable executable', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } }
+  await reservations(value, original, [body])
+  assert.equal((await value.call('POST', 'ai/tasks', body)).status, 202)
+  for (let i = 0; i < 100 && value.manager.tasks.get(id).meta.status !== 'error'; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  const failed = value.manager.tasks.get(id)
+  assert.equal(failed.meta.status, 'error'); assert.match(failed.meta.error, /ENOENT/)
+  const saved = await value.call('PUT', `documents/${original.id}`, save(original, 'Manual edit with Mu absent'))
+  assert.equal(saved.status, 200)
+  assert.equal((await value.call('GET', 'documents')).body.documents.length, 1)
+  assert.equal((await value.call('POST', `documents/${original.id}/shares`, { mode: 'latest' })).status, 200)
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(failed.meta.attempt, 1); assert.equal(value.manager.queue.length, 0)
+  await value.close()
+  const restarted = await app(t, { root: value.root, runner: async () => { assert.fail('must not rerun on restart') } })
+  assert.equal(restarted.manager.tasks.get(id).meta.status, 'error')
+  assert.deepEqual((await restarted.call('GET', `documents/${original.id}`)).body.document, saved.body.document)
+})
+
+test('slow Mu default lookup does not block cloud reads and saves; unavailable default fails once', async t => {
+  const value = await app(t, { defaultModel: '', env: { MOTED_MU_DEFAULT_MODEL: '' } })
+  const bin = path.join(value.root, 'slow-mu')
+  await writeFile(bin, `#!/usr/bin/node\nsetTimeout(() => process.exit(1), 700)\n`, { mode: 0o700 })
+  value.manager.env.MOTED_MU_BIN = bin
+  const original = await create(value)
+  let finished = false
+  const body = { id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, operationId: randomUUID(),
+    document: original.document, prompt: 'Test unavailable model', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } }
+  await reservations(value, original, [body])
+  const pending = value.call('POST', 'ai/tasks', body).then(result => { finished = true; return result })
+  await new Promise(resolve => setTimeout(resolve, 50))
+  assert.equal((await value.call('GET', 'settings')).status, 200)
+  assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
+  assert.equal((await value.call('PUT', `documents/${original.id}`, save(original, 'Still usable'))).status, 200)
+  assert.equal(finished, false)
+  assert.equal((await pending).status, 503)
+  assert.equal(value.manager.tasks.size, 0)
+})
 
 test('competing saves CAS across SQLite connections; lost-response retry survives restart and later saves', async t => {
   const first = await app(t); const second = await app(t, { root: first.root })

@@ -32,6 +32,8 @@ export class WorkingCopy {
   private listeners = new Set<() => void>()
   private saving: Promise<unknown> = Promise.resolve()
   private flight?: Promise<CloudDocument | null>
+  private checkingRemote = false
+  private checkingPrivacy = false
   private generation = 0
   private state: CopyState
   constructor(record: WorkingRecord) {
@@ -146,7 +148,8 @@ export class WorkingCopy {
     await this.persist()
   }
   async checkRemote() {
-    if (this.flight || this.state.record.dirty || this.state.conflict || this.state.deleted) return
+    if (this.checkingRemote || this.flight || this.state.record.dirty || this.state.conflict || this.state.deleted) return
+    this.checkingRemote = true
     const generation = this.generation
     try {
       const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
@@ -161,6 +164,7 @@ export class WorkingCopy {
         }
       }
     } catch (error) { this.failure(error) }
+    finally { this.checkingRemote = false }
   }
 
   private async mergePrivacy(metadata: DocumentMeta): Promise<DocumentMeta> {
@@ -192,12 +196,15 @@ export class WorkingCopy {
   }
 
   refreshPrivacy = async () => {
+    if (this.checkingPrivacy) return
+    this.checkingPrivacy = true
     try {
       const metadata = await cloudRequest<DocumentMeta>(`/api/documents/${this.state.record.meta.id}/privacy`)
       await this.mergePrivacy(normalizeDocumentMeta(metadata))
       const change = this.state.privacy.pending
       if (change && this.state.record.meta.privacyRevision > change.basePrivacyRevision) this.finishPrivacy(change)
     } catch { /* Privacy polling is independent of content sync; explicit changes expose retry/reconcile errors. */ }
+    finally { this.checkingPrivacy = false }
   }
 
   private async reconcilePendingPrivacy(change: PrivacyChange, failure: string) {
