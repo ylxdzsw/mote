@@ -33,6 +33,15 @@
 .ai-executor-state, .ai-executor-retry { justify-self: start; margin: 0; color: var(--ui-muted); font-size: 12px; }
 .ai-executor > .ai-external-unavailable { margin: 0; }
 .ai-panel .ai-executor-retry { padding: 3px 8px; }
+.ai-workspace-read { display: grid; gap: 6px; margin-top: 4px; padding: 9px; border: 1px solid var(--ui-border); border-radius: 6px; }
+.ai-workspace-read-toggle { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.ai-workspace-read-toggle input { flex: none; margin: 3px 0 0; accent-color: var(--ui-accent); }
+.ai-workspace-read-toggle strong, .ai-workspace-read-current strong { display: block; font-size: 12px; font-weight: 600; }
+.ai-workspace-read-toggle small { display: block; margin-top: 3px; color: var(--ui-muted); font-size: 11px; line-height: 1.5; }
+.ai-workspace-read-current p, .ai-workspace-read-message, .ai-workspace-read-actions p { margin: 4px 0 0; color: var(--ui-muted); font-size: 11px; overflow-wrap: anywhere; }
+.ai-workspace-read-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ai-workspace-read-actions p { flex-basis: 100%; }
+.ai-panel .ai-workspace-read-actions button { padding: 4px 7px; font-size: 11px; }
 .ai-activity { display: flex; flex: 1 0 160px; flex-direction: column; min-height: 160px; }
 .ai-activity.is-collapsed { flex: none; min-height: 0; }
 .ai-panel .ai-activity-toggle { display: flex; justify-content: space-between; align-items: center; flex: none; margin: 0 16px; padding: 6px 0; border: 0; border-radius: 0; border-top: 1px solid var(--ui-border); color: var(--ui-muted); font-size: 12px; }

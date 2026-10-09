@@ -43,7 +43,7 @@ test('workspace model defaults are provider-free, durable, validated and revisio
   const value = await app(t, { runner: async () => { runs++ } })
   const original = await create(value)
   const initial = await value.call('GET', 'settings')
-  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '', indexing: '' }, serverDefaultModel: 'fake' })
+  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false, serverDefaultModel: 'fake' })
   assert.equal(initial.headers.get('cache-control'), 'no-store')
   const models = { builtin: 'provider/author:high', indexing: 'provider/indexer:low' }
   assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models }, { origin: 'https://other.invalid' })).status, 403)

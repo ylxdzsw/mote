@@ -20,7 +20,7 @@ A private, AI-native cloud document workspace emphasizing simplicity, unificatio
 
 - Has editing mode and reading mode. Moblie version only supports reading mode.
 - Document width can be set in the document config editor, defaults to 960px.
-- Per-document **Private** blocks public sharing and external-agent handoff, but not the document's own built-in agent. Workspace indexing/retrieval is not implemented yet: trusted indexing of Private is allowed, but other-document agents must never receive its content or derived indexes. Read `CLOUD.md` → **Document Private policy** before changing privacy, sharing, indexing, or agent retrieval; current source privacy governs historical reads too.
+- Per-document **Private** blocks public sharing and external-agent handoff, but not the document's own built-in agent. Trusted indexing of Private is allowed, but other-document agents must never receive its content or derived indexes. Auto-indexing is opt-in; retrieval is a separate per-agent-session permission. Agents search the index file rather than reading it whole, then read relevant source documents before reference/reuse. Read `CLOUD.md` → **Document Private policy** before changing privacy, sharing, indexing, or agent retrieval; current source privacy governs historical reads too.
 
 ## Planned Features
 
@@ -29,6 +29,7 @@ These features are planned but explicit not V1. They need rediscussion and desig
 - Markdown import/export and additional interchange formats; PDF export is deferred. Native `.mote` import/export and PNG/standalone HTML exports are already implemented.
 - Editable sharing, individual accounts, collaborative merging, and offline synchronization beyond recoverable local working copies.
 - Native bundled binary version.
+- Direct user queries over the workspace index; agents can already discover and read documents when enabled for their session.
 
 ## Development and Deployment
 

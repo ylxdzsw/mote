@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
@@ -19,7 +19,7 @@ const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context
 function creationBody(task: AITask) {
   if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
   return { ...task.creation, id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
-    baseRevision: task.baseRevision, target: task.target }
+    baseRevision: task.baseRevision, target: task.target, workspaceRead: task.workspaceRead ?? false }
 }
 
 function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string, context: SegmentContext | undefined, create: () => MoteDocument) {
@@ -63,7 +63,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = t
 
 export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined, cloud?: AssistantCloud) {
   const persistence = useAssistantState(cloud, writable)
-  const { tasks: allTasks, state, loaded } = persistence
+  const { tasks: savedTasks, state, loaded } = persistence
   const privateDocument = cloud?.privateDocument ?? false
   const externalBlocked = cloud?.externalBlocked ?? false
   const [notice, setNotice] = useState('')
@@ -72,6 +72,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
   const [access, setAccess] = useState<Record<string, { executor: Executor; revision: number; path?: string }>>({})
+  const [workspaceAccess, setWorkspaceAccess] = useState<Record<string, { enabled: boolean; revision: number }>>({})
+  const workspaceAccessRef = useRef<Record<string, { enabled: boolean; revision: number }>>({})
+  const [workspaceReadIssues, setWorkspaceReadIssues] = useState<Record<string, string>>({})
+  const [workspaceReadOperations, setWorkspaceReadOperations] = useState<Record<string, boolean>>({})
   const currentDoc = useRef(history.doc!), bypass = useRef(false)
   const mounted = useRef(true)
   const preparations = useRef(new Map<string, symbol>())
@@ -82,6 +86,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const cloudRef = useRef(cloud)
   cloudRef.current = cloud
   currentDoc.current = history.doc!
+  const allTasks = useMemo(() => savedTasks.map(task => {
+    if (!task.submitted && !task.requestSent) return task
+    const current = workspaceAccess[task.id]
+    const confirmed = !!current && current.revision === (task.workspaceReadRevision ?? -1)
+      && current.enabled === (task.workspaceRead ?? false) && !task.pendingWorkspaceRead
+    return task.workspaceReadConfirmed === confirmed ? task : { ...task, workspaceReadConfirmed: confirmed }
+  }), [savedTasks, workspaceAccess])
   const tasks = compatibleTasks(allTasks, currentDoc.current)
   const activeTasks = (doc = currentDoc.current) => compatibleTasks(state.current, doc)
   const inactiveReason = (task: AITask) => inactiveTaskReason(task, currentDoc.current)
@@ -95,22 +106,83 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       return { ...task, ...(patch.candidate ? { preview: true } : {}), ...patch }
     }))
   }
+  function setWorkspaceReadIssue(id: string, message?: string) {
+    setWorkspaceReadIssues(current => {
+      if (!message) {
+        if (!(id in current)) return current
+        const next = { ...current }; delete next[id]; return next
+      }
+      if (current[id] === message) return current
+      return { ...current, [id]: message }
+    })
+  }
+  function setWorkspaceReadOperation(id: string, active: boolean) {
+    setWorkspaceReadOperations(current => {
+      if (!!current[id] === active) return current
+      const next = { ...current }
+      if (active) next[id] = true
+      else delete next[id]
+      return next
+    })
+  }
   function receive(remote: RemoteTask, patch: Partial<AITask> = {}) {
     const task = state.current.find(task => task.id === remote.id)
-    if (!task || (remote.executorRevision ?? 0) < (task.executorRevision ?? 0)
-      || (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0)) return
-    const { externalPath, candidate, ...rest } = remote
+    if (!task) return
+    const incomingWorkspace = {
+      enabled: typeof remote.workspaceRead === 'boolean' ? remote.workspaceRead : false,
+      revision: Number.isSafeInteger(remote.workspaceReadRevision) && remote.workspaceReadRevision >= 0 ? remote.workspaceReadRevision : 0,
+    }
+    const previousWorkspace = workspaceAccessRef.current[task.id]
+    const workspaceFresh = !previousWorkspace || incomingWorkspace.revision > previousWorkspace.revision
+      || incomingWorkspace.revision === previousWorkspace.revision && incomingWorkspace.enabled === previousWorkspace.enabled
+    const effectiveWorkspace = workspaceFresh ? incomingWorkspace : previousWorkspace
+    if (workspaceFresh && (!previousWorkspace || previousWorkspace.revision !== incomingWorkspace.revision || previousWorkspace.enabled !== incomingWorkspace.enabled)) {
+      const next = { ...workspaceAccessRef.current, [task.id]: incomingWorkspace }
+      workspaceAccessRef.current = next
+      setWorkspaceAccess(next)
+    }
+    const pending = task.pendingWorkspaceRead
+    const workspaceChangeObserved = !!pending && effectiveWorkspace.revision > pending.baseWorkspaceReadRevision
+    const workspacePatch: Partial<AITask> = effectiveWorkspace ? {
+      workspaceRead: effectiveWorkspace.enabled, workspaceReadRevision: effectiveWorkspace.revision,
+      ...(workspaceChangeObserved ? { pendingWorkspaceRead: undefined } : {}),
+    } : {}
+    if ((remote.executorRevision ?? 0) < (task.executorRevision ?? 0)
+      || (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0)) {
+      if (Object.keys(workspacePatch).length && !sameContent(task, { ...task, ...workspacePatch })) update(task.id, workspacePatch)
+      if (workspaceChangeObserved && pending) setWorkspaceReadIssue(task.id,
+        effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
+      return
+    }
+    const { externalPath, candidate, workspaceRead: _workspaceRead, workspaceReadRevision: _workspaceReadRevision, ...rest } = remote
     setAccess(current => {
       const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0,
         path: cloudRef.current?.externalBlocked ? undefined : externalPath }
       return sameContent(current[task.id], next) ? current : { ...current, [task.id]: next }
     })
-    const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch }
+    const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch, ...workspacePatch }
     if (candidate && !sameContent(task.candidate, candidate)) next.candidate = candidate
     if (!sameContent(task, { ...task, ...next })) update(task.id, next)
+    if (workspaceChangeObserved && pending) setWorkspaceReadIssue(task.id,
+      effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
   }
   const executorBusy = (task: AITask) => !!task.pendingExecutor || !!(task.submitted && !task.remoteMissing
     && (!access[task.id] || access[task.id].revision !== (task.executorRevision ?? 0) || access[task.id].executor !== (task.executor ?? 'builtin')))
+  function workspaceReadKnown(task: AITask) {
+    if (!task.submitted && !task.requestSent) return true
+    const known = workspaceAccessRef.current[task.id]
+    return !!known && known.revision === (task.workspaceReadRevision ?? -1) && known.enabled === (task.workspaceRead ?? false)
+  }
+  function workspaceReadBlocked(task: AITask) {
+    return !!task.pendingWorkspaceRead || !!workspaceReadOperations[task.id] || !!task.submitted && !workspaceReadKnown(task)
+  }
+  function workspaceReadState(task: AITask) {
+    const pending = task.pendingWorkspaceRead
+    if (!task.submitted && !task.requestSent) return { known: true, enabled: task.workspaceRead ?? false, pending }
+    const known = workspaceAccess[task.id]
+    const matches = !!known && known.revision === (task.workspaceReadRevision ?? -1) && known.enabled === (task.workspaceRead ?? false)
+    return { known: matches, enabled: known?.enabled ?? false, pending }
+  }
   const agentLink = (task: AITask) => !externalBlocked && !task.released && !task.remoteMissing && task.executor === 'external' && !executorBusy(task) && access[task.id]?.path
     ? new URL(access[task.id].path!, window.location.origin).href : undefined
   function unrestricted(action: () => void) {
@@ -128,6 +200,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     mounted.current = true
     setAccess({})
+    workspaceAccessRef.current = {}
+    setWorkspaceAccess({}); setWorkspaceReadIssues({}); setWorkspaceReadOperations({})
     return () => { mounted.current = false; preparations.current.clear() }
   }, [cloud?.documentId, cloud?.workingCopyId, writable])
   useEffect(() => {
@@ -275,7 +349,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     const task: AITask = { id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
       original,
-      snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false }
+      snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false,
+      workspaceRead: false, workspaceReadRevision: 0 }
     if (segmentOriginalBlocks) task.segmentOriginalBlocks = segmentOriginalBlocks
     if (segmentOriginalObjects) task.segmentOriginalObjects = segmentOriginalObjects
     persistence.replace([...state.current, task]); openTask(task.id); setNotice(''); history.boundary()
@@ -303,6 +378,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
     if (!task || inactiveReason(task) || task.remoteMissing || preparations.current.has(id)) return
+    if (workspaceReadBlocked(task)) { setNotice('Confirm the workspace-read setting before continuing. Refresh status or retry the pending permission change.'); return }
     let knownNotCreated = !task.submitted && !task.requestSent
     if (executor === 'builtin' && ((task.executor ?? 'builtin') !== 'builtin' || executorBusy(task) || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status))) return
     // Resizing is allowed before the first request. Freeze the current object,
@@ -444,7 +520,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   async function switchExecutor(id: string, executor: Executor) {
     let task = state.current.find(task => task.id === id)
     const store = persistence.engine.current
-    if (!writable || !task || executor === 'external' && cloudRef.current?.externalBlocked || !store?.ready || store.conflict || inactiveReason(task) || task.remoteMissing || task.released || preparations.current.has(id)) return
+    if (!writable || !task || executor === 'external' && cloudRef.current?.externalBlocked || !store?.ready || store.conflict || inactiveReason(task) || task.remoteMissing || task.released || preparations.current.has(id) || workspaceReadBlocked(task)) return
     if (!task.pendingExecutor && (task.executor ?? 'builtin') === executor) return
     if (task.pendingExecutor && task.pendingExecutor.executor !== executor) return
     if (!task.submitted && !task.requestSent && !task.pendingExecutor && task.target.kind === 'object') {
@@ -454,7 +530,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     const pending = task.pendingExecutor ?? { executor, operationId: crypto.randomUUID(), baseExecutorRevision: task.submitted ? task.executorRevision ?? 0 : undefined }
     markMutation(id)
-    update(id, { pendingExecutor: pending, error: undefined, progress: 'Confirming agent access…' })
+    update(id, { pendingExecutor: pending, error: undefined, progress: 'Confirming agent access…',
+      ...(!task.submitted && !task.requestSent ? { workspaceRead: false } : {}) })
     const run = Symbol()
     preparations.current.set(id, run)
     const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
@@ -518,6 +595,88 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (task?.pendingExecutor) await switchExecutor(id, task.pendingExecutor.executor)
   }
 
+  async function sendWorkspaceRead(id: string, operation: NonNullable<AITask['pendingWorkspaceRead']>) {
+    const task = state.current.find(task => task.id === id), store = persistence.engine.current
+    if (!writable || !task || task.pendingWorkspaceRead?.operationId !== operation.operationId || preparations.current.has(id)) return
+    if (!store?.ready) { setWorkspaceReadIssue(id, 'AI task recovery is not ready. Retry the same workspace-read change when it is available.'); return }
+    markMutation(id)
+    const run = Symbol()
+    preparations.current.set(id, run)
+    setWorkspaceReadOperation(id, true)
+    setWorkspaceReadIssue(id, 'Saving the pending permission change before contacting the task…')
+    const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
+      && state.current.some(task => task.id === id && task.pendingWorkspaceRead?.operationId === operation.operationId)
+    try {
+      if (!await store.flush()) throw new Error('Resolve AI task saving before changing workspace-read access.')
+      if (!current()) return
+      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/workspace-read`, 'POST', operation)
+      if (!current()) return
+      receive(remote)
+      const after = state.current.find(task => task.id === id)
+      if (after?.pendingWorkspaceRead?.operationId === operation.operationId) {
+        setWorkspaceReadIssue(id, 'The server response did not confirm the permission change. Refresh status or retry this same operation.')
+      }
+    } catch (error) {
+      if (!current()) return
+      setWorkspaceReadIssue(id, `Workspace-read change is unconfirmed: ${(error as Error).message} Refresh status or retry the same operation; it has been retained.`)
+    } finally {
+      if (preparations.current.get(id) === run) {
+        preparations.current.delete(id); setWorkspaceReadOperation(id, false); checkStatusRef.current(id)
+      }
+    }
+  }
+
+  async function setWorkspaceRead(id: string, enabled: boolean) {
+    const task = state.current.find(task => task.id === id)
+    if (!writable || !task || preparations.current.has(id) || task.pendingExecutor || task.pendingWorkspaceRead || inactiveReason(task)) return
+    if (!task.submitted && !task.requestSent) {
+      update(id, { workspaceRead: enabled })
+      setWorkspaceReadIssue(id)
+      return
+    }
+    if (!workspaceReadKnown(task)) {
+      setWorkspaceReadIssue(id, 'Refresh the server permission status before changing workspace reads.')
+      return
+    }
+    const current = workspaceAccessRef.current[id]
+    if (!current || current.enabled === enabled) return
+    const operation = { enabled, baseWorkspaceReadRevision: current.revision, operationId: crypto.randomUUID() }
+    update(id, { pendingWorkspaceRead: operation })
+    setWorkspaceReadIssue(id, `Confirming ${enabled ? 'enabled' : 'disabled'} workspace reads…`)
+    await sendWorkspaceRead(id, operation)
+  }
+
+  async function retryWorkspaceRead(id: string) {
+    const task = state.current.find(task => task.id === id), operation = task?.pendingWorkspaceRead
+    if (!operation || preparations.current.has(id)) return
+    await sendWorkspaceRead(id, operation)
+  }
+
+  async function refreshWorkspaceRead(id: string) {
+    const task = state.current.find(task => task.id === id), store = persistence.engine.current
+    if (!task || (!task.submitted && !task.requestSent) || preparations.current.has(id)) return
+    const run = Symbol()
+    preparations.current.set(id, run)
+    setWorkspaceReadOperation(id, true)
+    setWorkspaceReadIssue(id, 'Refreshing server permission status…')
+    const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
+      && state.current.some(task => task.id === id)
+    try {
+      const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
+      if (!current()) return
+      receive(remote)
+      const latest = state.current.find(task => task.id === id)
+      if (latest?.pendingWorkspaceRead) setWorkspaceReadIssue(id, 'Server status refreshed. The saved permission change remains unconfirmed; retry the same operation.')
+      else if (workspaceReadKnown(latest!)) setWorkspaceReadIssue(id)
+    } catch (error) {
+      if (current()) setWorkspaceReadIssue(id, `Could not refresh workspace-read status: ${(error as Error).message}`)
+    } finally {
+      if (preparations.current.get(id) === run) {
+        preparations.current.delete(id); setWorkspaceReadOperation(id, false)
+      }
+    }
+  }
+
   async function cleanup(id: string, store: AssistantState) {
     try { await aiRequest(`/tasks/${id}/release`, 'POST') }
     catch (error) {
@@ -565,7 +724,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   function accept(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!writable || !cloud || !task?.candidate || executorBusy(task) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
+    if (!writable || !cloud || !task?.candidate || executorBusy(task) || workspaceReadBlocked(task) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
     try {
       const next = candidateDocument(currentDoc.current, task, task.candidate, segmentContext?.())
       if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
@@ -647,6 +806,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
     switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
+    workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,
+    workspaceReadWorking: (id: string) => !!workspaceReadOperations[id],
+    workspaceReadIssue: (id: string) => workspaceReadIssues[id],
     executorWorking: (task: AITask) => !!task.pendingExecutor && preparations.current.has(task.id),
     inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
     cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,

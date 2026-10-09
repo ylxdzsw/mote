@@ -49,7 +49,7 @@ export async function stopWorkerUnit(unit, env) {
   await confirmStopped(() => unitEmpty(unit, env))
 }
 
-async function stopProcessGroup(pid) {
+export async function stopWorkerProcessGroup(pid) {
   try { process.kill(-pid, 'SIGTERM') } catch (error) { if (error.code === 'ESRCH') return }
   await delay(250)
   try { process.kill(-pid, 'SIGKILL') } catch (error) { if (error.code === 'ESRCH') return }
@@ -252,8 +252,8 @@ export async function muRunner(context) {
     MOTED_INPUT_DIR: context.inputDir,
     MOTED_OUTPUT_DIR: context.outputDir,
     MOTED_SOURCE_PATH: context.sourcePath,
-    MOTED_AGENT_SOCKET: context.agent.socketPath,
-    MOTED_AGENT_URL: context.agent.url,
+    MOTED_AGENT_SOCKET: context.agent?.socketPath || '',
+    MOTED_AGENT_URL: context.agent?.url || '',
   }
   let command = mu
   let args = muArgs
@@ -277,7 +277,7 @@ export async function muRunner(context) {
   let stopPromise
   const stopWorker = () => stopPromise ??= (async () => {
     if (context.useSystemd) await stopWorkerUnit(unit, context.env)
-    else if (child?.pid) await stopProcessGroup(child.pid)
+    else if (child?.pid) await stopWorkerProcessGroup(child.pid)
   })().catch(error => { context.cleanupFailed = true; throw error })
   context.stop = stopWorker
   const onAbort = () => { void stopWorker().catch(() => {}) }
@@ -290,6 +290,7 @@ export async function muRunner(context) {
     if (context.signal.aborted) throw new Error('aborted')
     await childWait(command, args, spawnOptions, value => {
       child = value
+      context.onWorkerStart?.(value.pid, unit)
       capture(value.stdout, stdout, 'stdout', context.emitTranscript)
       capture(value.stderr, stderr, 'stderr', context.emitTranscript)
     })

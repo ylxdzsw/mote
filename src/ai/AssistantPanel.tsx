@@ -44,7 +44,7 @@ export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; 
     <footer className="ai-footer">
       <details className="ai-info"><summary>Help & privacy</summary>
         <p>Documents and assistant tasks, including unsent requests and generated results, sync to your workspace. Generate sends a saved document revision, its rendered snapshot, and the reserved area to Mu.</p>
-        <p>External grants anyone holding the link access to the full snapshot and scoped candidate submission. Switching back or releasing the reservation revokes future access, not downloaded copies.</p>
+        <p>External grants anyone holding the link access to the full snapshot and scoped candidate submission. Workspace reads are off by default and grant access only to non-Private workspace sources; Private documents remain limited to their own built-in agent. Switching back or releasing the reservation revokes future access, not downloaded copies.</p>
         <p>The area stays locked until you accept, discard, or delete it. Floating areas can move, and resize before the first request or handoff. Closing this panel does not stop work.</p>
       </details>
     </footer>
@@ -65,6 +65,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   const agentLink = assistant.agentLink(task)
   const showProgress = !!task.progress && (busy || executorBusy && (!!task.pendingExecutor || !external))
   const retry = !!task.creation || !prompt.trim() && ['error', 'stopped'].includes(task.status)
+  const workspaceReadBlocked = assistant.workspaceReadBlocked(task)
   const expanded = busy || !activityCollapsed
   const placeholder = task.submitted ? 'What should change?'
     : task.target.kind === 'segment' ? 'Describe the section you want to create…'
@@ -80,7 +81,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     }
   }
   function switchExecutor(next: 'builtin' | 'external') {
-    if (executorBusy || inactive || next === executor) return
+    if (executorBusy || workspaceReadBlocked || inactive || next === executor) return
     setCopyNotice('')
     void assistant.switchExecutor(task.id, next).catch(() => {})
   }
@@ -90,7 +91,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     try { await assistant.retryExecutor(task.id) } catch { /* The hook retains the confirmation error on the task. */ }
     finally { setRetryingExecutor(false) }
   }
-  const instructions = agentLink && `Please work on this Mote task: ${agentLink}\nRead the exact-version Mote guide linked from the task unless you have already read it. The link provides the full immutable document snapshot. Return a candidate only for the reserved area for my review; do not apply changes directly.`
+  const instructions = agentLink && `Please work on this Mote task: ${agentLink}\nRead the exact-version Mote guide linked from the task unless you have already read it. The link provides the full immutable document snapshot. Return a candidate only for the reserved area for my review; do not apply changes directly.${task.workspaceRead ? '\n\nWorkspace reads are enabled. Download the scoped workspace-index.md resource when useful and search it with focused rg queries instead of reading the whole catalog. Read the complete relevant native documents before referring to or reusing their content. Private source documents are never available cross-document.' : ''}`
   return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} role="tabpanel" aria-labelledby={`ai-tab-${task.id}`} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
@@ -99,11 +100,12 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
         <div className="ai-executor">
           <span className="ai-executor-label" id={`ai-executor-label-${task.id}`}>Agent</span>
           <div className="ai-executor-switch" role="group" aria-labelledby={`ai-executor-label-${task.id}`}>
-            <button type="button" aria-label="Use built-in agent" aria-pressed={executor === 'builtin'} disabled={executorBusy || !!inactive}
+            <button type="button" aria-label="Use built-in agent" aria-pressed={executor === 'builtin'} disabled={executorBusy || workspaceReadBlocked || !!inactive}
               onClick={() => switchExecutor('builtin')}>Built-in</button>
-            <button type="button" aria-label="Use external agent" aria-pressed={executor === 'external'} disabled={executorBusy || !!inactive || assistant.externalBlocked}
+            <button type="button" aria-label="Use external agent" aria-pressed={executor === 'external'} disabled={executorBusy || workspaceReadBlocked || !!inactive || assistant.externalBlocked}
               onClick={() => switchExecutor('external')}>External</button>
           </div>
+          {!external && <WorkspaceReadControl task={task} assistant={assistant} />}
           {assistant.externalBlocked && <p className="ai-external-unavailable" role="status">{assistant.privateDocument ? 'External handoff is unavailable while this document is private.' : 'External handoff is paused until the privacy change is confirmed.'}</p>}
           {executorBusy && <p className="ai-executor-state" role="status">{task.pendingExecutor?.executor === 'external' ? 'Confirming external access…' : task.pendingExecutor?.executor === 'builtin' ? 'Confirming built-in agent…' : external ? 'Confirming agent access…' : 'Confirming agent change…'}</p>}
           {task.pendingExecutor && <button type="button" className="ai-executor-retry" disabled={retryingExecutor || assistant.executorWorking(task) || assistant.externalBlocked && task.pendingExecutor.executor === 'external'}
@@ -138,7 +140,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           <button type="button" aria-pressed={task.preview} onClick={() => assistant.update(task.id, { preview: true })}>Preview</button>
         </div>}
         <div className="ai-actions ai-review-actions">
-          {!inactive && <button className="ai-primary" type="button" disabled={busy || executorBusy} onClick={() => assistant.accept(task.id)}>Accept changes</button>}
+          {!inactive && <button className="ai-primary" type="button" disabled={busy || executorBusy || workspaceReadBlocked} onClick={() => assistant.accept(task.id)}>Accept changes</button>}
           <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>
         </div>
       </section>}
@@ -147,14 +149,15 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     </div>
     {external ? <div className="ai-composer ai-external-access">
       <div className="ai-actions ai-external-buttons">
-        <button type="button" disabled={executorBusy || !!inactive || !agentLink || !instructions}
+        <button type="button" disabled={executorBusy || workspaceReadBlocked || !!inactive || !agentLink || !instructions}
           onClick={() => instructions && void copyText(instructions, 'Instructions')}>Copy instructions</button>
-        <button type="button" disabled={executorBusy || !!inactive || !agentLink}
+        <button type="button" disabled={executorBusy || workspaceReadBlocked || !!inactive || !agentLink}
           onClick={() => agentLink && void copyText(agentLink, 'Link')}>Copy link</button>
         {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
       </div>
       {assistant.privateDocument ? <p className="ai-external-unavailable" role="status">External handoff and its access link are disabled while this document is private.</p>
         : !agentLink && !executorBusy && <p className="ai-external-unavailable" role="status">Agent access link is unavailable.</p>}
+      {!assistant.privateDocument && <WorkspaceReadControl task={task} assistant={assistant} external />}
       {copyNotice && <p className="ai-copy-notice" role="status" aria-live="polite">{copyNotice}</p>}
       <p className="ai-privacy">This link gives the external agent access to the full immutable document snapshot, not only the reserved area. Access lasts until you switch back or release this task. Downloaded copies cannot be recalled. Only the returned candidate is limited to the reserved area for your review.</p>
     </div> : inactive ? <div className="ai-composer ai-actions">
@@ -168,11 +171,47 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       <div className="ai-actions ai-compose-actions">
         {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>}
         {busy ? <button key="stop" type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>
-          : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Generate'}</button>}
+          : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Generate'}</button>}
       </div>
       {!task.submitted && <p className="ai-privacy" id={`ai-privacy-${task.id}`}>This request syncs to your workspace. Generate shares the saved document revision and a snapshot with Mu.</p>}
     </form>}
   </section>
+}
+
+function WorkspaceReadControl({ task, assistant, external = false }: { task: AITask; assistant: Assistant; external?: boolean }) {
+  const state = assistant.workspaceReadState(task)
+  const busy = assistant.workspaceReadWorking(task.id)
+  const blocked = assistant.workspaceReadBlocked(task)
+  const inactive = assistant.inactiveReason(task)
+  const executorChanging = !!task.pendingExecutor || assistant.executorBusy(task)
+  const label = external ? 'Allow workspace reads' : 'Use workspace documents'
+  const submittedOrUncertain = task.submitted || task.requestSent
+  const disabled = !!inactive || assistant.executorBusy(task) || !!task.pendingExecutor || task.status === 'preparing' || busy
+    || assistant.externalBlocked && external || submittedOrUncertain && !state.known
+  const description = external
+    ? 'Grant this external agent scoped access to non-Private workspace documents. Private sources stay unavailable. Turning this off blocks future reads but cannot recall fetched content.'
+    : 'Let this built-in agent search and read non-Private workspace documents. Private sources remain limited to their own built-in agent. Turning this off blocks future reads but cannot erase context already fetched.'
+  return <div className="ai-workspace-read">
+    {state.known && !state.pending && !executorChanging ? <label className="ai-workspace-read-toggle">
+      <input type="checkbox" checked={state.enabled} disabled={disabled || blocked}
+        onChange={event => { void assistant.setWorkspaceRead(task.id, event.target.checked) }} />
+      <span><strong>{label}</strong><small>{description}</small></span>
+    </label> : <div className="ai-workspace-read-current">
+      <strong>{label}</strong>
+      <p role="status">{state.pending ? `Confirming ${state.pending.enabled ? 'enabled' : 'disabled'} workspace reads. The change is not yet confirmed.`
+        : executorChanging ? 'Confirming the agent selection; its workspace-read setting may reset.' : 'Checking the server’s workspace-read setting…'}</p>
+    </div>}
+    {state.pending && <div className="ai-workspace-read-actions">
+      {assistant.workspaceReadIssue(task.id) && <p role="status">{assistant.workspaceReadIssue(task.id)}</p>}
+      <button type="button" disabled={busy || !!inactive} onClick={() => { void assistant.retryWorkspaceRead(task.id) }}>Retry access change</button>
+      <button type="button" disabled={busy || !!inactive} onClick={() => { void assistant.refreshWorkspaceRead(task.id) }}>Refresh status</button>
+    </div>}
+    {!state.known && !state.pending && submittedOrUncertain && <div className="ai-workspace-read-actions">
+      {assistant.workspaceReadIssue(task.id) && <p role="status">{assistant.workspaceReadIssue(task.id)}</p>}
+      <button type="button" disabled={busy || !!inactive} onClick={() => { void assistant.refreshWorkspaceRead(task.id) }}>Refresh status</button>
+    </div>}
+    {!state.pending && state.known && assistant.workspaceReadIssue(task.id) && <p className="ai-workspace-read-message" role="status">{assistant.workspaceReadIssue(task.id)}</p>}
+  </div>
 }
 
 function downloadRecovery(value: unknown, name: string) {

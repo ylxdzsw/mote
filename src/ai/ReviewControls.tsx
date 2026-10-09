@@ -18,7 +18,7 @@ export interface AIReview {
   deleteTarget?: (id: string) => void
 }
 
-export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${!!task.candidate}:${!!task.pendingExecutor}`
+export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${!!task.candidate}:${!!task.pendingExecutor}:${!!task.pendingWorkspaceRead}:${task.workspaceReadConfirmed ?? ''}:${task.workspaceReadRevision ?? ''}`
 
 // Shared by editor decoration widgets and floating objects; never document content.
 export function reviewControls(task: AITask, actions: () => AIReview) {
@@ -38,9 +38,10 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
     root.append(element)
   }
   const busy = ['preparing', 'queued', 'running'].includes(task.status)
+  const workspacePermissionUnconfirmed = !!task.pendingWorkspaceRead || !!task.submitted && task.workspaceReadConfirmed !== true
   if (task.candidate) {
     button(task.preview ? 'Original' : 'Candidate', () => actions().toggle(task.id))
-    if (!busy && !task.pendingExecutor) button('Accept', () => actions().accept(task.id))
+    if (!busy && !task.pendingExecutor && !workspacePermissionUnconfirmed) button('Accept', () => actions().accept(task.id))
   }
   if (busy && !task.pendingExecutor && task.executor !== 'external') button('Stop', () => actions().stop(task.id))
   button('Discard', () => actions().discard(task.id))

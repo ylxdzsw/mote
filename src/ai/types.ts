@@ -28,6 +28,7 @@ export interface RemoteTask {
   id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error' | 'waiting'; progress: string
   error?: string; candidate?: Candidate; expiresAt?: number
   executor?: Executor; executorRevision?: number; candidateRevision?: number
+  workspaceRead: boolean; workspaceReadRevision: number
   externalPath?: string
   released?: boolean
 }
@@ -41,6 +42,8 @@ export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
   requestSent?: boolean
   creation?: { executor: Executor; operationId: string; prompt: string; model?: string; snapshot: string }
   pendingExecutor?: { executor: Executor; operationId: string; baseExecutorRevision?: number }
+  pendingWorkspaceRead?: { enabled: boolean; baseWorkspaceReadRevision: number; operationId: string }
+  workspaceReadConfirmed?: boolean
   snapshotDocument?: MoteDocument
   cloudDocumentId?: string
   baseRevision?: string

@@ -9,7 +9,7 @@ the private-client and operator contract, not part of the agent's instructions.
 
 Existing authenticated `/api/ai/tasks` routes retain their exact-Origin check.
 `RemoteTask` includes `executor: 'builtin' | 'external'`, `executorRevision`,
-`candidateRevision`, and `released`. Both counters start at zero. `externalPath`
+`candidateRevision`, `workspaceRead`, `workspaceReadRevision`, and `released`. Counters start at zero; workspace reads default to false. `externalPath`
 appears only for a currently authorized external reservation. `waiting` means an
 external task awaits a candidate; a previous complete candidate may coexist.
 
@@ -35,6 +35,14 @@ external task awaits a candidate; a previous complete candidate may coexist.
 - **POST `/revise`** takes `{prompt,executorRevision}` and is builtin-only. The
   revision is required; stale mode/revision is 409. A valid explicit revision
   starts another generation using the immutable input and any recorded session.
+- **POST `/workspace-read`** takes `{enabled,baseWorkspaceReadRevision,operationId}`.
+  This server-owned per-session permission is independent of content/assistant
+  recovery JSON. Updates are CAS-checked and retry-safe; responses return the
+  authoritative task. Both creation and draft UI may explicitly opt in using
+  `workspaceRead`. Every actual executor switch (including a privacy-forced
+  switch) resets the permission to false and advances its revision. Disabling
+  blocks future catalog and source reads, including known IDs and historical
+  revisions, without recalling prior downloads or expanding write authority.
 - **POST `/stop`** stops builtin execution, preserving a complete candidate.
 - **POST `/release`** accepts an empty body, permanently revokes credentials,
   stops workers best effort, and retains input/candidate/session/artifacts. It
@@ -64,6 +72,16 @@ nosniff, and noindex; source helpers download as inert text attachments.
 - GET `manifest.json`: `protocol:'mote-agent-v0'`, `taskId`, `executor`,
   `executorRevision`, `candidateRevision`, `guideVersion`, `resources` keyed by
   filenames, and `instructions`, `candidate`, `submit` paths.
+- With confirmed `workspaceRead`, GET `workspace-index.md` supplies a filtered
+  catalog. Agents are instructed to download and search the file, not read the
+  whole catalog, and to read actual documents before relying on descriptions.
+  GET `workspace-document.json?id=DOCUMENT_ID[&revision=REVISION]` returns a full
+  native document envelope and non-secret owner `sourceUrl`. Latest is the
+  default. Current source privacy/deletion is checked on every fetch, including
+  historical reads. Denied/unknown sources return 404. Other Private documents
+  are omitted completely, including filenames and derived descriptions; the
+  builtin task's own Private document may be present. Embedded assets inherit
+  the same envelope authorization. Neither route exists for an opted-out task.
 - Immutable `document.json`, `target.json`, optional `snapshot.png`, `guide.md`,
   `submit.mjs`, `preview.mjs`, `preview-harness.html`.
 - `instructions.md`: current explicit request and delivery instructions.
@@ -130,6 +148,14 @@ may exempt **only** `/api/agent/` (with access logging off) in addition to exist
 read-only share routes. Keep `/api/ai` and `/api/documents` private. Never expose
 the general TCP listener publicly. Configure a 128 MiB body limit and no caching.
 Token URLs are secrets; the supervisor does not print request URLs.
+
+Owner-only indexing controls use `GET /api/indexing` for status and
+`POST /api/indexing/retry` for an explicit retry of failed/stopped work. Both
+stay behind the workspace login gate; mutations require the exact allowed
+Origin. `GET`/`PUT /api/settings` includes `indexingEnabled`, default false,
+alongside revision-checked model defaults. Enabling authorizes background
+full-document model processing, including Private documents. A failed indexer
+never blocks ordinary cloud saving or agent generation.
 
 Node.js 22.12+ is sufficient for the downloadable submission helper. It has no
 Mu, Mote source, browser, or third-party dependency. Builtin execution still uses

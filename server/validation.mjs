@@ -492,12 +492,13 @@ export function validateRequest(value) {
   const document = validateDocument(body.document)
   const executor = body.executor ?? 'builtin'
   if (!['builtin', 'external'].includes(executor)) throw new HttpError(400, 'executor must be builtin or external')
+  if (body.workspaceRead !== undefined && typeof body.workspaceRead !== 'boolean') throw new HttpError(400, 'workspaceRead must be a boolean')
   const model = body.model === undefined ? undefined : text(body.model, 'model', 256, true)
   if (model && (model.includes('\0') || /[\r\n]/.test(model))) throw new HttpError(400, 'model contains an invalid character')
   const prompt = text(body.prompt ?? (executor === 'external' ? '' : undefined), 'prompt', 32 * 1024, executor === 'builtin')
   const selectedTarget = target(body.target, document)
   if (body.snapshot !== undefined) validatePngDataUrl(body.snapshot)
-  return { id: body.id, document, model, prompt, executor, target: selectedTarget, snapshot: body.snapshot }
+  return { id: body.id, document, model, prompt, executor, workspaceRead: body.workspaceRead ?? false, target: selectedTarget, snapshot: body.snapshot }
 }
 
 export function validateCandidate(value, document, selectedTarget, options = {}) {
