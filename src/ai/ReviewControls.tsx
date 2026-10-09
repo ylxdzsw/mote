@@ -18,7 +18,7 @@ export interface AIReview {
   deleteTarget?: (id: string) => void
 }
 
-export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${!!task.candidate}`
+export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${!!task.candidate}:${!!task.pendingExecutor}`
 
 // Shared by editor decoration widgets and floating objects; never document content.
 export function reviewControls(task: AITask, actions: () => AIReview) {
@@ -40,9 +40,9 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
   const busy = ['preparing', 'queued', 'running'].includes(task.status)
   if (task.candidate) {
     button(task.preview ? 'Original' : 'Candidate', () => actions().toggle(task.id))
-    if (!busy) button('Accept', () => actions().accept(task.id))
+    if (!busy && !task.pendingExecutor) button('Accept', () => actions().accept(task.id))
   }
-  if (busy) button('Stop', () => actions().stop(task.id))
+  if (busy && !task.pendingExecutor && task.executor !== 'external') button('Stop', () => actions().stop(task.id))
   button('Discard', () => actions().discard(task.id))
   button('Request…', () => actions().open(task.id))
   if (actions().deleteTarget) button('Delete region', () => actions().deleteTarget!(task.id))

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { currentPlacement, overlaps, permits, permitsEditor, paragraphSelection } from '../src/ai/reservations.ts'
+import { compatibleTasks, currentPlacement, overlaps, permits, permitsEditor, paragraphSelection } from '../src/ai/reservations.ts'
 import { Schema } from '@tiptap/pm/model'
 import type { MoteDocument, FloatingObject } from '../src/document/model.ts'
 import type { AITask } from '../src/ai/types.ts'
@@ -46,9 +46,16 @@ test('unsubmitted floating reservations allow size changes, but never content ed
   const resized = { ...doc, floating: [{ ...object, width: 400, height: 220 }] }
   assert.equal(permits([draft], doc, resized), true)
   assert.equal(permits([draft], doc, { ...doc, floating: [{ ...object, html: 'changed' }] }), false)
-  for (const patch of [{ status: 'preparing' }, { requestSent: true, status: 'error' }, { submitted: true, status: 'stopped' }]) {
+  for (const patch of [{ status: 'preparing' }, { requestSent: true, status: 'error' }, { submitted: true, status: 'stopped' },
+    { pendingExecutor: { executor: 'external', operationId: 'switch' } }]) {
     assert.equal(permits([{ ...draft, ...patch } as AITask], doc, resized), false)
   }
+})
+
+test('released executor reservations retain their result without locking document content', () => {
+  const task = { ...objectTask, documentId: doc.id, original: object, released: true, candidate: { object, summary: 'Retained' } } as AITask
+  assert.deepEqual(compatibleTasks([task], doc), [])
+  assert.equal(task.candidate?.summary, 'Retained')
 })
 
 test('concurrent tasks reject overlap and accepted object preserves current geometry', () => {

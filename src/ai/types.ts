@@ -23,11 +23,15 @@ export type Candidate = CandidateBase & (
   | { content: JSONContent[]; object?: never; segment?: never }
   | { segment: SegmentClipboard; object?: never; content?: never }
 )
+export type Executor = 'builtin' | 'external'
 export interface RemoteTask {
-  id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error'; progress: string
+  id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error' | 'waiting'; progress: string
   error?: string; candidate?: Candidate; expiresAt?: number
+  executor?: Executor; executorRevision?: number; candidateRevision?: number
+  externalPath?: string
+  released?: boolean
 }
-export interface AITask extends Omit<RemoteTask, 'status'> {
+export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
   title?: string
   draftPrompt?: string
   createdAt?: number
@@ -35,6 +39,8 @@ export interface AITask extends Omit<RemoteTask, 'status'> {
   documentId: string; target: AITarget; prompt: string; original: FloatingObject | JSONContent[] | SegmentClipboard
   status: RemoteTask['status'] | 'draft' | 'preparing'; submitted: boolean; preview: boolean
   requestSent?: boolean
+  creation?: { executor: Executor; operationId: string; prompt: string; model: string; snapshot: string }
+  pendingExecutor?: { executor: Executor; operationId: string; baseExecutorRevision?: number }
   snapshotDocument?: MoteDocument
   cloudDocumentId?: string
   baseRevision?: string

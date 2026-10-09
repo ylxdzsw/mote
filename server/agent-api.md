@@ -1,0 +1,149 @@
+# Portable reservation backend
+
+`guide.md` is the agent-independent authoring/delivery guide. It and the standalone
+submission/preview helpers are copied into each task's immutable input directory.
+The guide SHA-256 is the exact-version identifier in the manifest. This file is
+the private-client and operator contract, not part of the agent's instructions.
+
+## Private task API
+
+Existing authenticated `/api/ai/tasks` routes retain their exact-Origin check.
+`RemoteTask` includes `executor: 'builtin' | 'external'`, `executorRevision`,
+`candidateRevision`, and `released`. Both counters start at zero. `externalPath`
+appears only for a currently authorized external reservation. `waiting` means an
+external task awaits a candidate; a previous complete candidate may coexist.
+
+- **POST `/api/ai/tasks`** takes the validated snapshot body, `executor` (default
+  builtin), and an `operationId` UUID. An external create needs no prompt, model,
+  provider configuration, or worker. Cloud tasks must already be acknowledged in
+  that document's assistant state with matching ID, target, and baseRevision,
+  without acceptance/release. Snapshot JSON must match the named saved revision.
+  Identical task-ID/operation-ID/input retries return authoritative current state
+  without repeating work. A changed body or ID collision is 409. Operation IDs
+  remain optional only for legacy direct builtin fake-development tasks.
+- **GET `/api/ai/tasks/:id`** is authoritative for executor/candidate revisions,
+  status, retained candidate, release, and the current externalPath.
+- **POST `/api/ai/tasks/:id/executor`** takes
+  `{executor,baseExecutorRevision,operationId}`. A mismatched base returns 409
+  with `current: RemoteTask`. Each actual switch increments executorRevision and
+  invalidates both old external and old builtin credentials. Every return to
+  external creates a new random 32-byte base64url token. Selecting the current
+  executor is an acknowledged no-op. Retrying the same operation/body returns
+  current state without reapplying it; reusing the operation with changed input
+  returns 409. A complete candidate is never removed by switching. Switching to
+  builtin does **not** launch work or require configured provider credentials.
+- **POST `/revise`** takes `{prompt,executorRevision}` and is builtin-only. The
+  revision is required; stale mode/revision is 409. A valid explicit revision
+  starts another generation using the immutable input and any recorded session.
+- **POST `/stop`** stops builtin execution, preserving a complete candidate.
+- **POST `/release`** accepts an empty body, permanently revokes credentials,
+  stops workers best effort, and retains input/candidate/session/artifacts. It
+  returns RemoteTask and is idempotent. It does not edit the cloud document or
+  assistant JSON. Acceptance receipts can remain until their document save is
+  confirmed. There is no reactivation endpoint for a released task ID.
+- **DELETE `/api/ai/tasks/:id`** revokes first, then waits outside the task lock
+  for workers and removes artifacts. An uncooperative worker yields 409 with
+  revoked artifacts retained, rather than deleting files beneath the worker.
+
+Assistant CAS acceptance (`acceptance` set), `released` state, and task removal
+write permanent SQLite task-revocation tombstones in the same transaction.
+Document deletion tombstones the document and revokes its reservations. Every
+grant check consults this authority; filesystem cleanup and best-effort worker
+termination are not authorization boundaries. Reintroducing old assistant JSON
+cannot reactivate a revoked ID. Cleanup failure preserves private inspection but
+never public access. A fresh reservation uses a fresh task UUID.
+
+## Agent API
+
+Only `/api/agent/:token[/resource]` is public. No private cookies or Origin are
+required and no cross-origin browser permission is granted. Unknown/revoked
+grants return 404 for all reads/submissions. Responses are no-store, no-referrer,
+nosniff, and noindex; source helpers download as inert text attachments.
+
+- GET base: curl-readable Markdown handoff, instructions, and resource links.
+- GET `manifest.json`: `protocol:'mote-agent-v0'`, `taskId`, `executor`,
+  `executorRevision`, `candidateRevision`, `guideVersion`, `resources` keyed by
+  filenames, and `instructions`, `candidate`, `submit` paths.
+- Immutable `document.json`, `target.json`, optional `snapshot.png`, `guide.md`,
+  `submit.mjs`, `preview.mjs`, `preview-harness.html`.
+- `instructions.md`: current explicit request and delivery instructions.
+- `candidate.json`: last complete validated candidate (404 if absent).
+- POST `submit`: `{operationId,executorRevision,candidateRevision,candidate,
+  assets?:{relativeName:PNG_data_URL}}`. Result-root `screenshotPath` or
+  `screenshotPaths` names keys in that map, **never server paths/URLs**. Embedded
+  native images carry their own data URLs. The validator never executes HTML or
+  fetches caller-supplied URLs/files. PNGs are bounded and dimension-checked.
+  A successful delivery only changes this task's candidate, not the document or
+  task list. Its receipt is `{taskId,executorRevision,candidateRevision,
+  status:'ready'}`. Candidate revision advances once; identical retry returns
+  the original receipt. Stale candidate/executor revisions or changed operation
+  input return 409. Invalid delivery returns 400/413 and retains the last result.
+
+## Builtin transport and concurrency
+
+Builtin workers receive a per-run Unix HTTP socket inside their own task bind
+mount. This listener implements **only** the agent handler with task ID, run
+generation, executor generation, and a random internal token. The public
+listener never accepts builtin tokens. It is not a relay to the general moted
+socket, and workers never receive that socket. Systemd additionally masks the
+general socket, private cloud database/backups, Nginx configuration, and siblings.
+
+Both executors share the instruction/resource/submission handler and validator.
+Builtin agents read via that transport or identical immutable local materials,
+and must actually POST a result. Supervisor filesystem pickup is removed. The
+fake runner also submits over this HTTP Unix socket. Tests with custom file
+fixtures use an explicit helper adapter; production does not.
+
+One moted supervisor owns the filesystem task manager. Its per-task mutation
+queue serializes switch, release, revision, and candidate commits; task creation
+has a separate serialization queue. Submission checks authorization initially
+and again after asynchronous input loading, immediately at commit. Worker stop
+never awaits run completion inside that mutation queue; completion/submission
+also need the queue. Best-effort process termination saves resources, but
+credentials/generations establish correctness for uncooperative late workers.
+
+Replacement builtin execution is additionally gated on **every prior execution
+and cleanup promise for this task** finishing. A switch still acknowledges
+immediately after durable revocation, but a later revision remains queued without
+new credentials, socket, prompt, session discovery, or provider preparation while
+the old worker survives. This prevents an old worker's live task bind mount from
+revealing a future generation's token and prevents shared Mu/provider cleanup
+overlap. Other tasks remain schedulable. Completion callbacks retire the gate and
+reschedule outside mutation locks. Real systemd runner completion includes
+process-tree stop, inactive/failed/unloaded unit and empty cgroup confirmation,
+provider relay cleanup, and log cleanup; unknown teardown state stays blocked.
+The pending worker unit is durable across switches and restart, so recovery must
+also confirm teardown before allowing future builtin grants. Non-systemd process
+groups are a trusted development-only fallback, not production containment.
+
+Metadata, operation fingerprints/receipts, tokens, counters, and candidates are
+atomically replaced with file/directory fsync. SQLite revocations use the cloud
+store's full-synchronous transaction stream. Restart preserves external tokens,
+results and retries, but invalidates builtin tokens and never auto-runs a worker.
+Creation recovery binds persisted task metadata to its immutable cloud revision.
+No artifact expiration, automatic backup, or scheduled cleanup is added.
+
+## Operator boundary and checks
+
+The production service remains on its authenticated general Unix socket. Nginx
+may exempt **only** `/api/agent/` (with access logging off) in addition to existing
+read-only share routes. Keep `/api/ai` and `/api/documents` private. Never expose
+the general TCP listener publicly. Configure a 128 MiB body limit and no caching.
+Token URLs are secrets; the supervisor does not print request URLs.
+
+Node.js 22.12+ is sufficient for the downloadable submission helper. It has no
+Mu, Mote source, browser, or third-party dependency. Builtin execution still uses
+the administrator's configured Mu runtime/provider, non-root worker account and
+systemd sandbox; this does not apply to external agents. Provider Unix sockets
+use only administrator-configured task-local relays, not caller-supplied URLs.
+
+Essential offline checks, without real model calls:
+
+```sh
+npm run test:ai
+node --experimental-sqlite --test server/moted.test.mjs server/cloud.test.mjs
+```
+
+`server/check-result.mjs` remains a local validation convenience using the same
+delivery validator. It does not submit. `submit.mjs` is the portable delivery
+helper and accepts fixed operation/revision arguments for lost-response retries.

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { HttpError, UUID, record, text, validateDocument } from './validation.mjs'
+import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
 const now = () => Date.now()
@@ -11,18 +12,6 @@ const shareView = row => ({ id: row.id, token: row.token, mode: row.mode, create
 function uuid(value, label) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, `${label} must be a UUID`); return value }
 function revision(value, label = 'baseRevision') { return text(value, label, 128, true) }
 function name(value) { return text(value, 'name', 1024, true) }
-
-// Stable fingerprints distinguish a lost-response retry from reusing an operation ID.
-function fingerprint(value) {
-  const hash = createHash('sha256')
-  const visit = (value, depth = 0) => {
-    if (depth > 128) throw new HttpError(413, 'JSON nesting is too deep')
-    if (Array.isArray(value)) { hash.update('['); for (const item of value) visit(item, depth + 1); hash.update(']') }
-    else if (value && typeof value === 'object') { hash.update('{'); for (const key of Object.keys(value).sort()) { hash.update(JSON.stringify(key) + ':'); visit(value[key], depth + 1) }; hash.update('}') }
-    else hash.update(JSON.stringify(value) + ',')
-  }
-  visit(value); return hash.digest('hex')
-}
 
 export class CloudStore {
   static async open(options = {}, env = process.env) {
@@ -60,6 +49,9 @@ export class CloudStore {
       CREATE TABLE IF NOT EXISTS task_revisions (
         taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL, revision TEXT NOT NULL,
         FOREIGN KEY(documentId, revision) REFERENCES revisions(documentId, revision)
+      );
+      CREATE TABLE IF NOT EXISTS task_revocations (
+        taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL, revokedAt INTEGER NOT NULL
       );`)
   }
 
@@ -175,6 +167,8 @@ export class CloudStore {
       const time = now()
       this.db.prepare('UPDATE documents SET deletedAt=?,updatedAt=? WHERE id=?').run(time, time, id)
       this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(time, id)
+      for (const task of this.assistantTasks(id)) this.revokeTask(task.id, id)
+      for (const task of this.db.prepare('SELECT taskId FROM task_revisions WHERE documentId=?').all(id)) this.revokeTask(task.taskId, id)
       return { ok: true }
     })
   }
@@ -224,6 +218,8 @@ export class CloudStore {
       if (!Array.isArray(body.tasks)) throw new HttpError(400, 'tasks must be an array')
       const ids = new Set()
       for (const value of body.tasks) { const task = record(value, 'task'); uuid(task.id, 'task.id'); if (ids.has(task.id)) throw new HttpError(400, 'duplicate task id'); ids.add(task.id) }
+      const active = new Set(body.tasks.filter(task => !task.acceptance && !task.released).map(task => task.id))
+      for (const task of [...this.assistantTasks(id), ...body.tasks]) if (!active.has(task.id)) this.revokeTask(task.id, id)
       // Recovery JSON is inert. Only TaskManager.create can validate and launch work.
       this.db.prepare('UPDATE documents SET assistantRevision=?,tasks=? WHERE id=?').run(randomUUID(), this.pack(body.tasks), id)
       return this.remember(id, 'assistant', body, retry.digest, this.assistant(id))
@@ -233,11 +229,26 @@ export class CloudStore {
   taskSnapshot(value) {
     const body = record(value, 'request'); const id = uuid(body.cloudDocumentId, 'cloudDocumentId')
     const row = this.row(id); const token = revision(body.baseRevision)
+    const reservation = this.assertReservation(body.id, id)
+    if (!isDeepStrictEqual(reservation.target, body.target) || reservation.baseRevision !== token) throw new HttpError(409, 'task does not match the active cloud reservation')
     const document = this.envelope(row, token).document
     if (body.document !== undefined && !isDeepStrictEqual(body.document, document)) throw new HttpError(409, 'task document differs from saved revision', metadata(row))
     return { ...body, document, cloudDocumentId: id, baseRevision: token }
   }
   bindTask(taskId, id, token) {
-    this.transaction(() => { this.row(id); this.saved(id, token); this.db.prepare('INSERT INTO task_revisions(taskId,documentId,revision) VALUES (?,?,?)').run(taskId, id, token) })
+    this.transaction(() => {
+      this.assertReservation(taskId, id); this.saved(id, token)
+      const existing = this.db.prepare('SELECT * FROM task_revisions WHERE taskId=?').get(taskId)
+      if (existing && (existing.documentId !== id || existing.revision !== token)) throw new HttpError(409, 'task ID already bound')
+      this.db.prepare('INSERT OR IGNORE INTO task_revisions(taskId,documentId,revision) VALUES (?,?,?)').run(taskId, id, token)
+    })
+  }
+  assistantTasks(id) { return this.unpack(this.db.prepare('SELECT tasks FROM documents WHERE id=?').get(id).tasks) }
+  revokeTask(taskId, documentId) { this.db.prepare('INSERT OR IGNORE INTO task_revocations(taskId,documentId,revokedAt) VALUES (?,?,?)').run(taskId, documentId, now()) }
+  assertReservation(taskId, id) {
+    this.row(id)
+    const task = this.assistantTasks(id).find(task => task.id === taskId)
+    if (!task || task.acceptance || task.released || this.db.prepare('SELECT 1 FROM task_revocations WHERE taskId=?').get(taskId)) throw new HttpError(410, 'reservation was released or is not active')
+    return task
   }
 }

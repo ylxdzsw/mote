@@ -490,12 +490,14 @@ export function validateRequest(value) {
   const body = record(value, 'request')
   if (!UUID.test(body.id ?? '')) throw new HttpError(400, 'id must be a client-generated UUID')
   const document = validateDocument(body.document)
+  const executor = body.executor ?? 'builtin'
+  if (!['builtin', 'external'].includes(executor)) throw new HttpError(400, 'executor must be builtin or external')
   const model = body.model === undefined ? undefined : text(body.model, 'model', 256, true)
   if (model && (model.includes('\0') || /[\r\n]/.test(model))) throw new HttpError(400, 'model contains an invalid character')
-  const prompt = text(body.prompt, 'prompt', 32 * 1024, true)
+  const prompt = text(body.prompt ?? (executor === 'external' ? '' : undefined), 'prompt', 32 * 1024, executor === 'builtin')
   const selectedTarget = target(body.target, document)
   if (body.snapshot !== undefined) validatePngDataUrl(body.snapshot)
-  return { id: body.id, document, model, prompt, target: selectedTarget, snapshot: body.snapshot }
+  return { id: body.id, document, model, prompt, executor, target: selectedTarget, snapshot: body.snapshot }
 }
 
 export function validateCandidate(value, document, selectedTarget, options = {}) {

@@ -47,6 +47,8 @@ WantedBy=multi-user.target
 # Workers see only their own task bind mount inside an otherwise empty tasks dir.
 # Task candidates and Mu sessions persist until explicit task deletion (no TTL).
 # Gate all /api/documents and /api/ai through the existing authenticated Unix-socket
-# Nginx boundary; expose only GET /api/shared/:token publicly. No direct TCP in prod.
+# Nginx boundary. Public routes: GET /api/shared/:token and narrowly scoped
+# /api/agent/:token[/resource] (access_log off). No direct TCP in production.
+# Builtin workers get a task-only HTTP Unix socket, never the private API socket.
 # Configure client_max_body_size 128m and no-store for API responses at the proxy.
 # Backups are manual only; do not schedule them or publish data/backups.

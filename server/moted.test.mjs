@@ -1,11 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, writeFile, symlink } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile, symlink, readdir } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createMotedServer } from './moted.mjs'
 import { fakeRunner } from './runner.mjs'
+import { agentRequest, submitResult } from './submit.mjs'
+import { pathToFileURL } from 'node:url'
 import { validateCandidate, validateRequest } from './validation.mjs'
 
 const png = 'data:image/png;base64,iVBORw0KGgo='
@@ -62,13 +64,19 @@ function pngHeader(width, height) { const header = Buffer.alloc(24); Buffer.from
 async function app(options = {}) {
   const stateDir = options.stateDir || await mkdtemp(path.join(os.tmpdir(), 'moted-test-'))
   const value = await createMotedServer({ ...options, stateDir, port: 0, useSystemd: false, defaultModel: 'codex/gpt-5.6-luna', env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: 'http://localhost:5173', MOTED_SHARED_MU_DIR: path.join(stateDir, 'unused-config'), MOTED_MU_ENV_SOURCE: '', ...(options.env || {}) } })
+  if (options.runner) value.manager.runner = async context => {
+    const result = await options.runner(context)
+    try { await readFile(path.join(context.outputDir, 'result.json')) } catch (error) { if (error.code === 'ENOENT') return result; throw error }
+    if (value.manager.tasks.get(context.taskId)?.meta.candidateRevision === context.agent.candidateRevision) await submitResult(context)
+    return result
+  }
   await value.start(); value.stateDir = stateDir; return value
 }
 async function post(app, body, pathName = '/api/ai/tasks', origin = 'http://localhost:5173') { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}${pathName}`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) }) }
 async function get(app, id) { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`) }
 async function events(app, id, suffix = '', headers = {}) { const address = app.server.address(); return fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}/events${suffix}`, { headers }) }
 async function waitReady(value, id) {
-  for (let i = 0; i < 60; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') return; await new Promise(resolve => setTimeout(resolve, 10)) }
+  for (let i = 0; i < 60; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready' && !value.manager.tasks.get(id)?.current) return; await new Promise(resolve => setTimeout(resolve, 10)) }
   throw new Error('task did not become ready')
 }
 async function takeEvents(response, count) {
@@ -222,7 +230,7 @@ test('completed transcript replays from after and Last-Event-ID cursors', async 
 test('revisions append attempts to the same transcript journal', async t => {
   const value = await app(); t.after(() => value.close())
   const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
-  assert.equal((await post(value, { prompt: 'Revise the transcript' }, `/api/ai/tasks/${id}/revise`)).status, 202); await waitReady(value, id)
+  assert.equal((await post(value, { executorRevision: 0, prompt: 'Revise the transcript' }, `/api/ai/tasks/${id}/revise`)).status, 202); await waitReady(value, id)
   const all = await takeEvents(await events(value, id, '?after=0'), 10)
   assert.deepEqual(all.filter(event => event.kind === 'request').map(event => [event.attempt, event.text]), [[1, 'Improve the target'], [2, 'Revise the transcript']])
   assert.deepEqual([...new Set(all.map(event => event.attempt))], [1, 2]); assert.deepEqual(all.map(event => event.id), [...Array(10)].map((_, index) => index + 1))
@@ -252,7 +260,7 @@ test('concurrent revision and deletion cannot queue an orphaned worker', async t
   const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
   const address = value.server.address()
   const [revision, deletion] = await Promise.all([
-    post(value, { prompt: 'Concurrent revision' }, `/api/ai/tasks/${id}/revise`),
+    post(value, { executorRevision: 0, prompt: 'Concurrent revision' }, `/api/ai/tasks/${id}/revise`),
     fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`, { method: 'DELETE', headers: { origin: 'http://localhost:5173' } }),
   ])
   assert.ok([202, 404].includes(revision.status)); assert.equal(deletion.status, 200)
@@ -304,7 +312,7 @@ test('revision reuses the fake Mu session and advances generation', async t => {
   for (let i = 0; i < 20; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
   const session = value.manager.tasks.get(id).meta.sessionId
   assert.match(session, /^fake-/)
-  const revised = await post(value, { prompt: 'Revise the candidate' }, `/api/ai/tasks/${id}/revise`)
+  const revised = await post(value, { executorRevision: 0, prompt: 'Revise the candidate' }, `/api/ai/tasks/${id}/revise`)
   assert.equal(revised.status, 202)
   for (let i = 0; i < 20; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
   assert.equal(value.manager.tasks.get(id).meta.sessionId, session)
@@ -328,7 +336,221 @@ test('failed first turn can retry without a recorded session', async t => {
   const id = crypto.randomUUID(); await post(value, request(id))
   for (let i = 0; i < 30; i++) { if (value.manager.tasks.get(id)?.meta.status === 'error') break; await new Promise(resolve => setTimeout(resolve, 10)) }
   assert.equal(value.manager.tasks.get(id).meta.sessionId, 'saved-session')
-  assert.equal((await post(value, { prompt: 'Retry after failure' }, `/api/ai/tasks/${id}/revise`)).status, 202)
+  assert.equal((await post(value, { executorRevision: 0, prompt: 'Retry after failure' }, `/api/ai/tasks/${id}/revise`)).status, 202)
   for (let i = 0; i < 30; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
   assert.equal(value.manager.tasks.get(id).meta.status, 'ready'); assert.equal(runs, 2)
+})
+
+const endpoint = (value, suffix) => `http://127.0.0.1:${value.server.address().port}${suffix}`
+const externalRequest = (id, doc = document(), extra = {}) => request(id, doc, { executor: 'external', operationId: crypto.randomUUID(), prompt: undefined, model: undefined, snapshot: png, ...extra })
+const delivery = (doc, extra = {}) => ({ operationId: crypto.randomUUID(), executorRevision: 0, candidateRevision: 0, candidate: { content: doc.content.content, summary: 'External candidate' }, ...extra })
+const switchMode = (value, task, executor, extra = {}) => post(value, { executor, baseExecutorRevision: task.executorRevision, operationId: crypto.randomUUID(), ...extra }, `/api/ai/tasks/${task.id}/executor`)
+async function until(predicate) {
+  for (let i = 0; i < 150; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)) }
+  assert.fail('condition did not become true')
+}
+
+test('external handoff is immutable, agent-independent, and accepts only validated candidate bytes', async t => {
+  const value = await app({ env: { MOTED_MU_BIN: '/not-an-installed-agent', MOTED_SHARED_MU_DIR: '/not-a-provider' } }); t.after(() => value.close())
+  value.manager.defaultModel = undefined
+  const doc = document('html'), id = crypto.randomUUID()
+  const target = { kind: 'object', objectId: 'object-1', isNew: false, area: { x: 40, y: 10, width: 200, height: 100 } }
+  const body = externalRequest(id, doc, { target, snapshot: `data:image/png;base64,${pngHeader(800, 400).toString('base64')}` })
+  const response = await post(value, body); assert.equal(response.status, 202)
+  const task = await response.json(), base = task.externalPath
+  assert.equal(task.status, 'waiting'); assert.equal(task.executorRevision, 0); assert.equal(task.candidateRevision, 0)
+  assert.equal(Buffer.from(base.split('/').at(-1), 'base64url').length, 32); assert.equal(value.manager.active, 0)
+  await assert.rejects(readFile(path.join(value.manager.tasks.get(id).dir, '.mu', 'config.jsonc')), { code: 'ENOENT' })
+  const handoff = await fetch(endpoint(value, base))
+  assert.match(handoff.headers.get('content-type'), /text\/markdown/)
+  assert.equal(handoff.headers.get('cache-control'), 'no-store'); assert.equal(handoff.headers.get('referrer-policy'), 'no-referrer')
+  assert.match(await handoff.text(), /manifest\.json/)
+  const manifest = await agentRequest(endpoint(value, `${base}/manifest.json`))
+  const guide = await (await fetch(endpoint(value, `${base}/guide.md`))).text()
+  assert.equal(crypto.createHash('sha256').update(guide).digest('hex'), manifest.guideVersion)
+  assert.doesNotMatch(guide, /\/root\/mote|Mu session/)
+  assert.deepEqual(await agentRequest(endpoint(value, `${base}/document.json`)), doc)
+  assert.deepEqual(await agentRequest(endpoint(value, `${base}/target.json`)), target)
+  assert.deepEqual(Buffer.from(await (await fetch(endpoint(value, `${base}/snapshot.png`))).arrayBuffer()), pngHeader(800, 400))
+  for (const resource of ['meta.json', 'providers.json', 'tasks', 'document.json/extra']) assert.equal((await fetch(endpoint(value, `${base}/${resource}`))).status, 404)
+  assert.equal((await fetch(endpoint(value, `${base}/document.json`), { method: 'PUT', body: '{}' })).status, 404)
+  const object = { ...doc.floating[0], html: '<script>throw new Error("must never execute")</script>' }; delete object.screenshot
+  const candidate = { object, screenshotPath: 'figure.png', summary: 'Validated HTML and actual uploaded PNG' }
+  const payload = delivery(doc, { candidate, assets: { 'figure.png': `data:image/png;base64,${pngHeader(200, 100).toString('base64')}` } })
+  for (const invalid of [
+    { ...payload, assets: {} },
+    { ...payload, assets: { 'figure.png': png } },
+    { ...payload, assets: { 'figure.png': `data:image/png;base64,${pngHeader(400, 100).toString('base64')}` } },
+    { ...payload, assets: { 'figure.png': 'http://127.0.0.1:1/private.png' } },
+    { ...payload, candidate: { ...candidate, screenshotPath: '/etc/passwd' } },
+    { ...payload, candidate: { ...candidate, screenshotPath: 'file:///etc/passwd' } },
+    { ...payload, candidate: { ...candidate, screenshotPath: '../figure.png' } },
+    { ...payload, candidate: { ...candidate, object: { ...object, id: 'other-object' } } },
+  ]) assert.equal((await post(value, invalid, `${base}/submit`, 'http://untrusted.test')).status, 400)
+  assert.equal(value.manager.tasks.get(id).meta.candidate, undefined)
+  const local = await mkdtemp(path.join(os.tmpdir(), 'mote-external-'))
+  const helper = await fetch(endpoint(value, `${base}/submit.mjs`)); assert.match(helper.headers.get('content-disposition'), /attachment/)
+  await writeFile(path.join(local, 'submit.mjs'), await helper.text())
+  await writeFile(path.join(local, 'result.json'), JSON.stringify(candidate)); await writeFile(path.join(local, 'figure.png'), pngHeader(200, 100))
+  const standalone = await import(pathToFileURL(path.join(local, 'submit.mjs')).href)
+  const receipt = await standalone.submitResult({ outputDir: local, agent: { url: endpoint(value, base), executorRevision: 0, candidateRevision: 0 } })
+  assert.equal(receipt.candidateRevision, 1)
+  const saved = await (await get(value, id)).json()
+  assert.equal(saved.candidate.object.html, object.html); assert.equal(saved.candidate.screenshotPath, undefined)
+  assert.equal(saved.candidate.object.screenshot, payload.assets['figure.png'])
+  assert.deepEqual(await agentRequest(endpoint(value, `${base}/document.json`)), doc)
+})
+
+test('switch roundtrip retains candidates, rotates grants, and rejects late builtin delivery on narrow socket', async t => {
+  const value = await app(); t.after(() => value.close())
+  let context, finish, lateError
+  const gate = new Promise(resolve => { finish = resolve })
+  t.after(() => finish())
+  value.manager.runner = async current => {
+    context = current
+    await gate
+    try { await agentRequest(`${current.agent.url}/submit`, { socketPath: current.agent.socketPath, body: delivery(document()) }) } catch (error) { lateError = error }
+    return { sessionId: 'late-builtin-session' }
+  }
+  const id = crypto.randomUUID(); await post(value, request(id)); await until(() => context)
+  let task = await (await get(value, id)).json()
+  assert.equal(task.executor, 'builtin'); assert.equal(task.externalPath, undefined)
+  const internalPath = new URL(context.agent.url).pathname
+  assert.equal((await fetch(endpoint(value, internalPath))).status, 404)
+  const manifest = await agentRequest(`${context.agent.url}/manifest.json`, { socketPath: context.agent.socketPath })
+  assert.equal(manifest.taskId, id)
+  for (const suffix of ['/api/documents', `/api/ai/tasks/${id}`, '/api/shared/anything']) await assert.rejects(agentRequest(`http://moted.local${suffix}`, { socketPath: context.agent.socketPath }), { status: 404 })
+  task = await (await switchMode(value, task, 'external')).json(); assert.equal(task.executorRevision, 1)
+  const oldExternal = task.externalPath
+  await assert.rejects(agentRequest(`${context.agent.url}/document.json`, { socketPath: context.agent.socketPath }), { status: 404 })
+  assert.equal((await post(value, delivery(document(), { executorRevision: 1 }), `${oldExternal}/submit`, '')).status, 200)
+  task = await (await get(value, id)).json(); const candidate = task.candidate
+  task = await (await switchMode(value, task, 'builtin')).json()
+  assert.equal(task.externalPath, undefined); assert.equal(task.executorRevision, 2); assert.deepEqual(task.candidate, candidate)
+  await assert.rejects(agentRequest(`${context.agent.url}/document.json`, { socketPath: context.agent.socketPath }), { status: 404 })
+  assert.equal((await fetch(endpoint(value, `${oldExternal}/document.json`))).status, 404)
+  assert.equal((await post(value, { prompt: 'stale', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 409)
+  assert.equal((await post(value, { prompt: 'missing revision' }, `/api/ai/tasks/${id}/revise`)).status, 400)
+  task = await (await switchMode(value, task, 'external')).json()
+  assert.equal(task.executorRevision, 3); assert.notEqual(task.externalPath, oldExternal); assert.deepEqual(task.candidate, candidate)
+  assert.equal((await fetch(endpoint(value, `${oldExternal}/document.json`))).status, 404)
+  assert.equal((await post(value, { prompt: 'wrong mode', executorRevision: 3 }, `/api/ai/tasks/${id}/revise`)).status, 409)
+  finish(); await until(() => lateError && value.manager.active === 0)
+  assert.equal(lateError.status, 404)
+  task = await (await get(value, id)).json()
+  assert.equal(task.status, 'waiting'); assert.equal(task.candidateRevision, 1); assert.deepEqual(task.candidate, candidate)
+  assert.equal(value.manager.tasks.get(id).meta.sessionId, undefined)
+  task = await (await switchMode(value, task, 'builtin')).json()
+  assert.equal(value.manager.active, 0); assert.equal(task.status, 'ready')
+  value.manager.runner = fakeRunner
+  assert.equal((await post(value, { prompt: 'Explicit builtin continuation', executorRevision: 4 }, `/api/ai/tasks/${id}/revise`)).status, 202)
+  await waitReady(value, id)
+  assert.equal(value.manager.tasks.get(id).meta.candidateRevision, 2)
+})
+
+test('builtin file output alone is not delivery; supervisor never picks up result.json', async t => {
+  const value = await app(); t.after(() => value.close())
+  value.manager.runner = async context => { await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ content: document().content.content, summary: 'Unsubmitted file' })) }
+  const id = crypto.randomUUID(); await post(value, request(id))
+  await until(() => value.manager.tasks.get(id).meta.status === 'error')
+  const task = await (await get(value, id)).json()
+  assert.match(task.error, /without submitting/); assert.equal(task.candidate, undefined); assert.equal(task.candidateRevision, 0)
+})
+
+test('executor roundtrip and revise issue no future grant until abort-ignoring runner and cleanup both finish', async t => {
+  const value = await app({ maxConcurrent: 2 })
+  let finishRun, finishCleanup, firstContext, calls = 0, prepared = 0, discovered = 0, cleaned = false
+  const runGate = new Promise(resolve => { finishRun = resolve }), cleanupGate = new Promise(resolve => { finishCleanup = resolve })
+  t.after(async () => { finishRun(); finishCleanup(); await value.close() })
+  const prepare = value.manager.prepareScope.bind(value.manager), discover = value.manager.discoverSession.bind(value.manager)
+  value.manager.prepareScope = async dir => { prepared++; return prepare(dir) }
+  value.manager.discoverSession = async task => { discovered++; return discover(task) }
+  value.manager.runner = async context => {
+    calls++
+    if (calls > 1) {
+      assert.equal(cleaned, true); assert.equal(context.sessionId, 'after-cleanup')
+      return fakeRunner(context)
+    }
+    firstContext = context
+    context.stop = async () => { await cleanupGate; cleaned = true }
+    await runGate
+    await writeFile(path.join(context.taskDir, '.mu', 'sessions', 'after-cleanup.jsonl'), 'completed journal')
+    await symlink('sessions/after-cleanup.jsonl', path.join(context.taskDir, '.mu', 'current-session'))
+    return { sessionId: 'after-cleanup' }
+  }
+  const id = crypto.randomUUID(); await post(value, request(id)); await until(() => firstContext)
+  let task = await (await get(value, id)).json()
+  task = await (await switchMode(value, task, 'external')).json()
+  task = await (await switchMode(value, task, 'builtin')).json()
+  assert.equal((await post(value, { prompt: 'Queued continuation', executorRevision: task.executorRevision }, `/api/ai/tasks/${id}/revise`)).status, 202)
+  const record = value.manager.tasks.get(id)
+  const assertGated = async () => {
+    assert.equal(calls, 1); assert.equal(prepared, 1); assert.equal(discovered, 1)
+    assert.equal(record.meta.status, 'queued'); assert.equal(record.meta.builtinToken, undefined)
+    assert.equal(record.executions.size, 1)
+    assert.deepEqual(await readdir(path.join(record.dir, 'runs')), ['0'])
+    await assert.rejects(readFile(path.join(record.dir, `a${record.generation}.sock`)), { code: 'ENOENT' })
+  }
+  await assertGated()
+  const oldExecution = record.current
+  finishRun(); await until(() => oldExecution.finished)
+  await assertGated()
+  finishCleanup(); await waitReady(value, id)
+  assert.equal(calls, 2); assert.equal(prepared, 2); assert.equal(discovered, 2)
+  assert.equal(record.meta.candidateRevision, 1); assert.equal(record.meta.sessionId, 'after-cleanup')
+})
+
+test('switch and submission operations are idempotent, CAS serialized, durable, and independently revocable', async t => {
+  const value = await app(); t.after(() => value.close())
+  const body = externalRequest(crypto.randomUUID()), id = body.id
+  const creations = await Promise.all([post(value, body), post(value, body)])
+  assert.deepEqual(creations.map(response => response.status), [202, 202]); assert.equal(value.manager.tasks.size, 1)
+  let task = await (await get(value, id)).json(), base = task.externalPath
+  const first = delivery(body.document)
+  const persist = value.manager.persist.bind(value.manager)
+  value.manager.persist = async () => { throw new Error('simulated failed metadata commit') }
+  assert.equal((await post(value, first, `${base}/submit`, '')).status, 500)
+  assert.equal((await (await get(value, id)).json()).candidateRevision, 0)
+  value.manager.persist = persist
+  const duplicate = await Promise.all([post(value, first, `${base}/submit`, ''), post(value, first, `${base}/submit`, '')])
+  assert.deepEqual(duplicate.map(response => response.status), [200, 200])
+  const receipt = await duplicate[0].json(); assert.deepEqual(await duplicate[1].json(), receipt)
+  const competitors = await Promise.all([post(value, delivery(body.document, { candidateRevision: 1 }), `${base}/submit`, ''), post(value, delivery(body.document, { candidateRevision: 1 }), `${base}/submit`, '')])
+  assert.deepEqual(competitors.map(response => response.status).sort(), [200, 409])
+  assert.deepEqual(await (await post(value, first, `${base}/submit`, '')).json(), receipt)
+  assert.equal((await post(value, { ...first, candidate: { ...first.candidate, summary: 'different' } }, `${base}/submit`, '')).status, 409)
+  const change = { executor: 'builtin', baseExecutorRevision: 0, operationId: crypto.randomUUID() }
+  value.manager.persist = async () => { throw new Error('simulated failed switch commit') }
+  assert.equal((await post(value, change, `/api/ai/tasks/${id}/executor`)).status, 500)
+  assert.equal((await (await get(value, id)).json()).executorRevision, 0)
+  value.manager.persist = persist
+  const changes = await Promise.all([post(value, change, `/api/ai/tasks/${id}/executor`), post(value, { ...change, operationId: crypto.randomUUID() }, `/api/ai/tasks/${id}/executor`)])
+  assert.deepEqual(changes.map(response => response.status).sort(), [200, 409])
+  // Whichever operation won can be retried without another switch.
+  const winning = changes[0].status === 200 ? change : undefined
+  if (winning) assert.equal((await post(value, winning, `/api/ai/tasks/${id}/executor`)).status, 200)
+  task = await (await get(value, id)).json(); assert.equal(task.executorRevision, 1); assert.equal(task.candidateRevision, 2)
+  const externalSwitch = { executor: 'external', baseExecutorRevision: 1, operationId: crypto.randomUUID() }
+  task = await (await post(value, externalSwitch, `/api/ai/tasks/${id}/executor`)).json(); base = task.externalPath
+  assert.equal((await post(value, { ...externalSwitch, executor: 'builtin' }, `/api/ai/tasks/${id}/executor`)).status, 409)
+  const savedGuide = await (await fetch(endpoint(value, `${base}/guide.md`))).text()
+  const finalSubmission = delivery(body.document, { executorRevision: 2, candidateRevision: 2 })
+  const finalReceipt = await (await post(value, finalSubmission, `${base}/submit`, '')).json()
+  await value.close()
+  const restarted = await app({ stateDir: value.stateDir }); t.after(() => restarted.close())
+  assert.equal((await (await get(restarted, id)).json()).externalPath, base)
+  assert.deepEqual(await (await post(restarted, finalSubmission, `${base}/submit`, '')).json(), finalReceipt)
+  assert.equal((await (await post(restarted, externalSwitch, `/api/ai/tasks/${id}/executor`)).json()).externalPath, base)
+  assert.equal((await post(restarted, body)).status, 202)
+  assert.equal(await (await fetch(endpoint(restarted, `${base}/guide.md`))).text(), savedGuide)
+  const released = await (await post(restarted, {}, `/api/ai/tasks/${id}/release`)).json()
+  assert.equal(released.released, true); assert.equal(released.externalPath, undefined); assert.equal(released.candidateRevision, 3)
+  assert.equal((await post(restarted, {}, `/api/ai/tasks/${id}/release`)).status, 200)
+  for (const suffix of ['', '/guide.md', '/document.json', '/candidate.json', '/manifest.json']) assert.equal((await fetch(endpoint(restarted, base + suffix))).status, 404)
+  assert.equal((await post(restarted, finalSubmission, `${base}/submit`, '')).status, 404)
+  assert.equal((await switchMode(restarted, released, 'builtin')).status, 410)
+  await readFile(path.join(restarted.manager.tasks.get(id).dir, 'input', 'document.json'))
+  assert.equal((await fetch(endpoint(restarted, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 200)
+  assert.equal((await get(restarted, id)).status, 404)
+  assert.equal((await fetch(endpoint(restarted, base))).status, 404)
 })

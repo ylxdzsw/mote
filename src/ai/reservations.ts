@@ -32,7 +32,7 @@ export function objectContent(object: FloatingObject) {
   return content
 }
 
-export const canResizeReservation = (task: AITask) => !task.submitted && !task.requestSent && ['draft', 'error', 'stopped'].includes(task.status)
+export const canResizeReservation = (task: AITask) => !task.submitted && !task.requestSent && !task.pendingExecutor && ['draft', 'error', 'stopped'].includes(task.status)
 export function reservedObjectContent(task: AITask, object: FloatingObject) {
   const content = objectContent(object)
   return canResizeReservation(task) ? { ...content, width: undefined, height: undefined } : content
@@ -186,6 +186,7 @@ export function reservedText(content: JSONContent, ids: string[]) {
 export function inactiveTaskReason(task: AITask, doc: MoteDocument): string | null {
   if (task.documentId !== doc.id) return 'This task belongs to another document. Its request and result are retained for recovery.'
   if (task.acceptance) return 'Applied to a local working copy. The result is retained until that exact document is saved to the cloud; it does not lock this document.'
+  if (task.released) return 'This reservation has been released. Its original input and result remain available for recovery, without document locks or agent access.'
   const target = task.target
   const intact = target.kind === 'object' ? (() => {
     const object = doc.floating.find(object => object.id === target.objectId)

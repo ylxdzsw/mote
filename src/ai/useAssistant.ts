@@ -8,13 +8,19 @@ import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permit
 import { aiRequest, AIServiceError } from './api'
 import { useAssistantState } from './useAssistantState'
 import type { AssistantState } from './cloudState'
-import type { Area, AITarget, AITask, AssistantCloud, RemoteTask } from './types'
+import type { Area, AITarget, AITask, AssistantCloud, Executor, RemoteTask } from './types'
 import { applySegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
 import { copySegment, type SegmentClipboard } from '../document/segment'
 import { getSchema } from '@tiptap/core'
 import { extensions } from '../editor/extensions'
 
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
+
+function creationBody(task: AITask) {
+  if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
+  return { ...task.creation, id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
+    baseRevision: task.baseRevision, target: task.target }
+}
 
 function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string, context: SegmentContext | undefined, create: () => MoteDocument) {
   let byCandidate = candidateCache.get(doc)
@@ -62,9 +68,11 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
+  const [access, setAccess] = useState<Record<string, { executor: Executor; revision: number; path?: string }>>({})
   const currentDoc = useRef(history.doc!), bypass = useRef(false)
   const mounted = useRef(true)
   const preparations = useRef(new Map<string, symbol>())
+  const mutations = useRef(new Map<string, number>())
   const discarded = useRef(new Set<string>())
   const acceptanceAttempts = useRef(new Set<string>())
   const cloudRef = useRef(cloud)
@@ -75,6 +83,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const inactiveReason = (task: AITask) => inactiveTaskReason(task, currentDoc.current)
     ?? (!activeTasks().some(active => active.id === task.id) ? 'Another task reserves this target. This copy is retained for inspection and cannot lock or change the document.' : null)
   function openTask(id: string) { setActiveId(id); setOpen(true) }
+  function markMutation(id: string) { mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1) }
   function update(id: string, patch: Partial<AITask>) {
     if (!mounted.current) return
     persistence.replace(state.current.map(task => {
@@ -82,6 +91,23 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       return { ...task, ...(patch.candidate ? { preview: true } : {}), ...patch }
     }))
   }
+  function receive(remote: RemoteTask, patch: Partial<AITask> = {}) {
+    const task = state.current.find(task => task.id === remote.id)
+    if (!task || (remote.executorRevision ?? 0) < (task.executorRevision ?? 0)
+      || (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0)) return
+    const { externalPath, candidate, ...rest } = remote
+    setAccess(current => {
+      const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0, path: externalPath }
+      return sameContent(current[task.id], next) ? current : { ...current, [task.id]: next }
+    })
+    const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch }
+    if (candidate && !sameContent(task.candidate, candidate)) next.candidate = candidate
+    if (!sameContent(task, { ...task, ...next })) update(task.id, next)
+  }
+  const executorBusy = (task: AITask) => !!task.pendingExecutor || !!(task.submitted && !task.remoteMissing
+    && (!access[task.id] || access[task.id].revision !== (task.executorRevision ?? 0) || access[task.id].executor !== (task.executor ?? 'builtin')))
+  const agentLink = (task: AITask) => !task.released && !task.remoteMissing && task.executor === 'external' && !executorBusy(task) && access[task.id]?.path
+    ? new URL(access[task.id].path!, window.location.origin).href : undefined
   function unrestricted(action: () => void) {
     bypass.current = true
     try { history.boundary(); action(); history.boundary() } finally { bypass.current = false }
@@ -96,6 +122,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
 
   useEffect(() => {
     mounted.current = true
+    setAccess({})
     return () => { mounted.current = false; preparations.current.clear() }
   }, [cloud?.documentId, cloud?.workingCopyId, writable])
   useEffect(() => {
@@ -105,22 +132,25 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     if (!writable || !loaded) return
     let active = true, pending = false
-    const awaitingResult = (task: AITask) => task.submitted ? ['queued', 'running'].includes(task.status)
-      : task.requestSent && ['preparing', 'error'].includes(task.status)
+    const awaitingResult = (task: AITask) => !task.pendingExecutor && !task.acceptance && !task.remoteMissing
+      && (task.submitted || task.requestSent)
     async function poll() {
       if (pending) return
       pending = true
-      await Promise.all(state.current.filter(awaitingResult).map(async task => {
+      await Promise.all(state.current.filter(task => awaitingResult(task) && !preparations.current.has(task.id)).map(async task => {
+        const mutation = mutations.current.get(task.id)
+        const valid = () => active && mutations.current.get(task.id) === mutation && !preparations.current.has(task.id)
+          && state.current.some(current => current.id === task.id && awaitingResult(current))
         try {
           const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
-          if (!active || !state.current.some(current => current.id === task.id && awaitingResult(current))) return
+          if (!valid()) return
           if (remote.candidate && !inactiveReason(task)) {
             try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
-            catch (error) { update(task.id, { ...remote, submitted: true, status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
+            catch (error) { receive(remote, { status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
           }
-          update(task.id, { error: undefined, ...remote, submitted: true })
+          receive(remote, { creation: undefined })
         } catch (error) {
-          if (active) {
+          if (valid()) {
             // requestSent is persisted before POST: another device can observe
             // the claim before the execution exists. Keep it recoverable.
             if (error instanceof AIServiceError && error.status === 404) { if (task.submitted) missingRemote(task.id) }
@@ -170,11 +200,12 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then use the toolbar to start again.' })
   }
 
-  async function start(id: string, prompt: string) {
+  async function start(id: string, prompt: string, executor: Executor = 'builtin') {
     let task = state.current.find(task => task.id === id)
     const connection = cloudRef.current, store = persistence.engine.current
     if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
-    if (!task || inactiveReason(task) || task.remoteMissing || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status)) return
+    if (!task || inactiveReason(task) || task.remoteMissing || preparations.current.has(id)) return
+    if (executor === 'builtin' && ((task.executor ?? 'builtin') !== 'builtin' || executorBusy(task) || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status))) return
     // Resizing is allowed before the first request. Freeze the current object,
     // not the dimensions from when the reservation was first drawn.
     if (!task.submitted && !task.requestSent && task.target.kind === 'object') {
@@ -183,27 +214,30 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       update(id, { original: task.original })
     }
     const run = Symbol()
+    markMutation(id)
     preparations.current.set(id, run)
     const preparing = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
       && state.current.some(task => task.id === id && task.status === 'preparing')
-    update(id, { status: 'preparing', preparingCopyId: connection.workingCopyId, prompt, draftPrompt: '', title: task.title || prompt.trim().split('\n')[0].slice(0, 60), error: undefined, preview: false, progress: 'Saving document and preparing snapshot…' })
+    update(id, { status: 'preparing', preparingCopyId: connection.workingCopyId,
+      ...(executor === 'builtin' ? { prompt: task.creation?.prompt ?? prompt, draftPrompt: task.creation ? task.draftPrompt : '', title: task.title || prompt.trim().split('\n')[0].slice(0, 60), preview: false } : {}),
+      error: undefined, progress: 'Saving document and preparing snapshot…' })
     try {
       let remote: RemoteTask
       if (!task.submitted && task.requestSent) {
         try {
           remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-          if (preparing()) update(id, { ...remote, submitted: true })
+          if (preparing()) receive(remote, { pendingExecutor: undefined, creation: undefined })
           return
         } catch (error) {
           if (!(error instanceof AIServiceError) || error.status !== 404) throw error
           if (!preparing()) return
-          task = { ...task, requestSent: false }; update(id, { requestSent: false })
+          remote = await aiRequest('/tasks', 'POST', creationBody(task))
         }
       }
-      if (task.submitted) {
+      else if (task.submitted) {
         if (!await store.flush()) throw new Error('Save or resolve the cloud assistant state before revising.')
         if (!preparing()) return
-        remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt })
+        remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt, executorRevision: task.executorRevision })
       } else {
         const saved = await connection.sync()
         if (!preparing()) return
@@ -255,19 +289,20 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
         })
         if (!preparing()) return
-        update(id, { requestSent: true })
+        const creation = { executor, operationId: task.pendingExecutor?.operationId ?? task.id, prompt,
+          model: snapshotDocument.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot }
+        task = { ...task, requestSent: true, creation }
+        update(id, { requestSent: true, creation })
         if (!await store.flush()) throw new Error('The request is retained locally. Resolve cloud assistant saving before generating.')
         if (!preparing()) return
-        remote = await aiRequest('/tasks', 'POST', { id, document: snapshotDocument, snapshotDocument,
-          cloudDocumentId: connection.documentId, baseRevision: saved.revision, target, prompt,
-          model: snapshotDocument.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot })
+        remote = await aiRequest('/tasks', 'POST', creationBody(task))
       }
       if (!preparing()) {
         if (discarded.current.has(id)) void cleanup(id, store)
         else if (mounted.current && state.current.some(task => task.id === id && task.status === 'stopped')) void aiRequest(`/tasks/${id}/stop`, 'POST').catch(() => {})
         return
       }
-      update(id, { ...remote, submitted: true })
+      receive(remote, { pendingExecutor: undefined, creation: undefined })
     } catch (error) {
       if (preparing()) {
         if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
@@ -280,19 +315,90 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   async function stop(id: string) {
     const task = state.current.find(task => task.id === id)
     const store = persistence.engine.current
-    if (!writable || !task) return
-    preparations.current.delete(id)
+    if (!writable || !task || task.pendingExecutor || task.executor === 'external') return
+    const run = Symbol()
+    markMutation(id)
+    preparations.current.set(id, run)
     update(id, { status: 'stopped', progress: 'Stopping…' })
-    if (!task.submitted && !task.requestSent) { update(id, { progress: 'Stopped' }); return }
+    if (!task.submitted && !task.requestSent) { preparations.current.delete(id); update(id, { progress: 'Stopped' }); return }
     try {
       const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
-      if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { ...remote, submitted: true, status: 'stopped' })
+      if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) receive(remote)
     } catch (error) {
       if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. The request and any result are retained.' })
+    } finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
+  }
+
+  async function switchExecutor(id: string, executor: Executor) {
+    let task = state.current.find(task => task.id === id)
+    const store = persistence.engine.current
+    if (!writable || !task || !store?.ready || store.conflict || inactiveReason(task) || task.remoteMissing || task.released || preparations.current.has(id)) return
+    if (!task.pendingExecutor && (task.executor ?? 'builtin') === executor) return
+    if (task.pendingExecutor && task.pendingExecutor.executor !== executor) return
+    if (!task.submitted && !task.requestSent && !task.pendingExecutor && task.target.kind === 'object') {
+      const objectId = task.target.objectId
+      task = { ...task, original: structuredClone(currentDoc.current.floating.find(object => object.id === objectId)!) }
+      update(id, { original: task.original })
     }
+    const pending = task.pendingExecutor ?? { executor, operationId: crypto.randomUUID(), baseExecutorRevision: task.submitted ? task.executorRevision ?? 0 : undefined }
+    markMutation(id)
+    update(id, { pendingExecutor: pending, error: undefined, progress: 'Confirming agent access…' })
+    const run = Symbol()
+    preparations.current.set(id, run)
+    const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
+      && state.current.some(task => task.id === id)
+    try {
+      if (!await store.flush()) throw new Error('Resolve cloud assistant saving before switching agents.')
+      if (!current()) return
+      if (!task.submitted && task.requestSent) {
+        try {
+          const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
+          if (!current()) return
+          receive(remote, { creation: undefined })
+          task = state.current.find(task => task.id === id)!
+        } catch (error) {
+          if (!(error instanceof AIServiceError) || error.status !== 404) throw error
+          if (!current()) return
+          const remote = await aiRequest<RemoteTask>('/tasks', 'POST', creationBody(task))
+          if (!current()) { if (discarded.current.has(id)) void cleanup(id, store); return }
+          receive(remote, { creation: undefined })
+          task = state.current.find(task => task.id === id)!
+        }
+      }
+      if (!task.submitted) {
+        preparations.current.delete(id)
+        await start(id, '', 'external')
+        return
+      }
+      const operation = { ...pending, baseExecutorRevision: pending.baseExecutorRevision ?? task.executorRevision ?? 0 }
+      update(id, { pendingExecutor: operation })
+      if (!await store.flush()) throw new Error('Resolve cloud assistant saving before switching agents.')
+      if (!current()) return
+      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/executor`, 'POST', operation)
+      if (!current()) { if (discarded.current.has(id)) void cleanup(id, store); return }
+      receive(remote, { pendingExecutor: undefined })
+    } catch (error) {
+      if (!current()) return
+      if (error instanceof AIServiceError && error.status === 409) {
+        try {
+          const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
+          if (current()) receive(remote, { pendingExecutor: undefined, error: 'Agent access changed in another working copy. The current server choice is shown; choose again if needed.' })
+        } catch (recoveryError) {
+          if (current()) update(id, { error: `Agent switch was not confirmed: ${(recoveryError as Error).message}`, progress: 'Retry confirmation before continuing.' })
+        }
+      } else update(id, { error: `Agent switch was not confirmed: ${(error as Error).message}`, progress: 'Retry confirmation before continuing.' })
+    } finally { if (preparations.current.get(id) === run) preparations.current.delete(id) }
+  }
+  async function retryExecutor(id: string) {
+    const task = state.current.find(task => task.id === id)
+    if (task?.pendingExecutor) await switchExecutor(id, task.pendingExecutor.executor)
   }
 
   async function cleanup(id: string, store: AssistantState) {
+    try { await aiRequest(`/tasks/${id}/release`, 'POST') }
+    catch (error) {
+      if (!(error instanceof AIServiceError && error.status === 404) && mounted.current) setNotice('Agent access revocation was not confirmed. Reconnect to finish releasing this reservation.')
+    }
     // The document (for acceptance) and the assistant removal must both be
     // durable before deleting the only execution artifact. Uncertain cleanup
     // leaks a retained artifact rather than losing a result.
@@ -304,6 +410,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
   }
   function forget(id: string) {
+    markMutation(id)
     preparations.current.delete(id)
     const task = state.current.find(task => task.id === id)
     const index = state.current.findIndex(task => task.id === id)
@@ -334,12 +441,16 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   function accept(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!writable || !cloud || !task?.candidate || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
+    if (!writable || !cloud || !task?.candidate || executorBusy(task) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
     try {
       const next = candidateDocument(currentDoc.current, task, task.candidate, segmentContext?.())
       if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
       unrestricted(() => history.setDoc(next))
+      markMutation(id)
       update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next }, preview: false, error: undefined })
+      if (task.submitted || task.requestSent) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
+        if (mounted.current) update(id, { error: `Agent access revocation is pending: ${(error as Error).message}` })
+      })
       setNotice('Applied locally. The AI result is retained until the accepted document is saved to the cloud.')
       if (task.target.kind === 'object') {
         const objectId = task.target.objectId
@@ -411,6 +522,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
   return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
+    switchExecutor, retryExecutor, executorBusy, agentLink,
+    executorWorking: (task: AITask) => !!task.pendingExecutor && preparations.current.has(task.id),
     inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
     cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,
     retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },

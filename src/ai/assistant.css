@@ -24,6 +24,14 @@
 .ai-task-target button { border: 0; padding: 3px 0; font-size: 12px; }
 .ai-status { display: flex; align-items: center; gap: 7px; margin-top: 7px; color: var(--ui-muted); font-size: 12px; }
 .ai-status > span { width: 12px; text-align: center; }
+.ai-executor { display: grid; gap: 6px; margin-top: 12px; }
+.ai-executor-label { color: var(--ui-muted); font-size: 12px; font-weight: 600; }
+.ai-executor-switch { display: flex; gap: 3px; padding: 3px; border-radius: 6px; background: var(--ui-surface-muted); }
+.ai-panel .ai-executor-switch button { flex: 1; min-width: 0; padding: 5px 8px; border-color: transparent; font-size: 12px; }
+.ai-executor-switch button[aria-pressed=true] { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-border); }
+.ai-executor-switch button[aria-pressed=true]:hover:not(:disabled) { background: var(--ui-accent-surface); }
+.ai-executor-state, .ai-executor-retry { justify-self: start; margin: 0; color: var(--ui-muted); font-size: 12px; }
+.ai-panel .ai-executor-retry { padding: 3px 8px; }
 .ai-activity { display: flex; flex: 1 0 160px; flex-direction: column; min-height: 160px; }
 .ai-activity.is-collapsed { flex: none; min-height: 0; }
 .ai-panel .ai-activity-toggle { display: flex; justify-content: space-between; align-items: center; flex: none; margin: 0 16px; padding: 6px 0; border: 0; border-radius: 0; border-top: 1px solid var(--ui-border); color: var(--ui-muted); font-size: 12px; }
@@ -76,6 +84,11 @@
 .ai-task-draft .ai-composer { margin-top: 0; border-top: 0; padding-top: 8px; }
 .ai-task-draft .ai-composer label { font-size: 17px; line-height: 1.4; margin-bottom: 6px; }
 .ai-composer-hint { margin: 0 0 16px; color: var(--ui-muted); }
+.ai-external-access { display: grid; gap: 8px; }
+.ai-external-buttons { gap: 6px; }
+.ai-external-buttons button { flex: 1 1 auto; }
+.ai-external-access .ai-privacy { margin: 0; }
+.ai-copy-notice, .ai-external-unavailable { margin: 0; color: var(--ui-muted); font-size: 12px; }
 .ai-compose-actions { justify-content: flex-end; margin-top: 10px; }
 .ai-compose-actions .ai-quiet { margin-right: auto; }
 .ai-panel textarea { display: block; width: 100%; resize: vertical; min-height: 84px; max-height: 180px; border: 1px solid var(--ui-border-strong); border-radius: 8px; padding: 11px 12px; color: inherit; background: var(--ui-surface-raised); font: inherit; line-height: 1.6; }

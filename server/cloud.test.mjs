@@ -148,7 +148,8 @@ test('save validates V0, reads preserve unreadable old JSON, and all mutations e
 test('AI tasks bind immutable saved revisions and retain candidates/sessions past old TTL and restart', async t => {
   const value = await app(t); const original = await create(value)
   const target = { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }
-  const request = { id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, document: original.document, prompt: 'Improve', target }
+  const request = { id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, document: original.document, prompt: 'Improve', target, operationId: randomUUID() }
+  assert.equal((await value.call('PUT', `documents/${original.id}/assistant`, { baseRevision: '0', tasks: [request], operationId: randomUUID() })).status, 200)
   assert.equal((await value.call('POST', 'ai/tasks', { ...request, document: document(original.id, 'Unsaved') })).status, 409)
   assert.equal((await value.call('POST', 'ai/tasks', { ...request, cloudDocumentId: undefined })).status, 400)
   await value.call('PUT', `documents/${original.id}`, save(original, 'New head'))
@@ -192,4 +193,70 @@ test('private SQLite/WAL, worker isolation properties, and both consistent backu
   }
   assert.notEqual(files[0], files[1]); await stat(files[0])
   assert.equal((await stat(value.store.backupDir)).mode & 0o777, 0o700)
+})
+
+const portableRequest = original => ({ id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, executor: 'external', operationId: randomUUID(), snapshot: image,
+  target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } })
+const submission = document => ({ executorRevision: 0, candidateRevision: 0, operationId: randomUUID(), candidate: { content: document.content.content, summary: 'Retained external result' } })
+async function reservations(value, original, tasks) {
+  const state = value.store.assistant(original.id)
+  return value.call('PUT', `documents/${original.id}/assistant`, { baseRevision: state.revision, tasks, operationId: randomUUID() })
+}
+
+test('cloud reservation authorizes creation and permanently revokes grants on acceptance/removal even if artifact persistence fails', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  assert.equal((await value.call('POST', 'ai/tasks', request)).status, 410)
+  assert.equal((await reservations(value, original, [request])).status, 200)
+  assert.equal((await value.call('POST', 'ai/tasks', { ...request, target: { ...request.target, insert: true } })).status, 409)
+  const creations = await Promise.all([value.call('POST', 'ai/tasks', request), value.call('POST', 'ai/tasks', request)])
+  assert.deepEqual(creations.map(result => result.status), [202, 202]); assert.equal(value.manager.tasks.size, 1)
+  const base = creations[0].body.externalPath.slice('/api/'.length)
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document), { origin: '' })).status, 200)
+  const oldState = value.store.assistant(original.id)
+  const persist = value.manager.persist.bind(value.manager)
+  value.manager.persist = task => task.meta.released ? Promise.reject(new Error('simulated artifact disk failure')) : persist(task)
+  assert.equal((await reservations(value, original, [{ ...request, acceptance: { workingCopyId: 'local', document: original.document } }])).status, 200)
+  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 404)
+  const retained = await value.call('GET', `ai/tasks/${request.id}`)
+  assert.equal(retained.body.released, true); assert.equal(retained.body.candidate.summary, 'Retained external result')
+  // Assistant JSON cannot resurrect an accepted task, even with the original active entry.
+  assert.equal((await reservations(value, original, oldState.tasks)).status, 200)
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
+  assert.equal((await restarted.call('GET', `ai/tasks/${request.id}`)).body.released, true)
+  assert.equal((await restarted.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'builtin', baseExecutorRevision: 0, operationId: randomUUID() })).status, 410)
+  const second = portableRequest(original)
+  assert.equal((await reservations(restarted, original, [request, second])).status, 200)
+  const secondTask = await restarted.call('POST', 'ai/tasks', second)
+  assert.equal(secondTask.status, 202)
+  // Direct CloudStore mutation models a crash before TaskManager's best-effort cleanup.
+  restarted.store.putAssistant(original.id, { baseRevision: restarted.store.assistant(original.id).revision, tasks: [request], operationId: randomUUID() })
+  assert.equal((await restarted.call('GET', `${secondTask.body.externalPath.slice(5)}/document.json`)).status, 404)
+  assert.equal((await restarted.call('GET', `ai/tasks/${second.id}`)).body.released, true)
+  await readFile(path.join(restarted.manager.tasks.get(second.id).dir, 'input', 'document.json'))
+})
+
+test('cloud deletion is rechecked at candidate commit and survives restart without artifact cleanup', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  let entered, continueLoad
+  const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { continueLoad = resolve })
+  const load = value.manager.loadRequest.bind(value.manager)
+  value.manager.loadRequest = async task => { entered(); await gate; return load(task) }
+  const pending = value.call('POST', `${base}/submit`, submission(original.document), { origin: '' })
+  await started
+  value.store.delete(original.id, { baseRevision: original.revision })
+  continueLoad()
+  assert.equal((await pending).status, 404)
+  assert.equal(value.manager.tasks.get(request.id).meta.candidate, undefined)
+  for (const resource of ['document.json', 'target.json', 'snapshot.png', 'guide.md', 'manifest.json']) assert.equal((await value.call('GET', `${base}/${resource}`)).status, 404)
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
+  assert.equal((await restarted.call('GET', `ai/tasks/${request.id}`)).body.released, true)
+  assert.equal((await restarted.call('DELETE', `ai/tasks/${request.id}`)).status, 200)
+  assert.equal((await restarted.call('POST', 'ai/tasks', request)).status, 410)
 })

@@ -5,11 +5,50 @@ import { Transform } from 'node:stream'
 import { StringDecoder } from 'node:string_decoder'
 import path from 'node:path'
 import net from 'node:net'
+import { deflateSync } from 'node:zlib'
 import { storagePaths } from './storage-paths.mjs'
+import { submitResult } from './submit.mjs'
 
 const SAFE_SESSION = /^[A-Za-z0-9_-]{1,128}$/
 
 export function workerUnit(taskId, generation) { return `moted-${taskId}-${generation}` }
+
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
+
+async function unitEmpty(unit, env) {
+  const output = await new Promise(resolve => {
+    const child = spawn(env.MOTED_SYSTEMCTL || 'systemctl', ['show', '--property=LoadState', '--property=ActiveState', '--property=ControlGroup', unit], { stdio: ['ignore', 'pipe', 'ignore'] })
+    let value = ''
+    child.stdout.on('data', chunk => { value += chunk }); child.on('error', () => resolve('')); child.on('close', () => resolve(value))
+  })
+  const state = Object.fromEntries(output.trim().split('\n').map(line => { const at = line.indexOf('='); return [line.slice(0, at), line.slice(at + 1)] }))
+  if (state.LoadState !== 'not-found' && !['inactive', 'failed'].includes(state.ActiveState)) return false
+  const group = state.ControlGroup || `/system.slice/${unit}.service`
+  try { return /^populated 0$/m.test(await fs.readFile(`/sys/fs/cgroup${group}/cgroup.events`, 'utf8')) }
+  catch (error) { return error.code === 'ENOENT' }
+}
+
+export async function stopWorkerUnit(unit, env) {
+  if (!/^moted-[0-9a-f-]+-\d+$/i.test(unit)) throw new Error('invalid worker unit')
+  const systemctl = env.MOTED_SYSTEMCTL || 'systemctl'
+  await childWait(systemctl, ['kill', '--kill-who=all', '--signal=TERM', unit], { stdio: 'ignore' }).catch(() => {})
+  await delay(250)
+  await childWait(systemctl, ['kill', '--kill-who=all', '--signal=KILL', unit], { stdio: 'ignore' }).catch(() => {})
+  await childWait(systemctl, ['stop', '--job-mode=replace-irreversibly', unit], { stdio: 'ignore' }).catch(() => {})
+  // Failed cancellation must not make a later generation runnable. On an unreadable
+  // systemd state, keep waiting rather than guessing that its process tree is gone.
+  while (!await unitEmpty(unit, env)) await delay(250)
+}
+
+async function stopProcessGroup(pid) {
+  try { process.kill(-pid, 'SIGTERM') } catch (error) { if (error.code === 'ESRCH') return }
+  await delay(250)
+  try { process.kill(-pid, 'SIGKILL') } catch (error) { if (error.code === 'ESRCH') return }
+  for (;;) {
+    try { process.kill(-pid, 0) } catch (error) { if (error.code === 'ESRCH') return }
+    await delay(250)
+  }
+}
 
 async function readJson(file) { return JSON.parse(await fs.readFile(file, 'utf8')) }
 
@@ -34,6 +73,17 @@ function wait(ms, signal) {
 
 function textOf(node) { return (node?.content ?? []).filter(child => child.type === 'text').map(child => child.text || '').join('') }
 
+function fakePng(width, height) {
+  const chunk = (type, bytes) => {
+    const data = Buffer.concat([Buffer.from(type), bytes]); let crc = 0xffffffff
+    for (const byte of data) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0) }
+    const header = Buffer.alloc(4), trailer = Buffer.alloc(4); header.writeUInt32BE(bytes.length); trailer.writeUInt32BE((crc ^ 0xffffffff) >>> 0)
+    return Buffer.concat([header, data, trailer])
+  }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 6
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.alloc((width * 4 + 1) * height))), chunk('IEND', Buffer.alloc(0))])
+}
+
 export async function fakeRunner(context) {
   context.progress('Fake runner is preparing a candidate')
   const delay = Math.max(0, Number(context.env.MOTED_FAKE_DELAY_MS || 15))
@@ -47,6 +97,7 @@ export async function fakeRunner(context) {
   if (context.target.kind === 'object') {
     candidate.object = structuredClone(document.floating.find(object => object.id === context.target.objectId))
     if (candidate.object?.kind === 'html') {
+      candidate.object.screenshot = `data:image/png;base64,${fakePng(Math.round(context.target.area.width), Math.round(context.target.area.height)).toString('base64')}`
       candidate.object.html = '<button id="mote-fake-button" type="button">AI draft: 0</button><script>document.querySelector("button").addEventListener("click", event => { event.currentTarget.textContent = `AI draft: ${Number(event.currentTarget.textContent.split(\": \")[1] || 0) + 1}` })</script>'
     } else if (candidate.object?.kind === 'code') {
       candidate.object.source = `AI draft\n${candidate.object.source}`
@@ -84,6 +135,7 @@ export async function fakeRunner(context) {
   await wait(delay, context.signal)
   transcript('stdout', 'candidate written\n')
   await fs.writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify(candidate), { flag: 'wx', mode: 0o660 })
+  await submitResult(context)
   return { sessionId: context.sessionId || `fake-${context.taskId}` }
 }
 
@@ -116,6 +168,7 @@ export function workerStorageProperties(context) {
     // Each worker sees only its own bind-mounted task, never sibling sessions.
     `TemporaryFileSystem=${quote(tasksDir)}:ro,mode=0711`,
     `InaccessiblePaths=${quote(context.dataDir || defaults.dataDir)} -${quote(context.backupDir || defaults.backupDir)} -/etc/nginx`,
+    `InaccessiblePaths=-${quote(context.env.MOTED_SOCKET || '/run/moted/moted.sock')}`,
   ]
 }
 
@@ -136,10 +189,12 @@ async function providerBridges(taskDir) {
   const servers = [], sockets = new Set()
   const close = async () => {
     for (const socket of sockets) socket.destroy()
-    await Promise.all(servers.map(async ({ server, local }) => {
+    const results = await Promise.allSettled(servers.map(async ({ server, local }) => {
       await new Promise(resolve => server.close(resolve))
       await fs.rm(local, { force: true })
     }))
+    const failure = results.find(result => result.status === 'rejected')
+    if (failure) throw failure.reason
   }
   try {
     for (const { remote, local } of definitions) {
@@ -184,6 +239,8 @@ export async function muRunner(context) {
     MOTED_INPUT_DIR: context.inputDir,
     MOTED_OUTPUT_DIR: context.outputDir,
     MOTED_SOURCE_PATH: context.sourcePath,
+    MOTED_AGENT_SOCKET: context.agent.socketPath,
+    MOTED_AGENT_URL: context.agent.url,
   }
   let command = mu
   let args = muArgs
@@ -206,16 +263,8 @@ export async function muRunner(context) {
   let child
   let stopPromise
   const stopWorker = () => stopPromise ??= (async () => {
-    if (context.useSystemd) {
-      await childWait(context.env.MOTED_SYSTEMCTL || 'systemctl', ['kill', '--kill-who=all', '--signal=TERM', unit], { stdio: 'ignore' }).catch(() => {})
-      await new Promise(resolve => setTimeout(resolve, 250))
-      await childWait(context.env.MOTED_SYSTEMCTL || 'systemctl', ['kill', '--kill-who=all', '--signal=KILL', unit], { stdio: 'ignore' }).catch(() => {})
-      await childWait(context.env.MOTED_SYSTEMCTL || 'systemctl', ['stop', '--job-mode=replace-irreversibly', unit], { stdio: 'ignore' }).catch(() => {})
-    } else if (child?.pid) {
-      try { process.kill(-child.pid, 'SIGTERM') } catch {}
-      await new Promise(resolve => setTimeout(resolve, 250))
-      try { process.kill(-child.pid, 'SIGKILL') } catch {}
-    }
+    if (context.useSystemd) await stopWorkerUnit(unit, context.env)
+    else if (child?.pid) await stopProcessGroup(child.pid)
   })()
   context.stop = stopWorker
   const onAbort = () => { void stopWorker() }
@@ -233,7 +282,10 @@ export async function muRunner(context) {
     })
   } catch (error) { failure = error }
   finally {
-    await closeBridges()
+    // Even normal main-process exit can leave browser/background descendants.
+    // The runner promise covers their death AND all shared provider/log cleanup.
+    await stopWorker()
+    try { await closeBridges() } catch (error) { failure ??= error }
     stdout.end(); stderr.end()
     await Promise.all([stdout.done, stderr.done])
     await trimLogs(path.join(context.taskDir, 'logs'), logTotalLimit, context.generation)
