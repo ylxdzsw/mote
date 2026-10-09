@@ -14,6 +14,7 @@ export interface WorkingRecord {
   dirty: boolean
   updatedAt: number
   pending?: PendingSave
+  pendingPrivacy?: { private: boolean; basePrivacyRevision: number; operationId: string }
 }
 
 let database: Promise<IDBDatabase> | undefined

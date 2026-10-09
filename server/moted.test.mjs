@@ -309,12 +309,12 @@ test('HTML screenshotPath is bounded, embedded, and candidate HTML is not execut
 test('revision reuses the fake Mu session and advances generation', async t => {
   const value = await app(); t.after(() => value.close())
   const id = crypto.randomUUID(); await post(value, request(id))
-  for (let i = 0; i < 20; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
+  await waitReady(value, id)
   const session = value.manager.tasks.get(id).meta.sessionId
   assert.match(session, /^fake-/)
   const revised = await post(value, { executorRevision: 0, prompt: 'Revise the candidate' }, `/api/ai/tasks/${id}/revise`)
   assert.equal(revised.status, 202)
-  for (let i = 0; i < 20; i++) { if (value.manager.tasks.get(id)?.meta.status === 'ready') break; await new Promise(resolve => setTimeout(resolve, 10)) }
+  await waitReady(value, id)
   assert.equal(value.manager.tasks.get(id).meta.sessionId, session)
   assert.equal(value.manager.tasks.get(id).meta.generation, 1)
 })

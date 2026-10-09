@@ -5,7 +5,7 @@ import { createDocument, type MoteDocument } from '../document/model'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
-import { CloudError, cloudRequest, type CloudDocument } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
 import { FilesWindow } from './FilesWindow'
 import { WorkingCopy } from './WorkingCopy'
 import { deleteWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
@@ -94,15 +94,26 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         const session = await workingSession(), key = `${session}:${id}`
         let local = await loadWorkingCopy(key)
         if (!active) return
-        let cloud: CloudDocument | undefined
-        let networkError: unknown
-        try { cloud = await cloudRequest<CloudDocument>(`/api/documents/${id}`) } catch (error) { networkError = error }
+        const [cloudResult, privacyResult] = await Promise.allSettled([
+          cloudRequest<CloudDocument>(`/api/documents/${id}`),
+          cloudRequest<DocumentMeta>(`/api/documents/${id}/privacy`),
+        ])
+        const cloud = cloudResult.status === 'fulfilled' ? cloudResult.value : undefined
+        const privacy = privacyResult.status === 'fulfilled' ? privacyResult.value : undefined
+        const networkError = cloudResult.status === 'rejected' ? cloudResult.reason : undefined
         if (!active) return
         if (!local && !cloud) throw networkError
         // A dirty local copy is never replaced merely because the cloud has moved on.
         if (cloud && (!local || !local.dirty && !local.pending)) {
           const { document, ...meta } = cloud
-          local = { key, session, meta, document, dirty: false, updatedAt: Date.now() }
+          const pendingPrivacy = local?.pendingPrivacy
+          local = { key, session, meta: local ? mergeDocumentMeta(local.meta, meta) : normalizeDocumentMeta(meta), document, dirty: false, updatedAt: Date.now(),
+            ...(pendingPrivacy ? { pendingPrivacy } : {}) }
+        }
+        if (local) {
+          local = { ...local, meta: normalizeDocumentMeta(local.meta) }
+          if (cloud) local.meta = mergePrivacyMeta(local.meta, cloud)
+          if (privacy) local.meta = mergePrivacyMeta(local.meta, privacy)
         }
         try { local!.document = initializeDocument(local!.document) }
         catch {
@@ -113,7 +124,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
             baseRevision: cloud.revision, document, operationId: crypto.randomUUID(),
           })
           const { document: next, ...meta } = reset
-          local = { key, session, meta, document: next, dirty: false, updatedAt: Date.now() }
+          local = { key, session, meta: mergeDocumentMeta(local!.meta, meta), document: next, dirty: false, updatedAt: Date.now() }
         }
         if (!active) return
         await saveWorkingCopy(local!)

@@ -52,6 +52,8 @@ export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
 export interface AssistantCloud {
   documentId: string
   workingCopyId: string
+  privateDocument: boolean
+  externalBlocked: boolean
   sync: () => Promise<{ revision: string; document: MoteDocument } | null>
 }
 export interface AssistantCloudState { revision: string; tasks: AITask[] }

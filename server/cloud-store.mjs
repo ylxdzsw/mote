@@ -6,11 +6,12 @@ import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
 const now = () => Date.now()
-const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision'
-const metadata = row => ({ id: row.id, name: row.name, revision: row.revision, createdAt: row.createdAt, updatedAt: row.updatedAt })
+const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision'
+const metadata = row => ({ id: row.id, name: row.name, revision: row.revision, createdAt: row.createdAt, updatedAt: row.updatedAt, private: row.private === 1, privacyRevision: Number(row.privacyRevision) })
 const shareView = row => ({ id: row.id, token: row.token, mode: row.mode, createdAt: row.createdAt, revision: row.revision })
 function uuid(value, label) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, `${label} must be a UUID`); return value }
 function revision(value, label = 'baseRevision') { return text(value, label, 128, true) }
+function privacyRevision(value, label) { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative safe integer`); return value }
 function name(value) { return text(value, 'name', 1024, true) }
 
 export class CloudStore {
@@ -28,7 +29,8 @@ export class CloudStore {
       CREATE TABLE IF NOT EXISTS documents (
         id TEXT PRIMARY KEY, name TEXT NOT NULL, revision TEXT NOT NULL,
         createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, deletedAt INTEGER,
-        assistantRevision TEXT NOT NULL DEFAULT '0', tasks TEXT NOT NULL DEFAULT '{"value":[],"assets":[]}'
+        assistantRevision TEXT NOT NULL DEFAULT '0', tasks TEXT NOT NULL DEFAULT '{"value":[],"assets":[]}',
+        private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1)), privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)
       );
       CREATE TABLE IF NOT EXISTS revisions (
         documentId TEXT NOT NULL REFERENCES documents(id), revision TEXT NOT NULL,
@@ -53,6 +55,11 @@ export class CloudStore {
       CREATE TABLE IF NOT EXISTS task_revocations (
         taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL, revokedAt INTEGER NOT NULL
       );`)
+    this.transaction(() => {
+      const columns = new Set(db.prepare('PRAGMA table_info(documents)').all().map(column => column.name))
+      if (!columns.has('private')) db.exec('ALTER TABLE documents ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1))')
+      if (!columns.has('privacyRevision')) db.exec('ALTER TABLE documents ADD COLUMN privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)')
+    })
   }
 
   close() { this.db.close() }
@@ -113,6 +120,13 @@ export class CloudStore {
   }
   list() { return { documents: this.db.prepare(`SELECT ${META_COLUMNS} FROM documents WHERE deletedAt IS NULL ORDER BY updatedAt DESC,id`).all().map(metadata) } }
   get(id) { return this.envelope(this.row(id)) }
+  privacyMeta(id) { return metadata(this.row(id)) }
+  assertExternal(id, privacyEpoch) {
+    const row = this.row(id)
+    if (row.private) throw new HttpError(403, 'document is private; external access is disabled')
+    if (privacyEpoch !== undefined && privacyEpoch !== row.privacyRevision) throw new HttpError(403, 'external capability privacy revision is stale')
+    return metadata(row)
+  }
   compare(row, baseRevision) { if (row.revision !== revision(baseRevision)) throw new HttpError(409, 'document revision conflict', metadata(row)) }
 
   retry(id, kind, body) {
@@ -130,6 +144,7 @@ export class CloudStore {
 
   create(value) {
     const body = record(value, 'request'); const id = uuid(body.id, 'id')
+    if (body.private !== undefined && typeof body.private !== 'boolean') throw new HttpError(400, 'private must be a boolean')
     return this.transaction(() => {
       const existing = this.db.prepare(`SELECT ${META_COLUMNS} FROM documents WHERE id=?`).get(id)
       if (existing?.deletedAt) throw new HttpError(410, 'document was deleted')
@@ -137,7 +152,7 @@ export class CloudStore {
       if (retry.response) return retry.response
       if (existing) throw new HttpError(409, 'document ID already exists', metadata(existing))
       const document = this.document(body.document, id); const title = name(body.name); const time = now(); const token = randomUUID()
-      this.db.prepare('INSERT INTO documents(id,name,revision,createdAt,updatedAt) VALUES (?,?,?,?,?)').run(id, title, token, time, time)
+      this.db.prepare('INSERT INTO documents(id,name,revision,createdAt,updatedAt,private) VALUES (?,?,?,?,?,?)').run(id, title, token, time, time, body.private ? 1 : 0)
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       return this.remember(id, 'create', body, retry.digest, this.get(id))
     })
@@ -153,6 +168,25 @@ export class CloudStore {
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
       return this.remember(id, 'put', body, retry.digest, this.get(id))
+    })
+  }
+
+  putPrivacy(id, value) {
+    const body = record(value, 'request')
+    if (typeof body.private !== 'boolean') throw new HttpError(400, 'private must be a boolean')
+    const basePrivacyRevision = privacyRevision(body.basePrivacyRevision, 'basePrivacyRevision')
+    uuid(body.operationId, 'operationId')
+    return this.transaction(() => {
+      const row = this.row(id); const retry = this.retry(id, 'privacy', body)
+      if (retry.response) return retry.response
+      if (row.privacyRevision !== basePrivacyRevision) throw new HttpError(409, 'privacy revision conflict', metadata(row))
+      if (Boolean(row.private) !== body.private) {
+        if (!Number.isSafeInteger(row.privacyRevision + 1)) throw new HttpError(409, 'privacy revision exhausted', metadata(row))
+        const nextPrivacyRevision = row.privacyRevision + 1
+        this.db.prepare('UPDATE documents SET private=?,privacyRevision=? WHERE id=?').run(body.private ? 1 : 0, nextPrivacyRevision, id)
+        if (body.private) this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(now(), id)
+      }
+      return this.remember(id, 'privacy', body, retry.digest, this.privacyMeta(id))
     })
   }
 
@@ -178,7 +212,8 @@ export class CloudStore {
     const body = record(value, 'request')
     if (!['snapshot', 'latest'].includes(body.mode)) throw new HttpError(400, 'mode must be snapshot or latest')
     return this.transaction(() => {
-      this.row(id)
+      const document = this.row(id)
+      if (document.private) throw new HttpError(403, 'Private documents cannot be shared; turn off Private to create a new share link')
       if (body.mode === 'latest') {
         if (body.revision !== undefined && body.revision !== null) throw new HttpError(400, 'latest links do not pin a revision')
         const previous = this.db.prepare("SELECT * FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
@@ -203,7 +238,7 @@ export class CloudStore {
     const row = this.db.prepare(`SELECT d.name, r.revision, r.body FROM shares s
       JOIN documents d ON d.id=s.documentId
       JOIN revisions r ON r.documentId=d.id AND r.revision=CASE WHEN s.mode='latest' THEN d.revision ELSE s.revision END
-      WHERE s.token=? AND s.revokedAt IS NULL AND d.deletedAt IS NULL`).get(token)
+      WHERE s.token=? AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(token)
     if (!row) throw new HttpError(404, 'share not found')
     return { name: row.name, revision: row.revision, document: this.unpack(row.body) }
   }

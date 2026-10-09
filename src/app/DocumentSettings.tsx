@@ -1,13 +1,18 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { DEFAULT_AI_MODEL, type DocumentLanguage, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { NumberField, ThemePanel, type ThemeClass } from '../theme/ThemePanel'
+import type { PrivacyState } from '../cloud/WorkingCopy'
 
-export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onChange, onClose }: {
+export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onChange, onClose,
+  privateDocument, privacy, onPrivateChange, onPrivacyRetry, onPrivacyReconcile }: {
   doc: MoteDocument; tab: 'layout' | 'theme'; onTab: (tab: 'layout' | 'theme') => void
   selectedClass: ThemeClass; onClass: (value: ThemeClass) => void; onChange: (doc: MoteDocument) => void; onClose: () => void
+  privateDocument: boolean; privacy: PrivacyState; onPrivateChange: (value: boolean) => void
+  onPrivacyRetry: () => void; onPrivacyReconcile: () => void
 }) {
   const history = useHistory()
+  const privateHintId = useId()
   const [linked, setLinked] = useState(doc.margins.left === doc.margins.right)
   function margin(side: 'left' | 'right', value: number) {
     onChange({ ...doc, margins: { ...doc.margins, ...(linked ? { left: value, right: value } : { [side]: value }) } })
@@ -26,6 +31,18 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
         }} onClick={() => { history.boundary(); onTab(name) }}>{name === 'layout' ? 'Layout' : 'Theme'}</button>)}
     </div>
     <div role="tabpanel" id={`${tab}-settings`} aria-labelledby={`${tab}-tab`}>
+      <section className="privacy-setting" aria-label="Document privacy">
+        <label><input type="checkbox" aria-label="Private" aria-describedby={privateHintId} checked={privateDocument} disabled={privacy.busy || !!privacy.pending}
+          onChange={event => onPrivateChange(event.target.checked)} /><span><strong>Private</strong>
+          <span id={privateHintId} className="hint">Blocks public sharing and external agents. The built-in agent remains available.</span></span></label>
+        {privacy.busy && privacy.pending && <p className="hint" role="status">Saving privacy setting…</p>}
+        {privacy.message && <p className="hint" role="status">{privacy.message}</p>}
+        {privacy.error && <p className="hint error" role="alert">{privacy.error}</p>}
+        {privacy.pending && !privacy.busy && <div className="privacy-actions">
+          <button type="button" onClick={onPrivacyRetry}>Retry change</button>
+          <button type="button" onClick={onPrivacyReconcile}>Check server status</button>
+        </div>}
+      </section>
       {tab === 'layout' ? <section className="panel-section layout-properties">
         <h2>Page</h2>
         <div className="style-field"><div className="field-heading">Document width</div>

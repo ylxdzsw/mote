@@ -6,6 +6,26 @@ export interface DocumentMeta {
   revision: string
   createdAt: number
   updatedAt: number
+  private: boolean
+  privacyRevision: number
+}
+
+export function normalizeDocumentMeta(meta: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
+  return { id: meta.id!, name: meta.name!, revision: meta.revision!, createdAt: meta.createdAt!, updatedAt: meta.updatedAt!,
+    private: meta.private ?? false, privacyRevision: meta.privacyRevision ?? 0 }
+}
+
+export function mergeDocumentMeta(current: DocumentMeta, incoming: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
+  const previous = normalizeDocumentMeta(current), next = normalizeDocumentMeta(incoming)
+  return { ...previous, ...next,
+    private: next.privacyRevision >= previous.privacyRevision ? next.private : previous.private,
+    privacyRevision: Math.max(previous.privacyRevision, next.privacyRevision) }
+}
+
+export function mergePrivacyMeta(current: DocumentMeta, incoming: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
+  const previous = normalizeDocumentMeta(current), next = normalizeDocumentMeta(incoming)
+  return next.privacyRevision < previous.privacyRevision ? previous
+    : { ...previous, private: next.private, privacyRevision: next.privacyRevision }
 }
 
 export interface CloudDocument extends DocumentMeta {
@@ -49,7 +69,8 @@ export async function cloudRequest<T>(path: string, method = 'GET', body?: unkno
       : response.status === 409 ? 'This document changed in the cloud. Review the latest version before trying again.'
       : response.status === 410 ? 'This cloud document has been deleted. Your local edits have not been discarded.'
       : typeof detail?.error === 'string' ? detail.error : `The cloud service returned an error (${response.status}). Please try again.`
-    throw new CloudError(message, response.status, detail?.current)
+    const current = detail?.current && typeof detail.current === 'object' ? normalizeDocumentMeta(detail.current) : undefined
+    throw new CloudError(message, response.status, current)
   }
   if (response.status === 204) return undefined as T
   try { return await response.json() as T }

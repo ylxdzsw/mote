@@ -20,6 +20,7 @@ A private, AI-native cloud document workspace emphasizing simplicity, unificatio
 
 - Has editing mode and reading mode. Moblie version only supports reading mode.
 - Document width can be set in the document config editor, defaults to 960px.
+- Per-document **Private** blocks public sharing and external-agent handoff, but not the document's own built-in agent. Workspace indexing/retrieval is not implemented yet: trusted indexing of Private is allowed, but other-document agents must never receive its content or derived indexes. Read `CLOUD.md` → **Document Private policy** before changing privacy, sharing, indexing, or agent retrieval; current source privacy governs historical reads too.
 
 ## Planned Features
 

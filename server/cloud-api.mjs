@@ -19,6 +19,9 @@ export async function cloudApi(store, request, pathname, readBody) {
     else if (method === 'PUT') body = store.put(id, await readBody(request))
     else if (method === 'PATCH') body = store.rename(id, await readBody(request))
     else if (method === 'DELETE') body = store.delete(id, await readBody(request))
+  } else if (action === 'privacy' && parts.length === 3) {
+    if (method === 'GET') body = store.privacyMeta(id)
+    else if (method === 'PUT') body = store.putPrivacy(id, await readBody(request))
   } else if (action === 'assistant' && parts.length === 3) {
     if (method === 'GET') body = store.assistant(id)
     else if (method === 'PUT') body = store.putAssistant(id, await readBody(request))

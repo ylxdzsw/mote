@@ -31,6 +31,7 @@
 .ai-executor-switch button[aria-pressed=true] { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-border); }
 .ai-executor-switch button[aria-pressed=true]:hover:not(:disabled) { background: var(--ui-accent-surface); }
 .ai-executor-state, .ai-executor-retry { justify-self: start; margin: 0; color: var(--ui-muted); font-size: 12px; }
+.ai-executor > .ai-external-unavailable { margin: 0; }
 .ai-panel .ai-executor-retry { padding: 3px 8px; }
 .ai-activity { display: flex; flex: 1 0 160px; flex-direction: column; min-height: 160px; }
 .ai-activity.is-collapsed { flex: none; min-height: 0; }

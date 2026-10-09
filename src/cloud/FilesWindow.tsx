@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createDocument, paragraph, type MoteDocument } from '../document/model'
-import { CloudError, cloudRequest, type CloudDocument, type DocumentMeta } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
 import './cloud.css'
 
 interface Props {
@@ -17,6 +17,13 @@ interface Props {
 const documentPath = (id: string) => `/api/documents/${encodeURIComponent(id)}`
 const date = (time: number) => new Date(time).toLocaleString()
 const message = (error: unknown) => error instanceof Error ? error.message : 'The operation failed. Please try again.'
+const mergeList = (current: DocumentMeta[], incoming: DocumentMeta[]) => {
+  const previous = new Map(current.map(item => [item.id, item]))
+  return incoming.map(item => {
+    const meta = normalizeDocumentMeta(item), old = previous.get(meta.id)
+    return old ? mergeDocumentMeta(old, meta) : meta
+  })
+}
 
 export function FilesWindow({ open, ...props }: Props) {
   return open ? <FilesDialog {...props} /> : null
@@ -47,7 +54,7 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
     active.current = true
     element.showModal()
     void cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
-      .then(data => { if (!canceled) setDocuments(data.documents) })
+      .then(data => { if (!canceled) setDocuments(current => mergeList(current, data.documents)) })
       .catch(error => { if (!canceled) { setError(message(error)); setAuth(error instanceof CloudError && error.status === 401) } })
       .finally(() => { if (!canceled) { locked.current = false; setBusy('') } })
     return () => { canceled = true; active.current = false; element.close() }
@@ -55,7 +62,7 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
 
   async function refresh() {
     const data = await cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
-    setDocuments(data.documents)
+    setDocuments(current => mergeList(current, data.documents))
   }
 
   async function run(label: string, task: () => Promise<void>) {
@@ -88,7 +95,10 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
       id, name, document: { ...source, id }, operationId: crypto.randomUUID(),
     })
     if (!active.current) return
-    setDocuments(items => [created, ...items.filter(item => item.id !== created.id)])
+    setDocuments(items => {
+      const meta = normalizeDocumentMeta(created), old = items.find(item => item.id === meta.id)
+      return [old ? mergeDocumentMeta(old, meta) : meta, ...items.filter(item => item.id !== meta.id)]
+    })
     setSelectedId(created.id); setFilter(''); setAction(null)
     setResult(`Created “${created.name}”.`)
     onOpen(created.id)
@@ -144,6 +154,7 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
             <td><button type="button" className="cloud-file-choice" disabled={!!busy} aria-pressed={item.id === selectedId}
               onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); openDocument(item.id) } }}>
               <span className="cloud-file-name">{item.name}</span>
+              {item.private && <span className="cloud-private-badge">Private</span>}
               {item.id === currentId && <span className="cloud-detail">Current document</span>}
               {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
             </button></td>
@@ -162,7 +173,7 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
         if (!name.trim()) return
         void run('Renaming document…', async () => {
           const renamed = await cloudRequest<DocumentMeta>(documentPath(selected.id), 'PATCH', { name: name.trim() })
-          setDocuments(items => items.map(item => item.id === renamed.id ? renamed : item))
+          setDocuments(items => items.map(item => item.id === renamed.id ? mergeDocumentMeta(item, renamed) : item))
           setAction(null); setResult('Document renamed.')
         })
       }}>

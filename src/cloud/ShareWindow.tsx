@@ -8,6 +8,7 @@ interface Props {
   documentId: string
   name: string
   dirty: boolean
+  privateDocument: boolean
   sync: () => Promise<{ revision: string } | null>
 }
 
@@ -19,7 +20,7 @@ export function ShareWindow({ open, ...props }: Props) {
   return open ? <ShareDialog key={props.documentId} {...props} /> : null
 }
 
-function ShareDialog({ onClose, documentId, name, dirty, sync }: Omit<Props, 'open'>) {
+function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const active = useRef(true)
@@ -36,15 +37,22 @@ function ShareDialog({ onClose, documentId, name, dirty, sync }: Omit<Props, 'op
     let canceled = false
     const element = dialog.current!
     active.current = true
-    element.showModal()
+    if (!element.open) element.showModal()
+    setBusy(privateDocument ? '' : 'Loading share links…')
+    locked.current = !privateDocument
+    if (privateDocument) {
+      setShares([]); setError(''); setResult(''); setBusy(''); locked.current = false
+      return () => { canceled = true; active.current = false; element.close() }
+    }
     void cloudRequest<{ shares: Share[] }>(path)
       .then(data => { if (!canceled) setShares(data.shares) })
       .catch(error => { if (!canceled) setError(message(error)) })
       .finally(() => { if (!canceled) { locked.current = false; setBusy('') } })
     return () => { canceled = true; active.current = false; element.close() }
-  }, [path])
+  }, [path, privateDocument])
 
   async function run(label: string, task: () => Promise<void>) {
+    if (privateDocument) { setError('Private documents cannot be shared. Turn off Private in Document settings first.'); return }
     if (locked.current) return
     locked.current = true
     setBusy(label); setError(''); setResult('')
@@ -86,8 +94,10 @@ function ShareDialog({ onClose, documentId, name, dirty, sync }: Omit<Props, 'op
       <button type="button" className="cloud-button cloud-close" aria-label="Close sharing" disabled={!!busy} onClick={onClose}>×</button>
     </header>
     <div className="cloud-body">
-      <p id={`${titleId}-hint`} className="cloud-hint">Anyone with a link can read this document without signing in. Revoke a link to stop future access.</p>
-      <fieldset className="cloud-share-modes" disabled={!!busy}>
+      <p id={`${titleId}-hint`} className="cloud-hint">{privateDocument
+        ? 'Private documents cannot be shared. Turn off Private in Document settings to create or use share links.'
+        : 'Anyone with a link can read this document without signing in. Revoke a link to stop future access.'}</p>
+      <fieldset className="cloud-share-modes" disabled={!!busy || privateDocument}>
         <legend>Link type</legend>
         <label className="cloud-share-mode"><input type="radio" name={`${titleId}-mode`} value="snapshot" checked={mode === 'snapshot'} onChange={() => setMode('snapshot')} />
           <span><strong>Current snapshot</strong><span className="cloud-detail">Saves your changes first, then pins that exact revision. Later edits will not change this link.</span></span>
@@ -96,11 +106,11 @@ function ShareDialog({ onClose, documentId, name, dirty, sync }: Omit<Props, 'op
           <span><strong>Latest version</strong><span className="cloud-detail">Shows the cloud copy saved when the link opens. An open link does not refresh in the background. An existing Latest version link is reused.</span></span>
         </label>
       </fieldset>
-      {dirty && <p className="cloud-pending" role="status">Unsynced changes are not included in Latest version links.</p>}
-      <div className="cloud-actions"><button type="button" className="cloud-button" disabled={!!busy || !documentId} onClick={createLink}>Create link</button></div>
-      <section className="cloud-shares" aria-labelledby={`${titleId}-existing`}>
+      {!privateDocument && dirty && <p className="cloud-pending" role="status">Unsynced changes are not included in Latest version links.</p>}
+      <div className="cloud-actions"><button type="button" className="cloud-button" disabled={!!busy || privateDocument || !documentId} onClick={createLink}>Create link</button></div>
+      {!privateDocument && <section className="cloud-shares" aria-labelledby={`${titleId}-existing`}>
         <div className="cloud-preview-heading"><h2 id={`${titleId}-existing`} className="cloud-section-title">Existing links</h2>
-          <button type="button" className="cloud-button" disabled={!!busy} onClick={() => { void run('Refreshing share links…', async () => {
+          <button type="button" className="cloud-button" disabled={!!busy || privateDocument} onClick={() => { void run('Refreshing share links…', async () => {
             const data = await cloudRequest<{ shares: Share[] }>(path)
             setShares(data.shares); setRevoke(null)
           }) }}>Refresh</button>
@@ -125,7 +135,7 @@ function ShareDialog({ onClose, documentId, name, dirty, sync }: Omit<Props, 'op
             </section>}
           </li>)}
         </ul>
-      </section>
+      </section>}
     </div>
     <footer className="cloud-feedback">
       <p className="cloud-status" role="status">{busy || result}</p>

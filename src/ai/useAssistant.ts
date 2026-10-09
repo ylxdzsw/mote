@@ -64,6 +64,8 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = t
 export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined, cloud?: AssistantCloud) {
   const persistence = useAssistantState(cloud, writable)
   const { tasks: allTasks, state, loaded } = persistence
+  const privateDocument = cloud?.privateDocument ?? false
+  const externalBlocked = cloud?.externalBlocked ?? false
   const [notice, setNotice] = useState('')
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -97,7 +99,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       || (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0)) return
     const { externalPath, candidate, ...rest } = remote
     setAccess(current => {
-      const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0, path: externalPath }
+      const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0,
+        path: cloudRef.current?.externalBlocked ? undefined : externalPath }
       return sameContent(current[task.id], next) ? current : { ...current, [task.id]: next }
     })
     const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch }
@@ -106,7 +109,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   const executorBusy = (task: AITask) => !!task.pendingExecutor || !!(task.submitted && !task.remoteMissing
     && (!access[task.id] || access[task.id].revision !== (task.executorRevision ?? 0) || access[task.id].executor !== (task.executor ?? 'builtin')))
-  const agentLink = (task: AITask) => !task.released && !task.remoteMissing && task.executor === 'external' && !executorBusy(task) && access[task.id]?.path
+  const agentLink = (task: AITask) => !externalBlocked && !task.released && !task.remoteMissing && task.executor === 'external' && !executorBusy(task) && access[task.id]?.path
     ? new URL(access[task.id].path!, window.location.origin).href : undefined
   function unrestricted(action: () => void) {
     bypass.current = true
@@ -126,13 +129,25 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     return () => { mounted.current = false; preparations.current.clear() }
   }, [cloud?.documentId, cloud?.workingCopyId, writable])
   useEffect(() => {
+    if (externalBlocked) setAccess(current => Object.fromEntries(Object.entries(current).map(([id, item]) => [id, { executor: item.executor, revision: item.revision }])))
+  }, [externalBlocked])
+  useEffect(() => {
+    if (!externalBlocked) return
+    for (const task of state.current) {
+      if (task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
+        rejectPrivateExternalDraft(task.id)
+      }
+    }
+  }, [externalBlocked, allTasks])
+  useEffect(() => {
     setActiveId(current => allTasks.some(task => task.id === current) ? current : allTasks[0]?.id ?? null)
   }, [allTasks])
 
   useEffect(() => {
     if (!writable || !loaded) return
     let active = true, pending = false
-    const awaitingResult = (task: AITask) => !task.pendingExecutor && !task.acceptance && !task.remoteMissing
+    const awaitingResult = (task: AITask) => (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
+      && !task.acceptance && !task.remoteMissing
       && (task.submitted || task.requestSent)
     async function poll() {
       if (pending) return
@@ -148,12 +163,16 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
             try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
             catch (error) { receive(remote, { status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
           }
-          receive(remote, { creation: undefined })
+          receive(remote, { creation: undefined, ...(privateDocument ? { pendingExecutor: undefined } : {}) })
         } catch (error) {
           if (valid()) {
             // requestSent is persisted before POST: another device can observe
             // the claim before the execution exists. Keep it recoverable.
-            if (error instanceof AIServiceError && error.status === 404) { if (task.submitted) missingRemote(task.id) }
+            if (error instanceof AIServiceError && error.status === 404) {
+              const current = state.current.find(item => item.id === task.id)
+              if (current?.submitted) missingRemote(task.id)
+              else if (privateDocument && current?.requestSent && current.creation?.executor === 'external') rejectPrivateExternalDraft(task.id)
+            }
             else update(task.id, { error: (error as Error).message })
           }
         }
@@ -163,7 +182,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     void poll()
     const timer = window.setInterval(() => void poll(), 1200)
     return () => { active = false; window.clearInterval(timer) }
-  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId])
+  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument])
 
   function reserve(target: AITarget, snapshot = currentDoc.current) {
     if (!loaded || !writable || !cloud || cloud.documentId !== snapshot.id || !persistence.engine.current?.ready) { setNotice('Connect this working copy to its cloud document before starting an AI task.'); return }
@@ -199,12 +218,26 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   function missingRemote(id: string) {
     update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then use the toolbar to start again.' })
   }
+  function rejectPrivateExternalDraft(id: string) {
+    const task = state.current.find(task => task.id === id)
+    if (!task || task.submitted) return
+    preparations.current.delete(id)
+    update(id, { executor: 'builtin', pendingExecutor: undefined, status: 'draft', progress: '',
+      error: 'External handoff was blocked while Private was enabled or being confirmed. The reservation is ready for the built-in agent.',
+      requestSent: false, creation: undefined, cloudDocumentId: undefined, baseRevision: undefined,
+      preparingCopyId: undefined })
+  }
 
   async function start(id: string, prompt: string, executor: Executor = 'builtin') {
     let task = state.current.find(task => task.id === id)
     const connection = cloudRef.current, store = persistence.engine.current
+    if (executor === 'external' && cloudRef.current?.externalBlocked) {
+      if (task && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') rejectPrivateExternalDraft(id)
+      setNotice('External handoff is unavailable while this document is private.'); return
+    }
     if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
     if (!task || inactiveReason(task) || task.remoteMissing || preparations.current.has(id)) return
+    let knownNotCreated = !task.submitted && !task.requestSent
     if (executor === 'builtin' && ((task.executor ?? 'builtin') !== 'builtin' || executorBusy(task) || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status))) return
     // Resizing is allowed before the first request. Freeze the current object,
     // not the dimensions from when the reservation was first drawn.
@@ -231,6 +264,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         } catch (error) {
           if (!(error instanceof AIServiceError) || error.status !== 404) throw error
           if (!preparing()) return
+          knownNotCreated = true
+          if (executor === 'external' && cloudRef.current?.privateDocument) { rejectPrivateExternalDraft(id); return }
+          if (executor === 'external' && cloudRef.current?.externalBlocked) throw new Error('Confirm the privacy setting before retrying external access.')
+          knownNotCreated = false
           remote = await aiRequest('/tasks', 'POST', creationBody(task))
         }
       }
@@ -291,10 +328,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         if (!preparing()) return
         const creation = { executor, operationId: task.pendingExecutor?.operationId ?? task.id, prompt,
           model: snapshotDocument.aiModel?.trim() || DEFAULT_AI_MODEL, snapshot }
+        if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
         task = { ...task, requestSent: true, creation }
         update(id, { requestSent: true, creation })
         if (!await store.flush()) throw new Error('The request is retained locally. Resolve cloud assistant saving before generating.')
         if (!preparing()) return
+        if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
+        knownNotCreated = false
         remote = await aiRequest('/tasks', 'POST', creationBody(task))
       }
       if (!preparing()) {
@@ -305,7 +345,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       receive(remote, { pendingExecutor: undefined, creation: undefined })
     } catch (error) {
       if (preparing()) {
-        if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
+        if (executor === 'external' && cloudRef.current?.privateDocument && knownNotCreated && !task.submitted) rejectPrivateExternalDraft(id)
+        else if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
         else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message })
       }
     }
@@ -332,7 +373,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   async function switchExecutor(id: string, executor: Executor) {
     let task = state.current.find(task => task.id === id)
     const store = persistence.engine.current
-    if (!writable || !task || !store?.ready || store.conflict || inactiveReason(task) || task.remoteMissing || task.released || preparations.current.has(id)) return
+    if (!writable || !task || executor === 'external' && cloudRef.current?.externalBlocked || !store?.ready || store.conflict || inactiveReason(task) || task.remoteMissing || task.released || preparations.current.has(id)) return
     if (!task.pendingExecutor && (task.executor ?? 'builtin') === executor) return
     if (task.pendingExecutor && task.pendingExecutor.executor !== executor) return
     if (!task.submitted && !task.requestSent && !task.pendingExecutor && task.target.kind === 'object') {
@@ -359,6 +400,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         } catch (error) {
           if (!(error instanceof AIServiceError) || error.status !== 404) throw error
           if (!current()) return
+          if (executor === 'external' && cloudRef.current?.privateDocument) { rejectPrivateExternalDraft(id); return }
+          if (executor === 'external' && cloudRef.current?.externalBlocked) throw new Error('Confirm the privacy setting before retrying external access.')
           const remote = await aiRequest<RemoteTask>('/tasks', 'POST', creationBody(task))
           if (!current()) { if (discarded.current.has(id)) void cleanup(id, store); return }
           receive(remote, { creation: undefined })
@@ -367,6 +410,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       }
       if (!task.submitted) {
         preparations.current.delete(id)
+        if (executor === 'external' && cloudRef.current?.externalBlocked) {
+          update(id, { pendingExecutor: undefined, error: 'External handoff is unavailable while this document is private.', progress: '' })
+          return
+        }
         await start(id, '', 'external')
         return
       }
@@ -374,6 +421,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       update(id, { pendingExecutor: operation })
       if (!await store.flush()) throw new Error('Resolve cloud assistant saving before switching agents.')
       if (!current()) return
+      if (executor === 'external' && cloudRef.current?.externalBlocked) {
+        update(id, { pendingExecutor: undefined, error: 'External handoff is unavailable while this document is private.', progress: '' })
+        return
+      }
       const remote = await aiRequest<RemoteTask>(`/tasks/${id}/executor`, 'POST', operation)
       if (!current()) { if (discarded.current.has(id)) void cleanup(id, store); return }
       receive(remote, { pendingExecutor: undefined })
@@ -522,7 +573,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
   return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
-    switchExecutor, retryExecutor, executorBusy, agentLink,
+    switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
     executorWorking: (task: AITask) => !!task.pendingExecutor && preparations.current.has(task.id),
     inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
     cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,

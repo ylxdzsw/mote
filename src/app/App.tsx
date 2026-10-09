@@ -58,12 +58,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const cloud = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
   const writable = true
   const [shareOpen, setShareOpen] = useState(false)
+  const privateDocument = cloud.record.meta.private
+  const sharingBlocked = privateDocument || cloud.privacy.pending?.private === true
   const recentColors = useRecentColors(doc?.id ?? initial.id, doc?.theme ?? initial.theme)
   const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme) : undefined, [doc?.theme])
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
-    { documentId: cloud.record.meta.id, sync: copy.sync, workingCopyId: cloud.record.key })
+    { documentId: cloud.record.meta.id, sync: copy.sync, workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked })
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')
@@ -138,7 +140,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useLayoutEffect(() => { if (doc) copy.update(doc) }, [doc, copy])
 
   useEffect(() => {
+    void copy.refreshPrivacy()
     const timer = window.setInterval(() => {
+      void copy.refreshPrivacy()
       if (copy.getSnapshot().record.dirty) void copy.sync()
       else void copy.checkRemote()
     }, 10000)
@@ -370,7 +374,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>
       <div className="header-zoom" ref={setZoomHost} />
       <DocumentFiles doc={doc} active={editable} />
-      <button className="view-settings-toggle" onClick={() => setShareOpen(true)}>Share</button>
+      <button className="view-settings-toggle" disabled={sharingBlocked} title={sharingBlocked ? 'Sharing is disabled while Private is enabled or being confirmed.' : undefined}
+        onClick={() => setShareOpen(true)}>Share</button>
       {editable && <button className="view-settings-toggle" aria-label="AI assistant" aria-expanded={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>AI{assistant.allTasks.length ? ` · ${assistant.allTasks.length}` : ''}</button>}
       {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
         aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
@@ -382,7 +387,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>}
     </header>
 
-    <ShareWindow open={shareOpen} onClose={() => setShareOpen(false)} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} />
+    <ShareWindow open={shareOpen} onClose={() => setShareOpen(false)} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} />
     {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
       <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
         : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`
@@ -434,7 +439,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
       {editable && assistant.open ? <AssistantPanel assistant={assistant} onLocate={locateTask} />
       : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
-        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} />
+        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }}
+        privateDocument={cloud.record.meta.private} privacy={cloud.privacy} onPrivateChange={value => void copy.setPrivate(value)}
+        onPrivacyRetry={() => void copy.retryPrivacy()} onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
       : showInspector && <aside key={viewSettingsOpen ? 'view' : selectedObject?.id ?? 'text'} className={`inspector${editable && !viewSettingsOpen ? ' selection-inspector' : ''}`} id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
         {(viewSettingsOpen || !editable) && <div className="inspector-heading">VIEW SETTINGS
           {viewSettingsOpen && <button aria-label="Close view settings" onClick={() => setViewSettingsOpen(false)}>×</button>}

@@ -276,6 +276,14 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .panel-section .subheading { margin-top: 30px; }
 .panel-section .link-margins { display: flex; align-items: center; gap: 7px; }
 .link-margins input { accent-color: var(--accent); margin: 0; }
+.privacy-setting { margin: 0 0 20px; padding: 11px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-surface); }
+.privacy-setting > label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.privacy-setting > label input { margin: 3px 0 0; accent-color: var(--ui-accent); }
+.privacy-setting > label > span { display: grid; gap: 2px; font-size: 12px; }
+.privacy-setting .hint { margin: 0; line-height: 1.5; }
+.privacy-setting > p { margin-top: 8px; }
+.privacy-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.privacy-actions button { padding: 4px 7px; border: 1px solid var(--ui-border); font-size: 11px; }
 @media (min-width: 1051px) and (max-width: 1280px) { .app-header { gap: 12px; } .document-label { display: none; } }
 @media (min-width: 768px) and (max-width: 900px) { .save-message { display: none; } .workspace.with-document-settings { grid-template-columns: 280px minmax(0, 1fr); } }
 

@@ -100,11 +100,12 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           <div className="ai-executor-switch" role="group" aria-labelledby={`ai-executor-label-${task.id}`}>
             <button type="button" aria-label="Use built-in agent" aria-pressed={executor === 'builtin'} disabled={executorBusy || !!inactive}
               onClick={() => switchExecutor('builtin')}>Built-in</button>
-            <button type="button" aria-label="Use external agent" aria-pressed={executor === 'external'} disabled={executorBusy || !!inactive}
+            <button type="button" aria-label="Use external agent" aria-pressed={executor === 'external'} disabled={executorBusy || !!inactive || assistant.externalBlocked}
               onClick={() => switchExecutor('external')}>External</button>
           </div>
+          {assistant.externalBlocked && <p className="ai-external-unavailable" role="status">{assistant.privateDocument ? 'External handoff is unavailable while this document is private.' : 'External handoff is paused until the privacy change is confirmed.'}</p>}
           {executorBusy && <p className="ai-executor-state" role="status">{task.pendingExecutor?.executor === 'external' ? 'Confirming external access…' : task.pendingExecutor?.executor === 'builtin' ? 'Confirming built-in agent…' : external ? 'Confirming agent access…' : 'Confirming agent change…'}</p>}
-          {task.pendingExecutor && <button type="button" className="ai-executor-retry" disabled={retryingExecutor || assistant.executorWorking(task)}
+          {task.pendingExecutor && <button type="button" className="ai-executor-retry" disabled={retryingExecutor || assistant.executorWorking(task) || assistant.externalBlocked && task.pendingExecutor.executor === 'external'}
             aria-label="Retry agent switch confirmation" onClick={() => void retryExecutor()}>{retryingExecutor ? 'Retrying confirmation…' : 'Retry confirmation'}</button>}
         </div>
       </div>
@@ -147,7 +148,8 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           onClick={() => agentLink && void copyText(agentLink, 'Link')}>Copy link</button>
         {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
       </div>
-      {!agentLink && !executorBusy && <p className="ai-external-unavailable" role="status">Agent access link is unavailable.</p>}
+      {assistant.privateDocument ? <p className="ai-external-unavailable" role="status">External handoff and its access link are disabled while this document is private.</p>
+        : !agentLink && !executorBusy && <p className="ai-external-unavailable" role="status">Agent access link is unavailable.</p>}
       {copyNotice && <p className="ai-copy-notice" role="status" aria-live="polite">{copyNotice}</p>}
       <p className="ai-privacy">This link gives the external agent access to the full immutable document snapshot, not only the reserved area. Access lasts until you switch back or release this task. Downloaded copies cannot be recalled. Only the returned candidate is limited to the reserved area for your review.</p>
     </div> : inactive ? <div className="ai-composer ai-actions">

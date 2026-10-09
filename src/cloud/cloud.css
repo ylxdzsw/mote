@@ -32,6 +32,7 @@
 .cloud-file-choice:hover:not(:disabled) { background: transparent; }
 .cloud-file-choice:focus-visible { outline-offset: -2px; }
 .cloud-file-name { display: block; font-weight: 500; overflow-wrap: anywhere; }
+.cloud-private-badge { display: inline-block; margin-top: 3px; padding: 1px 5px; border: 1px solid var(--ui-border); border-radius: 4px; color: var(--ui-muted); font-size: 10px; line-height: 1.4; }
 .cloud-empty { margin: 0; padding: 20px 10px; color: var(--ui-muted); text-align: center; }
 .cloud-confirm { margin-top: 16px; padding: 14px; border: 1px solid var(--ui-border); border-radius: 6px; }
 .cloud-confirm .cloud-field { margin-top: 0; }

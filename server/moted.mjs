@@ -179,7 +179,7 @@ export class TaskManager {
     this.runner = options.runner || (this.env.MOTED_FAKE_RUNNER === '1' ? fakeRunner : muRunner)
     this.defaultModel = options.defaultModel
     this.creations = Promise.resolve()
-    this.tasks = new Map(); this.queue = []; this.active = 0; this.operations = new WeakMap(); this.persistence = new WeakMap(); this.closing = false
+    this.tasks = new Map(); this.queue = []; this.active = 0; this.operations = new WeakMap(); this.persistence = new WeakMap(); this.documentOperations = new Map(); this.closing = false
   }
 
   async init() {
@@ -207,6 +207,7 @@ export class TaskManager {
         else { meta.released = true; delete meta.externalToken }
       }
       await this.persist(task)
+      await this.reconcilePrivacy(task)
       if (meta.workerUnit && this.useSystemd) {
         const unit = meta.workerUnit, controller = new AbortController()
         const current = { unit, controller, promise: stopWorkerUnit(unit, this.env) }
@@ -224,14 +225,34 @@ export class TaskManager {
     try { await pending } finally { if (this.persistence.get(task) === pending) this.persistence.delete(task) }
   }
   async mutate(task, action) {
-    const operation = (this.operations.get(task) ?? Promise.resolve()).catch(() => {}).then(() => {
+    const operation = (this.operations.get(task) ?? Promise.resolve()).catch(() => {}).then(() => this.documentMutation(task.meta.documentId, async () => {
       if (this.tasks.get(task.id) !== task) throw new HttpError(404, 'task not found')
+      await this.reconcilePrivacy(task)
       return action()
-    })
+    }))
     this.operations.set(task, operation)
     try { return await operation } finally { if (this.operations.get(task) === operation) this.operations.delete(task) }
   }
-  view(task) { const value = { id: task.id, status: task.meta.status, progress: task.meta.progress, expiresAt: DURABLE_EXPIRY, executor: task.meta.executor, executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision, released: !this.isActive(task) }; if (!value.released && task.meta.executor === 'external') value.externalPath = `/api/agent/${task.meta.externalToken}`; if (task.meta.documentId) Object.assign(value, { documentId: task.meta.documentId, baseRevision: task.meta.revision, revision: task.meta.revision }); if (task.meta.error) value.error = task.meta.error; if (task.meta.candidate) value.candidate = task.meta.candidate; return value }
+  // Serialize policy changes with task commits, including their asynchronous file persistence.
+  async documentMutation(id, action) {
+    if (!id) return action()
+    const operation = (this.documentOperations.get(id) ?? Promise.resolve()).catch(() => {}).then(action)
+    this.documentOperations.set(id, operation)
+    try { return await operation } finally { if (this.documentOperations.get(id) === operation) this.documentOperations.delete(id) }
+  }
+  externalAllowed(task) {
+    try { if (task.meta.documentId) this.store.assertExternal(task.meta.documentId, task.meta.privacyRevision ?? 0); return true } catch { return false }
+  }
+  async reconcilePrivacy(task) {
+    if (task.meta.executor !== 'external' || !this.isActive(task) || this.externalAllowed(task)) return
+    const next = { ...task.meta, executor: 'builtin', executorRevision: task.meta.executorRevision + 1, generation: task.generation + 1,
+      status: task.meta.candidate ? 'ready' : 'stopped', progress: 'External access revoked by document privacy; built-in agent available' }
+    delete next.externalToken; delete next.builtinToken; delete next.unit; delete next.error
+    await this.persist(task, next)
+    task.meta = next
+    this.invalidateRun(task)
+  }
+  view(task) { const value = { id: task.id, status: task.meta.status, progress: task.meta.progress, expiresAt: DURABLE_EXPIRY, executor: task.meta.executor, executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision, released: !this.isActive(task) }; if (!value.released && task.meta.executor === 'external' && this.externalAllowed(task)) value.externalPath = `/api/agent/${task.meta.externalToken}`; if (task.meta.documentId) Object.assign(value, { documentId: task.meta.documentId, baseRevision: task.meta.revision, revision: task.meta.revision }); if (task.meta.error) value.error = task.meta.error; if (task.meta.candidate) value.candidate = task.meta.candidate; return value }
 
   async loadRequest(task) {
     if (task.request) return task.request
@@ -282,6 +303,7 @@ export class TaskManager {
     this.assertActive(task)
     operationId(body?.operationId); counter(body.baseExecutorRevision, 'baseExecutorRevision')
     if (!['builtin', 'external'].includes(body.executor)) throw new HttpError(400, 'executor must be builtin or external')
+    const privacy = body.executor === 'external' && task.meta.documentId ? this.store.assertExternal(task.meta.documentId) : undefined
     const digest = fingerprint(body), operations = task.meta.switchOperations ?? {}
     if (operations[body.operationId]) {
       if (operations[body.operationId] !== digest) throw new HttpError(409, 'operationId was already used for different input', this.view(task))
@@ -293,7 +315,7 @@ export class TaskManager {
     if (changed) {
       next.executor = body.executor; next.executorRevision++; next.generation = task.generation + 1
       delete next.externalToken; delete next.builtinToken; delete next.unit; delete next.error
-      if (body.executor === 'external') next.externalToken = crypto.randomBytes(32).toString('base64url')
+      if (body.executor === 'external') { next.externalToken = crypto.randomBytes(32).toString('base64url'); next.privacyRevision = privacy?.privacyRevision ?? 0 }
       next.status = body.executor === 'external' ? 'waiting' : next.candidate ? 'ready' : 'stopped'
       next.progress = body.executor === 'external' ? 'Waiting for external candidate' : 'Builtin selected; send a request to run'
     }
@@ -323,6 +345,7 @@ export class TaskManager {
       if (!task || scope.token !== token || task.meta.executor !== 'builtin' || task.meta.builtinToken !== token || task.generation !== scope.generation || task.meta.executorRevision !== scope.executorRevision) throw new HttpError(404, 'agent grant not found')
     } else task = [...this.tasks.values()].find(task => task.meta.executor === 'external' && task.meta.externalToken === token)
     if (!task || !this.isActive(task)) throw new HttpError(404, 'agent grant not found')
+    if (!scope && !this.externalAllowed(task)) throw new HttpError(404, 'agent grant not found')
     return task
   }
 
@@ -443,7 +466,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
   }
 
   create(body) {
-    const pending = this.creations.catch(() => {}).then(() => this.createTask(body))
+    const pending = this.creations.catch(() => {}).then(() => this.documentMutation(body?.cloudDocumentId, () => this.createTask(body)))
     this.creations = pending
     return pending
   }
@@ -454,13 +477,14 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     else if (body?.executor === 'external' || body?.cloudDocumentId) throw new HttpError(400, 'operationId is required')
     const existing = this.tasks.get(body?.id)
     if (existing) {
-      if (body.operationId && existing.meta.createOperationId === body.operationId && existing.meta.createFingerprint === digest) return this.view(existing)
+      if (body.operationId && existing.meta.createOperationId === body.operationId && existing.meta.createFingerprint === digest) { await this.reconcilePrivacy(existing); return this.view(existing) }
       throw new HttpError(409, 'task ID already exists', this.view(existing))
     }
     if (body?.operationId && [...this.tasks.values()].some(task => task.meta.createOperationId === body.operationId)) throw new HttpError(409, 'operationId was already used')
     if (body?.cloudDocumentId !== undefined) body = this.store.taskSnapshot(body)
     else if (!this.allowDirectTasks) throw new HttpError(400, 'cloudDocumentId and baseRevision are required')
     const request = validateRequest(body)
+    const privacy = request.executor === 'external' && body.cloudDocumentId ? this.store.assertExternal(body.cloudDocumentId) : undefined
     const model = request.executor === 'builtin' ? request.model || this.defaultModel || configuredModel(this.env, this.sourcePath) : undefined
     if (request.executor === 'builtin' && !model) throw new HttpError(503, 'Mu has no configured default model')
     const dir = path.join(this.tasksDir, request.id)
@@ -476,7 +500,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
       const task = { executions: new Set(), id: request.id, dir, request, generation: 0, current: null, abandoned: false, transcript, meta: {
         id: request.id, executor: request.executor, executorRevision: 0, candidateRevision: 0,
         createOperationId: body.operationId, createFingerprint: digest, switchOperations: {}, submissionOperations: {}, guideVersion,
-        ...(external ? { externalToken: crypto.randomBytes(32).toString('base64url') } : {}),
+        ...(external ? { externalToken: crypto.randomBytes(32).toString('base64url'), privacyRevision: privacy?.privacyRevision ?? 0 } : {}),
         status: external ? 'waiting' : 'queued', progress: external ? 'Waiting for external candidate' : 'Queued', expiresAt: DURABLE_EXPIRY,
         generation: 0, attempt: external ? 0 : 1, model, prompt: request.prompt, target: request.target,
         ...(body.cloudDocumentId ? { documentId: body.cloudDocumentId, revision: body.baseRevision } : {}),
@@ -629,7 +653,10 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
 
   async reconcileReservations(documentId) {
     // Cloud revocation is already durable before this best-effort worker stop/metadata update.
-    for (const task of this.tasks.values()) if (task.meta.documentId === documentId && !this.isActive(task)) await this.mutate(task, () => this.release(task)).catch(() => {})
+    for (const task of this.tasks.values()) if (task.meta.documentId === documentId) {
+      if (!this.isActive(task)) await this.mutate(task, () => this.release(task)).catch(() => {})
+      else if (task.meta.executor === 'external' && !this.externalAllowed(task)) await this.mutate(task, () => {}).catch(() => {})
+    }
   }
 
   async shutdown() {
@@ -656,7 +683,11 @@ export async function createMotedServer(options = {}) {
       if (url.pathname.startsWith('/api/agent/')) { await manager.agentApi(request, response); return }
       if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/') || url.pathname.startsWith('/api/shared/')) {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
-        const result = await cloudApi(store, request, url.pathname, readBody)
+        const privacyChange = request.method === 'PUT' && /^\/api\/documents\/[^/]+\/privacy$/.test(url.pathname)
+        const privacyBody = privacyChange ? await readBody(request) : undefined
+        const result = privacyChange
+          ? await manager.documentMutation(url.pathname.split('/')[3], () => cloudApi(store, request, url.pathname, async () => privacyBody))
+          : await cloudApi(store, request, url.pathname, readBody)
         if (request.method !== 'GET' && url.pathname.startsWith('/api/documents/')) await manager.reconcileReservations(url.pathname.split('/')[3])
         send(response, result.status, result.body, origin, manager.env); return
       }
@@ -672,7 +703,7 @@ export async function createMotedServer(options = {}) {
           const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found')
           await streamTranscript(task, response, origin, manager.env, cursor(url, request), manager.heartbeatMs); return
         }
-        if (request.method === 'GET' && id && !action) { const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found'); send(response, 200, manager.view(task), origin, manager.env); return }
+        if (request.method === 'GET' && id && !action) { const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found'); send(response, 200, await manager.mutate(task, () => manager.view(task)), origin, manager.env); return }
         const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found')
         if (request.method === 'POST' && action === 'stop') { await manager.mutate(task, () => manager.stop(task)); send(response, 200, manager.view(task), origin, manager.env); return }
         if (request.method === 'POST' && action === 'executor') { const body = await readBody(request); send(response, 200, await manager.mutate(task, () => manager.switchExecutor(task, body)), origin, manager.env); return }

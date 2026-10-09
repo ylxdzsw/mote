@@ -45,6 +45,60 @@ Acceptance is one ordinary local history action. An acceptance receipt retains t
 
 Cloud saving sends documents to Mote. Explicit AI generation additionally shares the whole input document with the configured model/provider. Generated HTML stays in sandboxed opaque-origin iframes.
 
+## Document Private policy
+
+**Status: Private is implemented; workspace indexing and cross-document agent retrieval remain planned.** Document settings exposes the checkbox, Files identifies private documents, and the server enforces public-sharing and external-agent restrictions. The indexing and cross-document rows below define the required policy for those future features; no workspace retrieval is currently available to either executor.
+
+**Private controls access, not indexing: no public exposure and no cross-document agent access.** It is distinct from the workspace's existing login protection. A non-private document is still inside the authenticated workspace; it does not become public automatically.
+
+### Access matrix
+
+Each agent task belongs to one server-bound document. “Own document” below means that document, not an ID the agent supplies to a search or read request. Existing task/grant validity checks still apply.
+
+| Operation on a source document | Non-private source | Private source |
+| --- | --- | --- |
+| Workspace owner finds it in Files, opens, or edits it | Allowed | Allowed |
+| Trusted built-in indexer processes its assigned document | Allowed | Allowed |
+| Built-in agent reads its own document and index | Allowed | Allowed |
+| Built-in agent on another document discovers or reads its content/index | Allowed | Denied |
+| External agent works on the source document itself | Allowed with an active external grant | Denied |
+| External agent on another document discovers or reads its content/index | Requires an active external grant with optional workspace-read permission | Denied |
+| Public Current snapshot or Latest version sharing | Requires an explicit share link | Denied |
+
+Private protects the source, not the destination: a built-in agent working on private document A may retrieve non-private B, but cannot retrieve another private document C. Built-in agents are trusted to process their own private context; that trust does not grant them access to every private document. Cross-document reading never expands the task's reserved write region or permits automatic acceptance.
+
+Private does **not** mean hidden from the workspace owner, disabled AI, disabled indexing, encryption, or a promise that content never reaches the configured model/provider. Trusted built-in indexing and generation may process it. External handoff is forbidden even for the private document's own task because it exposes context through a public bearer capability. That capability is separate from a Share-dialog link; both access paths must enforce Private independently.
+
+### Index and retrieval boundaries
+
+- All documents, including private ones, may use the same indexing pipeline. Preserve a private document's index for its own built-in agent; do not skip, cancel, or purge indexing merely because Private is checked.
+- Every derived index record belongs to its source document and revision. The source's access policy covers filenames/titles, snippets, summaries, keywords, composition descriptions, previews, extracted text, native segments, assets, and any future embeddings. Do not expose private-document existence through result counts or suggestions either.
+- Indexing remains document-local. Do not use private source material to enrich another document's index or an unrestricted workspace summary. Derived metadata must not bypass the source's access policy.
+- Enforce authorization on the server before returning search results and again on every direct read, preview, or asset fetch. An agent instruction, hidden UI control, omitted URL, known document ID, or old search result is not an authorization boundary. Workers still use scoped service access, not direct database access.
+- Check the source document's **current** privacy policy, including when reading historical revisions. Index freshness, pinned snapshots, and previously issued capabilities do not preserve permission after it is withdrawn. Index cleanup/rebuilding must never delay access restrictions.
+
+### Changing Private
+
+Private is server-owned document metadata, separate from editable content and content undo/redo. A stale tab's content save must not reset it. Only a confirmed server update may be presented as an applied privacy change.
+
+New documents default to non-private. Save as copy preserves Private; native exports contain document content, not cloud access settings. Privacy has its own monotonically increasing revision and retry-safe update operation, independent of content revisions. Clients refresh it even with unsynced text and never adopt an older privacy revision from a delayed save acknowledgment.
+
+Checking Private must revoke existing public share links (both snapshot and latest) and the document's external-agent grants, reject new shares/external handoffs, and immediately prevent other-document discovery and reads. Its own built-in agent and indexing remain available. Revocation must not depend on index updates or delayed worker cleanup; revoked external grants also cannot submit late candidates.
+
+Revoked external tasks return to Built-in without starting generation, retaining their reservation and any completed candidate. External capabilities are bound to the privacy revision at grant creation, so they remain invalid after an on/off cycle even if task-file cleanup failed. Privacy mutations serialize with task commits; the server acknowledges the policy only after preceding commits finish. Every external read and delivery also checks the current policy.
+
+Unchecking Private makes the existing index eligible for cross-document retrieval again, subject to ordinary freshness and grant checks. It does not require reindexing solely for the policy change, and it must not resurrect old share links or external grants. New access requires fresh authorization.
+
+Revocation governs future access. It cannot recall already fetched content, erase an agent's existing context, terminate an external process, or retroactively remove material copied into another document. Private is not a content-tracking or remote-erasure mechanism.
+
+### Essential implementation checks
+
+- A private document is indexed and usable by its own built-in agent while absent from another document's agent search, including metadata-only results.
+- Other-document agents cannot bypass Private with a known ID, old result reference, historical revision, preview/asset URL, or broad workspace-read grant.
+- Marking a document private takes effect despite a stale index or in-flight indexing job; indexing may finish without making its results accessible elsewhere.
+- Existing snapshot/latest links and external-agent capabilities stop working when Private is enabled and stay revoked after it is disabled. Its own built-in access remains available.
+- Private A can retrieve non-private B, not private C; owner access through Files remains unchanged, and stale content saves cannot clear Private.
+
 ## V0 remains disposable-format development
 
 There is still no backward compatibility or migration layer for the document format. Authenticated loading of unsupported V0 content offers a confirmed reset to the example, which also replaces the cloud save using a revision-checked write. Declining preserves stored content. Network/storage failures never trigger reset. Public readers cannot reset documents. Revisit this before finalizing V1.

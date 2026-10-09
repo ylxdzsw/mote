@@ -48,7 +48,7 @@ test('competing saves CAS across SQLite connections; lost-response retry survive
   const acknowledged = responses[winner].body
   const conflict = responses[1 - winner].body
   assert.equal(conflict.current.revision, acknowledged.revision)
-  assert.deepEqual(Object.keys(conflict.current).sort(), ['createdAt', 'id', 'name', 'revision', 'updatedAt'])
+  assert.deepEqual(Object.keys(conflict.current).sort(), ['createdAt', 'id', 'name', 'privacyRevision', 'private', 'revision', 'updatedAt'])
   const later = await first.call('PUT', `documents/${original.id}`, save(acknowledged, 'Later'))
   assert.equal(later.status, 200)
   await first.close(); await second.close()
@@ -59,6 +59,84 @@ test('competing saves CAS across SQLite connections; lost-response retry survive
   const reused = await restarted.call('PUT', `documents/${original.id}`, { ...(winner === 0 ? left : right), document: original.document })
   assert.equal(reused.status, 409)
   assert.equal(restarted.store.db.prepare('SELECT count(*) AS n FROM revisions').get().n, 3)
+})
+
+test('private metadata defaults, persists, uses independent CAS/retries, and survives stale content saves', async t => {
+  const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
+  assert.equal(original.private, false); assert.equal(original.privacyRevision, 0)
+  assert.deepEqual((await value.call('GET', `${base}/privacy`)).body, {
+    id: original.id, name: original.name, revision: original.revision, createdAt: original.createdAt, updatedAt: original.updatedAt, private: false, privacyRevision: 0,
+  })
+  assert.deepEqual(value.store.assertExternal(original.id, 0), (await value.call('GET', `${base}/privacy`)).body)
+  assert.throws(() => value.store.assertExternal(original.id, 1), error => error.status === 403)
+
+  const enable = { private: true, basePrivacyRevision: 0, operationId: randomUUID() }
+  const enabled = await value.call('PUT', `${base}/privacy`, enable)
+  assert.equal(enabled.status, 200); assert.equal(enabled.body.private, true); assert.equal(enabled.body.privacyRevision, 1)
+  assert.throws(() => value.store.assertExternal(original.id, 0), error => error.status === 403)
+  assert.deepEqual((await value.call('PUT', `${base}/privacy`, enable)).body, enabled.body)
+  const conflict = await value.call('PUT', `${base}/privacy`, { private: false, basePrivacyRevision: 0, operationId: randomUUID() })
+  assert.equal(conflict.status, 409); assert.equal(conflict.body.current.private, true); assert.equal(conflict.body.current.privacyRevision, 1)
+  const unchanged = await value.call('PUT', `${base}/privacy`, { private: true, basePrivacyRevision: 1, operationId: randomUUID() })
+  assert.equal(unchanged.status, 200); assert.equal(unchanged.body.privacyRevision, 1)
+
+  const staleContent = await value.call('PUT', base, save(original, 'Saved from an older privacy view'))
+  assert.equal(staleContent.status, 200); assert.equal(staleContent.body.private, true); assert.equal(staleContent.body.privacyRevision, 1)
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  const persisted = await restarted.call('GET', `${base}/privacy`)
+  assert.equal(persisted.body.private, true); assert.equal(persisted.body.privacyRevision, 1)
+  const disabled = await restarted.call('PUT', `${base}/privacy`, { private: false, basePrivacyRevision: 1, operationId: randomUUID() })
+  assert.equal(disabled.status, 200); assert.equal(disabled.body.private, false); assert.equal(disabled.body.privacyRevision, 2)
+  assert.throws(() => restarted.store.assertExternal(original.id, 1), error => error.status === 403)
+  assert.equal(restarted.store.assertExternal(original.id, 2).private, false)
+  assert.deepEqual((await restarted.call('PUT', `${base}/privacy`, enable)).body, enabled.body)
+  assert.equal((await restarted.call('GET', `${base}/privacy`)).body.privacyRevision, 2)
+})
+
+test('legacy SQLite privacy columns migrate idempotently without resetting documents', async t => {
+  const value = await app(t); const original = await create(value)
+  await value.close()
+  const legacy = new DatabaseSync(value.store.databasePath)
+  legacy.exec('ALTER TABLE documents DROP COLUMN privacyRevision; ALTER TABLE documents DROP COLUMN private;')
+  legacy.close()
+  const migrated = await app(t, { root: value.root })
+  const loaded = await migrated.call('GET', `documents/${original.id}`)
+  assert.equal(loaded.status, 200); assert.deepEqual(loaded.body.document, original.document)
+  assert.equal(loaded.body.private, false); assert.equal(loaded.body.privacyRevision, 0)
+  await migrated.close()
+  const reopened = await app(t, { root: value.root })
+  assert.deepEqual((await reopened.call('GET', `documents/${original.id}`)).body.document, original.document)
+  assert.equal((await reopened.call('GET', `documents/${original.id}/privacy`)).body.privacyRevision, 0)
+})
+
+test('private creation is validated; snapshot/latest links are revoked and never revive', async t => {
+  const value = await app(t); const doc = document(); const base = `documents/${doc.id}`
+  const request = { id: doc.id, name: 'Private note', document: doc, private: true, operationId: randomUUID() }
+  const created = await value.call('POST', 'documents', request)
+  assert.equal(created.status, 201); assert.equal(created.body.private, true); assert.equal(created.body.privacyRevision, 0)
+  assert.equal((await value.call('GET', base)).status, 200)
+  assert.equal((await value.call('GET', `${base}/assistant`)).status, 200)
+  assert.ok((await value.call('GET', 'documents')).body.documents.some(item => item.id === doc.id && item.private))
+  assert.equal((await value.call('POST', `${base}/shares`, { mode: 'latest' })).status, 403)
+  const invalidDoc = document()
+  assert.equal((await value.call('POST', 'documents', { id: invalidDoc.id, name: 'Invalid', document: invalidDoc, private: 'true', operationId: randomUUID() })).status, 400)
+
+  const publicDoc = await create(value)
+  const publicBase = `documents/${publicDoc.id}`
+  const snapshot = (await value.call('POST', `${publicBase}/shares`, { mode: 'snapshot', revision: publicDoc.revision })).body
+  const latest = (await value.call('POST', `${publicBase}/shares`, { mode: 'latest' })).body
+  const privateMeta = await value.call('PUT', `${publicBase}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() })
+  assert.equal(privateMeta.status, 200); assert.equal(privateMeta.body.privacyRevision, 1)
+  assert.equal((await value.call('GET', `shared/${snapshot.token}`)).status, 404)
+  assert.equal((await value.call('GET', `shared/${latest.token}`)).status, 404)
+  const forbidden = await value.call('POST', `${publicBase}/shares`, { mode: 'latest' })
+  assert.equal(forbidden.status, 403); assert.match(forbidden.body.error, /Private/)
+  await value.call('PUT', `${publicBase}/privacy`, { private: false, basePrivacyRevision: 1, operationId: randomUUID() })
+  assert.equal((await value.call('GET', `shared/${snapshot.token}`)).status, 404)
+  assert.equal((await value.call('GET', `shared/${latest.token}`)).status, 404)
+  const fresh = await value.call('POST', `${publicBase}/shares`, { mode: 'latest' })
+  assert.equal(fresh.status, 200); assert.notEqual(fresh.body.token, latest.token)
 })
 
 test('create retries are idempotent; rename is separate; overwrite uses CAS without recovery copies', async t => {
@@ -136,6 +214,7 @@ test('save validates V0, reads preserve unreadable old JSON, and all mutations e
   const invalid = save(original, 'Bad'); invalid.document.version = 'bad'
   assert.equal((await value.call('PUT', base, invalid)).status, 400)
   assert.equal((await value.call('PUT', base, save(original, 'Bad origin'), { origin: 'https://mote.ylxdzsw.com.evil.test' })).status, 403)
+  assert.equal((await value.call('PUT', `${base}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() }, { origin: 'https://mote.ylxdzsw.com.evil.test' })).status, 403)
   assert.equal((await value.call('PATCH', base, { name: 'Bad origin' }, { origin: '' })).status, 403)
   assert.equal((await value.call('DELETE', base, { baseRevision: original.revision }, { origin: 'null' })).status, 403)
   const old = { ...original.document, version: 'old-unreadable' }
@@ -259,4 +338,103 @@ test('cloud deletion is rechecked at candidate commit and survives restart witho
   assert.equal((await restarted.call('GET', `ai/tasks/${request.id}`)).body.released, true)
   assert.equal((await restarted.call('DELETE', `ai/tasks/${request.id}`)).status, 200)
   assert.equal((await restarted.call('POST', 'ai/tasks', request)).status, 410)
+})
+
+const privacyChange = (value, original, enabled) => value.call('PUT', `documents/${original.id}/privacy`, {
+  private: enabled, basePrivacyRevision: value.store.privacyMeta(original.id).privacyRevision, operationId: randomUUID(),
+})
+
+test('Private revokes external context and delivery, preserves candidate/reservation, and keeps built-in generation available', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 200)
+  assert.equal((await privacyChange(value, original, true)).status, 200)
+  const own = await value.call('GET', `ai/tasks/${request.id}`)
+  assert.equal(own.body.executor, 'builtin'); assert.equal(own.body.executorRevision, 1)
+  assert.equal(own.body.released, false); assert.equal(own.body.candidate.summary, 'Retained external result')
+  assert.equal(own.body.externalPath, undefined)
+  for (const resource of ['', '/document.json', '/snapshot.png', '/target.json', '/manifest.json', '/candidate.json', '/guide.md']) {
+    assert.equal((await value.call('GET', base + resource)).status, 404)
+  }
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 404)
+  assert.equal((await value.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'external', baseExecutorRevision: 1, operationId: randomUUID() })).status, 403)
+  const second = portableRequest(original)
+  await reservations(value, original, [request, second])
+  assert.equal((await value.call('POST', 'ai/tasks', second)).status, 403)
+  assert.equal(value.manager.tasks.has(second.id), false)
+  assert.equal((await value.call('POST', `ai/tasks/${request.id}/revise`, { prompt: 'Revise privately', executorRevision: 1 })).status, 202)
+  const task = value.manager.tasks.get(request.id)
+  for (let i = 0; i < 100 && (task.meta.status !== 'ready' || task.current); i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(task.meta.status, 'ready'); assert.equal(task.meta.candidateRevision, 2)
+  assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
+  assert.equal((await privacyChange(value, original, false)).status, 200)
+  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
+  const fresh = await value.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'external', baseExecutorRevision: 1, operationId: randomUUID() })
+  assert.equal(fresh.status, 200); assert.notEqual(fresh.body.externalPath, created.body.externalPath)
+  assert.equal((await value.call('GET', `${fresh.body.externalPath.slice(5)}/document.json`)).status, 200)
+})
+
+test('privacy epochs revoke external grants across off/on cycles and restart even if task metadata cleanup fails', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 200)
+  const persist = value.manager.persist.bind(value.manager)
+  value.manager.persist = (task, meta = task.meta) => meta.executor === 'builtin' ? Promise.reject(new Error('simulated cleanup failure')) : persist(task, meta)
+  assert.equal((await privacyChange(value, original, true)).status, 200)
+  assert.equal((await privacyChange(value, original, false)).status, 200)
+  assert.equal(value.manager.tasks.get(request.id).meta.executor, 'external')
+  assert.equal(value.manager.view(value.manager.tasks.get(request.id)).externalPath, undefined)
+  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 404)
+  value.manager.persist = persist
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
+  const recovered = (await restarted.call('GET', `ai/tasks/${request.id}`)).body
+  assert.equal(recovered.executor, 'builtin'); assert.equal(recovered.released, false)
+  assert.equal(recovered.candidate.summary, 'Retained external result')
+  assert.equal((await restarted.call('POST', 'ai/tasks', request)).body.externalPath, undefined)
+})
+
+test('privacy changes serialize with asynchronous external candidate commits before acknowledging revocation', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  let entered, resume
+  const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
+  const persist = value.manager.persist.bind(value.manager)
+  value.manager.persist = async (task, meta = task.meta) => {
+    if (meta.executor === 'external' && meta.candidateRevision === 1) { entered(); await gate }
+    return persist(task, meta)
+  }
+  const pending = value.call('POST', `${base}/submit`, submission(original.document))
+  await started
+  const committing = value.manager.documentOperations.get(original.id)
+  const changing = privacyChange(value, original, true)
+  for (let i = 0; i < 100 && value.manager.documentOperations.get(original.id) === committing; i++) await new Promise(resolve => setTimeout(resolve, 5))
+  assert.notEqual(value.manager.documentOperations.get(original.id), committing)
+  assert.equal(value.store.privacyMeta(original.id).private, false)
+  resume()
+  assert.equal((await pending).status, 200)
+  assert.equal((await changing).status, 200)
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 404)
+  const retained = (await value.call('GET', `ai/tasks/${request.id}`)).body
+  assert.equal(retained.executor, 'builtin'); assert.equal(retained.candidateRevision, 1)
+})
+
+test('in-flight public context reads recheck privacy after asynchronous snapshot access', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  let entered, resume
+  const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
+  const load = value.manager.loadRequest.bind(value.manager)
+  value.manager.loadRequest = async task => { entered(); await gate; return load(task) }
+  const pending = value.call('GET', `${base}/manifest.json`)
+  await started
+  assert.equal((await privacyChange(value, original, true)).status, 200)
+  resume()
+  assert.equal((await pending).status, 404)
 })
