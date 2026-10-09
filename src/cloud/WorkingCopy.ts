@@ -1,6 +1,6 @@
 import type { MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
-import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type Share } from './api'
 import { saveWorkingCopy, type WorkingRecord } from './workingCopies'
 
 export interface PrivacyChange {
@@ -240,9 +240,23 @@ export class WorkingCopy {
     }
   }
 
-  setPrivate = async (value: boolean) => {
+  setPrivate = async (value: boolean, confirmRevoke: (count: number) => boolean) => {
     const meta = this.state.record.meta
     if (this.state.privacy.busy || this.state.privacy.pending || meta.private === value) return
+    if (value) {
+      this.publish({ privacy: { busy: true, error: '', message: 'Checking active share links…' } })
+      try {
+        const { shares } = await cloudRequest<{ shares: Share[] }>(`/api/documents/${meta.id}/shares`)
+        if (this.state.record.meta.private || shares.length > 0 && !confirmRevoke(shares.length)) {
+          this.publish({ privacy: { busy: false, error: '', message: '' } })
+          return
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'Please try again.'
+        this.publish({ privacy: { busy: false, error: `Could not check active share links. Private was not changed. ${detail}`, message: '' } })
+        return
+      }
+    }
     const change: PrivacyChange = { private: value, basePrivacyRevision: meta.privacyRevision, operationId: crypto.randomUUID() }
     this.publish({ record: { ...this.state.record, pendingPrivacy: change }, privacy: { pending: change, busy: true, error: '', message: '' } })
     try { await this.persist() }

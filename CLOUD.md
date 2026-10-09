@@ -89,6 +89,8 @@ New documents default to non-private. Save as copy preserves Private; native exp
 
 Checking Private must revoke existing public share links (both snapshot and latest) and the document's external-agent grants, reject new shares/external handoffs, and immediately prevent other-document discovery and reads. Its own built-in agent and indexing remain available. Revocation must not depend on index updates or delayed worker cleanup; revoked external grants also cannot submit late candidates.
 
+When enabling Private, the editor first checks for active share links. If any exist, it asks for confirmation with the link count and warns that turning Private off will not restore them. Cancel leaves privacy and links unchanged; a failed link check does not proceed with the change. No confirmation is shown when there are no active links or when disabling Private.
+
 Revoked external tasks return to Built-in without starting generation, retaining their reservation and any completed candidate. External capabilities are bound to the privacy revision at grant creation, so they remain invalid after an on/off cycle even if task-file cleanup failed. Privacy mutations serialize with task commits; the server acknowledges the policy only after preceding commits finish. Every external read and delivery also checks the current policy.
 
 Unchecking Private makes the existing index eligible for cross-document retrieval again, subject to ordinary freshness and grant checks. It does not require reindexing solely for the policy change, and it must not resurrect old share links or external grants. New access requires fresh authorization.
