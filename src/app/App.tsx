@@ -20,9 +20,11 @@ import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DocumentFiles } from './DocumentFiles'
+import { HeaderMenu } from './HeaderMenu'
+import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
-import { InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
+import { ContextHeading, DocumentContext, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
 import { AssistantPanel } from '../ai/AssistantPanel'
@@ -100,6 +102,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings()
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false)
   const [documentSettingsOpen, setDocumentSettingsOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
   useEffect(() => { if (assistant.open) { setDocumentSettingsOpen(false); setViewSettingsOpen(false) } }, [assistant.open])
   const [settingsTab, setSettingsTab] = useState<'layout' | 'theme'>('layout')
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
@@ -126,6 +129,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (editable) return
     setDocumentSettingsOpen(false)
     setViewSettingsOpen(false)
+    setExportOpen(false)
     setLaunchpadPoint(null)
     setLaunchpadAnchor(null)
     setObjectMenuPoint(null)
@@ -410,50 +414,53 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
     <header className={`app-header cloud-header ${editable ? '' : 'floating-header'}`}>
-      <button className="brand" onClick={onFiles} aria-label="Mote files"><span className="brand-mark">m</span>Mote</button>
-      <button className="cloud-files-button" onClick={onFiles}>Files</button>
-      <div className="document-label" title={cloud.record.meta.name}>{cloud.record.meta.name}</div>
-      {editable && <button className="reset-example" onClick={() => {
-        if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
-        assistant.abandonAll()
-        const replacement = { ...createDocument(), id: doc.id }
-        copy.replaceLocal(replacement)
-        void copy.sync()
-      }}>Reset to example</button>}
-      <div className={`save-status ${status}`} role="status" title={statusText}><span className="status-dot" />
-        <span className="save-message">{statusText}</span>
-        <button disabled={cloud.syncing || !!cloud.conflict || cloud.deleted} onClick={() => cloud.local === 'error' ? copy.retryLocal() : void copy.sync()}>Sync</button>
+      <button className="brand-mark" onClick={onFiles} aria-label="Mote files" title="Mote · Files">m</button>
+      <button className="document-switch" onClick={onFiles} aria-label={`Switch document: ${cloud.record.meta.name}`} title={`${cloud.record.meta.name} · Switch document`}>
+        <span>{cloud.record.meta.name}</span><PanelIcon name="chevron" />
+      </button>
+      <div className={`save-status ${status}`} role="status">
+        <button aria-label={`${statusText}. ${cloud.local === 'error' ? 'Retry local save' : 'Sync document'}`} title={`${statusText} · ${cloud.local === 'error' ? 'Retry local save' : 'Sync now · Ctrl/⌘S'}`}
+          disabled={cloud.syncing || !!cloud.conflict || cloud.deleted} onClick={() => cloud.local === 'error' ? copy.retryLocal() : void copy.sync()}>
+          <span className="status-dot" aria-hidden="true" /><span className="save-message">{statusText}</span>
+        </button>
       </div>
-      {editable && <button className="header-icon-btn" aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="17" height="17"><path d="m9 4-5 5 5 5M4 9h10a6 6 0 0 1 0 12"/></svg>
-      </button>}
-      {editable && <button className="header-icon-btn" aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="17" height="17"><path d="m15 4 5 5-5 5M20 9H10a6 6 0 0 0 0 12"/></svg>
-      </button>}
-      {editable && <button className="header-add header-icon-btn header-add-labeled" aria-label="Add object" title="Add · right-click on canvas"
-        onClick={event => {
-          const box = event.currentTarget.getBoundingClientRect()
-          setLaunchpadPoint(null)
-          setLaunchpadAnchor({ x: box.right - 268, y: box.bottom + 8 })
-        }}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="17" height="17"><path d="M12 4v16M4 12h16"/></svg>
-        <span>Add</span>
-      </button>}
-      <div className="header-zoom" ref={setZoomHost} />
-      <DocumentFiles doc={doc} active={editable} />
-      <button className="view-settings-toggle" disabled={sharingBlocked} title={sharingBlocked ? 'Sharing is disabled while Private is enabled or being confirmed.' : undefined}
-        onClick={() => setShareOpen(true)}>Share</button>
-      {editable && <button className="view-settings-toggle" aria-label="AI assistant" aria-expanded={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>AI{assistant.allTasks.length ? ` · ${assistant.allTasks.length}` : ''}</button>}
-      {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen}
-        onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
-      <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
-        onClick={() => { setViewSettingsOpen(!viewSettingsOpen); setDocumentSettingsOpen(false); assistant.setOpen(false) }}>View</button>
-      {!mobile && <div className="mode-switch" role="group" aria-label="Document mode">
-        <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
-        <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
-      </div>}
+      <div className="header-actions">
+        {editable && <div className="history-buttons" role="group" aria-label="Document history">
+          <button className="header-icon-btn" aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}><PanelIcon name="undo" /></button>
+          <button className="header-icon-btn" aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}><PanelIcon name="redo" /></button>
+        </div>}
+        {editable && <button className="header-add header-icon-btn header-add-labeled" aria-label="Add object" title="Add · right-click on canvas"
+          aria-haspopup="menu" aria-expanded={!!launchpadAnchor}
+          onClick={event => {
+            const box = event.currentTarget.getBoundingClientRect()
+            setLaunchpadPoint(null)
+            setLaunchpadAnchor({ x: box.right - 268, y: box.bottom + 8 })
+          }}>
+          <PanelIcon name="plus" /><span>Add</span>
+        </button>}
+        <div className="header-zoom" ref={setZoomHost} />
+        {editable && <button className="header-icon-btn" aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'} title="Minimap" aria-pressed={showMinimap}
+          onClick={() => updateSettings({ ...settings, minimap: showMinimap ? 'hide' : 'show' })}><PanelIcon name="map" /></button>}
+        {editable && <button className="header-icon-btn" aria-label="Document settings" title="Document settings" aria-haspopup="dialog" aria-expanded={documentSettingsOpen}
+          onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}><PanelIcon name="sliders" /></button>}
+        {editable && <HeaderMenu onExport={() => setExportOpen(true)}
+          onPreferences={() => { setViewSettingsOpen(true); setDocumentSettingsOpen(false); assistant.setOpen(false) }}
+          onReset={() => {
+            if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
+            assistant.abandonAll()
+            const replacement = { ...createDocument(), id: doc.id }
+            copy.replaceLocal(replacement)
+            void copy.sync()
+          }} />}
+        {editable && <button className="header-share" aria-label="Share document" aria-haspopup="dialog" disabled={sharingBlocked}
+          title={sharingBlocked ? 'Sharing is disabled while Private is enabled or being confirmed.' : 'Share document'}
+          onClick={() => setShareOpen(true)}>Share <PanelIcon name="arrow" /></button>}
+        {!mobile && <button className="read-button" aria-label={mode === 'edit' ? 'Read document' : 'Edit document'} aria-pressed={mode === 'read'}
+          onClick={() => setMode(mode === 'edit' ? 'read' : 'edit')}><PanelIcon name={mode === 'edit' ? 'book' : 'edit'} /><span>{mode === 'edit' ? 'Read' : 'Edit'}</span></button>}
+      </div>
     </header>
 
+    <DocumentFiles doc={doc} active={editable} open={exportOpen} onClose={() => setExportOpen(false)} />
     <ShareWindow open={shareOpen} onClose={() => setShareOpen(false)} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} />
     {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
       <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
@@ -501,16 +508,30 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>
     </PopupDialog>
     <main ref={workspace} className={`workspace ${showInspector ? '' : 'reader'}`}>
-      {showInspector && (
-        assistant.open
-          ? <AssistantPanel assistant={assistant} onLocate={locateTask} />
-          : <aside key={selectedObject?.id ?? 'text'} className="inspector selection-inspector" aria-label="Selection inspector">
-              <TextToolsRow editor={activeEditor} theme={doc.theme} onPalette={() => openThemeClass('palette')}
-                recentColors={recentColors.colors} onColorApplied={recentColors.remember} />
+      {showInspector && <aside className="inspector side-panel" aria-label="Context and assistant">
+        <div className="panel-tabs" role="tablist" aria-label="Side panel" onKeyDown={event => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const next = event.key === 'Home' ? false : event.key === 'End' ? true : !assistant.open
+          history.boundary(); assistant.setOpen(next)
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next ? 1 : 0].focus()
+        }}>
+          <button id="context-tab" role="tab" aria-selected={!assistant.open} aria-controls="context-panel" tabIndex={assistant.open ? -1 : 0}
+            onClick={() => { history.boundary(); assistant.setOpen(false) }}>Context</button>
+          <button id="assistant-tab" role="tab" aria-selected={assistant.open} aria-controls="assistant-panel" tabIndex={assistant.open ? 0 : -1}
+            onClick={() => { history.boundary(); assistant.setOpen(true) }}>Assistant
+            {assistant.allTasks.some(task => task.status === 'ready' || task.status === 'error') && <span className="assistant-dot" aria-label="Tasks need review" />}
+          </button>
+        </div>
+        {assistant.open ? <div id="assistant-panel" className="side-panel-body" role="tabpanel" aria-labelledby="assistant-tab">
+          <AssistantPanel assistant={assistant} onLocate={locateTask} />
+        </div> : <div id="context-panel" className="side-panel-body" role="tabpanel" aria-labelledby="context-tab">
+              {!tool && <TextToolsRow editor={activeEditor} theme={doc.theme} onPalette={() => openThemeClass('palette')}
+                recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
+              <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
               {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <div className="context-inspector">
-                <h2>AI content reservation</h2>
+                <ContextHeading title="Reserved for AI" subtitle="Review the result before editing this area." />
                 <div className="inspector-stack">
-                  <p className="hint">Accept or discard the AI task to edit this content.</p>
                   <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
                 </div>
                 <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
@@ -524,11 +545,17 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
                   onReplaceImage={() => chooseImage(selectedObject)}
                   onRevise={() => { setTool(null); reserveSelection() }} />
-                : <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
-                    onRevise={() => { setTool(null); reserveSelection() }} reviseDisabled={!mainEditor} />}
+                : tool ? <div className="context-inspector">
+                    <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle="Click or drag to place on the document." />
+                    <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
+                  </div>
+                : activeEditor ? <TextInspector theme={doc.theme} semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
+                    onRevise={() => { setTool(null); reserveSelection() }} reviseDisabled={!mainEditor} />
+                : <DocumentContext doc={doc} onTheme={openThemeClass} onSettings={() => { history.boundary(); setSettingsTab('layout'); setDocumentSettingsOpen(true) }} />}
               </>}
-            </aside>
-      )}
+              </div>
+            </div>}
+      </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onInteraction={showContext}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}
@@ -538,7 +565,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
         widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { if (ids.length) showContext(); setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
-        onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
+        onMainReady={setMainEditor} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
         onContextMenu={handleCanvasContextMenu} />

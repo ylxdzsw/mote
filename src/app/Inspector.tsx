@@ -5,10 +5,11 @@ import { NodeSelection, type Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow } from '@tiptap/pm/tables'
 import { alignColumns, changeColumns } from '../editor/table'
 import { classLabel } from '../theme/ThemePanel'
-import { blockClasses, type BlockClass, type Theme } from '../document/model'
+import { blockClasses, type BlockClass, type MoteDocument, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
 import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
+import { PanelIcon } from './PanelIcon'
 import './inspector.css'
 
 type TIconName = 'bold' | 'color' | 'box' | 'underline' | 'plain' | 'chevron' | 'clear' | BlockClass
@@ -41,7 +42,7 @@ function ToolPopup({ label, children, items, disabled }: {
   const triggerId = React.useId()
   useEffect(() => {
     if (!open) return
-    rootRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true })
+    rootRef.current?.querySelector<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)')?.focus({ preventScroll: true })
     const outside = (e: PointerEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(false) }
     document.addEventListener('pointerdown', outside, true)
     return () => document.removeEventListener('pointerdown', outside, true)
@@ -55,14 +56,14 @@ function ToolPopup({ label, children, items, disabled }: {
     {open && <div className="tt-popup-panel" role="menu" aria-label={label}
       onKeyDown={e => {
         if (e.key === 'Escape') { e.preventDefault(); setOpen(false); rootRef.current?.querySelector<HTMLButtonElement>('.tt-btn')?.focus(); return }
-        const btns = [...rootRef.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')]
+        const btns = [...rootRef.current!.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')]
         const i = btns.indexOf(document.activeElement as HTMLButtonElement)
-        const next = e.key === 'ArrowDown' ? (i+1)%btns.length : e.key === 'ArrowUp' ? (i-1+btns.length)%btns.length : -1
+        const next = e.key === 'ArrowDown' ? (i+1)%btns.length : e.key === 'ArrowUp' ? (i-1+btns.length)%btns.length : e.key === 'Home' ? 0 : e.key === 'End' ? btns.length - 1 : -1
         if (next >= 0) { e.preventDefault(); btns[next]?.focus() }
       }}>
       {items.map(item => <div key={item.id} role="none">
         {item.separator && <div className="tt-sep" role="separator" />}
-        <button role="menuitem" tabIndex={-1} aria-checked={item.checked} disabled={item.disabled}
+        <button role={item.checked === undefined ? 'menuitem' : 'menuitemradio'} tabIndex={-1} aria-checked={item.checked} disabled={item.disabled}
           onMouseDown={e => e.preventDefault()}
           onClick={() => { setOpen(false); item.action() }}>
           {item.icon}<span>{item.label}</span>
@@ -111,24 +112,57 @@ export function InspectorHelp({ children }: { children: ReactNode }) {
   return <details className="inspector-help"><summary>Help &amp; shortcuts</summary><div>{children}</div></details>
 }
 
-export function TextInspector({ semantic, listLevel, onTheme, onRevise, reviseDisabled }: {
-  semantic: string; listLevel: number; onTheme: (name: string) => void; onRevise?: () => void; reviseDisabled?: boolean
+export function ContextHeading({ title, subtitle }: { title: string; subtitle: string }) {
+  return <header className="context-heading"><h2>{title}</h2><p>{subtitle}</p></header>
+}
+
+export function TypographyPreview({ theme, semantic }: { theme: Theme; semantic: string }) {
+  const style = { ...theme.defaults, ...theme.blocks[semantic as keyof Theme['blocks']] }
+  return <div className="style-preview">
+    <span aria-hidden="true" style={{ fontFamily: style.family === 'serif' ? 'Georgia, serif' : style.family === 'mono' ? 'ui-monospace, monospace' : 'inherit', fontWeight: style.weight }}>Aa</span>
+    <div>{classLabel(semantic)}<small>Document theme</small></div>
+  </div>
+}
+
+export function DocumentContext({ doc, onTheme, onSettings }: { doc: MoteDocument; onTheme: (name: string) => void; onSettings: () => void }) {
+  const headings = doc.content.content?.filter(node => node.type === 'paragraph' && node.attrs?.semantic === 'heading') ?? []
+  const text = (node: MoteDocument['content']): string => node.text ?? node.content?.map(text).join('') ?? ''
+  const margins = [...new Set(Object.values(doc.margins))]
+  return <div className="context-inspector">
+    <ContextHeading title="On this page" subtitle="Document overview" />
+    {!!headings.length && <nav className="context-outline" aria-label="Document headings">
+      {headings.map((node, index) => <button key={node.attrs!.id} onClick={() => {
+        document.querySelector(`.workspace > .canvas-pane .main-text [data-id="${CSS.escape(node.attrs!.id)}"]`)?.scrollIntoView({ block: 'center', inline: 'nearest' })
+      }}><span>{String(index + 1).padStart(2, '0')}</span>{text(node) || 'Untitled heading'}</button>)}
+    </nav>}
+    <InspectorGroup title="Document">
+      <div className="panel-meta"><span>Width</span><b>{doc.width} px</b></div>
+      <div className="panel-meta"><span>Margins</span><b>{margins.length === 1 ? margins[0] : Object.values(doc.margins).join(' / ')} px</b></div>
+      <button onClick={onSettings}>Layout &amp; theme <PanelIcon name="sliders" /></button>
+    </InspectorGroup>
+    <InspectorGroup title="Theme"><TypographyPreview theme={doc.theme} semantic="body" />
+      <button onClick={() => onTheme('palette')}>Document palette <PanelIcon name="sliders" /></button>
+    </InspectorGroup>
+  </div>
+}
+
+export function TextInspector({ theme, semantic, listLevel, onTheme, onRevise, reviseDisabled }: {
+  theme: Theme; semantic: string; listLevel: number; onTheme: (name: string) => void; onRevise?: () => void; reviseDisabled?: boolean
 }) {
   return <div className="context-inspector">
-    <h2>{semantic === 'list' ? `List item · Level ${listLevel + 1}` : 'Text & space'}</h2>
-    <InspectorGroup title="Style">
-      <button onClick={() => onTheme(semantic)}>{classLabel(semantic)} style…</button>
-      <button onClick={() => onTheme('palette')}>Document palette…</button>
-      <p className="hint">Styles apply to every paragraph of this class.</p>
+    <ContextHeading title={semantic === 'list' ? 'List item' : `${classLabel(semantic)} paragraph`} subtitle={semantic === 'list' ? `Main document text · Level ${listLevel + 1}` : 'Main document text'} />
+    <InspectorGroup title="Typography">
+      <TypographyPreview theme={theme} semantic={semantic} />
+      <button onClick={() => onTheme(semantic)}>Edit {semantic} style <PanelIcon name="sliders" /></button>
+      <button className="quiet-action" onClick={() => onTheme('palette')}>Document palette <PanelIcon name="arrow" /></button>
     </InspectorGroup>
     {onRevise && <InspectorGroup title="Assistant">
-      <button data-ai-segment-action onClick={onRevise} disabled={reviseDisabled}>Revise with AI…</button>
-      <p className="hint">Uses the selected segment, the selected paragraphs, or the paragraph at the caret.</p>
+      <button data-ai-segment-action onClick={onRevise} disabled={reviseDisabled}>Revise this passage <PanelIcon name="spark" /></button>
     </InspectorGroup>}
-    {semantic === 'body' && <p className="hint">Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
-    {semantic === 'list' && <p className="hint">Tab / Shift+Tab changes this item’s indentation.</p>}
     <InspectorHelp key={semantic}>
+      {semantic === 'body' && <p>Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
       {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
+      <p>Revise this passage uses the selected segment, selected paragraphs, or the paragraph at the caret. Styles apply to every paragraph of their class.</p>
       <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>
       <p>Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection.</p>
       <p>Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag other empty areas to select objects.</p>
@@ -183,7 +217,18 @@ export interface TextToolsRowProps {
 }
 
 export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied }: TextToolsRowProps) {
+  const tools = useRef<HTMLDivElement>(null)
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
+  useEffect(() => {
+    if (!selection.text) return
+    function focusTools(event: KeyboardEvent) {
+      if (event.altKey && event.key === 'F10' && !event.isComposing) {
+        event.preventDefault(); tools.current?.querySelector<HTMLButtonElement>('.tt-btn:not(:disabled)')?.focus()
+      }
+    }
+    window.addEventListener('keydown', focusTools)
+    return () => window.removeEventListener('keydown', focusTools)
+  }, [selection.text])
   if (!selection.text) return null
 
   const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
@@ -207,10 +252,18 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
   const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
   const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
   const colorSwatch = swatchColor(theme, selection.color === null ? inheritedColor : selection.color)
-  const decorationIcon: TIconName = selection.decoration === 'box' ? 'box' : selection.decoration === 'underline' ? 'underline' : 'plain'
-
-  return <div className="text-tools-row" role="group" aria-label="Text formatting"
+  return <div className="text-tools" ref={tools}
     style={{ '--palette-ink': paletteColor(theme, 'ink'), '--palette-muted': paletteColor(theme, 'muted'), '--palette-paper': paletteColor(theme, 'paper') } as CSSProperties}>
+    <div className="tools-heading"><span>Text</span><button title="Focus text tools · Alt F10" onClick={() => tools.current?.querySelector<HTMLButtonElement>('.tt-btn:not(:disabled)')?.focus()}><kbd>Alt F10</kbd></button></div>
+    <div className="text-tools-row" role="toolbar" aria-label="Text formatting" onKeyDown={event => {
+      if ((event.target as HTMLElement).closest('[role="menu"]')) return
+      if (event.key === 'Escape') { event.preventDefault(); editor?.commands.focus(); return }
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+      const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.tt-btn:not(:disabled)')]
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement)
+      event.preventDefault()
+      buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length]?.focus()
+    }}>
     <ToolPopup label="Paragraph class" disabled={paragraphDisabled} items={[
       ...blockClasses.map(name => ({ id: name, label: classLabel(name), icon: <TIcon name={name} />, checked: selection.paragraph === name, action: () => applyParagraph(name) })),
       ...([-1, 1] as const).map(delta => ({ id: String(delta), label: delta < 0 ? 'Decrease list level' : 'Increase list level', icon: <TIcon name="chevron" />,
@@ -218,6 +271,7 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     ]}>
       <span className="tt-para-label">{selection.fixed || (selection.text ? selection.paragraph ? classLabel(selection.paragraph) : 'Mixed' : 'Paragraph')}</span>
     </ToolPopup>
+    <span className="tt-divider" aria-hidden="true" />
     <button className="tt-btn tt-bold" aria-label="Bold" title="Bold · Ctrl/⌘B"
       aria-pressed={inlineDisabled ? false : selection.bold} disabled={inlineDisabled}
       onMouseDown={e => e.preventDefault()} onClick={applyBold}><TIcon name="bold" /></button>
@@ -233,13 +287,9 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     ]}>
       <span className={`tt-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} />
     </ToolPopup>
-    <ToolPopup label="Text decoration" disabled={inlineDisabled} items={[
-      { id: 'none', label: 'None', icon: <TIcon name="plain" />, checked: selection.decoration === null, action: () => editor?.chain().focus().unsetMark('decoration').run() },
-      { id: 'box', label: 'Box', icon: <TIcon name="box" />, checked: selection.decoration === 'box', action: () => applyDecoration('box', false) },
-      { id: 'underline', label: 'Underline', icon: <TIcon name="underline" />, checked: selection.decoration === 'underline', action: () => applyDecoration('underline', false) },
-    ]}>
-      <TIcon name={decorationIcon} />
-    </ToolPopup>
-    <p className="tt-caption">{selection.fixed ? selection.fixed : selection.paragraph ? classLabel(selection.paragraph) : ''}</p>
+    {(['box', 'underline'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
+      aria-pressed={selection.decoration === decoration} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration(decoration)}><TIcon name={decoration} /></button>)}
+    </div>
+    <p className="tt-caption">{selection.fixed ? selection.fixed === 'Table' ? 'Table cell' : 'Label text' : selection.paragraph ? `${classLabel(selection.paragraph)} paragraph` : 'Mixed paragraph styles'}</p>
   </div>
 }

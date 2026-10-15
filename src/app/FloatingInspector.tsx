@@ -5,7 +5,8 @@ import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
 import { neutralIds, softReference } from '../theme/palette'
-import { InspectorField, InspectorGroup, InspectorHelp, InspectorRow } from './Inspector'
+import { ContextHeading, InspectorField, InspectorGroup, InspectorHelp, InspectorRow, TypographyPreview } from './Inspector'
+import { PanelIcon } from './PanelIcon'
 import { codeLanguages } from '../document/code'
 
 interface Props {
@@ -44,7 +45,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   const hasFlow = text || ['image', 'table', 'katex', 'html', 'code'].includes(object.kind!)
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
-    <h2>{count > 1 ? `${count} objects` : name}</h2>
+    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : text ? 'Native rich text' : object.kind === 'code' ? 'Plain source' : label?.attachment ? 'Attached label' : 'Floating object'} />
     {count === 1 && <>
       {object.kind === 'code' && <InspectorGroup title="Content">
         <label className="inspector-field">Language<select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
@@ -86,21 +87,23 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         </InspectorRow>}
         <label className="inspector-field">Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>
       </InspectorGroup>}
-      {!widget && !katex && object.kind !== 'code' && <InspectorGroup title={text || label || object.kind === 'table' ? 'Style' : 'Colors'}>
-        {(text || label || object.kind === 'table') && <button onClick={() => onTheme(label ? 'label' : object.kind === 'table' ? 'table' : textStyle ?? 'body')}>
-          {label ? 'Label style…' : object.kind === 'table' ? 'Table style…' : textStyle ? `${classLabel(textStyle)} style…` : 'Text styles…'}
-        </button>}
-        <button onClick={() => onTheme('palette')}>Document palette…</button>
+      {!widget && !katex && object.kind !== 'code' && <InspectorGroup title={text || label || object.kind === 'table' ? 'Typography' : 'Colors'}>
+        {(text || label || object.kind === 'table') && <>
+          <TypographyPreview theme={theme} semantic={label ? 'label' : object.kind === 'table' ? 'table' : textStyle ?? 'body'} />
+          <button onClick={() => onTheme(label ? 'label' : object.kind === 'table' ? 'table' : textStyle ?? 'body')}>
+            {label ? 'Label style' : object.kind === 'table' ? 'Table style' : textStyle ? `${classLabel(textStyle)} style` : 'Text styles'} <PanelIcon name="sliders" />
+          </button>
+        </>}
+        <button className="quiet-action" onClick={() => onTheme('palette')}>Document palette <PanelIcon name="arrow" /></button>
       </InspectorGroup>}
       {onRevise && <InspectorGroup title="Assistant">
-        <button onClick={onRevise} disabled={reviseDisabled}>{count > 1 ? 'Revise these objects with AI…' : `Revise this ${name.toLowerCase()} with AI…`}</button>
-        <p className="hint">Replace the selected object, or draw an area for a new AI object.</p>
+        <button onClick={onRevise} disabled={reviseDisabled}>Revise with AI <PanelIcon name="spark" /></button>
       </InspectorGroup>}
     </>}
-    <InspectorGroup title="Arrange" divided={count === 1}>
+    <InspectorGroup title="Object" divided={count === 1}>
       <InspectorRow><button onClick={onFront}>Bring to front</button><button onClick={onBack}>Send to back</button></InspectorRow>
-      <InspectorRow><button onClick={() => onAction('duplicate')}>Duplicate</button>{count === 1 && !label && <button onClick={() => onAction('label')}>Add label</button>}</InspectorRow>
-      <button className="delete-action" onClick={() => onAction('remove')}>{count > 1 ? `Delete ${count} objects` : `Delete ${widget ? 'HTML widget' : name.toLowerCase()}`}</button>
+      <InspectorRow><button onClick={() => onAction('duplicate')}>Duplicate <PanelIcon name="copy" /></button>{count === 1 && !label && <button onClick={() => onAction('label')}>Add label</button>}</InspectorRow>
+      <button className="delete-action" onClick={() => onAction('remove')}>{count > 1 ? `Delete ${count} objects` : 'Delete'} <PanelIcon name="close" /></button>
     </InspectorGroup>
     <InspectorHelp key={count > 1 ? 'group' : object.kind ?? 'text'}>
       <FloatingHelp object={object} count={count} />

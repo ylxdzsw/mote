@@ -17,5 +17,3 @@
 .files-import button { border-color: var(--ui-border); font-size: 12px; }
 .document-files .files-status { margin: 16px 0 0; }
 .document-files .error { color: var(--ui-error); }
-@media (max-width: 430px) { .app-header .brand { font-size: 0; gap: 0; } }
-@media (min-width: 1051px) and (max-width: 1450px) { .app-header .document-label { display: none; } }

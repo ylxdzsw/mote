@@ -1,6 +1,8 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
+import { ContextHeading } from '../app/Inspector'
+import { PanelIcon } from '../app/PanelIcon'
 import './assistant.css'
 
 const Transcript = lazy(() => import('./Transcript'))
@@ -16,10 +18,9 @@ const busyTask = (task: AITask) => (task.executor ?? 'builtin') === 'builtin' &&
 export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; onLocate: (task: AITask) => void }) {
   const tabs = useRef<HTMLDivElement>(null)
   useEffect(() => { tabs.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [assistant.activeId])
-  return <aside className="inspector ai-panel" aria-label="AI assistant">
-    <div className="inspector-heading">Assistant<button aria-label="Close AI assistant" onClick={() => assistant.setOpen(false)}>×</button></div>
+  return <div className="ai-panel" aria-label="AI assistant">
     <CloudStatus assistant={assistant} />
-    {!!assistant.allTasks.length && <div className="ai-tabs" role="tablist" aria-label="Agents" ref={tabs} onKeyDown={event => {
+    {!!assistant.allTasks.length && <div className="ai-tabs" hidden={assistant.allTasks.length === 1} role="tablist" aria-label="Agents" ref={tabs} onKeyDown={event => {
       const index = assistant.allTasks.findIndex(task => task.id === assistant.activeId)
       const next = event.key === 'ArrowRight' ? (index + 1) % assistant.allTasks.length : event.key === 'ArrowLeft' ? (index + assistant.allTasks.length - 1) % assistant.allTasks.length
         : event.key === 'Home' ? 0 : event.key === 'End' ? assistant.allTasks.length - 1 : -1
@@ -35,20 +36,21 @@ export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; 
       </button>)}
     </div>}
     {!assistant.allTasks.length && <div className="ai-empty">
-      <h2>A little help with your note</h2>
-      <p>Select text or a section, then choose <strong>Revise with AI</strong> in the context panel.</p>
-      <p>For a diagram, formula, or widget, use the floating-object AI tool to select an object or draw an area.</p>
+      <ContextHeading title="Assistant" subtitle="Work with a passage or a new area." />
+      <div className="ai-empty-scope"><PanelIcon name="spark" /><p>Select a passage or an object, then choose <strong>Revise</strong> in Context.</p></div>
+      <p>For something new, choose <strong>Add → AI object</strong> and draw an area on the document.</p>
+      <p className="ai-empty-note">Changes preview in place. You decide what to keep.</p>
     </div>}
     {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={assistant.activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
     <RecoveryArchives assistant={assistant} />
     <footer className="ai-footer">
       <details className="ai-info"><summary>Help & privacy</summary>
-        <p>Documents and assistant tasks, including unsent requests and generated results, sync to your workspace. Generate sends a saved document revision, its rendered snapshot, and the reserved area to Mu.</p>
+        <p>Documents and assistant tasks, including unsent requests and generated results, sync to your workspace. Preview candidate sends a saved document revision, its rendered snapshot, and the reserved area to Mu.</p>
         <p>External grants anyone holding the link access to the full snapshot and scoped candidate submission. Workspace reads are off by default and grant access only to non-Private workspace sources; Private documents remain limited to their own built-in agent. Switching back or releasing the reservation revokes future access, not downloaded copies.</p>
         <p>The area stays locked until you accept, discard, or delete it. Floating areas can move, and resize before the first request or handoff. Closing this panel does not stop work.</p>
       </details>
     </footer>
-  </aside>
+  </div>
 }
 
 function TaskView({ task, active, assistant, onLocate }: { task: AITask; active: boolean; assistant: Assistant; onLocate: () => void }) {
@@ -71,7 +73,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     : task.target.kind === 'segment' ? 'Describe the section you want to create…'
     : task.target.kind === 'text' ? 'Rewrite, expand, or explore these paragraphs…'
     : task.target.isNew ? 'Describe a diagram, formula, or interactive object…' : 'Describe how this object should change…'
-  useEffect(() => { if (active && task.status === 'draft') input.current?.focus() }, [])
+  useEffect(() => { if (active && task.status === 'draft' && !document.activeElement?.closest('[role="tablist"]')) input.current?.focus() }, [])
   async function copyText(text: string, label: string) {
     try {
       await navigator.clipboard.writeText(text)
@@ -92,11 +94,14 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     finally { setRetryingExecutor(false) }
   }
   const instructions = agentLink && `Please work on this Mote task: ${agentLink}\nRead the exact-version Mote guide linked from the task unless you have already read it. The link provides the full immutable document snapshot. Return a candidate only for the reserved area for my review; do not apply changes directly.${task.workspaceRead ? '\n\nWorkspace reads are enabled. Download the scoped workspace-index.md resource when useful and search it with focused rg queries instead of reading the whole catalog. Read the complete relevant native documents before referring to or reusing their content. Private source documents are never available cross-document.' : ''}`
-  return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} role="tabpanel" aria-labelledby={`ai-tab-${task.id}`} hidden={!active}>
+  return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}${external ? ' ai-task-external' : ''}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} role="tabpanel" aria-labelledby={`ai-tab-${task.id}`} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
-        <div className="ai-task-target"><span>{targetLabel(task)}</span><button disabled={!!inactive} onClick={onLocate}>Show in document ↗</button></div>
+        <ContextHeading title={taskTitle(task)} subtitle={task.target.kind === 'text' ? 'Text revision' : task.target.kind === 'segment' ? 'Section composition' : task.target.isNew ? 'Reserved area' : 'Object revision'} />
+        <div className="ai-scope"><PanelIcon name="anchor" /><span>{targetLabel(task)}<small>Full document context</small></span><button aria-label="Show in document" title="Show in document" disabled={!!inactive} onClick={onLocate}><PanelIcon name="arrow" /></button></div>
         <div className={`ai-status ${status}`} role="status"><span aria-hidden="true">{busy ? '◌' : task.status === 'ready' ? '✓' : task.status === 'error' ? '!' : '○'}</span>{inactive ? task.acceptance ? 'Applied locally · result retained' : 'Recovery only' : statusLabel[status]}</div>
+        <details className="ai-agent-settings" open={executorBusy || !!task.pendingWorkspaceRead || undefined}>
+          <summary>Agent &amp; access <span>{external ? 'External' : 'Built-in'}{task.workspaceRead ? ' · Workspace' : ''}</span></summary>
         <div className="ai-executor">
           <span className="ai-executor-label" id={`ai-executor-label-${task.id}`}>Agent</span>
           <div className="ai-executor-switch" role="group" aria-labelledby={`ai-executor-label-${task.id}`}>
@@ -111,6 +116,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           {task.pendingExecutor && <button type="button" className="ai-executor-retry" disabled={retryingExecutor || assistant.executorWorking(task) || assistant.externalBlocked && task.pendingExecutor.executor === 'external'}
             aria-label="Retry agent switch confirmation" onClick={() => void retryExecutor()}>{retryingExecutor ? 'Retrying confirmation…' : 'Retry confirmation'}</button>}
         </div>
+        </details>
       </div>
       {inactive && <p className="ai-note" role="status">{inactive}</p>}
       {task.submitted && !external && task.status !== 'waiting' && <div className={`ai-activity${expanded ? '' : ' is-collapsed'}`}>
@@ -132,7 +138,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
         {statusIssue.paused && <button type="button" onClick={() => assistant.checkStatus(task.id)}>Check status</button>}
       </div>}
       {task.candidate && <section className="ai-result" aria-label="Review changes">
-        <h3>{inactive ? 'Retained result' : busy ? 'Previous result' : 'Review changes'}</h3>
+        <h3><PanelIcon name="spark" />{inactive ? 'Retained result' : busy ? 'Previous result' : 'Ready to review'}</h3>
         <p className="ai-summary">{task.candidate.summary}</p>
         {!!task.candidate.sources?.length && <details className="ai-sources"><summary>Sources</summary><ul>{task.candidate.sources.filter(source => /^https?:\/\//i.test(source.url)).map((source, index) => <li key={index}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.url}</a></li>)}</ul></details>}
         {!inactive && <div className="ai-preview-switch" role="group" aria-label="Document view">
@@ -140,11 +146,11 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           <button type="button" aria-pressed={task.preview} onClick={() => assistant.update(task.id, { preview: true })}>Preview</button>
         </div>}
         <div className="ai-actions ai-review-actions">
-          {!inactive && <button className="ai-primary" type="button" disabled={busy || executorBusy || workspaceReadBlocked} onClick={() => assistant.accept(task.id)}>Accept changes</button>}
+          {!inactive && <button className="ai-primary" type="button" disabled={busy || executorBusy || workspaceReadBlocked} onClick={() => assistant.accept(task.id)}>Accept <PanelIcon name="check" /></button>}
           <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>
         </div>
       </section>}
-      <RecoveryDetails task={task} />
+      {task.submitted && <RecoveryDetails task={task} />}
       {assistant.canSyncAcceptance(task) && <div className="ai-note"><button onClick={() => void assistant.syncAcceptance(task.id)}>Retry saving accepted document</button></div>}
     </div>
     {external ? <div className="ai-composer ai-external-access">
@@ -164,17 +170,17 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       {!task.candidate && <button type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
       {busy && <button type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>}
     </div> : <form className="ai-composer" onSubmit={event => { event.preventDefault(); if (!busy && !executorBusy) void assistant.start(task.id, retry ? task.prompt : prompt) }}>
-      <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Request' : 'What would you like to change?'}</label>
-      {!task.submitted && <p className="ai-composer-hint">The result will preview on your document. You decide what to keep.</p>}
+      <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>
       <textarea ref={input} id={`ai-request-${task.id}`} aria-label="AI request" aria-describedby={!task.submitted ? `ai-privacy-${task.id}` : undefined} rows={task.submitted ? 3 : 5} value={prompt}
         placeholder={placeholder} disabled={executorBusy} onChange={event => assistant.update(task.id, { draftPrompt: event.target.value })} />
       <div className="ai-actions ai-compose-actions">
-        {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>}
         {busy ? <button key="stop" type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>
-          : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Generate'}</button>}
+          : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Preview candidate'} <PanelIcon name="spark" /></button>}
+        {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>}
       </div>
-      {!task.submitted && <p className="ai-privacy" id={`ai-privacy-${task.id}`}>This request syncs to your workspace. Generate shares the saved document revision and a snapshot with Mu.</p>}
+      {!task.submitted && <p className="ai-privacy" id={`ai-privacy-${task.id}`}>Requests sync to your workspace. Preview candidate shares the saved document revision and a snapshot with Mu. Changes preview in place for your review.</p>}
     </form>}
+    {!task.submitted && <RecoveryDetails task={task} />}
   </section>
 }
 

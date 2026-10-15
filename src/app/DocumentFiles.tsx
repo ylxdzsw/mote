@@ -21,7 +21,7 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
-export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; active: boolean; onImport?: (doc: MoteDocument) => void }) {
+export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: MoteDocument; active: boolean; open: boolean; onClose: () => void; onImport?: (doc: MoteDocument) => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState('')
@@ -31,7 +31,10 @@ export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; ac
   const basename = filename.trim().replace(/\.(png|html|mote)$/i, '')
   const invalidName = !basename || /^[. ]+$/.test(basename) || /[<>:"/\\|?*\u0000-\u001f]/.test(basename)
 
-  useEffect(() => { if (!active) dialog.current?.close() }, [active])
+  useEffect(() => {
+    if (active && open) { setError(''); setResult(''); dialog.current?.showModal() }
+    else dialog.current?.close()
+  }, [active, open])
 
   async function exporting(format: keyof typeof formats) {
     if (invalidName) return
@@ -79,8 +82,7 @@ export function DocumentFiles({ doc, active, onImport }: { doc: MoteDocument; ac
   }
 
   return <>
-    <button className="view-settings-toggle" aria-haspopup="dialog" onClick={() => { setError(''); setResult(''); dialog.current!.showModal() }}>Export</button>
-    <dialog ref={dialog} className="document-files" aria-labelledby="document-files-title" onCancel={event => { if (busy) event.preventDefault() }}>
+    <dialog ref={dialog} className="document-files" aria-labelledby="document-files-title" onClose={onClose} onCancel={event => { if (busy) event.preventDefault() }}>
       <div className="files-heading"><h1 id="document-files-title">Document files</h1><button aria-label="Close document files" disabled={!!busy} onClick={() => dialog.current!.close()}>×</button></div>
       <h2>Export</h2>
       <p>Export the current working copy, including changes not yet synced to the cloud.</p>
