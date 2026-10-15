@@ -28,11 +28,13 @@ interface Props {
   onWidgetRun: (id: string) => void
   onReplaceScreenshot: (object: FloatingHTMLWidget) => void
   onReplaceImage: () => void
+  onRevise?: () => void
+  reviseDisabled?: boolean
 }
 
 const kindName = (object: FloatingObject) => object.kind === 'code' ? 'Code' : object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'label' ? 'Label' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, targetKind, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, targetKind, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onRevise, reviseDisabled }: Props) {
   const shape = object.kind === 'rectangle' || object.kind === 'ellipse' ? object as FloatingShape : null
   const line = object.kind === 'line' ? object as FloatingLine : null
   const label = object.kind === 'label' ? object as FloatingLabel : null
@@ -89,6 +91,10 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           {label ? 'Label style…' : object.kind === 'table' ? 'Table style…' : textStyle ? `${classLabel(textStyle)} style…` : 'Text styles…'}
         </button>}
         <button onClick={() => onTheme('palette')}>Document palette…</button>
+      </InspectorGroup>}
+      {onRevise && <InspectorGroup title="Assistant">
+        <button onClick={onRevise} disabled={reviseDisabled}>{count > 1 ? 'Revise these objects with AI…' : `Revise this ${name.toLowerCase()} with AI…`}</button>
+        <p className="hint">Replace the selected object, or draw an area for a new AI object.</p>
       </InspectorGroup>}
     </>}
     <InspectorGroup title="Arrange" divided={count === 1}>

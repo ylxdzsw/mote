@@ -1,9 +1,97 @@
-import type { ReactNode } from 'react'
-import type { Command } from '@tiptap/pm/state'
+import React, { useState, useRef, useEffect, type ReactNode, type CSSProperties } from 'react'
+import { useEditorState } from '@tiptap/react'
+import type { Editor } from '@tiptap/core'
+import { NodeSelection, type Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow } from '@tiptap/pm/tables'
 import { alignColumns, changeColumns } from '../editor/table'
 import { classLabel } from '../theme/ThemePanel'
+import { blockClasses, type BlockClass, type Theme } from '../document/model'
+import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
+import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
+import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
 import './inspector.css'
+
+type TIconName = 'bold' | 'color' | 'box' | 'underline' | 'plain' | 'chevron' | 'clear' | BlockClass
+function TIcon({ name }: { name: TIconName }) {
+  const bodyPath = <path d="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" />
+  const paths: Record<TIconName, React.ReactNode> = {
+    body: bodyPath,
+    heading: <path d="M6 5v14M18 5v14M6 12h12" />,
+    title: <path d="M4 8V4h16v4M12 4v13M8 17h8M5 21h14" />,
+    caption: <><rect x="4" y="4" width="16" height="9" rx="1" /><path d="M7 17h10M9 20h6" /></>,
+    list: <><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6h.01M4 12h.01M4 18h.01" strokeWidth="3" /></>,
+    bold: <path d="M7 12h7a4 4 0 0 1 0 8H7V4h6a4 4 0 0 1 0 8" strokeWidth="2.8" />,
+    color: <><circle cx="12" cy="12" r="8" /><path d="M8 16h8" strokeWidth="3" /></>,
+    box: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="m8 17 4-10 4 10M9.2 14h5.6" strokeWidth="1.5" /></>,
+    underline: <path d="M7 5v6a5 5 0 0 0 10 0V5M5 19h14" />,
+    plain: <path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4ZM9 11l7 6M13 20h8" />,
+    clear: <><path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4Z" /><path d="m9 11 7 6" /></>,
+    chevron: <path d="m7 10 5 5 5-5" />,
+  }
+  return <svg className="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="16" height="16">{paths[name]}</svg>
+}
+
+function ToolPopup({ label, children, items, disabled }: {
+  label: string; children: React.ReactNode
+  items: { id: string; label: string; icon: React.ReactNode; checked?: boolean; action: () => void; separator?: boolean; disabled?: boolean }[]
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerId = React.useId()
+  useEffect(() => {
+    if (!open) return
+    rootRef.current?.querySelector<HTMLButtonElement>('button[role="menuitem"]:not(:disabled)')?.focus({ preventScroll: true })
+    const outside = (e: PointerEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('pointerdown', outside, true)
+    return () => document.removeEventListener('pointerdown', outside, true)
+  }, [open])
+  return <div className="tt-popup" ref={rootRef} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false) }}>
+    <button className="tt-btn" aria-label={label} title={label} disabled={disabled}
+      aria-haspopup="menu" aria-expanded={open} id={triggerId}
+      onMouseDown={e => e.preventDefault()} onClick={() => setOpen(!open)}>
+      {children}<TIcon name="chevron" />
+    </button>
+    {open && <div className="tt-popup-panel" role="menu" aria-label={label}
+      onKeyDown={e => {
+        if (e.key === 'Escape') { e.preventDefault(); setOpen(false); rootRef.current?.querySelector<HTMLButtonElement>('.tt-btn')?.focus(); return }
+        const btns = [...rootRef.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')]
+        const i = btns.indexOf(document.activeElement as HTMLButtonElement)
+        const next = e.key === 'ArrowDown' ? (i+1)%btns.length : e.key === 'ArrowUp' ? (i-1+btns.length)%btns.length : -1
+        if (next >= 0) { e.preventDefault(); btns[next]?.focus() }
+      }}>
+      {items.map(item => <div key={item.id} role="none">
+        {item.separator && <div className="tt-sep" role="separator" />}
+        <button role="menuitem" tabIndex={-1} aria-checked={item.checked} disabled={item.disabled}
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => { setOpen(false); item.action() }}>
+          {item.icon}<span>{item.label}</span>
+          {item.checked !== undefined && <span aria-hidden="true">{item.checked ? '✓' : ''}</span>}
+        </button>
+      </div>)}
+    </div>}
+  </div>
+}
+
+function selectedClasses(editor: Editor | null) {
+  const paragraphs = new Set<string>()
+  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', text: false, list: false, fixed: '', ...selectedInlineMarks(null) }
+  const { selection, doc } = editor.state
+  for (const { $from, $to } of selection.ranges) {
+    doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
+      if (node.type.name === 'paragraph' && ($from.pos === $to.pos || pos + 1 < $to.pos)) {
+        paragraphs.add(node.attrs.semantic ?? 'body')
+      }
+    })
+  }
+  const inline = selectedInlineMarks(editor)
+  return {
+    paragraph: paragraphs.size === 1 ? [...paragraphs][0] : '',
+    text: paragraphs.size > 0, list: paragraphs.has('list'),
+    fixed: editor.schema.nodes.table ? 'Table' : !editor.schema.nodes.paragraph.spec.attrs?.semantic ? 'Label' : '',
+    ...inline,
+  }
+}
 
 export function InspectorGroup({ title, children, divided = false }: { title: string; children: ReactNode; divided?: boolean }) {
   return <section className={`inspector-group${divided ? ' is-divided' : ''}`} aria-label={title}>
@@ -23,7 +111,9 @@ export function InspectorHelp({ children }: { children: ReactNode }) {
   return <details className="inspector-help"><summary>Help &amp; shortcuts</summary><div>{children}</div></details>
 }
 
-export function TextInspector({ semantic, listLevel, onTheme }: { semantic: string; listLevel: number; onTheme: (name: string) => void }) {
+export function TextInspector({ semantic, listLevel, onTheme, onRevise, reviseDisabled }: {
+  semantic: string; listLevel: number; onTheme: (name: string) => void; onRevise?: () => void; reviseDisabled?: boolean
+}) {
   return <div className="context-inspector">
     <h2>{semantic === 'list' ? `List item · Level ${listLevel + 1}` : 'Text & space'}</h2>
     <InspectorGroup title="Style">
@@ -31,6 +121,10 @@ export function TextInspector({ semantic, listLevel, onTheme }: { semantic: stri
       <button onClick={() => onTheme('palette')}>Document palette…</button>
       <p className="hint">Styles apply to every paragraph of this class.</p>
     </InspectorGroup>
+    {onRevise && <InspectorGroup title="Assistant">
+      <button data-ai-segment-action onClick={onRevise} disabled={reviseDisabled}>Revise with AI…</button>
+      <p className="hint">Uses the selected segment, the selected paragraphs, or the paragraph at the caret.</p>
+    </InspectorGroup>}
     {semantic === 'body' && <p className="hint">Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
     {semantic === 'list' && <p className="hint">Tab / Shift+Tab changes this item’s indentation.</p>}
     <InspectorHelp key={semantic}>
@@ -67,4 +161,85 @@ export function TableControls({ selection, onCommand }: { selection: TableInspec
       </InspectorField>
     </div>
   </InspectorGroup>
+}
+
+const neutralSet = new Set<string>(neutralIds)
+function colorEntries(theme: Theme) {
+  return paletteEntries(theme).filter(e => e.id === 'ink' || e.id === 'muted' || !neutralSet.has(e.id))
+}
+function swatchColor(theme: Theme, reference: string | null | 'mixed') {
+  if (!reference || reference === 'mixed') return undefined
+  const [id, tone] = reference.split(':')
+  const entry = paletteEntries(theme).find(v => v.id === id)
+  return tone === 'soft' ? entry?.soft ?? entry?.strong : entry?.strong
+}
+
+export interface TextToolsRowProps {
+  editor: Editor | null
+  theme: Theme
+  onPalette?: () => void
+  recentColors?: string[]
+  onColorApplied?: (color: string) => void
+}
+
+export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied }: TextToolsRowProps) {
+  const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
+  if (!selection.text) return null
+
+  const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
+  const inlineDisabled = !editor?.isEditable || !selection.text
+
+  const applyParagraph = (name: BlockClass) => { if (editor) setParagraphClass(editor, name) }
+  const applyBold = () => editor?.chain().focus().toggleMark('bold').run()
+  const applyColor = (color: string | null) => {
+    if (!editor) return
+    const chain = editor.chain().focus()
+    if (color) { if (chain.setMark('color', { color }).run()) onColorApplied?.(color) }
+    else chain.unsetMark('color').run()
+  }
+  const applyDecoration = (decoration: InlineDecorationValue, toggle = true) => {
+    if (!editor) return
+    const chain = editor.chain().focus()
+    if (toggle && selection.decoration === decoration) chain.unsetMark('decoration').run()
+    else chain.setMark('decoration', { decoration }).run()
+  }
+
+  const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
+  const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
+  const colorSwatch = swatchColor(theme, selection.color === null ? inheritedColor : selection.color)
+  const decorationIcon: TIconName = selection.decoration === 'box' ? 'box' : selection.decoration === 'underline' ? 'underline' : 'plain'
+
+  return <div className="text-tools-row" role="group" aria-label="Text formatting"
+    style={{ '--palette-ink': paletteColor(theme, 'ink'), '--palette-muted': paletteColor(theme, 'muted'), '--palette-paper': paletteColor(theme, 'paper') } as CSSProperties}>
+    <ToolPopup label="Paragraph class" disabled={paragraphDisabled} items={[
+      ...blockClasses.map(name => ({ id: name, label: classLabel(name), icon: <TIcon name={name} />, checked: selection.paragraph === name, action: () => applyParagraph(name) })),
+      ...([-1, 1] as const).map(delta => ({ id: String(delta), label: delta < 0 ? 'Decrease list level' : 'Increase list level', icon: <TIcon name="chevron" />,
+        separator: delta < 0, disabled: !selection.list, action: () => { editor!.view.focus(); changeListLevel(editor!, delta) } })),
+    ]}>
+      <span className="tt-para-label">{selection.fixed || (selection.text ? selection.paragraph ? classLabel(selection.paragraph) : 'Mixed' : 'Paragraph')}</span>
+    </ToolPopup>
+    <button className="tt-btn tt-bold" aria-label="Bold" title="Bold · Ctrl/⌘B"
+      aria-pressed={inlineDisabled ? false : selection.bold} disabled={inlineDisabled}
+      onMouseDown={e => e.preventDefault()} onClick={applyBold}><TIcon name="bold" /></button>
+    <ToolPopup label="Text color" disabled={inlineDisabled} items={[
+      { id: 'inherit', label: 'Inherit', icon: <span className="tt-swatch tt-swatch-inherit" />, checked: selection.color === null, action: () => applyColor(null) },
+      ...colorEntries(theme).map(entry => ({ id: entry.id, label: entry.name, icon: <span className="tt-swatch" style={{ backgroundColor: entry.strong }} />, checked: selection.color === entry.id, action: () => applyColor(entry.id) })),
+      ...recentColors.flatMap(id => {
+        const entry = colorEntries(theme).find(value => value.id === id)
+        return entry ? [{ id: `recent-${id}`, label: `${entry.name} · Recent`, icon: <span className="tt-swatch" style={{ backgroundColor: entry.strong }} />, separator: id === recentColors[0], action: () => applyColor(id) }] : []
+      }),
+      { id: 'edit-palette', label: 'Edit palette…', icon: <TIcon name="color" />, separator: !recentColors.length, action: () => onPalette?.() },
+      { id: 'clear', label: 'Clear formatting', icon: <TIcon name="clear" />, action: () => editor?.chain().focus().unsetMark('color').unsetMark('bold').unsetMark('decoration').run() },
+    ]}>
+      <span className={`tt-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} />
+    </ToolPopup>
+    <ToolPopup label="Text decoration" disabled={inlineDisabled} items={[
+      { id: 'none', label: 'None', icon: <TIcon name="plain" />, checked: selection.decoration === null, action: () => editor?.chain().focus().unsetMark('decoration').run() },
+      { id: 'box', label: 'Box', icon: <TIcon name="box" />, checked: selection.decoration === 'box', action: () => applyDecoration('box', false) },
+      { id: 'underline', label: 'Underline', icon: <TIcon name="underline" />, checked: selection.decoration === 'underline', action: () => applyDecoration('underline', false) },
+    ]}>
+      <TIcon name={decorationIcon} />
+    </ToolPopup>
+    <p className="tt-caption">{selection.fixed ? selection.fixed : selection.paragraph ? classLabel(selection.paragraph) : ''}</p>
+  </div>
 }

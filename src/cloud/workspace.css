@@ -27,6 +27,11 @@
   .cloud-header .document-label { max-width: 90px; }
   .cloud-header .mode-switch button { min-width: 40px; padding-inline: 8px; }
 }
+@media (min-width: 768px) and (max-width: 900px) {
+  .app-header.cloud-header { gap: 5px; }
+  .app-header.cloud-header:not(.floating-header) .document-label { display: none; }
+  .cloud-header .header-add-labeled span { display: none; }
+}
 @media (max-width: 767px) {
   .app-header.cloud-header { position: relative; height: 42px; background: var(--ui-surface); pointer-events: auto; border-bottom-color: var(--ui-border); }
   .cloud-header > :not(.cloud-files-button, .document-label) { display: none !important; }

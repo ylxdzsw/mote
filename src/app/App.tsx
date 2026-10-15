@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import type React from 'react'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -16,13 +17,12 @@ import type { ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
-import { Toolbar } from './Toolbar'
 import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DocumentFiles } from './DocumentFiles'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
-import { InspectorHelp, TableControls, TextInspector } from './Inspector'
+import { InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
 import { AssistantPanel } from '../ai/AssistantPanel'
@@ -30,6 +30,7 @@ import type { Area, AITask } from '../ai/types'
 import { paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
 import { uiThemeVariables } from '../theme/ui'
+import { Launchpad, ObjectActionMenu } from './Launchpad'
 
 const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
 <style>
@@ -52,6 +53,30 @@ function DraftSession({ copy, onFiles, onOpen }: CloudEditorProps) {
   return <DraftApp key={state.epoch} initial={state.record.document} copy={copy} onFiles={onFiles} onOpen={onOpen} />
 }
 
+function PopupDialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    if (open) ref.current?.showModal()
+    else ref.current?.close()
+  }, [open])
+  useEffect(() => {
+    const dialog = ref.current
+    if (!dialog) return
+    const handler = () => onClose()
+    dialog.addEventListener('close', handler)
+    return () => dialog.removeEventListener('close', handler)
+  }, [onClose])
+  return <dialog ref={ref} className="settings-dialog" aria-label={title} onClick={e => { if (e.target === ref.current) onClose() }}>
+    <div className="settings-dialog-inner">
+      <div className="settings-dialog-header">
+        <h2>{title}</h2>
+        <button aria-label="Close" onClick={onClose}>×</button>
+      </div>
+      {children}
+    </div>
+  </dialog>
+}
+
 function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initial: MoteDocument }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
@@ -61,7 +86,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const privateDocument = cloud.record.meta.private
   const sharingBlocked = privateDocument || cloud.privacy.pending?.private === true
   const recentColors = useRecentColors(doc?.id ?? initial.id, doc?.theme ?? initial.theme)
-  const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme) : undefined, [doc?.theme])
+  const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme, doc.language ?? 'en') : undefined, [doc?.theme, doc?.language])
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
@@ -86,32 +111,26 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [tool, setTool] = useState<CreationTool>(null)
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
+  const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
+  const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
+  const [objectMenuPoint, setObjectMenuPoint] = useState<{ x: number; y: number } | null>(null)
+  const [objectMenuTarget, setObjectMenuTarget] = useState<string | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
   const [imageError, setImageError] = useState('')
   const [imageLoading, setImageLoading] = useState(false)
   const workspace = useRef<HTMLElement>(null)
-  const [panelGesture, setPanelGesture] = useState<{ width: number; pointerId: number } | null>(null)
 
   useEffect(() => {
-    if (!panelGesture) return
-    let frame = 0
-    const finish = (event: Event) => {
-      if (event instanceof PointerEvent && event.pointerId !== panelGesture.pointerId) return
-      // Let document handlers commit the gesture before Auto zoom sees the new panel width.
-      frame = requestAnimationFrame(() => setPanelGesture(null))
-    }
-    window.addEventListener('pointerup', finish, true)
-    window.addEventListener('pointercancel', finish, true)
-    window.addEventListener('blur', finish)
-    return () => {
-      cancelAnimationFrame(frame)
-      window.removeEventListener('pointerup', finish, true)
-      window.removeEventListener('pointercancel', finish, true)
-      window.removeEventListener('blur', finish)
-    }
-  }, [panelGesture])
+    if (editable) return
+    setDocumentSettingsOpen(false)
+    setViewSettingsOpen(false)
+    setLaunchpadPoint(null)
+    setLaunchpadAnchor(null)
+    setObjectMenuPoint(null)
+    setObjectMenuTarget(null)
+  }, [editable])
 
   useEffect(() => {
     if (!documentSettingsOpen && !viewSettingsOpen && !assistant.open) return
@@ -119,12 +138,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setActiveEditor(null)
   }, [documentSettingsOpen, viewSettingsOpen, assistant.open])
 
-  function showContext(event?: React.SyntheticEvent) {
+  function showContext(_event?: React.SyntheticEvent) {
     if (!editable || !documentSettingsOpen && !viewSettingsOpen && !assistant.open) return
-    if (event?.type === 'pointerdown') {
-      setPanelGesture({ width: workspace.current!.firstElementChild!.getBoundingClientRect().width,
-        pointerId: (event as React.PointerEvent).pointerId })
-    }
     history.boundary()
     setDocumentSettingsOpen(false)
     setViewSettingsOpen(false)
@@ -224,6 +239,41 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setDoc(current => { if (!current) return current; const chosen = current.floating.filter(object => selectedIds.includes(object.id)); const rest = current.floating.filter(object => !selectedIds.includes(object.id)); return { ...current, floating: front ? [...rest, ...chosen] : [...chosen, ...rest] } })
   }
 
+  function handleCanvasContextMenu(
+    _event: React.MouseEvent,
+    pt: { x: number; y: number },
+    objectId: string | null
+  ) {
+    setTool(null)
+    if (objectId) {
+      if (!selectedIds.includes(objectId)) setSelectedIds([objectId])
+      setActiveEditor(null)
+      setLaunchpadPoint(null)
+      setLaunchpadAnchor(null)
+      setObjectMenuPoint(pt)
+      setObjectMenuTarget(objectId)
+    } else {
+      setObjectMenuPoint(null)
+      setObjectMenuTarget(null)
+      setLaunchpadPoint(pt)
+      setLaunchpadAnchor(null)
+    }
+  }
+
+  function handleLaunchpadChoose(kind: string) {
+    setLaunchpadPoint(null)
+    setLaunchpadAnchor(null)
+    setTool(null)
+    if (kind === 'image') { chooseImage(); return }
+    if (kind === 'html') { chooseWidgetScreenshot(); return }
+    if (kind === 'table') { addObject('table'); return }
+    if (kind === 'katex') { addObject('katex'); return }
+    if (['text','code','rectangle','ellipse','line','label','ai','paragraph'].includes(kind)) {
+      setTool(kind as CreationTool)
+      setSelectedIds([])
+    }
+  }
+
   function chooseImage(object?: FloatingObject) {
     const anchor = object ? object.anchorId : anchorId()
     if (!doc || (!object && anchor === undefined)) return
@@ -295,6 +345,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     const origin = sheet.getBoundingClientRect(), rect = element.getBoundingClientRect(), scale = origin.width / sheet.offsetWidth
     return { x: (rect.left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: rect.width / scale, height: rect.height / scale }
   }
+  // Starts the assistant from the current selection: a single object, a gutter
+  // segment, selected paragraphs, or the paragraph at the caret.
   function reserveSelection() {
     if (!doc) return
     if (selectedIds.length === 1 && selectedObject) {
@@ -372,15 +424,30 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         <span className="save-message">{statusText}</span>
         <button disabled={cloud.syncing || !!cloud.conflict || cloud.deleted} onClick={() => cloud.local === 'error' ? copy.retryLocal() : void copy.sync()}>Sync</button>
       </div>
+      {editable && <button className="header-icon-btn" aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="17" height="17"><path d="m9 4-5 5 5 5M4 9h10a6 6 0 0 1 0 12"/></svg>
+      </button>}
+      {editable && <button className="header-icon-btn" aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="17" height="17"><path d="m15 4 5 5-5 5M20 9H10a6 6 0 0 0 0 12"/></svg>
+      </button>}
+      {editable && <button className="header-add header-icon-btn header-add-labeled" aria-label="Add object" title="Add · right-click on canvas"
+        onClick={event => {
+          const box = event.currentTarget.getBoundingClientRect()
+          setLaunchpadPoint(null)
+          setLaunchpadAnchor({ x: box.right - 268, y: box.bottom + 8 })
+        }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="17" height="17"><path d="M12 4v16M4 12h16"/></svg>
+        <span>Add</span>
+      </button>}
       <div className="header-zoom" ref={setZoomHost} />
       <DocumentFiles doc={doc} active={editable} />
       <button className="view-settings-toggle" disabled={sharingBlocked} title={sharingBlocked ? 'Sharing is disabled while Private is enabled or being confirmed.' : undefined}
         onClick={() => setShareOpen(true)}>Share</button>
       {editable && <button className="view-settings-toggle" aria-label="AI assistant" aria-expanded={assistant.open} onClick={() => assistant.setOpen(!assistant.open)}>AI{assistant.allTasks.length ? ` · ${assistant.allTasks.length}` : ''}</button>}
-      {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen && !viewSettingsOpen}
-        aria-controls="document-settings" onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen || viewSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
+      {editable && <button className="view-settings-toggle" aria-label="Document settings" aria-expanded={documentSettingsOpen}
+        onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}>Document</button>}
       <button className="view-settings-toggle" aria-label="View settings" aria-expanded={viewSettingsOpen}
-        aria-controls="view-settings" onClick={() => { history.boundary(); setViewSettingsOpen(!viewSettingsOpen); setDocumentSettingsOpen(false); assistant.setOpen(false) }}>View</button>
+        onClick={() => { setViewSettingsOpen(!viewSettingsOpen); setDocumentSettingsOpen(false); assistant.setOpen(false) }}>View</button>
       {!mobile && <div className="mode-switch" role="group" aria-label="Document mode">
         <button aria-pressed={mode === 'edit'} onClick={() => setMode('edit')}>Edit</button>
         <button aria-pressed={mode === 'read'} onClick={() => setMode('read')}>Read</button>
@@ -400,7 +467,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           if (name?.trim()) void copy.saveAs(name.trim()).then(result => { if (result) onOpen(result.id) })
         }}>Save as copy</button>
         <button disabled={cloud.syncing} onClick={() => {
-          if (!window.confirm('Discard this local working copy’s changes? This cannot be undone.')) return
+          if (!window.confirm("Discard this local working copy's changes? This cannot be undone.")) return
           if (cloud.deleted) {
             void copy.flushLocal().then(() => deleteWorkingCopy(cloud.record.key)).then(() => { location.assign('/') }).catch(() => copy.retryLocal())
           } else void copy.discard()
@@ -411,65 +478,57 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </> : <button disabled={cloud.syncing} onClick={() => void copy.sync()}>Retry sync</button>}
     </div>}
 
-    {editable && <Toolbar editor={activeEditor} canInsert={!!mainEditor} imageLoading={imageLoading}
-      recentColors={recentColors.colors} onColorApplied={recentColors.remember}
-      canAIParagraphs={!!mainEditor && !selectedIds.length}
-      onAIParagraphs={() => { setTool(null); reserveSelection() }}
-      onAIObject={() => {
-        if (selectedIds.length === 1) { setTool(null); reserveSelection() }
-        else { setTool(tool === 'ai' ? null : 'ai'); setSelectedIds([]) }
-      }}
-      theme={doc.theme} onPalette={() => openThemeClass('palette')} tool={tool} canUndo={history.canUndo} canRedo={history.canRedo} undo={history.undo} redo={history.redo}
-      onInsert={(kind, columns, rows) => {
-        if (kind === 'paragraph' || kind === 'text' || kind === 'code' || kind === 'rectangle' || kind === 'ellipse' || kind === 'line' || kind === 'label') {
-          setTool(tool === kind ? null : kind); setSelectedIds([])
-        } else {
-          setTool(null)
-          if (kind === 'image') chooseImage()
-          else if (kind === 'html') chooseWidgetScreenshot()
-          else addObject(kind, columns, rows)
-        }
-      }} />}
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file && imageTarget.current) void uploadImages([file], imageTarget.current) }} />
-    {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>×</button></div>}
-    {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>×</button>}</div>}
+    {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>x</button></div>}
+    {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>x</button>}</div>}
 
-    <main ref={workspace} style={panelGesture && editable ? { gridTemplateColumns: `${panelGesture.width}px minmax(0, 1fr)` } : undefined}
-      className={`workspace ${showInspector ? '' : 'reader'} ${editable && assistant.open ? 'with-ai' : editable && documentSettingsOpen && !viewSettingsOpen ? 'with-document-settings' : ''}`}>
-      {editable && assistant.open ? <AssistantPanel assistant={assistant} onLocate={locateTask} />
-      : editable && documentSettingsOpen && !viewSettingsOpen ? <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
-        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }}
-        privateDocument={cloud.record.meta.private} privacy={cloud.privacy} onPrivateChange={value => void copy.setPrivate(value, count => window.confirm(
-          `Make “${cloud.record.meta.name}” private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
+    <PopupDialog open={editable && documentSettingsOpen} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} title="Document settings">
+      <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
+        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc}
+        onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }}
+        privateDocument={cloud.record.meta.private} privacy={cloud.privacy}
+        onPrivateChange={value => void copy.setPrivate(value, count => window.confirm(
+          `Make "${cloud.record.meta.name}" private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
         ))}
-        onPrivacyRetry={() => void copy.retryPrivacy()} onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
-      : showInspector && <aside key={viewSettingsOpen ? 'view' : selectedObject?.id ?? 'text'} className={`inspector${editable && !viewSettingsOpen ? ' selection-inspector' : ''}`} id="view-settings" aria-label={viewSettingsOpen || !editable ? 'View settings' : 'Selection inspector'}>
-        {(viewSettingsOpen || !editable) && <div className="inspector-heading">VIEW SETTINGS
-          {viewSettingsOpen && <button aria-label="Close view settings" onClick={() => setViewSettingsOpen(false)}>×</button>}
-        </div>}
-        {(viewSettingsOpen || !editable) && <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />}
-        {editable && !viewSettingsOpen && <>
-        {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <div className="context-inspector">
-          <h2>AI content reservation</h2>
-          <div className="inspector-stack">
-            <p className="hint">Accept or discard the AI task to edit this content.</p>
-            <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
-          </div>
-          <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
-        </div> : <>
-          {selectedObject ? <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
-            targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
-            textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
-            tableControls={<TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
-            onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
-            onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
-            maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
-            onReplaceImage={() => chooseImage(selectedObject)} />
-          : <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />}
-        </>}
-        </>}
-      </aside>}
+        onPrivacyRetry={() => void copy.retryPrivacy()}
+        onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
+    </PopupDialog>
+    <PopupDialog open={editable && viewSettingsOpen} onClose={() => setViewSettingsOpen(false)} title="Browser preferences">
+      <div className="settings-dialog-section">
+        <p className="settings-dialog-note">These settings are saved in this browser only.</p>
+        <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />
+      </div>
+    </PopupDialog>
+    <main ref={workspace} className={`workspace ${showInspector ? '' : 'reader'}`}>
+      {showInspector && (
+        assistant.open
+          ? <AssistantPanel assistant={assistant} onLocate={locateTask} />
+          : <aside key={selectedObject?.id ?? 'text'} className="inspector selection-inspector" aria-label="Selection inspector">
+              <TextToolsRow editor={activeEditor} theme={doc.theme} onPalette={() => openThemeClass('palette')}
+                recentColors={recentColors.colors} onColorApplied={recentColors.remember} />
+              {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <div className="context-inspector">
+                <h2>AI content reservation</h2>
+                <div className="inspector-stack">
+                  <p className="hint">Accept or discard the AI task to edit this content.</p>
+                  <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
+                </div>
+                <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
+              </div> : <>
+                {selectedObject ? <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
+                  targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
+                  textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
+                  tableControls={<TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
+                  onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
+                  onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
+                  maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
+                  onReplaceImage={() => chooseImage(selectedObject)}
+                  onRevise={() => { setTool(null); reserveSelection() }} />
+                : <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
+                    onRevise={() => { setTool(null); reserveSelection() }} reviseDisabled={!mainEditor} />}
+              </>}
+            </aside>
+      )}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onInteraction={showContext}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}
@@ -481,7 +540,23 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={editor => { setMainEditor(editor); setActiveEditor(editor) }} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
-        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)} />
+        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
+        onContextMenu={handleCanvasContextMenu} />
     </main>
+    {editable && <Launchpad
+      point={launchpadPoint}
+      anchor={launchpadAnchor}
+      onChoose={handleLaunchpadChoose}
+      onClose={() => { setLaunchpadPoint(null); setLaunchpadAnchor(null) }}
+    />}
+    {editable && objectMenuPoint && objectMenuTarget && <ObjectActionMenu
+      point={objectMenuPoint}
+      objectId={objectMenuTarget}
+      onDuplicate={() => actions.current?.duplicate()}
+      onFront={() => reorder(true)}
+      onBack={() => reorder(false)}
+      onDelete={() => actions.current?.remove()}
+      onClose={() => { setObjectMenuPoint(null); setObjectMenuTarget(null) }}
+    />}
   </div></HistoryContext>
 }

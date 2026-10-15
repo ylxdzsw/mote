@@ -31,3 +31,23 @@
 .inspector-help summary { cursor: pointer; padding-block: 6px; font-size: 11px; }
 .inspector-help summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
 .inspector-help > div { display: grid; gap: 12px; padding-top: 8px; }
+
+/* Text tools row: the text equivalent of an object's own properties, so it sits
+   above the scrolling inspector body and reads as its own band. */
+.text-tools-row { display: flex; align-items: center; gap: 3px; margin: -6px 0 18px; padding: 0 0 14px; border-bottom: 1px solid var(--ui-border); flex-wrap: wrap; }
+.tt-btn { display: inline-flex; align-items: center; gap: 3px; padding: 5px 7px; font-size: 11px; border: 1px solid transparent; border-radius: 5px; background: transparent; cursor: pointer; }
+.tt-btn:hover:not(:disabled) { background: var(--ui-surface-hover); }
+.tt-btn:disabled { opacity: .4; cursor: default; }
+.tt-btn[aria-pressed='true'] { background: var(--ui-accent-soft); color: var(--ui-accent); border-color: var(--ui-accent-border); }
+.tt-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tt-popup { position: relative; }
+.tt-popup-panel { position: absolute; top: calc(100% + 4px); left: 0; z-index: 110; background: var(--ui-surface-raised); border: 1px solid var(--ui-border); border-radius: 7px; box-shadow: 0 3px 12px var(--ui-shadow); padding: 4px; min-width: 140px; max-height: calc(100dvh - 132px); overflow: auto; overscroll-behavior: contain; }
+.tt-popup:not(:first-child) .tt-popup-panel { left: auto; right: 0; }
+.tt-popup-panel button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; font-size: 12px; border: 0; border-radius: 4px; background: transparent; cursor: pointer; }
+.tt-popup-panel button:hover { background: var(--ui-surface-hover); }
+.tt-popup-panel button:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
+.tt-sep { height: 1px; background: var(--ui-border); margin: 4px 0; }
+.tt-para-label { font-size: 11px; min-width: 48px; }
+.tt-swatch { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 1px solid var(--ui-border-strong); flex-shrink: 0; }
+.tt-swatch-inherit { background: repeating-conic-gradient(var(--ui-border) 0 25%, transparent 0 50%) 50% / 6px 6px; }
+.tt-caption { width: 100%; font-size: 9px; color: var(--ui-faint); margin: 4px 0 0; letter-spacing: .5px; }

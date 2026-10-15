@@ -19,7 +19,7 @@ function segmentCursor(accent: string) {
   return `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Cpath d='M3 3h5l9 7-9 7H3l7-7z' fill='%23${accent.slice(1)}' stroke='white' stroke-width='1' stroke-linejoin='round'/%3E%3C/svg%3E") 17 10, default`
 }
 
-export function uiThemeVariables(theme: Theme): CSSProperties {
+export function uiThemeVariables(theme: Theme, language: 'en' | 'zh-Hans' = 'en'): CSSProperties {
   const page = paletteColor(theme, theme.defaults.background)
   const dark = contrastRatio('#ffffff', page) > contrastRatio('#000000', page)
   const endpoint = dark ? '#ffffff' : '#000000'
@@ -95,6 +95,9 @@ export function uiThemeVariables(theme: Theme): CSSProperties {
     ...Object.fromEntries(Object.entries(ansi).flatMap(([name, color], index) => [
       [`--ui-ansi-${name}`, readable(color, backgrounds)], [`--ui-ansi-${name}-bg`, ansiSurfaces[index]],
     ])),
+    '--ui-font-family': language === 'zh-Hans'
+      ? '"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", Inter, ui-sans-serif, system-ui, sans-serif'
+      : 'Inter, ui-sans-serif, system-ui, sans-serif',
     '--ui-segment-cursor': segmentCursor(accent),
     '--accent': 'var(--ui-accent)',
     '--muted': 'var(--ui-muted)',

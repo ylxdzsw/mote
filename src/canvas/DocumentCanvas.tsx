@@ -54,6 +54,7 @@ interface Props {
   aiWidgetIds?: Set<string>
   aiReview?: AIReview
   onDeleteObjects?: (objects: FloatingObject[]) => boolean
+  onContextMenu?: (e: React.MouseEvent, point: { x: number; y: number }, targetObjectId: string | null) => void
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -66,7 +67,7 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'katex' && !object.latex.trim())
   || (object.kind === 'code' && !object.source.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -685,11 +686,28 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (event.currentTarget.contains(event.target as Node)) onInteraction?.(event)
   }
 
+  function handleContextMenu(event: React.MouseEvent) {
+    if (!editable || !onContextMenu) return
+    if (event.shiftKey) return // native bypass
+    const target = event.target as Element
+    // Protect native contexts
+    if (target.closest('input,textarea,select,button,a[href],.code-view,iframe')) return
+    // Only a context-click on highlighted text belongs to the native Copy menu.
+    const sel = window.getSelection()
+    const range = sel && !sel.isCollapsed && sel.rangeCount ? sel.getRangeAt(0) : null
+    if (range && sheet.current?.contains(range.commonAncestorContainer) && range.intersectsNode(target) &&
+      [...range.getClientRects()].some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)) return
+    event.preventDefault()
+    const objectEl = target.closest<HTMLElement>('[data-note-id]')
+    const objectId = objectEl?.dataset.noteId ?? null
+    onContextMenu(event, { x: event.clientX, y: event.clientY }, objectId)
+  }
+
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onWheelCapture={interact} onDropCapture={interact}
     style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
-    <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onPointerDownCapture={blankDown}
+    <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="canvas-scroll-floor" ref={scrollFloor.container}>
       <div className="sheet-footprint" ref={footprint} style={{

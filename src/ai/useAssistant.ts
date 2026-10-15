@@ -357,7 +357,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     return task
   }
   function missingRemote(id: string) {
-    update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then use the toolbar to start again.' })
+    update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then start a new revision from the context panel.' })
   }
   function rejectPrivateExternalDraft(id: string) {
     const task = state.current.find(task => task.id === id)

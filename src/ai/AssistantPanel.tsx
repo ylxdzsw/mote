@@ -36,7 +36,7 @@ export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; 
     </div>}
     {!assistant.allTasks.length && <div className="ai-empty">
       <h2>A little help with your note</h2>
-      <p>Select text or a section, then choose <strong>AI generate</strong> in the toolbar.</p>
+      <p>Select text or a section, then choose <strong>Revise with AI</strong> in the context panel.</p>
       <p>For a diagram, formula, or widget, use the floating-object AI tool to select an object or draw an area.</p>
     </div>}
     {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={assistant.activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}

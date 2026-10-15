@@ -1,5 +1,4 @@
 .view-settings-toggle[aria-label="AI assistant"] { white-space: nowrap; }
-.workspace.with-ai { grid-template-columns: 340px minmax(0, 1fr); }
 .inspector.ai-panel { min-width: 0; display: flex; flex-direction: column; overflow: hidden; padding: 16px 0 0; font-size: 13px; line-height: 1.5; }
 .ai-panel > .inspector-heading { flex: none; margin: 0 16px 12px; color: var(--ui-ink); font-size: 15px; letter-spacing: 0; }
 .ai-panel button { font-size: 13px; border-color: var(--ui-border); }
@@ -126,7 +125,6 @@
 .ai-progress, .ai-summary { line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ai-progress { color: var(--ui-muted); font-size: 12px; margin: 8px 0; }
 .ai-error { padding: 10px 12px; border-radius: 6px; background: var(--ui-error-surface); color: var(--ui-error-text); overflow-wrap: anywhere; }
-@media (min-width: 768px) and (max-width: 1050px) { .workspace.with-ai { grid-template-columns: 290px minmax(0, 1fr); } }
 @media (max-height: 800px) {
   .ai-task:not(.ai-task-draft) .ai-composer { padding-block: 12px; }
   .ai-task:not(.ai-task-draft) textarea { height: 72px; min-height: 64px; }
