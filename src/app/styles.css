@@ -281,7 +281,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .settings-tabs [aria-selected='true'] { color: var(--ui-accent); border-bottom-color: var(--ui-accent); }
 .settings-tabs button:hover { background: transparent; color: var(--ui-ink); }
 .document-settings-body { padding: 24px 28px 28px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
-.document-settings .privacy-setting { margin: 0 0 24px; padding: 0 0 20px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; background: none; }
 .document-settings .panel-section { padding-bottom: 0; }
 .document-settings .layout-properties > h2 { margin-bottom: 14px; }
 .document-settings .layout-properties > .subheading { padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--ui-border); }
@@ -326,12 +325,8 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .panel-section .subheading { margin-top: 30px; }
 .panel-section .link-margins { display: flex; align-items: center; gap: 7px; }
 .link-margins input { accent-color: var(--accent); margin: 0; }
-.privacy-setting { margin: 0 0 20px; padding: 11px 12px; border: 1px solid var(--ui-border); border-radius: 7px; background: var(--ui-surface); }
-.privacy-setting > label { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
-.privacy-setting > label input { margin: 3px 0 0; accent-color: var(--ui-accent); }
-.privacy-setting > label > span { display: grid; gap: 2px; font-size: 12px; }
-.privacy-setting .hint { margin: 0; line-height: 1.5; }
-.privacy-setting > p { margin-top: 8px; }
+.privacy-feedback { margin-bottom: 20px; }
+.privacy-feedback .hint { margin: 0; }
 .privacy-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .privacy-actions button { padding: 4px 7px; border: 1px solid var(--ui-border); font-size: 11px; }
 
@@ -345,6 +340,9 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .settings-dialog-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .settings-dialog-header h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .settings-dialog-header button { font-size: 22px; padding: 0 6px; color: var(--ui-faint); border: 0; }
+.settings-dialog-actions { display: flex; align-items: center; gap: 8px; }
+.settings-dialog-header .document-privacy-toggle { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; color: var(--ui-muted); }
+.settings-dialog-header .document-privacy-toggle[aria-pressed='true'] { color: var(--ui-accent); background: var(--ui-accent-soft); }
 .settings-dialog-section { font-size: 12px; }
 .settings-dialog-note { font-size: 11px; color: var(--ui-muted); margin: 0 0 16px; padding: 8px 10px; background: var(--ui-surface-muted); border-radius: 5px; }
 .settings-dialog:has(.document-settings) { max-width: 720px; max-height: calc(100dvh - 48px); overflow: hidden; }

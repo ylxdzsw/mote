@@ -15,6 +15,8 @@ const paths = {
   book: 'M12 5v16M12 5C9 3 5 3 2 4v15c3-1 7-1 10 2 3-3 7-3 10-2V4c-3-1-7-1-10 1Z',
   edit: 'm4 16 12-12 4 4L8 20H4v-4Zm9-9 4 4',
   export: 'M14 3h7v7m0-7L10 14M10 3H4v17h17v-6',
+  lock: 'M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5zM12 14v3',
+  unlock: 'M7 10V7a5 5 0 0 1 10 0M5 10h14v11H5zM12 14v3',
   reset: 'M4 11a8 8 0 1 1 2 7M4 4v7h7',
 }
 

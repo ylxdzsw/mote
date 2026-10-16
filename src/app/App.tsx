@@ -56,7 +56,7 @@ function DraftSession({ copy, onFiles, onOpen }: CloudEditorProps) {
   return <DraftApp key={state.epoch} initial={state.record.document} copy={copy} onFiles={onFiles} onOpen={onOpen} />
 }
 
-function PopupDialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+function PopupDialog({ open, onClose, title, actions, children }: { open: boolean; onClose: () => void; title: string; actions?: React.ReactNode; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     if (open) ref.current?.showModal()
@@ -73,7 +73,7 @@ function PopupDialog({ open, onClose, title, children }: { open: boolean; onClos
     <div className="settings-dialog-inner">
       <div className="settings-dialog-header">
         <h2>{title}</h2>
-        <button aria-label="Close" onClick={onClose}>×</button>
+        <div className="settings-dialog-actions">{actions}<button aria-label="Close" onClick={onClose}>×</button></div>
       </div>
       {children}
     </div>
@@ -471,13 +471,17 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>x</button></div>}
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>x</button>}</div>}
 
-    <PopupDialog open={editable && documentSettingsOpen} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} title="Document settings">
-      <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
-        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc}
-        privateDocument={cloud.record.meta.private} privacy={cloud.privacy}
-        onPrivateChange={value => void copy.setPrivate(value, count => window.confirm(
+    <PopupDialog open={editable && documentSettingsOpen} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} title="Document settings"
+      actions={<button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
+        title={cloud.record.meta.private
+          ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
+          : 'Not private. Click to block public sharing and external agents. The built-in agent remains available.'}
+        disabled={cloud.privacy.busy || !!cloud.privacy.pending}
+        onClick={() => void copy.setPrivate(!cloud.record.meta.private, count => window.confirm(
           `Make "${cloud.record.meta.name}" private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
-        ))}
+        ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /></button>}>
+      <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
+        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} privacy={cloud.privacy}
         onPrivacyRetry={() => void copy.retryPrivacy()}
         onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
     </PopupDialog>

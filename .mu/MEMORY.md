@@ -1219,3 +1219,12 @@ Deployed the static build and validated/reloaded Nginx. Live HTML references the
 ## 2026-10-16 — Compact Notes spacing
 
 Notes uses terminal-like 13px text on 16px rows (formerly 21.44px), 4px vertical editor/gutter padding, and a 24px header including its border (formerly 32px). Full-row toggling, line-number alignment, caret reveal, and saved pane height remain intact; floating Code typography is unchanged. Production build and scoped isolated-fake Chromium checks pass for row/gutter geometry, collapsed height, toggling, and caret visibility; screenshot reviewed. Deployed and verified live HTML and main JS/CSS against the build with no-store HTML. Cloud data untouched.
+
+
+## 2026-10-16 — Compact document privacy control
+
+Private is now a 30px lock toggle in the Document settings header beside Close, shared by Layout and Theme without taking up a content row. The confirmed server state controls its pressed state and open/closed icon; private uses the theme accent. Its tooltip explains the state/action and the built-in-agent exception. Idle/success states have no visible privacy row; success remains announced to assistive technology. Busy/error/unconfirmed changes retain visible status and existing Retry change / Check server status controls. Creation defaults and all privacy enforcement/confirmation semantics remain unchanged.
+
+Production type/build and whitespace checks pass. Scoped isolated-fake Chromium checks cover both tabs, desktop/768×500 appearance, keyboard activation, confirmed toggling, share-revocation acceptance, cancellation preserving the share/state, and a simulated privacy outage preserving the confirmed lock state and exposing recovery actions; Retry successfully completes the change. No application exceptions. Static deployment preserves cloud data and does not restart the backend.
+
+Deployed and validated/reloaded Nginx. Live HTML references the build; all six JS/CSS assets match byte-for-byte with no-store headers. Task-owned browser and fake/dev services are stopped. Production backend and cloud documents were untouched.
