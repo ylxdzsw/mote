@@ -327,10 +327,3 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .launchpad-more { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ui-border); display: grid; gap: 4px; }
 .launchpad-more-heading { margin: 0 2px 4px; font-size: 9px; font-weight: 600; letter-spacing: .8px; color: var(--ui-muted); text-transform: uppercase; }
 .launchpad-more .launchpad-tile { width: 100%; }
-/* Object action menu */
-.object-action-menu { background: var(--ui-surface-raised); border: 1px solid var(--ui-border); border-radius: 7px; box-shadow: 0 3px 12px var(--ui-shadow); padding: 4px; min-width: 160px; }
-.object-action-menu [role="menuitem"] { display: block; width: 100%; text-align: left; padding: 7px 12px; font-size: 12px; border: 0; border-radius: 4px; background: transparent; }
-.object-action-menu [role="menuitem"]:hover { background: var(--ui-surface-hover); }
-.object-action-menu [role="menuitem"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; }
-.object-action-menu [role="menuitem"].danger { color: var(--ui-error); }
-.object-action-menu [role="menuitem"].danger:hover { background: var(--ui-error-surface); }

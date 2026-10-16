@@ -32,7 +32,7 @@ import type { Area, AITask } from '../ai/types'
 import { paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
 import { uiThemeVariables } from '../theme/ui'
-import { Launchpad, ObjectActionMenu } from './Launchpad'
+import { Launchpad } from './Launchpad'
 
 const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
 <style>
@@ -116,8 +116,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
   const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
-  const [objectMenuPoint, setObjectMenuPoint] = useState<{ x: number; y: number } | null>(null)
-  const [objectMenuTarget, setObjectMenuTarget] = useState<string | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
@@ -132,8 +130,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setExportOpen(false)
     setLaunchpadPoint(null)
     setLaunchpadAnchor(null)
-    setObjectMenuPoint(null)
-    setObjectMenuTarget(null)
   }, [editable])
 
   useEffect(() => {
@@ -243,25 +239,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setDoc(current => { if (!current) return current; const chosen = current.floating.filter(object => selectedIds.includes(object.id)); const rest = current.floating.filter(object => !selectedIds.includes(object.id)); return { ...current, floating: front ? [...rest, ...chosen] : [...chosen, ...rest] } })
   }
 
-  function handleCanvasContextMenu(
-    _event: React.MouseEvent,
-    pt: { x: number; y: number },
-    objectId: string | null
-  ) {
+  function handleCanvasContextMenu(point: { x: number; y: number }) {
     setTool(null)
-    if (objectId) {
-      if (!selectedIds.includes(objectId)) setSelectedIds([objectId])
-      setActiveEditor(null)
-      setLaunchpadPoint(null)
-      setLaunchpadAnchor(null)
-      setObjectMenuPoint(pt)
-      setObjectMenuTarget(objectId)
-    } else {
-      setObjectMenuPoint(null)
-      setObjectMenuTarget(null)
-      setLaunchpadPoint(pt)
-      setLaunchpadAnchor(null)
-    }
+    setLaunchpadPoint(point)
+    setLaunchpadAnchor(null)
   }
 
   function handleLaunchpadChoose(kind: string) {
@@ -575,15 +556,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       anchor={launchpadAnchor}
       onChoose={handleLaunchpadChoose}
       onClose={() => { setLaunchpadPoint(null); setLaunchpadAnchor(null) }}
-    />}
-    {editable && objectMenuPoint && objectMenuTarget && <ObjectActionMenu
-      point={objectMenuPoint}
-      objectId={objectMenuTarget}
-      onDuplicate={() => actions.current?.duplicate()}
-      onFront={() => reorder(true)}
-      onBack={() => reorder(false)}
-      onDelete={() => actions.current?.remove()}
-      onClose={() => { setObjectMenuPoint(null); setObjectMenuTarget(null) }}
     />}
   </div></HistoryContext>
 }

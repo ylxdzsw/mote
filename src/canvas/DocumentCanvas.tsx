@@ -54,7 +54,7 @@ interface Props {
   aiWidgetIds?: Set<string>
   aiReview?: AIReview
   onDeleteObjects?: (objects: FloatingObject[]) => boolean
-  onContextMenu?: (e: React.MouseEvent, point: { x: number; y: number }, targetObjectId: string | null) => void
+  onContextMenu?: (point: { x: number; y: number }) => void
 }
 interface Drag {
   part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
@@ -698,9 +698,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (range && sheet.current?.contains(range.commonAncestorContainer) && range.intersectsNode(target) &&
       [...range.getClientRects()].some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)) return
     event.preventDefault()
-    const objectEl = target.closest<HTMLElement>('[data-note-id]')
-    const objectId = objectEl?.dataset.noteId ?? null
-    onContextMenu(event, { x: event.clientX, y: event.clientY }, objectId)
+    onContextMenu({ x: event.clientX, y: event.clientY })
   }
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
