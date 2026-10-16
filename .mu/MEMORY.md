@@ -1206,3 +1206,12 @@ Verification: production build/type and whitespace checks pass. Scoped isolated-
 Deployed the static build; live HTML and all JS/CSS assets match the production build, and HTML retains Cache-Control: no-store. Nginx configuration check passed. No backend restart or cloud-data changes.
 
 Follow-up: the entire Notes header is now a single full-width native button, including hint and empty space. The resize separator remains independent. Production build and scoped fake-backed browser checks pass for far-edge/hint toggling, Enter activation, and keyboard resizing. Deployed and verified matching live HTML with no-store; cloud data untouched.
+
+
+## 2026-10-16 — Flat document settings dialog
+
+Document settings no longer embeds the former inspector sidebar inside a dialog: there is one title/close control, underline Layout/Theme tabs, and one scrolling body under a fixed header. The wider single surface uses paired page fields and plain section dividers rather than nested cards. Theme classes form a quiet left navigation column; palette entries use separators rather than additional bordered containers. Class navigation sticks on taller windows and scrolls normally on short windows so every class remains reachable. Switching tabs starts its content at the top. Privacy, live changes, history, and document geometry/storage semantics are unchanged. Export in More now uses an outward arrow leaving a box instead of the downward download glyph.
+
+Verification: production type/build and whitespace checks pass. Isolated fake-backed Chromium checks cover Layout/Theme/Palette appearance, one close control and no nested inspector, immediate width edits, linked margins, keyboard tab switching, compact 768×500 scrolling without horizontal overflow, Escape, Export dialog access, and mobile closure/noneditable behavior. Screenshots reviewed; no browser exceptions. No backend changes, new dependencies, or general regression tests. Static deployment preserves cloud documents.
+
+Deployed the static build and validated/reloaded Nginx. Live HTML references the current build; all six JS/CSS assets match byte-for-byte with no-store responses. moted remains active without restart; production cloud data was not accessed or modified. Task-owned local backend, Vite server, and browser are stopped.

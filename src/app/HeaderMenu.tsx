@@ -31,7 +31,7 @@ export function HeaderMenu({ onExport, onPreferences, onReset }: { onExport: () 
         : event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : -1
       if (next >= 0) { event.preventDefault(); buttons[next].focus() }
     }}>
-      <button role="menuitem" tabIndex={-1} onClick={() => { setOpen(false); onExport() }}><PanelIcon name="download" />Export…</button>
+      <button role="menuitem" tabIndex={-1} onClick={() => { setOpen(false); onExport() }}><PanelIcon name="export" />Export…</button>
       <button role="menuitem" tabIndex={-1} onClick={() => { setOpen(false); onPreferences() }}><PanelIcon name="sliders" />Browser preferences…</button>
       <div role="separator" />
       <button role="menuitem" tabIndex={-1} className="header-reset" onClick={() => { setOpen(false); onReset() }}><PanelIcon name="reset" />Reset to example…</button>

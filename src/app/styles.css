@@ -276,12 +276,31 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
   .mobile-mode { display: none; }
 }
 
-.document-settings { padding: 20px; }
-.document-settings .inspector-heading { margin-bottom: 16px; }
-.settings-tabs { display: flex; gap: 4px; padding: 3px; background: var(--ui-surface-muted); border-radius: 7px; margin-bottom: 22px; }
-.settings-tabs button { flex: 1; font-size: 12px; padding: 7px; }
-.settings-tabs [aria-selected='true'] { color: var(--ui-accent); background: var(--ui-accent-soft); border-color: var(--ui-accent-border); }
-.settings-tabs [aria-selected='true']:hover { background: var(--ui-accent-surface); }
+.document-settings { display: flex; flex-direction: column; min-height: 0; }
+.settings-tabs { display: flex; flex-shrink: 0; gap: 24px; padding: 0 28px; border-bottom: 1px solid var(--ui-border); }
+.settings-tabs button { padding: 12px 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 12px; color: var(--ui-muted); }
+.settings-tabs [aria-selected='true'] { color: var(--ui-accent); border-bottom-color: var(--ui-accent); }
+.settings-tabs button:hover { background: transparent; color: var(--ui-ink); }
+.document-settings-body { padding: 24px 28px 28px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.document-settings .privacy-setting { margin: 0 0 24px; padding: 0 0 20px; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; background: none; }
+.document-settings .panel-section { padding-bottom: 0; }
+.document-settings .layout-properties > h2 { margin-bottom: 14px; }
+.document-settings .layout-properties > .subheading { padding-top: 24px; margin-top: 24px; border-top: 1px solid var(--ui-border); }
+.document-settings .layout-properties .style-field { margin-top: 0; }
+.document-settings .layout-properties > .paired-fields + .paired-fields { margin-top: 14px; }
+.document-settings .hint { line-height: 1.6; }
+.document-theme { display: grid; grid-template-columns: 128px minmax(0, 1fr); align-items: start; gap: 28px; }
+.document-theme .theme-classes { position: sticky; top: 0; margin: 0; padding: 0; border: 0; }
+.document-theme .theme-classes h3 { margin: 24px 8px 8px; text-transform: uppercase; font-size: 9px; letter-spacing: .7px; }
+.document-theme .class-buttons { flex-direction: column; gap: 2px; }
+.document-theme .class-buttons button { border: 0; text-align: left; padding: 8px; }
+.document-theme .class-buttons [aria-pressed='true'] { font-weight: 600; }
+.document-theme > .panel-section { min-width: 0; margin: 0; padding-left: 24px; border: 0; border-left: 1px solid var(--ui-border); }
+.document-theme .palette-entry { padding: 12px 0; border: 0; border-bottom: 1px solid var(--ui-border); border-radius: 0; background: none; }
+.document-theme .palette-entries { gap: 0; }
+@media (max-height: 760px) {
+  .document-theme .theme-classes { position: static; }
+}
 .theme-classes { padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 22px; }
 .theme-classes h3 { font-size: 10px; color: var(--muted); font-weight: 500; margin: 15px 0 7px; }
 .class-buttons { display: flex; gap: 4px; flex-wrap: wrap; }
@@ -329,6 +348,9 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .settings-dialog-header button { font-size: 22px; padding: 0 6px; color: var(--ui-faint); border: 0; }
 .settings-dialog-section { font-size: 12px; }
 .settings-dialog-note { font-size: 11px; color: var(--ui-muted); margin: 0 0 16px; padding: 8px 10px; background: var(--ui-surface-muted); border-radius: 5px; }
+.settings-dialog:has(.document-settings) { max-width: 720px; max-height: calc(100dvh - 48px); overflow: hidden; }
+.settings-dialog:has(.document-settings) .settings-dialog-inner { display: flex; flex-direction: column; height: min(760px, calc(100dvh - 50px)); padding: 0; }
+.settings-dialog:has(.document-settings) .settings-dialog-header { flex-shrink: 0; margin: 0; padding: 22px 28px 8px; }
 
 /* Launchpad */
 .launchpad { background: var(--ui-surface-raised); border: 1px solid var(--ui-border); border-radius: 10px; box-shadow: 0 4px 16px var(--ui-shadow); padding: 10px; width: 268px; max-height: calc(100dvh - 24px); overflow: auto; overscroll-behavior: contain; }

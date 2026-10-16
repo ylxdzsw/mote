@@ -474,7 +474,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     <PopupDialog open={editable && documentSettingsOpen} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} title="Document settings">
       <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
         selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc}
-        onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }}
         privateDocument={cloud.record.meta.private} privacy={cloud.privacy}
         onPrivateChange={value => void copy.setPrivate(value, count => window.confirm(
           `Make "${cloud.record.meta.name}" private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
