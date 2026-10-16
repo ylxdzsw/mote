@@ -1,5 +1,7 @@
-import { useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { useHistory } from '../document/history'
+import { SourceEditor } from '../editor/SourceEditor'
+import { PanelIcon } from './PanelIcon'
 import type { ViewSettings } from './GlobalSettings'
 
 export function DocumentNotes({ value, settings, onSettings, onFocus }: {
@@ -7,35 +9,18 @@ export function DocumentNotes({ value, settings, onSettings, onFocus }: {
 }) {
   const history = useHistory()
   const pane = useRef<HTMLElement>(null)
-  const input = useRef<HTMLTextAreaElement>(null)
   const toggle = useRef<HTMLButtonElement>(null)
   const drag = useRef<{ y: number; height: number } | null>(null)
-  const composition = useRef<number | undefined>(undefined)
   const [dragHeight, setDragHeight] = useState<number | null>(null)
   const [maxHeight, setMaxHeight] = useState(400)
   const height = Math.min(dragHeight ?? settings.notesHeight, maxHeight)
   const clamp = (value: number) => Math.round(Math.max(72, Math.min(maxHeight, value)))
-  const nativeHistory = useEffectEvent((event: InputEvent) => {
-    if (event.isComposing || composition.current !== undefined || !['historyUndo', 'historyRedo'].includes(event.inputType)) return
-    event.preventDefault()
-    if (event.inputType === 'historyUndo') history.undo(); else history.redo()
-  })
-
   useLayoutEffect(() => {
     const workspace = pane.current!.parentElement!
-    const textarea = input.current!
-    const beforeInput = (event: InputEvent) => nativeHistory(event)
-    textarea.addEventListener('beforeinput', beforeInput)
     const observer = new ResizeObserver(() => setMaxHeight(Math.max(72, Math.floor(workspace.clientHeight * .55))))
     observer.observe(workspace)
-    return () => { observer.disconnect(); textarea.removeEventListener('beforeinput', beforeInput) }
+    return () => observer.disconnect()
   }, [])
-
-  function change(value: string) {
-    history.edit({ group: 'document-notes', editorId: 'document-notes', composition: composition.current }, () => {
-      history.setDoc(doc => doc && { ...doc, notes: value })
-    })
-  }
 
   return <section ref={pane} className={`document-notes ${settings.notesOpen ? 'is-open' : ''}`} aria-label="Notes"
     style={{ height: settings.notesOpen ? height : 32 }}>
@@ -59,29 +44,21 @@ export function DocumentNotes({ value, settings, onSettings, onFocus }: {
         event.preventDefault()
         onSettings({ ...settings, notesHeight: clamp(event.key === 'Home' ? 72 : event.key === 'End' ? maxHeight : height + (event.key === 'ArrowUp' ? 20 : -20)) })
       }} />}
-    <div className="notes-heading">
-      <button ref={toggle} className="notes-toggle" aria-expanded={settings.notesOpen} aria-controls="document-notes-input"
-        onClick={() => {
-          history.boundary()
-          onSettings({ ...settings, notesOpen: !settings.notesOpen })
-          if (!settings.notesOpen) requestAnimationFrame(() => input.current?.focus())
-        }}>
-        <span aria-hidden="true">{settings.notesOpen ? '⌄' : '⌃'}</span> Notes
-        {!!value.trim() && <span className="notes-dot" aria-label="Contains notes" />}
-      </button>
+    <button ref={toggle} className="notes-toggle" aria-label="Notes" aria-expanded={settings.notesOpen} aria-controls="document-notes-input"
+      onClick={() => {
+        history.boundary()
+        onSettings({ ...settings, notesOpen: !settings.notesOpen })
+        if (!settings.notesOpen) requestAnimationFrame(() => pane.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
+      }}>
+      <PanelIcon name="chevron" /> Notes
+      {!!value.trim() && <span className="notes-dot" aria-label="Contains notes" />}
       {settings.notesOpen && <span className="notes-hint">Working notes · outside the published page</span>}
+    </button>
+    <div className="notes-source code-view" data-source-viewport hidden={!settings.notesOpen}>
+      <SourceEditor source={value} editorId="document-notes" canEdit label="Document notes" inputId="document-notes-input"
+        placeholder="Outlines, spare paragraphs, plans…" onActive={onFocus}
+        onChange={notes => history.setDoc(doc => doc && { ...doc, notes })}
+        onEscape={() => { onSettings({ ...settings, notesOpen: false }); toggle.current?.focus() }} />
     </div>
-    <textarea ref={input} id="document-notes-input" data-document-notes hidden={!settings.notesOpen} aria-label="Document notes"
-      placeholder="Outlines, spare paragraphs, plans…" value={value}
-      onFocus={() => { history.boundary(); onFocus() }} onBlur={history.boundary}
-      onPointerDown={history.boundary}
-      onCompositionStart={() => { history.boundary(); composition.current = Date.now() }}
-      onCompositionEnd={() => { queueMicrotask(() => { composition.current = undefined; history.boundary() }) }}
-      onChange={event => change(event.target.value)}
-      onKeyDown={event => {
-        if (event.key !== 'Escape' || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
-        event.preventDefault(); event.stopPropagation()
-        onSettings({ ...settings, notesOpen: false }); toggle.current?.focus()
-      }} />
   </section>
 }
