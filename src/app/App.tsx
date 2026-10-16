@@ -410,7 +410,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           <button className="header-icon-btn" aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}><PanelIcon name="undo" /></button>
           <button className="header-icon-btn" aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}><PanelIcon name="redo" /></button>
         </div>}
-        {editable && <button className="header-add header-icon-btn header-add-labeled" aria-label="Add object" title="Add · right-click on canvas"
+        {editable && <button className="header-action-btn" aria-label="Add object" title="Add · right-click on canvas"
           aria-haspopup="menu" aria-expanded={!!launchpadAnchor}
           onClick={event => {
             const box = event.currentTarget.getBoundingClientRect()
@@ -422,9 +422,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         <div className="header-zoom" ref={setZoomHost} />
         {editable && <button className="header-icon-btn" aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'} title="Minimap" aria-pressed={showMinimap}
           onClick={() => updateSettings({ ...settings, minimap: showMinimap ? 'hide' : 'show' })}><PanelIcon name="map" /></button>}
-        {editable && <button className="header-icon-btn" aria-label="Document settings" title="Document settings" aria-haspopup="dialog" aria-expanded={documentSettingsOpen}
-          onClick={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}><PanelIcon name="sliders" /></button>}
-        {editable && <HeaderMenu onExport={() => setExportOpen(true)}
+        {editable && <HeaderMenu compact={smallScreen} documentSettingsOpen={documentSettingsOpen} preferencesOpen={viewSettingsOpen}
+          onDocumentSettings={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}
+          onShare={() => setShareOpen(true)} sharingBlocked={sharingBlocked} onExport={() => setExportOpen(true)}
           onPreferences={() => { setViewSettingsOpen(true); setDocumentSettingsOpen(false); assistant.setOpen(false) }}
           onReset={() => {
             if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
@@ -433,9 +433,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
             copy.replaceLocal(replacement)
             void copy.sync()
           }} />}
-        {editable && <button className="header-share" aria-label="Share document" aria-haspopup="dialog" disabled={sharingBlocked}
-          title={sharingBlocked ? 'Sharing is disabled while Private is enabled or being confirmed.' : 'Share document'}
-          onClick={() => setShareOpen(true)}>Share <PanelIcon name="arrow" /></button>}
         {!mobile && <button className="read-button" aria-label={mode === 'edit' ? 'Read document' : 'Edit document'} aria-pressed={mode === 'read'}
           onClick={() => setMode(mode === 'edit' ? 'read' : 'edit')}><PanelIcon name={mode === 'edit' ? 'book' : 'edit'} /><span>{mode === 'edit' ? 'Read' : 'Edit'}</span></button>}
       </div>
