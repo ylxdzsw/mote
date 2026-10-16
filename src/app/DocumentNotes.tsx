@@ -51,8 +51,6 @@ export function DocumentNotes({ value, settings, onSettings, onFocus }: {
         if (!settings.notesOpen) requestAnimationFrame(() => pane.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
       }}>
       <PanelIcon name="chevron" /> Notes
-      {!!value.trim() && <span className="notes-dot" aria-label="Contains notes" />}
-      {settings.notesOpen && <span className="notes-hint">Working notes · outside the published page</span>}
     </button>
     <div className="notes-source code-view" data-source-viewport hidden={!settings.notesOpen}>
       <SourceEditor source={value} editorId="document-notes" canEdit label="Document notes" inputId="document-notes-input"

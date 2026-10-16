@@ -119,8 +119,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .notes-toggle > svg { flex: none; transform: rotate(180deg); }
 .notes-toggle[aria-expanded='true'] { color: var(--ui-ink); }
 .notes-toggle[aria-expanded='true'] > svg { transform: none; }
-.notes-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--ui-accent); }
-.notes-hint { margin-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-faint); font-size: 10px; font-weight: 400; }
 .notes-source.code-view { --code-surface: var(--ui-surface); --code-gutter: var(--ui-surface-muted); --code-ink: var(--ui-ink); --code-muted: var(--ui-faint); --code-selection: var(--ui-accent-tint-strong); flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; border: 0; border-top: 1px solid var(--ui-border); border-radius: 0; font: 13px/16px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .notes-source .code-body { min-height: 100%; }
 .notes-source .code-gutter { padding-block: 4px; }
