@@ -396,12 +396,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
     <header className={`app-header cloud-header ${editable ? '' : 'floating-header'}`}>
-      <button className="brand-mark" onClick={onFiles} aria-label="Mote files" title="Mote · Files">m</button>
       <button className="document-switch" onClick={onFiles} aria-label={`Switch document: ${cloud.record.meta.name}`} title={`${cloud.record.meta.name} · Switch document`}>
         <span>{cloud.record.meta.name}</span><PanelIcon name="chevron" />
       </button>
       <div className={`save-status ${status}`} role="status">
-        <button aria-label={`${statusText}. ${cloud.local === 'error' ? 'Retry local save' : 'Sync document'}`} title={`${statusText} · ${cloud.local === 'error' ? 'Retry local save' : 'Sync now · Ctrl/⌘S'}`}
+        <button aria-label={`${statusText}. ${cloud.local === 'error' ? 'Retry local save' : 'Sync document'}`} title={`${statusText} · ${cloud.local === 'error' ? 'Click to retry local save' : 'Click to sync · Ctrl/⌘S'}`}
           disabled={cloud.syncing || !!cloud.conflict || cloud.deleted} onClick={() => cloud.local === 'error' ? copy.retryLocal() : void copy.sync()}>
           <span className="status-dot" aria-hidden="true" /><span className="save-message">{statusText}</span>
         </button>
