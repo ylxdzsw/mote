@@ -11,6 +11,7 @@ import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
 import { WorkingCopy } from '../cloud/WorkingCopy'
+import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
 import { ShareWindow } from '../cloud/ShareWindow'
 import { deleteWorkingCopy } from '../cloud/workingCopies'
 import type { ThemeClass } from '../theme/ThemePanel'
@@ -84,6 +85,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
   const cloud = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
+  const connection = useConnection()
   const writable = true
   const [shareOpen, setShareOpen] = useState(false)
   const privateDocument = cloud.record.meta.private
@@ -158,10 +160,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useEffect(() => {
     void copy.refreshPrivacy()
     const timer = window.setInterval(() => {
+      if (connectionSnapshot().offline) { void retryConnection(); return }
       void copy.refreshPrivacy()
       if (copy.getSnapshot().record.dirty) void copy.sync()
       else void copy.checkRemote()
     }, 10000)
+    const online = () => { void retryConnection() }
+    window.addEventListener('online', online)
     function saveShortcut(event: KeyboardEvent) {
       if (isComposingKey(event)) return
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
@@ -169,8 +174,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       }
     }
     window.addEventListener('keydown', saveShortcut, true)
-    return () => { clearInterval(timer); window.removeEventListener('keydown', saveShortcut, true) }
+    return () => { clearInterval(timer); window.removeEventListener('online', online); window.removeEventListener('keydown', saveShortcut, true) }
   }, [copy])
+
+  useEffect(() => {
+    if (connection.offline || !connection.revision) return
+    void copy.refreshPrivacy()
+    void copy.sync()
+  }, [copy, connection.offline, connection.revision])
 
   useEffect(() => {
     if (cloud.local === 'saved') return
@@ -388,10 +399,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
 
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening document…</p></main>
-  const status = cloud.local === 'error' || cloud.error || cloud.conflict || cloud.deleted ? 'error' : cloud.syncing || cloud.record.dirty ? 'saving' : 'saved'
-  const statusText = cloud.local === 'error' ? 'Local save failed' : cloud.conflict ? 'Conflict · action required'
-    : cloud.deleted ? 'Deleted on server' : cloud.auth ? 'Sign in to sync' : cloud.syncing ? 'Syncing…'
-    : cloud.error ? 'Offline · saved locally' : cloud.local === 'saving' ? 'Saving locally…'
+  const status = cloud.local === 'error' || connection.offline || cloud.error || cloud.conflict || cloud.deleted ? 'error' : cloud.syncing || cloud.record.dirty ? 'saving' : 'saved'
+  const statusText = cloud.local === 'error' ? 'Local save failed'
+    : connection.checking ? 'Reconnecting…' : connection.offline ? cloud.local === 'saving' ? 'Offline · saving locally…' : 'Offline · saved locally'
+    : cloud.conflict ? 'Conflict · action required' : cloud.deleted ? 'Deleted on server' : cloud.auth ? 'Sign in to sync' : cloud.syncing ? 'Syncing…'
+    : cloud.error ? 'Sync needs attention' : cloud.local === 'saving' ? 'Saving locally…'
     : cloud.record.dirty ? 'Saved locally · changes pending' : 'Synced'
 
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
@@ -400,8 +412,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         <span>{cloud.record.meta.name}</span><PanelIcon name="chevron" />
       </button>
       <div className={`save-status ${status}`} role="status">
-        <button aria-label={`${statusText}. ${cloud.local === 'error' ? 'Retry local save' : 'Sync document'}`} title={`${statusText} · ${cloud.local === 'error' ? 'Click to retry local save' : 'Click to sync · Ctrl/⌘S'}`}
-          disabled={cloud.syncing || !!cloud.conflict || cloud.deleted} onClick={() => cloud.local === 'error' ? copy.retryLocal() : void copy.sync()}>
+        <button aria-label={`${statusText}. ${cloud.local === 'error' ? 'Retry local save' : connection.offline ? 'Retry connection' : 'Sync document'}`} title={`${statusText} · ${cloud.local === 'error' ? 'Click to retry local save' : connection.offline ? `${connection.reason} Click to retry connection` : 'Click to sync · Ctrl/⌘S'}`}
+          disabled={connection.checking || !connection.offline && (cloud.syncing || !!cloud.conflict || cloud.deleted)} onClick={() => cloud.local === 'error' ? copy.retryLocal() : connection.offline ? void retryConnection() : void copy.sync()}>
           <span className="status-dot" aria-hidden="true" /><span className="save-message">{statusText}</span>
         </button>
       </div>

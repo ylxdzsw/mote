@@ -11,7 +11,7 @@ const targetLabel = ({ target }: AITask) => target.kind === 'segment'
   ? target.range.start.index === target.range.end.index && target.range.start.offset === target.range.end.offset ? 'New section' : 'Document section'
   : target.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : target.isNew ? 'Floating area' : 'Object revision'
 const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim().split('\n')[0].slice(0, 40) || targetLabel(task)
-const statusLabel = { draft: 'Not sent', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Awaiting submission', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
+const statusLabel = { draft: 'Not sent', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Waiting for result', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
 const displayedStatus = (task: AITask) => task.executor === 'external' && ['preparing', 'queued', 'running'].includes(task.status) ? 'waiting' : task.status
 const busyTask = (task: AITask) => (task.executor ?? 'builtin') === 'builtin' && ['preparing', 'queued', 'running'].includes(task.status)
 
@@ -99,7 +99,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       <div className="ai-task-header">
         <ContextHeading title={taskTitle(task)} subtitle={task.target.kind === 'text' ? 'Text revision' : task.target.kind === 'segment' ? 'Section composition' : task.target.isNew ? 'Reserved area' : 'Object revision'} />
         <div className="ai-scope"><PanelIcon name="anchor" /><span>{targetLabel(task)}<small>Full document context</small></span><button aria-label="Show in document" title="Show in document" disabled={!!inactive} onClick={onLocate}><PanelIcon name="arrow" /></button></div>
-        <div className={`ai-status ${status}`} role="status"><span aria-hidden="true">{busy ? '◌' : task.status === 'ready' ? '✓' : task.status === 'error' ? '!' : '○'}</span>{inactive ? task.acceptance ? 'Applied locally · result retained' : 'Recovery only' : statusLabel[status]}</div>
+        <div className={`ai-status ${status}`} role="status"><span aria-hidden="true">{busy ? '◌' : task.status === 'ready' ? '✓' : task.status === 'error' ? '!' : '○'}</span>{inactive ? task.acceptance ? 'Applied locally · result retained' : 'Recovery only' : assistant.offline && (busy || task.status === 'waiting') ? 'Pending · offline' : external && status === 'waiting' ? 'Awaiting submission' : statusLabel[status]}</div>
         <details className="ai-agent-settings" open={executorBusy || !!task.pendingWorkspaceRead || undefined}>
           <summary>Agent &amp; access <span>{external ? 'External' : 'Built-in'}{task.workspaceRead ? ' · Workspace' : ''}</span></summary>
         <div className="ai-executor">

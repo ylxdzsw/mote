@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { requestJSON, RequestError } from './connection'
 
 interface ModelSettings {
   builtin: string
@@ -84,64 +85,23 @@ function parseIndexingStatus(value: unknown): IndexingStatus {
     queued: result.queued!, running: result.running!, ready: result.ready!, failed: result.failed!, documents }
 }
 
-async function requestIndexing(path: string, method: 'GET' | 'POST', controller: AbortController): Promise<unknown> {
-  let timedOut = false
-  const timer = window.setTimeout(() => { timedOut = true; controller.abort() }, 15_000)
+async function managementRequest<T>(path: string, method: string, body: unknown, controller: AbortController, parse: (value: unknown) => T): Promise<T> {
   try {
-    const response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-      headers: { Accept: 'application/json' } })
-    const text = await response.text()
-    let payload: unknown = null
-    if (text) {
-      try { payload = JSON.parse(text) }
-      catch { if (response.ok) throw new SettingsRequestError('The workspace indexing response was invalid.', response.status) }
-    }
-    if (!response.ok) {
-      const detail = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
-        ? payload.error : `The cloud service returned an error (${response.status}). Please try again.`
-      const message = response.status === 401 ? 'Sign in to view workspace indexing, then retry.' : detail
-      throw new SettingsRequestError(message, response.status)
-    }
-    return payload
+    const value = await requestJSON<unknown>(path, method, body, value => {
+      try { parse(value); return true } catch { return false }
+    }, { signal: controller.signal })
+    return parse(value)
   } catch (error) {
-    if (error instanceof SettingsRequestError) throw error
-    if (timedOut) throw new SettingsRequestError('The workspace indexing request timed out after 15 seconds. Refresh status before retrying.')
-    throw new SettingsRequestError('Could not reach workspace indexing. Check your connection and retry.')
-  } finally { window.clearTimeout(timer) }
-}
-
-async function requestSettings(method: 'GET' | 'PUT', body: unknown, controller: AbortController): Promise<WorkspaceSettings> {
-  let timedOut = false
-  const timer = window.setTimeout(() => { timedOut = true; controller.abort() }, 15_000)
-  try {
-    const response = await fetch('/api/settings', {
-      method, credentials: 'same-origin', cache: 'no-store', signal: controller.signal,
-      headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-    const text = await response.text()
-    let payload: unknown = null
-    if (text) {
-      try { payload = JSON.parse(text) }
-      catch {
-        if (response.ok) throw new SettingsRequestError('The workspace settings response was invalid.', response.status)
-      }
-    }
-    if (!response.ok) {
-      const detail = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
-        ? payload.error : `The cloud service returned an error (${response.status}). Please try again.`
-      const message = response.status === 401 ? 'Sign in to manage workspace settings, then retry.'
-        : response.status === 409 ? 'Workspace settings changed. Reload before saving.' : detail
-      throw new SettingsRequestError(message, response.status)
-    }
-    return parseSettings(payload, response.status)
-  } catch (error) {
-    if (error instanceof SettingsRequestError) throw error
-    if (timedOut) throw new SettingsRequestError('The workspace settings request timed out after 15 seconds. Retry when ready.')
-    throw new SettingsRequestError('Could not reach workspace settings. Check your connection and retry.')
-  } finally {
-    window.clearTimeout(timer)
+    if (!(error instanceof RequestError)) throw error
+    throw new SettingsRequestError(error.status === 401 ? 'Sign in to manage the workspace, then retry.'
+      : error.status === 409 ? 'Workspace settings changed. Reload before saving.' : error.message, error.status)
   }
+}
+function requestIndexing(path: string, method: 'GET' | 'POST', controller: AbortController) {
+  return managementRequest(path, method, undefined, controller, parseIndexingStatus)
+}
+function requestSettings(method: 'GET' | 'PUT', body: unknown, controller: AbortController) {
+  return managementRequest('/api/settings', method, body, controller, value => parseSettings(value, 0))
 }
 
 export function ManagementMenu() {

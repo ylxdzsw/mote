@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AnsiUp } from 'ansi_up'
 import { aiRequest, AIServiceError, transcriptSource } from './api'
+import { connectionFailed, isRecord, retryConnection, useConnection } from '../cloud/connection'
 
 interface Entry { id: number; attempt: number; kind: 'request' | 'stdout' | 'stderr'; text: string }
 const limit = 512 * 1024
@@ -13,6 +14,7 @@ function converter() {
 }
 
 export default function Transcript({ taskId, active, submitted, onMissing }: { taskId: string; active: boolean; submitted: boolean; onMissing: () => void }) {
+  const network = useConnection()
   const root = useRef<HTMLDivElement>(null), viewport = useRef<HTMLDivElement>(null)
   const cursor = useRef(0), following = useRef(true)
   const [paused, setPaused] = useState(false), [connection, setConnection] = useState(''), [truncated, setTruncated] = useState(false)
@@ -21,7 +23,18 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
   const render = useRef({ attempt: -1, agentLabel: false, stdout: converter(), stderr: converter(), bytes: 0, nodes: [] as { element: HTMLElement; bytes: number }[] })
   useEffect(() => {
     if (!active || !submitted) return
+    if (network.offline) { setConnection('Offline · waiting to reconnect.'); return }
     let disposed = false, source: EventSource | undefined, frame = 0, pending: Entry[] = [], pendingBytes = 0
+    function interrupted() {
+      if (disposed) return
+      source?.close(); source = undefined
+      setConnection('Transcript connection interrupted. Reconnect to try again.')
+      connectionFailed('The AI connection was interrupted. Local changes and AI requests are retained.')
+    }
+    function decode(event: Event): Record<string, unknown> | undefined {
+      try { const value: unknown = JSON.parse((event as MessageEvent).data); if (isRecord(value)) return value } catch { /* Reconnect after invalid event data. */ }
+      interrupted()
+    }
     function flush() {
       frame = 0
       const state = render.current, container = root.current!, scroll = viewport.current!
@@ -65,12 +78,13 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
       if (disposed) return
       source = transcriptSource(taskId, cursor.current)
       source.onopen = () => { if (!disposed) setConnection('') }
-      source.onerror = () => {
+      source.onerror = interrupted
+      source.addEventListener('warning', event => {
         if (disposed) return
-        source?.close(); source = undefined
-        setConnection('Transcript connection interrupted. Reconnect to try again.')
-      }
-      source.addEventListener('warning', event => { if (!disposed) setWarning(JSON.parse((event as MessageEvent).data).message) })
+        const value = decode(event)
+        if (typeof value?.message === 'string') setWarning(value.message)
+        else interrupted()
+      })
       source.addEventListener('reset', () => {
         if (disposed) return
         pending = []; pendingBytes = 0; cursor.current = 0
@@ -80,7 +94,10 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
       })
       source.addEventListener('transcript', event => {
         if (disposed) return
-        const entry = JSON.parse((event as MessageEvent).data) as Entry
+        const value = decode(event)
+        if (!value || !Number.isSafeInteger(value.id) || !Number.isSafeInteger(value.attempt)
+          || !['request', 'stdout', 'stderr'].includes(String(value.kind)) || typeof value.text !== 'string') { interrupted(); return }
+        const entry = value as unknown as Entry
         if (entry.id <= cursor.current) return
         cursor.current = entry.id; pending.push(entry); pendingBytes += entry.text.length
         if (pendingBytes >= 32768) { cancelAnimationFrame(frame); flush() }
@@ -92,7 +109,7 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
       else setConnection((error as Error).message)
     })
     return () => { disposed = true; source?.close(); cancelAnimationFrame(frame); if (pending.length && root.current && viewport.current) flush() }
-  }, [taskId, active, submitted, retry])
+  }, [taskId, active, submitted, retry, network.offline, network.revision])
   useLayoutEffect(() => { if (active && following.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight }, [active, truncated])
   return <div className="ai-transcript-wrap">
     <div className="ai-transcript" ref={viewport} role="region" aria-label="Agent transcript" tabIndex={0} onScroll={() => {
@@ -106,6 +123,6 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
     </div>
     {paused && <button className="ai-latest" onClick={() => { following.current = true; setPaused(false); viewport.current!.scrollTop = viewport.current!.scrollHeight }}>↓ Latest</button>}
     {warning && <p className="ai-connection" role="status">{warning}</p>}
-    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button onClick={() => setRetry(value => value + 1)}>Reconnect</button>}</div>}
+    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button onClick={() => network.offline ? void retryConnection() : setRetry(value => value + 1)}>Reconnect</button>}</div>}
   </div>
 }

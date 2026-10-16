@@ -2,6 +2,7 @@ import type { MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type Share } from './api'
 import { saveWorkingCopy, type WorkingRecord } from './workingCopies'
+import { connectionSnapshot, retryConnection } from './connection'
 
 export interface PrivacyChange {
   private: boolean
@@ -101,6 +102,14 @@ export class WorkingCopy {
   private async performSync(): Promise<CloudDocument | null> {
     this.publish({ syncing: true, error: '', auth: false })
     try {
+      if (connectionSnapshot().offline && !await retryConnection()) return null
+      if (!this.state.record.dirty && !this.state.record.pending) {
+        const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
+        if (!this.state.record.dirty && !this.state.record.pending) {
+          if (result.revision !== this.state.record.meta.revision) await this.adopt(result)
+          return { ...this.state.record.meta, document: this.state.record.document }
+        }
+      }
       // Finish an uncertain request before sending newer edits. Its stable operation ID
       // lets a retry recover a committed revision without claiming a false conflict.
       for (;;) {
@@ -154,6 +163,7 @@ export class WorkingCopy {
     try {
       const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
       if (generation !== this.generation || this.state.record.dirty) return
+      this.publish({ error: '', auth: false })
       if (result.revision !== this.state.record.meta.revision) await this.adopt(result)
       else {
         const previous = this.state.record.meta, meta = mergeDocumentMeta(previous, result)

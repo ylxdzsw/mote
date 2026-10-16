@@ -3,13 +3,16 @@ import { assistantRequest } from './api'
 import { AssistantState } from './cloudState'
 import { loadAssistantRecovery, loadTasks, saveAssistantRecovery } from './storage'
 import type { AITask, AssistantCloud } from './types'
+import { connectionSnapshot, useConnection } from '../cloud/connection'
 
 export function useAssistantState(cloud: AssistantCloud | undefined, writable: boolean) {
+  const connection = useConnection()
   const [tasks, setTasks] = useState<AITask[]>([]), state = useRef(tasks)
   const [loaded, setLoaded] = useState(false), [error, setError] = useState('')
   const [tick, render] = useState(0)
   const engine = useRef<AssistantState | null>(null)
   const [retry, setRetry] = useState(0)
+  const recoveredConnection = useRef(0)
   useEffect(() => {
     let active = true
     setLoaded(false); state.current = []; setTasks([]); engine.current = null
@@ -31,27 +34,38 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
       await current.initialize()
       if (!active) return
       // A preparing token is process-local, but its input/request ID is durable.
-      current.replace(current.record.tasks.map(task => task.status === 'preparing' && task.preparingCopyId === workingCopyId ? { ...task, status: 'error',
-        error: 'Request confirmation was interrupted. Retry to recover the existing execution, or discard.' } : task))
+      current.replace(current.record.tasks.map(task => task.status === 'preparing' && task.preparingCopyId === workingCopyId ? { ...task,
+        status: task.requestSent || task.submitted ? 'waiting' : 'draft',
+        progress: task.requestSent || task.submitted ? 'Waiting to confirm the request.' : '',
+        error: task.requestSent || task.submitted ? undefined : 'Preparation was interrupted before sending. Send when ready.' } : task))
       setLoaded(true); setError('')
     })().catch(error => { if (active) { setError(`AI task recovery is unavailable: ${(error as Error).message}`); setLoaded(true) } })
     return () => { active = false }
   }, [cloud?.workingCopyId, cloud?.documentId, writable, retry])
 
   useEffect(() => {
-    if (!loaded || !writable) return
+    if (!loaded || !writable || connection.offline) return
     const current = engine.current
     if (!current?.ready || current.busy || current.conflict || current.warning || current.localWarning || !current.record.dirty && !current.record.pending) return
     const timer = window.setTimeout(() => { void current.flush() }, 650)
     return () => window.clearTimeout(timer)
-  }, [tasks, loaded, writable, tick])
+  }, [tasks, loaded, writable, tick, connection.offline])
+  useEffect(() => {
+    if (!loaded || !writable || connection.offline || connection.revision === recoveredConnection.current) return
+    const current = engine.current
+    if (!current || current.busy || current.conflict || current.localWarning) return
+    recoveredConnection.current = connection.revision
+    if (!current.ready) void current.initialize()
+    else if (current.record.dirty || current.record.pending) void current.flush()
+    else void current.refresh()
+  }, [loaded, writable, connection.offline, connection.revision, tick])
   useEffect(() => {
     if (!loaded || !writable) return
     let active = true, timer = 0
     async function refreshWhenReady() {
       const current = engine.current
       try {
-        if (current && !current.busy && !current.warning && !current.localWarning && !current.conflict) {
+        if (!connectionSnapshot().offline && current && !current.busy && !current.warning && !current.localWarning && !current.conflict) {
           if (!current.ready) await current.initialize()
           else if (current.record.dirty || current.record.pending) await current.flush()
           else await current.refresh()

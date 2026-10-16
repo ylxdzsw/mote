@@ -10,6 +10,7 @@ import { FilesWindow } from './FilesWindow'
 import { WorkingCopy } from './WorkingCopy'
 import { deleteWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
 import './workspace.css'
+import { connectionSnapshot } from './connection'
 
 export const loginURL = () => location.pathname
 const shareRequests = new Map<string, Promise<{ name: string; document: MoteDocument }>>()
@@ -70,7 +71,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     const pop = async () => {
       const request = ++navigation.current, target = location.pathname, previous = current.current
       if (previous.copy) {
-        await previous.copy.sync()
+        if (!connectionSnapshot().offline) await previous.copy.sync()
         try { await previous.copy.flushLocal() }
         catch {
           if (request !== navigation.current) return
@@ -147,7 +148,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     if (next === id && copy && !reload) { setFilesOpen(false); return }
     const request = ++navigation.current
     if (copy) {
-      await copy.sync()
+      if (!connectionSnapshot().offline) await copy.sync()
       try { await copy.flushLocal() }
       catch { setNotice('Local saving failed. Keep this document open and retry before switching.'); return }
       if (copy.getSnapshot().record.dirty) setNotice('Changes to the previous document remain on this device. Open Local recovery to find them.')

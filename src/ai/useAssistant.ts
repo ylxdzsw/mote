@@ -6,6 +6,7 @@ import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
 import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, reservedText, sameContent } from './reservations'
 import { aiRequest, AIServiceError } from './api'
+import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
 import { useAssistantState } from './useAssistantState'
 import type { AssistantState } from './cloudState'
 import type { Area, AITarget, AITask, AssistantCloud, Executor, RemoteTask } from './types'
@@ -62,6 +63,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = t
 }
 
 export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined, cloud?: AssistantCloud) {
+  const connection = useConnection()
   const persistence = useAssistantState(cloud, writable)
   const { tasks: savedTasks, state, loaded } = persistence
   const privateDocument = cloud?.privateDocument ?? false
@@ -288,19 +290,20 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       }
     }
     async function poll() {
-      if (pending || !active || authPaused) return
+      if (pending || !active || authPaused || connectionSnapshot().offline) return
       pending = true
       const now = Date.now()
       const due = state.current.filter(task => awaitingResult(task) && !preparations.current.has(task.id)
         && !paused.has(task.id) && (requested.has(task.id) || (nextAt.get(task.id) ?? 0) <= now))
       for (const task of due) {
         requested.delete(task.id)
-        if (!active || authPaused) break
+        if (!active || authPaused || connectionSnapshot().offline) break
         await checkTask(task)
       }
       pending = false
     }
     const checkStatus = (id: string) => {
+      if (connectionSnapshot().offline) { void retryConnection(); return }
       const task = state.current.find(item => item.id === id)
       if (!task || !awaitingResult(task) || preparations.current.has(id)) return
       if (authPaused) {
@@ -322,7 +325,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       active = false; window.clearInterval(timer)
       if (checkStatusRef.current === checkStatus) checkStatusRef.current = () => {}
     }
-  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument])
+  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument, connection.offline, connection.revision])
 
   function reserve(target: AITarget, snapshot = currentDoc.current) {
     if (!loaded || !writable || !cloud || cloud.documentId !== snapshot.id || !persistence.engine.current?.ready) { setNotice('Connect this working copy to its cloud document before starting an AI task.'); return }
@@ -490,6 +493,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (preparing()) {
         if (executor === 'external' && cloudRef.current?.privateDocument && knownNotCreated && !task.submitted) rejectPrivateExternalDraft(id)
         else if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
+        else if (connectionSnapshot().offline) update(id, { status: task.requestSent || task.submitted ? 'waiting' : 'draft',
+          progress: 'Offline · request retained. Waiting for reconnection.', error: undefined })
         else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message })
       }
     }
@@ -804,7 +809,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
-  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
+  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
     switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
     workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,
     workspaceReadWorking: (id: string) => !!workspaceReadOperations[id],
@@ -812,7 +817,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     executorWorking: (task: AITask) => !!task.pendingExecutor && preparations.current.has(task.id),
     inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
     cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,
-    statusIssue: (id: string) => statusIssues[id], checkStatus: (id: string) => checkStatusRef.current(id),
+    statusIssue: (id: string) => connection.offline ? { message: 'Offline · AI request retained. Waiting for reconnection to check the result.', paused: false } : statusIssues[id], checkStatus: (id: string) => checkStatusRef.current(id),
     retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },
     discardArchive: (id: string) => persistence.engine.current?.discardArchive(id),
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }
