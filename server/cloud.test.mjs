@@ -258,6 +258,37 @@ test('snapshot pins acknowledged revision, latest resolves head; deletion revoke
   assert.equal((await value.call('GET', `documents/${randomUUID()}`)).status, 404)
 })
 
+test('Notes round-trip through saves, validate as text, affect retries, and stay out of public shares', async t => {
+  const value = await app(t), doc = document()
+  doc.notes = 'Outline and unverified plan'
+  const original = await create(value, doc), base = `documents/${original.id}`
+  assert.equal((await value.call('GET', base)).body.document.notes, doc.notes)
+  const snapshot = (await value.call('POST', `${base}/shares`, { mode: 'snapshot', revision: original.revision })).body
+  const latest = (await value.call('POST', `${base}/shares`, { mode: 'latest' })).body
+
+  const updatedDocument = { ...original.document, notes: 'Updated working notes' }
+  const operation = { baseRevision: original.revision, document: updatedDocument, operationId: randomUUID() }
+  const saved = await value.call('PUT', base, operation)
+  assert.equal(saved.status, 200)
+  assert.equal(saved.body.document.notes, updatedDocument.notes)
+  assert.equal((await value.call('GET', base)).body.document.notes, updatedDocument.notes)
+  assert.equal((await value.call('PUT', base, { ...operation, document: { ...updatedDocument, notes: 'Different retry input' } })).status, 409)
+  for (const notes of [null, 1, { text: 'not plain text' }]) {
+    assert.equal((await value.call('PUT', base, {
+      baseRevision: saved.body.revision, document: { ...updatedDocument, notes }, operationId: randomUUID(),
+    })).status, 400)
+  }
+
+  const publicSnapshot = await value.call('GET', `shared/${snapshot.token}`)
+  const publicLatest = await value.call('GET', `shared/${latest.token}`)
+  const { notes: _originalNotes, ...publicOriginal } = doc
+  const { notes: _updatedNotes, ...publicUpdated } = updatedDocument
+  assert.equal(Object.hasOwn(publicSnapshot.body.document, 'notes'), false)
+  assert.equal(Object.hasOwn(publicLatest.body.document, 'notes'), false)
+  assert.deepEqual(publicSnapshot.body.document, publicOriginal)
+  assert.deepEqual(publicLatest.body.document, publicUpdated)
+})
+
 test('assistant state CAS and retries are independent, inert, and hydrated', async t => {
   const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
   assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, { revision: '0', tasks: [] })

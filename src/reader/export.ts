@@ -16,6 +16,7 @@ function safeInline(value: string, tag: 'script' | 'style') {
 }
 
 export async function exportHtml(doc: MoteDocument): Promise<Blob> {
+  const { notes: _notes, ...published } = doc
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -27,7 +28,7 @@ export async function exportHtml(doc: MoteDocument): Promise<Blob> {
 <body>
 <div id="root"></div>
 <noscript>This Mote reader needs JavaScript to display its document.</noscript>
-<script type="application/json" id="mote-document">${safeJson(doc)}</script>
+<script type="application/json" id="mote-document">${safeJson(published)}</script>
 <script>${safeInline(bundle.js, 'script')}</script>
 </body>
 </html>`

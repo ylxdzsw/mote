@@ -83,14 +83,17 @@ async function socketGet(url, socketPath) {
 
 async function createDocument(value, name, { private: isPrivate = false } = {}) {
   const id = randomUUID(), doc = document(id, `${name} body`)
+  doc.notes = `${name} internal working notes`
   const result = await value.call('POST', 'documents', { id, name, document: doc, private: isPrivate, operationId: randomUUID() })
   assert.equal(result.status, 201, JSON.stringify(result.body))
   return result.body
 }
 
 async function saveDocument(value, envelope, text) {
+  const doc = document(envelope.id, text)
+  doc.notes = envelope.document.notes
   const result = await value.call('PUT', `documents/${envelope.id}`, {
-    baseRevision: envelope.revision, document: document(envelope.id, text), operationId: randomUUID(),
+    baseRevision: envelope.revision, document: doc, operationId: randomUUID(),
   })
   assert.equal(result.status, 200, JSON.stringify(result.body))
   return result.body

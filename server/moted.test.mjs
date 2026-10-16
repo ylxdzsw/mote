@@ -398,6 +398,7 @@ test('external handoff is immutable, agent-independent, and accepts only validat
   const value = await app({ env: { MOTED_MU_BIN: '/not-an-installed-agent', MOTED_SHARED_MU_DIR: '/not-a-provider' } }); t.after(() => value.close())
   value.manager.defaultModel = undefined
   const doc = document('html'), id = crypto.randomUUID()
+  doc.notes = 'Internal working outline for authorized agent context'
   const target = { kind: 'object', objectId: 'object-1', isNew: false, area: { x: 40, y: 10, width: 200, height: 100 } }
   const body = externalRequest(id, doc, { target, snapshot: `data:image/png;base64,${pngHeader(800, 400).toString('base64')}` })
   const response = await post(value, body); assert.equal(response.status, 202)
@@ -419,7 +420,7 @@ test('external handoff is immutable, agent-independent, and accepts only validat
   for (const resource of ['meta.json', 'providers.json', 'tasks', 'document.json/extra']) assert.equal((await fetch(endpoint(value, `${base}/${resource}`))).status, 404)
   assert.equal((await fetch(endpoint(value, `${base}/document.json`), { method: 'PUT', body: '{}' })).status, 404)
   const object = { ...doc.floating[0], html: '<script>throw new Error("must never execute")</script>' }; delete object.screenshot
-  const candidate = { object, screenshotPath: 'figure.png', summary: 'Validated HTML and actual uploaded PNG' }
+  const candidate = { object, screenshotPath: 'figure.png', summary: 'Validated HTML and actual uploaded PNG', notes: 'Attempted Notes edit' }
   const payload = delivery(doc, { candidate, assets: { 'figure.png': `data:image/png;base64,${pngHeader(200, 100).toString('base64')}` } })
   for (const invalid of [
     { ...payload, assets: {} },
@@ -441,6 +442,7 @@ test('external handoff is immutable, agent-independent, and accepts only validat
   assert.equal(receipt.candidateRevision, 1)
   const saved = await (await get(value, id)).json()
   assert.equal(saved.candidate.object.html, object.html); assert.equal(saved.candidate.screenshotPath, undefined)
+  assert.equal(saved.candidate.notes, undefined)
   assert.equal(saved.candidate.object.screenshot, payload.assets['figure.png'])
   assert.deepEqual(await agentRequest(endpoint(value, `${base}/document.json`)), doc)
 })

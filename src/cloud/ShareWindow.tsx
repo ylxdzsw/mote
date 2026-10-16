@@ -96,7 +96,7 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync }
     <div className="cloud-body">
       <p id={`${titleId}-hint`} className="cloud-hint">{privateDocument
         ? 'Private documents cannot be shared. Turn off Private in Document settings to create or use share links.'
-        : 'Anyone with a link can read this document without signing in. Revoke a link to stop future access.'}</p>
+        : 'Anyone with a link can read this document without signing in. Internal notes are excluded. Revoke a link to stop future access.'}</p>
       <fieldset className="cloud-share-modes" disabled={!!busy || privateDocument}>
         <legend>Link type</legend>
         <label className="cloud-share-mode"><input type="radio" name={`${titleId}-mode`} value="snapshot" checked={mode === 'snapshot'} onChange={() => setMode('snapshot')} />

@@ -471,7 +471,9 @@ export class CloudStore {
       JOIN revisions r ON r.documentId=d.id AND r.revision=CASE WHEN s.mode='latest' THEN d.revision ELSE s.revision END
       WHERE s.token=? AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(token)
     if (!row) throw new HttpError(404, 'share not found')
-    return { name: row.name, revision: row.revision, document: this.unpack(row.body) }
+    const document = this.unpack(row.body)
+    delete document.notes
+    return { name: row.name, revision: row.revision, document }
   }
 
   assistant(id) { const row = this.row(id, true); return { revision: row.assistantRevision, tasks: this.unpack(row.tasks) } }

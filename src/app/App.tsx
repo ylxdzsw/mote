@@ -33,6 +33,7 @@ import { paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
 import { uiThemeVariables } from '../theme/ui'
 import { Launchpad } from './Launchpad'
+import { DocumentNotes } from './DocumentNotes'
 
 const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
 <style>
@@ -185,7 +186,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       if (!editable || isComposingKey(event)) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
-      if (!target.matches('[data-code-source]') && target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])')) return
+      if (!target.matches('[data-code-source], [data-document-notes]') && target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])')) return
       event.preventDefault(); event.stopPropagation()
       if (key === 'y' || event.shiftKey) history.redo(); else history.undo()
     }
@@ -550,6 +551,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
         onContextMenu={handleCanvasContextMenu} />
+      {editable && <DocumentNotes value={doc.notes ?? ''} settings={settings} onSettings={updateSettings}
+        onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
     {editable && <Launchpad
       point={launchpadPoint}

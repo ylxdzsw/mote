@@ -3,10 +3,12 @@ import { useState } from 'react'
 export interface ViewSettings {
   minimap: 'auto' | 'show' | 'hide'
   minimapSize: 'proportional' | 'fit'
+  notesOpen: boolean
+  notesHeight: number
 }
 
 const storageKey = 'mote-view-settings'
-const defaults: ViewSettings = { minimap: 'auto', minimapSize: 'proportional' }
+const defaults: ViewSettings = { minimap: 'auto', minimapSize: 'proportional', notesOpen: false, notesHeight: 200 }
 
 export function useViewSettings(persist = true) {
   const [settings, setSettings] = useState<ViewSettings>(() => {
@@ -16,6 +18,8 @@ export function useViewSettings(persist = true) {
       return {
         minimap: ['auto', 'show', 'hide'].includes(saved.minimap) ? saved.minimap : defaults.minimap,
         minimapSize: ['proportional', 'fit'].includes(saved.minimapSize) ? saved.minimapSize : defaults.minimapSize,
+        notesOpen: saved.notesOpen === true,
+        notesHeight: typeof saved.notesHeight === 'number' && Number.isFinite(saved.notesHeight) ? Math.max(72, saved.notesHeight) : defaults.notesHeight,
       }
     } catch { return defaults }
   })

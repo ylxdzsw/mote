@@ -96,6 +96,7 @@ export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: M
         <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · can be imported back</span></button>
         <button disabled={!!busy || invalidName} onClick={() => void exporting('mote')}><strong>Mote document <small>.mote</small></strong><span>Compressed editable document · can be imported back</span></button>
       </div>
+      <p>Internal notes are included only in .mote exports. HTML and PNG contain the published page.</p>
       {doc.floating.some(object => object.kind === 'html') && <p>HTML widgets stay interactive in HTML exports; their online resources still need a connection. PNG uses the screenshots you supplied.</p>}
       {onImport && <section className="files-import"><h2>Import</h2><p>Import a .mote file or Mote-exported HTML. Import replaces the local draft after confirmation.</p>
         <button disabled={!!busy} onClick={() => input.current!.click()}>Import .mote / HTML…</button>

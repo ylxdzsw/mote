@@ -35,9 +35,11 @@ async function fixture(t) {
   return { root, store }
 }
 
-async function addDocument(store, name, content = 'initial content', isPrivate = false) {
+async function addDocument(store, name, content = 'initial content', isPrivate = false, notes) {
   const id = randomUUID()
-  return store.create({ id, name, document: document(id, content), private: isPrivate, operationId: randomUUID() })
+  const value = document(id, content)
+  if (notes !== undefined) value.notes = notes
+  return store.create({ id, name, document: value, private: isPrivate, operationId: randomUUID() })
 }
 
 function managerFor(root, store, extra = {}) {
@@ -148,7 +150,7 @@ test('workspace index and historical reads enforce current source privacy, inclu
 
 test('indexing debounces from the latest saved revision and passes the complete native document to one isolated runner', async t => {
   const { root, store } = await fixture(t)
-  const created = await addDocument(store, 'Debounced private source', 'initial content', true)
+  const created = await addDocument(store, 'Debounced private source', 'initial content', true, 'Unverified outline for later work')
   assert.equal(store.settings().indexingEnabled, false)
   const seen = []
   let inputMode, nativeFileMode
@@ -183,11 +185,20 @@ test('indexing debounces from the latest saved revision and passes the complete 
   indexer.wake()
   await waitFor(() => indexer.status().documents[0].status === 'ready' && indexer.status().documents[0].indexedRevision === identical.revision, 'fingerprint reuse')
   assert.equal(seen.length, 1, 'an unchanged complete-document fingerprint reuses the prior index')
-  const editedAgain = store.put(created.id, { baseRevision: identical.revision, operationId: randomUUID(), document: document(created.id, 'another latest edit') })
+  const notesOnly = store.put(created.id, {
+    baseRevision: identical.revision, operationId: randomUUID(), document: { ...identical.document, notes: 'Revised supporting notes' },
+  })
+  indexer.wake()
+  await waitFor(() => indexer.status().documents[0].status === 'ready' && indexer.status().documents[0].indexedRevision === notesOnly.revision, 'notes-only index')
+  assert.equal(seen.length, 2, 'a notes-only change has a distinct full-document fingerprint')
+  assert.equal(seen[1].notes, notesOnly.document.notes)
+  const editedDocument = document(created.id, 'another latest edit')
+  editedDocument.notes = notesOnly.document.notes
+  const editedAgain = store.put(created.id, { baseRevision: notesOnly.revision, operationId: randomUUID(), document: editedDocument })
   indexer.wake()
   const staleCatalog = store.workspaceIndex(created.id)
   assert.match(staleCatalog, /description status: stale/)
-  assert.match(staleCatalog, new RegExp(`indexed revision: ${identical.revision}`))
+  assert.match(staleCatalog, new RegExp(`indexed revision: ${notesOnly.revision}`))
   assert.match(staleCatalog, /A concise reusable discovery/)
   assert.equal(indexer.status().documents[0].revision, editedAgain.revision)
   await indexer.shutdown()
