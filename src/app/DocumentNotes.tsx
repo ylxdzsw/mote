@@ -21,6 +21,11 @@ export function DocumentNotes({ value, settings, onSettings, onFocus }: {
     observer.observe(workspace)
     return () => observer.disconnect()
   }, [])
+  useLayoutEffect(() => {
+    const workspace = pane.current!.parentElement!
+    workspace.style.setProperty('--notes-overlay-height', `${settings.notesOpen ? height - 24 : 0}px`)
+    return () => { workspace.style.removeProperty('--notes-overlay-height') }
+  }, [height, settings.notesOpen])
 
   return <section ref={pane} className={`document-notes ${settings.notesOpen ? 'is-open' : ''}`} aria-label="Notes"
     style={{ height: settings.notesOpen ? height : 24 }}>
