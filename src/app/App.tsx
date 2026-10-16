@@ -24,7 +24,7 @@ import { HeaderMenu } from './HeaderMenu'
 import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
-import { ContextHeading, DocumentContext, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
+import { ContextHeading, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
 import { AssistantPanel } from '../ai/AssistantPanel'
@@ -535,7 +535,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   </div>
                 : activeEditor ? <TextInspector theme={doc.theme} semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
                     onRevise={() => { setTool(null); reserveSelection() }} reviseDisabled={!mainEditor} />
-                : <DocumentContext doc={doc} onTheme={openThemeClass} onSettings={() => { history.boundary(); setSettingsTab('layout'); setDocumentSettingsOpen(true) }} />}
+                : <div className="context-inspector"><p className="hint">Select text or an object to see its properties.</p></div>}
               </>}
               </div>
             </div>}

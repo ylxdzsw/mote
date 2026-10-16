@@ -47,11 +47,6 @@
 .style-preview > span { color: var(--ui-accent); font-size: 31px; line-height: 1; }
 .style-preview > div { color: var(--ui-ink); font-size: 12px; line-height: 1.5; }
 .style-preview small { display: block; margin-top: 2px; color: var(--ui-faint); font-size: 10px; }
-.panel-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--ui-muted); font-size: 10px; }
-.panel-meta b { font-size: 10px; font-weight: 500; text-align: right; }
-.context-outline { display: grid; gap: 2px; margin-top: -8px; }
-.context-outline button { justify-content: start; padding: 5px 7px; border-color: transparent; color: var(--ui-muted); font-size: 10px; text-align: left; }
-.context-outline button span { flex: none; color: var(--ui-faint); font-size: 9px; font-variant-numeric: tabular-nums; }
 .context-inspector .palette-control { display: grid; grid-template-columns: repeat(auto-fit, minmax(50px, 1fr)); align-items: start; gap: 8px 6px; margin: 2px 0; }
 .context-inspector .palette-choice-row { grid-template-columns: 20px 20px; justify-content: center; gap: 3px 5px; min-height: 0; }
 .context-inspector .palette-control .palette-choice { width: 20px; height: 20px; border-radius: 50%; }

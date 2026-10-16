@@ -5,7 +5,7 @@ import { NodeSelection, type Command } from '@tiptap/pm/state'
 import { addRowAfter, deleteRow } from '@tiptap/pm/tables'
 import { alignColumns, changeColumns } from '../editor/table'
 import { classLabel } from '../theme/ThemePanel'
-import { blockClasses, type BlockClass, type MoteDocument, type Theme } from '../document/model'
+import { blockClasses, type BlockClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
 import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
@@ -121,28 +121,6 @@ export function TypographyPreview({ theme, semantic }: { theme: Theme; semantic:
   return <div className="style-preview">
     <span aria-hidden="true" style={{ fontFamily: style.family === 'serif' ? 'Georgia, serif' : style.family === 'mono' ? 'ui-monospace, monospace' : 'inherit', fontWeight: style.weight }}>Aa</span>
     <div>{classLabel(semantic)}<small>Document theme</small></div>
-  </div>
-}
-
-export function DocumentContext({ doc, onTheme, onSettings }: { doc: MoteDocument; onTheme: (name: string) => void; onSettings: () => void }) {
-  const headings = doc.content.content?.filter(node => node.type === 'paragraph' && node.attrs?.semantic === 'heading') ?? []
-  const text = (node: MoteDocument['content']): string => node.text ?? node.content?.map(text).join('') ?? ''
-  const margins = [...new Set(Object.values(doc.margins))]
-  return <div className="context-inspector">
-    <ContextHeading title="On this page" subtitle="Document overview" />
-    {!!headings.length && <nav className="context-outline" aria-label="Document headings">
-      {headings.map((node, index) => <button key={node.attrs!.id} onClick={() => {
-        document.querySelector(`.workspace > .canvas-pane .main-text [data-id="${CSS.escape(node.attrs!.id)}"]`)?.scrollIntoView({ block: 'center', inline: 'nearest' })
-      }}><span>{String(index + 1).padStart(2, '0')}</span>{text(node) || 'Untitled heading'}</button>)}
-    </nav>}
-    <InspectorGroup title="Document">
-      <div className="panel-meta"><span>Width</span><b>{doc.width} px</b></div>
-      <div className="panel-meta"><span>Margins</span><b>{margins.length === 1 ? margins[0] : Object.values(doc.margins).join(' / ')} px</b></div>
-      <button onClick={onSettings}>Layout &amp; theme <PanelIcon name="sliders" /></button>
-    </InspectorGroup>
-    <InspectorGroup title="Theme"><TypographyPreview theme={doc.theme} semantic="body" />
-      <button onClick={() => onTheme('palette')}>Document palette <PanelIcon name="sliders" /></button>
-    </InspectorGroup>
   </div>
 }
 
