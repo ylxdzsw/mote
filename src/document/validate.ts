@@ -246,7 +246,8 @@ export function validateDocument(value: unknown): asserts value is MoteDocument 
   if (document.version !== 'V0') invalid('unsupported document version')
   if ('language' in document && !['en', 'zh-Hans'].includes(document.language as string)) invalid('document.language is unsupported')
   if ('aiModel' in document) aiModel(document.aiModel, 'document.aiModel')
-  if ('notes' in document && typeof document.notes !== 'string') invalid('document.notes must be plain text')
+  if ('notes' in document && typeof document.notes !== 'string'
+    && !(Array.isArray(document.notes) && document.notes.every(note => typeof note === 'string'))) invalid('document.notes must be plain text or an array of plain-text notes')
   identifier(document.id, 'document.id')
   finite(document.width, 'document.width', Number.MIN_VALUE)
   const margins = record(document.margins, 'document.margins')

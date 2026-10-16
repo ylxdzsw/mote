@@ -10,25 +10,30 @@ export interface ViewSettings {
 const storageKey = 'mote-view-settings'
 const defaults: ViewSettings = { minimap: 'auto', minimapSize: 'proportional', notesOpen: false, notesHeight: 200 }
 
-export function useViewSettings(persist = true) {
-  const [settings, setSettings] = useState<ViewSettings>(() => {
-    if (!persist) return defaults
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}')
-      return {
-        minimap: ['auto', 'show', 'hide'].includes(saved.minimap) ? saved.minimap : defaults.minimap,
-        minimapSize: ['proportional', 'fit'].includes(saved.minimapSize) ? saved.minimapSize : defaults.minimapSize,
-        notesOpen: saved.notesOpen === true,
-        notesHeight: typeof saved.notesHeight === 'number' && Number.isFinite(saved.notesHeight) ? Math.max(72, saved.notesHeight) : defaults.notesHeight,
-      }
-    } catch { return defaults }
+function readSettings(): ViewSettings {
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) ?? '{}')
+    return {
+      minimap: ['auto', 'show', 'hide'].includes(saved.minimap) ? saved.minimap : defaults.minimap,
+      minimapSize: ['proportional', 'fit'].includes(saved.minimapSize) ? saved.minimapSize : defaults.minimapSize,
+      notesOpen: saved.notesOpen === true,
+      notesHeight: typeof saved.notesHeight === 'number' && Number.isFinite(saved.notesHeight) ? Math.max(72, saved.notesHeight) : defaults.notesHeight,
+    }
+  } catch { return defaults }
+}
+
+// Each surface owns its preference keys, without rerendering unrelated surfaces.
+export function useViewSettings<K extends keyof ViewSettings>(keys: readonly K[], persist = true) {
+  const [settings, setSettings] = useState<Pick<ViewSettings, K>>(() => {
+    const saved = persist ? readSettings() : defaults
+    return Object.fromEntries(keys.map(key => [key, saved[key]])) as Pick<ViewSettings, K>
   })
   const [saveError, setSaveError] = useState(false)
 
-  function update(next: ViewSettings) {
+  function update(next: Pick<ViewSettings, K>) {
     setSettings(next)
     if (!persist) return
-    try { localStorage.setItem(storageKey, JSON.stringify(next)); setSaveError(false) }
+    try { localStorage.setItem(storageKey, JSON.stringify({ ...readSettings(), ...next })); setSaveError(false) }
     catch { setSaveError(true) }
   }
 
@@ -36,8 +41,8 @@ export function useViewSettings(persist = true) {
 }
 
 export function GlobalSettings({ settings, onChange, saveError, persist = true }: {
-  settings: ViewSettings
-  onChange: (settings: ViewSettings) => void
+  settings: Pick<ViewSettings, 'minimap' | 'minimapSize'>
+  onChange: (settings: Pick<ViewSettings, 'minimap' | 'minimapSize'>) => void
   saveError: boolean
   persist?: boolean
 }) {

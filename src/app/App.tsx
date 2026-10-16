@@ -100,7 +100,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const mobile = useMedia('(max-width: 767px)')
   const smallScreen = useMedia('(max-width: 1050px)')
   const editable = writable && assistant.loaded && !mobile && mode === 'edit'
-  const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings()
+  const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
   const [viewSettingsOpen, setViewSettingsOpen] = useState(false)
   const [documentSettingsOpen, setDocumentSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
@@ -553,7 +553,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
         onContextMenu={handleCanvasContextMenu} />
-      {editable && <DocumentNotes value={doc.notes ?? ''} settings={settings} onSettings={updateSettings}
+      {editable && <DocumentNotes key={doc.id} value={doc.notes ?? ''}
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
     {editable && <Launchpad

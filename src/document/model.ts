@@ -161,7 +161,7 @@ export interface MoteDocument {
   id: string
   language?: DocumentLanguage
   aiModel?: string
-  notes?: string
+  notes?: string | string[]
   width: number
   margins: { top: number; right: number; bottom: number; left: number }
   theme: Theme

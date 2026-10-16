@@ -258,7 +258,7 @@ test('snapshot pins acknowledged revision, latest resolves head; deletion revoke
   assert.equal((await value.call('GET', `documents/${randomUUID()}`)).status, 404)
 })
 
-test('Notes round-trip through saves, validate as text, affect retries, and stay out of public shares', async t => {
+test('Notes round-trip through saves, validate as text or multiple notes, affect retries, and stay out of public shares', async t => {
   const value = await app(t), doc = document()
   doc.notes = 'Outline and unverified plan'
   const original = await create(value, doc), base = `documents/${original.id}`
@@ -266,14 +266,14 @@ test('Notes round-trip through saves, validate as text, affect retries, and stay
   const snapshot = (await value.call('POST', `${base}/shares`, { mode: 'snapshot', revision: original.revision })).body
   const latest = (await value.call('POST', `${base}/shares`, { mode: 'latest' })).body
 
-  const updatedDocument = { ...original.document, notes: 'Updated working notes' }
+  const updatedDocument = { ...original.document, notes: ['Updated working notes', 'Another outline', ''] }
   const operation = { baseRevision: original.revision, document: updatedDocument, operationId: randomUUID() }
   const saved = await value.call('PUT', base, operation)
   assert.equal(saved.status, 200)
-  assert.equal(saved.body.document.notes, updatedDocument.notes)
-  assert.equal((await value.call('GET', base)).body.document.notes, updatedDocument.notes)
+  assert.deepEqual(saved.body.document.notes, updatedDocument.notes)
+  assert.deepEqual((await value.call('GET', base)).body.document.notes, updatedDocument.notes)
   assert.equal((await value.call('PUT', base, { ...operation, document: { ...updatedDocument, notes: 'Different retry input' } })).status, 409)
-  for (const notes of [null, 1, { text: 'not plain text' }]) {
+  for (const notes of [null, 1, { text: 'not plain text' }, ['Valid note', null], [1], [['Nested note']]]) {
     assert.equal((await value.call('PUT', base, {
       baseRevision: saved.body.revision, document: { ...updatedDocument, notes }, operationId: randomUUID(),
     })).status, 400)

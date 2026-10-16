@@ -42,6 +42,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     const container = pane.current!
     let frame = 0
     let dirty = true
+    let scrollHeight = 0
     let bookmarks: Bookmark[] = []
 
     function bookmarkFocusOffset() { return Math.min(120, viewport.clientHeight * .15) }
@@ -49,7 +50,6 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     function paint() {
       frame = 0
       if (dirty) {
-        dirty = false
         // An inert DOM snapshot shares the real layout and theme, without another editor.
         const miniature = source.cloneNode(true) as HTMLDivElement
         miniature.className = 'sheet is-reading minimap-sheet'
@@ -61,6 +61,13 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
           }
           node.classList.remove('ProseMirror-selectednode', 'ProseMirror-focused', 'is-selected', 'selectedCell')
         })
+        image.current!.replaceChildren(miniature)
+      }
+      // Overlay clearance changes scroll geometry, not the document snapshot.
+      if (dirty || scrollHeight !== viewport.scrollHeight) {
+        dirty = false
+        scrollHeight = viewport.scrollHeight
+        const miniature = image.current!.firstElementChild as HTMLDivElement
         const rect = source.getBoundingClientRect()
         const size = nativeSize(source)
         const zoom = rect.width / size.width
@@ -80,7 +87,6 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
           thumbHeight,
         }
         miniature.style.transform = `translate(6px, ${pageTop * y}px) scale(${x}, ${y})`
-        image.current!.replaceChildren(miniature)
 
         const paragraphs = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic]:not(.ai-original-hidden)')]
         const titles = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'title')
@@ -153,6 +159,8 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     function refresh() { dirty = true; schedule() }
     const mutation = new MutationObserver(refresh)
     mutation.observe(source, { subtree: true, childList: true, characterData: true, attributes: true })
+    const workspace = new MutationObserver(schedule)
+    workspace.observe(viewport.closest('.workspace')!, { attributes: true, attributeFilter: ['style'] })
     const resize = new ResizeObserver(refresh)
     resize.observe(viewport)
     resize.observe(source)
@@ -172,6 +180,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     return () => {
       cancelAnimationFrame(frame)
       mutation.disconnect()
+      workspace.disconnect()
       resize.disconnect()
       navigation.replaceChildren()
       document.fonts.removeEventListener('loadingdone', refresh)
