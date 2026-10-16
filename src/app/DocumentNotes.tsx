@@ -23,7 +23,7 @@ export function DocumentNotes({ value, settings, onSettings, onFocus }: {
   }, [])
 
   return <section ref={pane} className={`document-notes ${settings.notesOpen ? 'is-open' : ''}`} aria-label="Notes"
-    style={{ height: settings.notesOpen ? height : 32 }}>
+    style={{ height: settings.notesOpen ? height : 24 }}>
     {settings.notesOpen && <div className="notes-divider" role="separator" aria-label="Resize notes" aria-orientation="horizontal"
       aria-controls="document-notes-input" aria-valuemin={72} aria-valuemax={maxHeight} aria-valuenow={height} tabIndex={0}
       onPointerDown={event => {

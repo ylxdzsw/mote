@@ -1215,3 +1215,7 @@ Document settings no longer embeds the former inspector sidebar inside a dialog:
 Verification: production type/build and whitespace checks pass. Isolated fake-backed Chromium checks cover Layout/Theme/Palette appearance, one close control and no nested inspector, immediate width edits, linked margins, keyboard tab switching, compact 768×500 scrolling without horizontal overflow, Escape, Export dialog access, and mobile closure/noneditable behavior. Screenshots reviewed; no browser exceptions. No backend changes, new dependencies, or general regression tests. Static deployment preserves cloud documents.
 
 Deployed the static build and validated/reloaded Nginx. Live HTML references the current build; all six JS/CSS assets match byte-for-byte with no-store responses. moted remains active without restart; production cloud data was not accessed or modified. Task-owned local backend, Vite server, and browser are stopped.
+
+## 2026-10-16 — Compact Notes spacing
+
+Notes uses terminal-like 13px text on 16px rows (formerly 21.44px), 4px vertical editor/gutter padding, and a 24px header including its border (formerly 32px). Full-row toggling, line-number alignment, caret reveal, and saved pane height remain intact; floating Code typography is unchanged. Production build and scoped isolated-fake Chromium checks pass for row/gutter geometry, collapsed height, toggling, and caret visibility; screenshot reviewed. Deployed and verified live HTML and main JS/CSS against the build with no-store HTML. Cloud data untouched.
