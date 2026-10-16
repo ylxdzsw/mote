@@ -124,8 +124,8 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .notes-divider { position: absolute; z-index: 2; top: -4px; height: 7px; width: 100%; cursor: row-resize; touch-action: none; }
 .notes-divider:hover, .notes-divider:focus-visible { background: var(--ui-accent-tint); outline: none; border-top: 1px solid var(--ui-accent-border); }
 .workspace.reader { display: block; }
-.canvas-pane { --minimap-width: 100px; --bookmark-width: 96px; position: relative; min-width: 0; height: 100%; min-height: 0; background: var(--page-background, var(--ui-canvas)); }
-.canvas-pane.has-minimap { display: grid; grid-template-columns: var(--minimap-width) minmax(0, 1fr); }
+.canvas-pane { --minimap-width: 100px; --bookmark-width: 96px; --bookmark-folded-width: 10px; position: relative; min-width: 0; height: 100%; min-height: 0; background: var(--page-background, var(--ui-canvas)); }
+.canvas-pane.has-minimap { display: grid; grid-template-columns: calc(var(--minimap-width) + var(--bookmark-folded-width)) minmax(0, 1fr); }
 .has-minimap .stage { grid-column: 2; grid-row: 1; }
 .stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 32px 24px 64px; min-width: 0; background: inherit; }
 .stage::-webkit-scrollbar { display: none; }
@@ -140,14 +140,14 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .minimap.is-dragging, .minimap.is-dragging .minimap-hit { cursor: grabbing; }
 .minimap.is-dragging .minimap-viewport { background: color-mix(in srgb, var(--ui-workspace-ink) 22%, transparent); }
 .minimap[data-scrollable='false'], .minimap[data-scrollable='false'] .minimap-hit { cursor: default; }
-.minimap-bookmarks { position: absolute; left: 100%; top: 0; bottom: 0; width: var(--bookmark-width); overflow: auto; scrollbar-width: none; overscroll-behavior: contain; pointer-events: none; }
+.minimap-bookmarks { position: absolute; left: var(--minimap-width); top: 0; bottom: 0; width: var(--bookmark-width); overflow: auto; scrollbar-width: none; overscroll-behavior: contain; pointer-events: none; }
 .minimap-pane:hover .minimap-bookmarks { pointer-events: auto; }
 .minimap-bookmarks button { pointer-events: auto; }
 .minimap-bookmarks::-webkit-scrollbar { display: none; }
 .minimap-bookmark { position: absolute; left: 0; max-width: calc(100% - 6px); height: 18px; padding: 1px 4px; border: 1px solid var(--ui-border); border-left: 2px solid var(--ui-border-strong); border-radius: 0 4px 4px 0; background: var(--ui-surface); color: var(--ui-muted); font-size: 9px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
 .minimap-bookmark-title { font-weight: 600; border-left-width: 4px; }
 .minimap-bookmark[aria-current='location'] { color: var(--ui-accent); background: var(--ui-accent-surface); border-color: var(--ui-accent-border); }
-.minimap-pane:not(:hover) .minimap-bookmark:not(:focus-visible) { max-width: 10px; padding-inline: 0; color: transparent; text-overflow: clip; }
+.minimap-pane:not(:hover) .minimap-bookmark:not(:focus-visible) { max-width: var(--bookmark-folded-width); padding-inline: 0; color: transparent; text-overflow: clip; }
 .minimap-bookmark:focus-visible { outline-offset: -2px; }
 .header-zoom { flex: none; }
 .header-zoom .zoom-controls { gap: 0; padding: 0; border: 0; border-radius: 4px; }
