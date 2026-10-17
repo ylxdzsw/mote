@@ -47,7 +47,7 @@ export function GlobalSettings({ settings, onChange, saveError, persist = true }
   persist?: boolean
 }) {
   return <section className="panel-section">
-    <h2>Global settings</h2>
+    <h2>Display</h2>
     <label>Minimap
       <select aria-label="Minimap visibility" value={settings.minimap}
         onChange={event => onChange({ ...settings, minimap: event.target.value as ViewSettings['minimap'] })}>

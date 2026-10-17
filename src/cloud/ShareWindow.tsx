@@ -1,5 +1,8 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import type { MoteDocument } from '../document/model'
+import { DocumentFiles } from '../app/DocumentFiles'
 import { cloudRequest, type Share } from './api'
+import { useConnection } from './connection'
 import './cloud.css'
 
 interface Props {
@@ -10,7 +13,10 @@ interface Props {
   dirty: boolean
   privateDocument: boolean
   sync: () => Promise<{ revision: string } | null>
+  doc: MoteDocument
 }
+
+type Tab = 'link' | 'file'
 
 const labels = { snapshot: 'Current snapshot', latest: 'Latest version' }
 const shareUrl = (token: string) => new URL(`/s/${encodeURIComponent(token)}`, window.location.origin).href
@@ -20,40 +26,60 @@ export function ShareWindow({ open, ...props }: Props) {
   return open ? <ShareDialog key={props.documentId} {...props} /> : null
 }
 
-function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync }: Omit<Props, 'open'>) {
+function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, doc }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
+  const tabButtons = useRef<Record<Tab, HTMLButtonElement | null>>({ link: null, file: null })
   const active = useRef(true)
-  const locked = useRef(true)
-  const [busy, setBusy] = useState('Loading share links…')
+  const locked = useRef(false)
+  const connection = useConnection()
+  const [tab, setTab] = useState<Tab>(() => privateDocument || connection.offline ? 'file' : 'link')
+  const [busy, setBusy] = useState('')
+  const [fileBusy, setFileBusy] = useState(false)
+  const [shareLoading, setShareLoading] = useState(false)
+  const [refresh, setRefresh] = useState(0)
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
   const [shares, setShares] = useState<Share[]>([])
   const [mode, setMode] = useState<Share['mode']>('snapshot')
   const [revoke, setRevoke] = useState<string | null>(null)
   const path = `/api/documents/${encodeURIComponent(documentId)}/shares`
+  const linkBusy = !!busy || shareLoading || connection.offline
 
   useEffect(() => {
-    let canceled = false
-    const element = dialog.current!
+    const element = dialog.current
+    if (!element) return
     active.current = true
     if (!element.open) element.showModal()
-    setBusy(privateDocument ? '' : 'Loading share links…')
-    locked.current = !privateDocument
-    if (privateDocument) {
-      setShares([]); setError(''); setResult(''); setBusy(''); locked.current = false
-      return () => { canceled = true; active.current = false; element.close() }
+    return () => {
+      active.current = false
+      if (element.open) element.close()
     }
+  }, [])
+
+  useEffect(() => {
+    if (privateDocument || connection.offline) setTab('file')
+    if (privateDocument) { setShares([]); setError(''); setRevoke(null) }
+  }, [privateDocument, connection.offline])
+
+  useEffect(() => {
+    if (tab !== 'link' || privateDocument || connection.offline) {
+      setShareLoading(false)
+      return
+    }
+    let canceled = false
+    setShareLoading(true)
+    setError('')
     void cloudRequest<{ shares: Share[] }>(path)
       .then(data => { if (!canceled) setShares(data.shares) })
       .catch(error => { if (!canceled) setError(message(error)) })
-      .finally(() => { if (!canceled) { locked.current = false; setBusy('') } })
-    return () => { canceled = true; active.current = false; element.close() }
-  }, [path, privateDocument])
+      .finally(() => { if (!canceled) setShareLoading(false) })
+    return () => { canceled = true; setShareLoading(false) }
+  }, [path, tab, privateDocument, connection.offline, refresh])
 
   async function run(label: string, task: () => Promise<void>) {
     if (privateDocument) { setError('Private documents cannot be shared. Turn off Private in Document settings first.'); return }
-    if (locked.current) return
+    if (shareLoading || locked.current || !active.current) return
     locked.current = true
     setBusy(label); setError(''); setResult('')
     try { await task() }
@@ -88,58 +114,98 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync }
     })
   }
 
-  return <dialog ref={dialog} className="cloud-dialog cloud-share" aria-labelledby={titleId} aria-describedby={`${titleId}-hint`} aria-busy={!!busy}
-    onCancel={event => { event.preventDefault(); if (!locked.current) onClose() }} onKeyDown={event => event.stopPropagation()}>
+  function closeDialog() {
+    if (locked.current || fileBusy) return
+    onClose()
+  }
+
+  function selectTab(next: Tab) {
+    if (next === 'link' && privateDocument) return
+    if (busy || fileBusy) return
+    setTab(next)
+  }
+
+  function onTabKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    const order: Tab[] = privateDocument ? ['file'] : ['link', 'file']
+    const current = order.indexOf(tab)
+    if (current < 0) return
+    let next = current
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = (current + 1) % order.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') next = (current + order.length - 1) % order.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = order.length - 1
+    else return
+    event.preventDefault()
+    const nextTab = order[next]
+    selectTab(nextTab)
+    requestAnimationFrame(() => tabButtons.current[nextTab]?.focus())
+  }
+
+  return <dialog ref={dialog} className="cloud-dialog cloud-share" aria-labelledby={titleId} aria-describedby={`${titleId}-hint`}
+    aria-busy={!!busy || shareLoading || fileBusy}
+    onCancel={event => { event.preventDefault(); closeDialog() }} onKeyDown={event => event.stopPropagation()}>
     <header className="cloud-heading"><h1 id={titleId}>Share — {name}</h1>
-      <button type="button" className="cloud-button cloud-close" aria-label="Close sharing" disabled={!!busy} onClick={onClose}>×</button>
+      <button type="button" className="cloud-button cloud-close" aria-label="Close share dialog" disabled={!!busy || fileBusy} onClick={closeDialog}>×</button>
     </header>
     <div className="cloud-body">
-      <p id={`${titleId}-hint`} className="cloud-hint">{privateDocument
-        ? 'Private documents cannot be shared. Turn off Private in Document settings to create or use share links.'
-        : 'Anyone with a link can read this document without signing in. Internal notes are excluded. Revoke a link to stop future access.'}</p>
-      <fieldset className="cloud-share-modes" disabled={!!busy || privateDocument}>
-        <legend>Link type</legend>
-        <label className="cloud-share-mode"><input type="radio" name={`${titleId}-mode`} value="snapshot" checked={mode === 'snapshot'} onChange={() => setMode('snapshot')} />
-          <span><strong>Current snapshot</strong><span className="cloud-detail">Saves your changes first, then pins that exact revision. Later edits will not change this link.</span></span>
-        </label>
-        <label className="cloud-share-mode"><input type="radio" name={`${titleId}-mode`} value="latest" checked={mode === 'latest'} onChange={() => setMode('latest')} />
-          <span><strong>Latest version</strong><span className="cloud-detail">Shows the cloud copy saved when the link opens. An open link does not refresh in the background. An existing Latest version link is reused.</span></span>
-        </label>
-      </fieldset>
-      {!privateDocument && dirty && <p className="cloud-pending" role="status">Unsynced changes are not included in Latest version links.</p>}
-      <div className="cloud-actions"><button type="button" className="cloud-button" disabled={!!busy || privateDocument || !documentId} onClick={createLink}>Create link</button></div>
-      {!privateDocument && <section className="cloud-shares" aria-labelledby={`${titleId}-existing`}>
-        <div className="cloud-preview-heading"><h2 id={`${titleId}-existing`} className="cloud-section-title">Existing links</h2>
-          <button type="button" className="cloud-button" disabled={!!busy || privateDocument} onClick={() => { void run('Refreshing share links…', async () => {
-            const data = await cloudRequest<{ shares: Share[] }>(path)
-            setShares(data.shares); setRevoke(null)
-          }) }}>Refresh</button>
-        </div>
-        {!shares.length && <p className="cloud-empty">{busy ? 'Loading…' : 'No share links yet.'}</p>}
-        <ul className="cloud-share-list">
-          {[...shares].sort((a, b) => b.createdAt - a.createdAt).map(share => <li key={share.id}>
-            <strong>{labels[share.mode]}</strong>
-            <span className="cloud-detail">Created <time dateTime={new Date(share.createdAt).toISOString()}>{new Date(share.createdAt).toLocaleString()}</time>
-              {share.revision !== null && <> · Revision {share.revision}</>}</span>
-            <input className="cloud-link" type="text" readOnly disabled={!!busy} value={shareUrl(share.token)} aria-label={`${labels[share.mode]} URL`}
-              onFocus={event => event.currentTarget.select()} />
-            <div className="cloud-actions"><button type="button" className="cloud-button" disabled={!!busy} onClick={() => copyLink(share)}>Copy link</button>
-              <button type="button" className="cloud-button cloud-danger" disabled={!!busy} onClick={() => setRevoke(share.id)}>Revoke</button></div>
-            {revoke === share.id && <section className="cloud-confirm" aria-label="Revoke share link">
-              <p className="cloud-hint">Revoke this link? It will stop opening the document. Copies already viewed or downloaded cannot be recalled.</p>
-              <div className="cloud-actions"><button type="button" className="cloud-button" disabled={!!busy} onClick={() => setRevoke(null)}>Cancel</button>
-                <button type="button" className="cloud-button cloud-danger" disabled={!!busy} onClick={() => { void run('Revoking link…', async () => {
-                  await cloudRequest(`${path}/${encodeURIComponent(share.id)}`, 'DELETE')
-                  setShares(items => items.filter(item => item.id !== share.id)); setRevoke(null); setResult('Share link revoked.')
-                }) }}>Revoke link</button></div>
-            </section>}
-          </li>)}
-        </ul>
-      </section>}
+      <div className="cloud-tabs" role="tablist" aria-label="Share options" onKeyDown={onTabKeyDown}>
+        <button ref={element => { tabButtons.current.link = element }} type="button" className="cloud-tab" role="tab" id={`${titleId}-link-tab`}
+          aria-controls={`${titleId}-link-panel`} aria-selected={tab === 'link'} tabIndex={tab === 'link' ? 0 : -1}
+          disabled={privateDocument || !!busy || fileBusy} title={privateDocument ? 'Link sharing is disabled for Private documents.' : undefined} onClick={() => selectTab('link')}>Link</button>
+        <button ref={element => { tabButtons.current.file = element }} type="button" className="cloud-tab" role="tab" id={`${titleId}-file-tab`}
+          aria-controls={`${titleId}-file-panel`} aria-selected={tab === 'file'} tabIndex={tab === 'file' ? 0 : -1}
+          disabled={!!busy || fileBusy} onClick={() => selectTab('file')}>File</button>
+      </div>
+      <p id={`${titleId}-hint`} className="cloud-hint">{tab === 'file'
+        ? privateDocument ? 'This document is Private. Link sharing is disabled; you can still export a file.' : 'Download an independent copy to keep or share.'
+        : connection.offline ? 'You’re offline. Reconnect to manage links, or use File to export a copy.'
+          : 'Anyone with a link can read this document without signing in. Internal notes are excluded. Revoke a link to stop future access.'}</p>
+      <section id={`${titleId}-link-panel`} role="tabpanel" aria-labelledby={`${titleId}-link-tab`} hidden={tab !== 'link'}>
+        <fieldset className="cloud-share-modes" disabled={linkBusy || privateDocument}>
+          <legend>Link type</legend>
+          <label className="cloud-share-mode"><input type="radio" name={`${titleId}-mode`} value="snapshot" checked={mode === 'snapshot'} onChange={() => setMode('snapshot')} />
+            <span><strong>Current snapshot</strong><span className="cloud-detail">Saves your changes first, then pins that exact revision. Later edits will not change this link.</span></span>
+          </label>
+          <label className="cloud-share-mode"><input type="radio" name={`${titleId}-mode`} value="latest" checked={mode === 'latest'} onChange={() => setMode('latest')} />
+            <span><strong>Latest version</strong><span className="cloud-detail">Shows the cloud copy saved when the link opens. An open link does not refresh in the background. An existing Latest version link is reused.</span></span>
+          </label>
+        </fieldset>
+        {!privateDocument && dirty && <p className="cloud-pending" role="status">Unsynced changes are not included in Latest version links.</p>}
+        <div className="cloud-actions"><button type="button" className="cloud-button" disabled={linkBusy || privateDocument || !documentId} onClick={createLink}>Create link</button></div>
+        {!privateDocument && <section className="cloud-shares" aria-labelledby={`${titleId}-existing`}>
+          <div className="cloud-preview-heading"><h2 id={`${titleId}-existing`} className="cloud-section-title">Existing links</h2>
+            <button type="button" className="cloud-button" disabled={linkBusy || privateDocument}
+              onClick={() => { setRevoke(null); setRefresh(value => value + 1) }}>Refresh</button>
+          </div>
+          {!shares.length && <p className="cloud-empty">{shareLoading ? 'Loading…' : 'No share links yet.'}</p>}
+          <ul className="cloud-share-list">
+            {[...shares].sort((a, b) => b.createdAt - a.createdAt).map(share => <li key={share.id}>
+              <strong>{labels[share.mode]}</strong>
+              <span className="cloud-detail">Created <time dateTime={new Date(share.createdAt).toISOString()}>{new Date(share.createdAt).toLocaleString()}</time>
+                {share.revision !== null && <> · Revision {share.revision}</>}</span>
+              <input className="cloud-link" type="text" readOnly disabled={linkBusy} value={shareUrl(share.token)} aria-label={`${labels[share.mode]} URL`}
+                onFocus={event => event.currentTarget.select()} />
+              <div className="cloud-actions"><button type="button" className="cloud-button" disabled={linkBusy} onClick={() => copyLink(share)}>Copy link</button>
+                <button type="button" className="cloud-button cloud-danger" disabled={linkBusy} onClick={() => setRevoke(share.id)}>Revoke</button></div>
+              {revoke === share.id && <section className="cloud-confirm" aria-label="Revoke share link">
+                <p className="cloud-hint">Revoke this link? It will stop opening the document. Copies already viewed or downloaded cannot be recalled.</p>
+                <div className="cloud-actions"><button type="button" className="cloud-button" disabled={linkBusy} onClick={() => setRevoke(null)}>Cancel</button>
+                  <button type="button" className="cloud-button cloud-danger" disabled={linkBusy} onClick={() => { void run('Revoking link…', async () => {
+                    await cloudRequest(`${path}/${encodeURIComponent(share.id)}`, 'DELETE')
+                    setShares(items => items.filter(item => item.id !== share.id)); setRevoke(null); setResult('Share link revoked.')
+                  }) }}>Revoke link</button></div>
+              </section>}
+            </li>)}
+          </ul>
+        </section>}
+      </section>
+      <section id={`${titleId}-file-panel`} role="tabpanel" aria-labelledby={`${titleId}-file-tab`} hidden={tab !== 'file'}>
+        <DocumentFiles doc={doc} onBusyChange={setFileBusy} />
+      </section>
     </div>
-    <footer className="cloud-feedback">
-      <p className="cloud-status" role="status">{busy || result}</p>
+    {tab === 'link' && <footer className="cloud-feedback">
+      <p className="cloud-status" role="status">{busy || (shareLoading ? 'Loading share links…' : result)}</p>
       {error && <p className="cloud-error" role="alert">{error}</p>}
-    </footer>
+    </footer>}
   </dialog>
 }

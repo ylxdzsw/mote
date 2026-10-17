@@ -20,8 +20,7 @@ import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
-import { DocumentFiles } from './DocumentFiles'
-import { HeaderMenu } from './HeaderMenu'
+import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
@@ -57,7 +56,7 @@ function DraftSession({ copy, onFiles, onOpen }: CloudEditorProps) {
   return <DraftApp key={state.epoch} initial={state.record.document} copy={copy} onFiles={onFiles} onOpen={onOpen} />
 }
 
-function PopupDialog({ open, onClose, title, actions, children }: { open: boolean; onClose: () => void; title: string; actions?: React.ReactNode; children: React.ReactNode }) {
+function PopupDialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     if (open) ref.current?.showModal()
@@ -74,7 +73,7 @@ function PopupDialog({ open, onClose, title, actions, children }: { open: boolea
     <div className="settings-dialog-inner">
       <div className="settings-dialog-header">
         <h2>{title}</h2>
-        <div className="settings-dialog-actions">{actions}<button aria-label="Close" onClick={onClose}>×</button></div>
+        <div className="settings-dialog-actions"><button aria-label="Close settings" onClick={onClose}>×</button></div>
       </div>
       {children}
     </div>
@@ -103,10 +102,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const smallScreen = useMedia('(max-width: 1050px)')
   const editable = writable && assistant.loaded && !mobile && mode === 'edit'
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
-  const [viewSettingsOpen, setViewSettingsOpen] = useState(false)
-  const [documentSettingsOpen, setDocumentSettingsOpen] = useState(false)
-  const [exportOpen, setExportOpen] = useState(false)
-  useEffect(() => { if (assistant.open) { setDocumentSettingsOpen(false); setViewSettingsOpen(false) } }, [assistant.open])
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<'document' | 'workspace' | 'browser'>('document')
+  useEffect(() => { if (assistant.open) setSettingsOpen(false) }, [assistant.open])
   const [settingsTab, setSettingsTab] = useState<'layout' | 'theme'>('layout')
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
   const showInspector = editable
@@ -128,24 +126,22 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   useEffect(() => {
     if (editable) return
-    setDocumentSettingsOpen(false)
-    setViewSettingsOpen(false)
-    setExportOpen(false)
+    setSettingsOpen(false)
+    setShareOpen(false)
     setLaunchpadPoint(null)
     setLaunchpadAnchor(null)
   }, [editable])
 
   useEffect(() => {
-    if (!documentSettingsOpen && !viewSettingsOpen && !assistant.open) return
+    if (!settingsOpen && !assistant.open) return
     actions.current?.clearSelection()
     setActiveEditor(null)
-  }, [documentSettingsOpen, viewSettingsOpen, assistant.open])
+  }, [settingsOpen, assistant.open])
 
   function showContext(_event?: React.SyntheticEvent) {
-    if (!editable || !documentSettingsOpen && !viewSettingsOpen && !assistant.open) return
+    if (!editable || !settingsOpen && !assistant.open) return
     history.boundary()
-    setDocumentSettingsOpen(false)
-    setViewSettingsOpen(false)
+    setSettingsOpen(false)
     assistant.setOpen(false)
   }
 
@@ -326,8 +322,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     history.boundary()
     setThemeClass(className as ThemeClass)
     setSettingsTab('theme')
-    setDocumentSettingsOpen(true)
-    setViewSettingsOpen(false)
+    setSettingsOpen(true)
+    setSettingsSection('document')
     assistant.setOpen(false)
   }
 
@@ -434,24 +430,25 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         <div className="header-zoom" ref={setZoomHost} />
         {editable && <button className="header-icon-btn" aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'} title="Minimap" aria-pressed={showMinimap}
           onClick={() => updateSettings({ ...settings, minimap: showMinimap ? 'hide' : 'show' })}><PanelIcon name="map" /></button>}
-        {editable && <HeaderMenu compact={smallScreen} documentSettingsOpen={documentSettingsOpen} preferencesOpen={viewSettingsOpen}
-          onDocumentSettings={() => { history.boundary(); setDocumentSettingsOpen(!documentSettingsOpen); setViewSettingsOpen(false); assistant.setOpen(false) }}
-          onShare={() => setShareOpen(true)} sharingBlocked={sharingBlocked} onExport={() => setExportOpen(true)}
-          onPreferences={() => { setViewSettingsOpen(true); setDocumentSettingsOpen(false); assistant.setOpen(false) }}
-          onReset={() => {
+        {editable && <>
+          <button className="header-icon-btn" aria-label="Share" title="Share or export" aria-haspopup="dialog" aria-expanded={shareOpen}
+            onClick={() => setShareOpen(true)}><PanelIcon name="share" /></button>
+          <button className="header-icon-btn" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
+            onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen); assistant.setOpen(false) }}><PanelIcon name="settings" /></button>
+          <button className="header-icon-btn" aria-label="Reset to example" title="Reset to example" aria-haspopup="dialog" onClick={() => {
             if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
             assistant.abandonAll()
             const replacement = { ...createDocument(), id: doc.id }
             copy.replaceLocal(replacement)
             void copy.sync()
-          }} />}
+          }}><PanelIcon name="reset" /></button>
+        </>}
         {!mobile && <button className="read-button" aria-label={mode === 'edit' ? 'Read document' : 'Edit document'} aria-pressed={mode === 'read'}
           onClick={() => setMode(mode === 'edit' ? 'read' : 'edit')}><PanelIcon name={mode === 'edit' ? 'book' : 'edit'} /><span>{mode === 'edit' ? 'Read' : 'Edit'}</span></button>}
       </div>
     </header>
 
-    <DocumentFiles doc={doc} active={editable} open={exportOpen} onClose={() => setExportOpen(false)} />
-    <ShareWindow open={shareOpen} onClose={() => setShareOpen(false)} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} />
+    <ShareWindow open={editable && shareOpen} onClose={() => setShareOpen(false)} doc={doc} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} />
     {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
       <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
         : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`
@@ -480,22 +477,39 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>x</button></div>}
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>x</button>}</div>}
 
-    <PopupDialog open={editable && documentSettingsOpen} onClose={() => { history.boundary(); setDocumentSettingsOpen(false) }} title="Document settings"
-      actions={<button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
-        title={cloud.record.meta.private
-          ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
-          : 'Not private. Click to block public sharing and external agents. The built-in agent remains available.'}
-        disabled={cloud.privacy.busy || !!cloud.privacy.pending}
-        onClick={() => void copy.setPrivate(!cloud.record.meta.private, count => window.confirm(
-          `Make "${cloud.record.meta.name}" private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
-        ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /></button>}>
-      <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
-        selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} privacy={cloud.privacy}
-        onPrivacyRetry={() => void copy.retryPrivacy()}
-        onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
-    </PopupDialog>
-    <PopupDialog open={editable && viewSettingsOpen} onClose={() => setViewSettingsOpen(false)} title="Browser preferences">
-      <div className="settings-dialog-section">
+    <PopupDialog open={editable && settingsOpen} onClose={() => { history.boundary(); setSettingsOpen(false) }} title="Settings">
+      <div className="settings-tabs settings-scopes" role="tablist" aria-label="Settings scope">
+        {(['document', 'workspace', 'browser'] as const).map((section, index, sections) => <button key={section} id={`settings-${section}-tab`}
+          role="tab" aria-selected={settingsSection === section} aria-controls={`settings-${section}-panel`} tabIndex={settingsSection === section ? 0 : -1}
+          onClick={() => { history.boundary(); setSettingsSection(section) }} onKeyDown={event => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+            event.preventDefault(); history.boundary()
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + sections.length) % sections.length
+            setSettingsSection(sections[next]); document.getElementById(`settings-${sections[next]}-tab`)?.focus()
+          }}>{section[0].toUpperCase() + section.slice(1)}</button>)}
+      </div>
+      <div className="settings-scope-panel settings-document" id="settings-document-panel" role="tabpanel" aria-labelledby="settings-document-tab" hidden={settingsSection !== 'document'}>
+        <div className="settings-document-heading">
+          <p>Layout and theme for this document.</p>
+          <button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
+            title={cloud.record.meta.private
+              ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
+              : 'Not private. Click to block public sharing and external agents. The built-in agent remains available.'}
+            disabled={cloud.privacy.busy || !!cloud.privacy.pending}
+            onClick={() => void copy.setPrivate(!cloud.record.meta.private, count => window.confirm(
+              `Make "${cloud.record.meta.name}" private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
+            ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /><span>Private</span></button>
+        </div>
+        <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
+          selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} privacy={cloud.privacy}
+          onPrivacyRetry={() => void copy.retryPrivacy()}
+          onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
+      </div>
+      <div className="settings-scope-panel settings-dialog-section" id="settings-workspace-panel" role="tabpanel" aria-labelledby="settings-workspace-tab" hidden={settingsSection !== 'workspace'}>
+        <p className="settings-dialog-note">Shared across all documents. Use Save settings to apply changes.</p>
+        <WorkspaceSettings active={editable && settingsOpen && settingsSection === 'workspace'} />
+      </div>
+      <div className="settings-scope-panel settings-dialog-section" id="settings-browser-panel" role="tabpanel" aria-labelledby="settings-browser-tab" hidden={settingsSection !== 'browser'}>
         <p className="settings-dialog-note">These settings are saved in this browser only.</p>
         <GlobalSettings settings={settings} onChange={updateSettings} saveError={settingsSaveError} />
       </div>

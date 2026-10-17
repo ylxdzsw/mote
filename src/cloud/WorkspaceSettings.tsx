@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { requestJSON, RequestError } from './connection'
 
 interface ModelSettings {
@@ -104,9 +104,7 @@ function requestSettings(method: 'GET' | 'PUT', body: unknown, controller: Abort
   return managementRequest('/api/settings', method, body, controller, value => parseSettings(value, 0))
 }
 
-export function ManagementMenu() {
-  const panelId = useId()
-  const [expanded, setExpanded] = useState(false)
+export function WorkspaceSettings({ active }: { active: boolean }) {
   const [settings, setSettings] = useState<WorkspaceSettings | null>(null)
   const [draft, setDraft] = useState<SettingsDraft | null>(null)
   const [operation, setOperation] = useState<'loading' | 'saving' | null>(null)
@@ -221,13 +219,12 @@ export function ManagementMenu() {
     }
   }
 
-  function toggle() {
-    if (expanded) setExpanded(false)
-    else {
-      setExpanded(true)
-      void loadSettings(false)
-    }
-  }
+  useEffect(() => {
+    if (!active) return
+    let canceled = false
+    queueMicrotask(() => { if (!canceled) void loadSettings(false) })
+    return () => { canceled = true }
+  }, [active])
 
   async function loadIndexing() {
     if (indexingLocked.current) return false
@@ -285,11 +282,7 @@ export function ManagementMenu() {
   const problemDocuments = indexing?.documents.filter(item => item.status === 'failed' || item.status === 'stopped') ?? []
 
   return <section className="cloud-management" aria-label="Workspace management">
-    <button type="button" className="cloud-button cloud-management-toggle" aria-expanded={expanded}
-      aria-controls={panelId} onClick={toggle}>
-      <span>Management</span><span aria-hidden="true">{expanded ? '−' : '+'}</span>
-    </button>
-    <div className="cloud-management-panel" id={panelId} hidden={!expanded}>
+    <div className="cloud-management-panel">
       <p className="cloud-hint">Workspace model defaults. Document overrides take priority; existing agent sessions keep their model.</p>
       <label className="cloud-field">Built-in agent default model
         <input type="text" maxLength={256} spellCheck={false} autoComplete="off" value={draft?.models.builtin ?? ''}

@@ -1,7 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { createDocument, paragraph, type MoteDocument } from '../document/model'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
-import { ManagementMenu } from './ManagementMenu'
 import './cloud.css'
 
 interface Props {
@@ -135,7 +134,6 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
         <button type="button" className="cloud-button" disabled={!!busy} onClick={() => { void run('Refreshing files…', refresh) }}>Refresh</button>
         {onLocalRecovery && <button type="button" className="cloud-button" disabled={!!busy} onClick={onLocalRecovery}>Local recovery</button>}
       </div>
-      <ManagementMenu />
       <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or Mote-exported HTML" onChange={event => {
         const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file)
       }} />

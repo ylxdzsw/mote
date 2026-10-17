@@ -75,7 +75,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const footprint = useRef<HTMLDivElement>(null)
   const scrollFloor = useScrollFloor(stage, footprint)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
-  const { scale, minScale, automatic, zoomTo, zoomBy, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
+  const { scale, automatic, zoomTo, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [inserting, setInserting] = useState<FloatingObject[]>([])
@@ -765,18 +765,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     {imagePlacement.notice && <p className="segment-notice" role="status">{imagePlacement.notice}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
-    {zoomHost && createPortal(<div className="zoom-controls" aria-label="Document zoom" onPointerDown={event => { if ((event.target as Element).closest('button')) event.preventDefault() }}>
-      <button aria-label="Zoom out" title="Zoom out" disabled={scale <= minScale} onClick={() => zoomBy(1 / 1.1)}><PanelIcon name="minus" /></button>
-      <div className="zoom-level">
-        <select aria-label="Document zoom level" title={automatic ? 'Auto zoom' : 'Zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : event.target.value === 'fit' ? fit() : zoomTo(Number(event.target.value))}>
-          <option value="auto">Auto</option>
-          {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
-          {!editable && <option value="fit">Fit</option>}
-          {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
-        </select>
-        <PanelIcon name="chevron" />
-      </div>
-      <button aria-label="Zoom in" title="Zoom in" disabled={scale >= 3} onClick={() => zoomBy(1.1)}><PanelIcon name="plus" /></button>
+    {zoomHost && createPortal(<div className="zoom-level">
+      <select aria-label="Document zoom level" title={automatic ? 'Auto zoom' : 'Zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : event.target.value === 'fit' ? fit() : zoomTo(Number(event.target.value))}>
+        <option value="auto">Auto</option>
+        {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
+        {!editable && <option value="fit">Fit</option>}
+        {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
+      </select>
+      <PanelIcon name="chevron" />
     </div>, zoomHost)}
   </div>
 }

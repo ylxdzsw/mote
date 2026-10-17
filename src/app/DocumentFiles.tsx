@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import type { MoteDocument } from '../document/model'
+import { encodeMote } from '../document/file'
+import { exportHtml } from '../reader/export'
+import { exportPng } from '../document/png'
 import './files.css'
 
 const formats = {
@@ -21,9 +24,8 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
-export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: MoteDocument; active: boolean; open: boolean; onClose: () => void; onImport?: (doc: MoteDocument) => void }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  const input = useRef<HTMLInputElement>(null)
+export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusyChange?: (busy: boolean) => void }) {
+  const titleId = useId()
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
@@ -31,16 +33,16 @@ export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: M
   const basename = filename.trim().replace(/\.(png|html|mote)$/i, '')
   const invalidName = !basename || /^[. ]+$/.test(basename) || /[<>:"/\\|?*\u0000-\u001f]/.test(basename)
 
-  useEffect(() => {
-    if (active && open) { setError(''); setResult(''); dialog.current?.showModal() }
-    else dialog.current?.close()
-  }, [active, open])
+  function updateBusy(value: string) {
+    setBusy(value)
+    onBusyChange?.(!!value)
+  }
 
   async function exporting(format: keyof typeof formats) {
     if (invalidName) return
     const name = `${basename}.${format}`
     const preparing = `Preparing ${format === 'mote' ? '.mote document' : format.toUpperCase()}…`
-    setBusy(saveWindow.showSaveFilePicker ? 'Choose where to save…' : preparing); setError(''); setResult('')
+    updateBusy(saveWindow.showSaveFilePicker ? 'Choose where to save…' : preparing); setError(''); setResult('')
     try {
       let handle: FileSystemFileHandle | undefined
       try {
@@ -52,13 +54,12 @@ export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: M
         if (error instanceof DOMException && error.name === 'AbortError') { setResult('Export canceled.'); return }
         throw error
       }
-      setBusy(preparing)
+      updateBusy(preparing)
       const snapshot = structuredClone(doc)
-      const blob = format === 'mote' ? await (await import('../document/file')).encodeMote(snapshot)
-        : format === 'html' ? await (await import('../reader/export')).exportHtml(snapshot)
-        : await (await import('../document/png')).exportPng(snapshot)
+      const blob = format === 'mote' ? await encodeMote(snapshot)
+        : format === 'html' ? await exportHtml(snapshot) : await exportPng(snapshot)
       if (handle) {
-        setBusy('Saving file…')
+        updateBusy('Saving file…')
         const writable = await handle.createWritable()
         try { await writable.write(blob); await writable.close() }
         catch (error) { await writable.abort().catch(() => {}); throw error }
@@ -68,29 +69,17 @@ export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: M
         setResult('Export ready. Your browser will download the file.')
       }
     } catch (error) { setError(error instanceof Error ? error.message : 'Export failed. Please try again.') }
-    finally { setBusy('') }
+    finally { updateBusy('') }
   }
 
-  async function importing(file: File) {
-    if (!onImport) return
-    setBusy('Opening document…'); setError(''); setResult('')
-    try {
-      const next = await (await import('../document/file')).decodeDocument(file)
-      if (window.confirm('Replace your local draft with this document? This clears undo history and cannot be undone. Export your current draft first if you want to keep it.')) onImport(next)
-    } catch (error) { setError(error instanceof Error ? error.message : 'This document could not be opened.') }
-    finally { setBusy('') }
-  }
-
-  return <>
-    <dialog ref={dialog} className="document-files" aria-labelledby="document-files-title" onClose={onClose} onCancel={event => { if (busy) event.preventDefault() }}>
-      <div className="files-heading"><h1 id="document-files-title">Document files</h1><button aria-label="Close document files" disabled={!!busy} onClick={() => dialog.current!.close()}>×</button></div>
-      <h2>Export</h2>
+  return <section className="document-files" aria-labelledby={titleId}>
+      <h2 id={titleId}>Export</h2>
       <p>Export the current working copy, including changes not yet synced to the cloud.</p>
       <label className="export-filename">Filename
-        <input type="text" value={filename} disabled={!!busy} aria-invalid={invalidName || undefined} aria-describedby="filename-hint"
+        <input type="text" value={filename} disabled={!!busy} aria-invalid={invalidName || undefined} aria-describedby={`${titleId}-filename-hint`}
           onFocus={event => event.currentTarget.select()} onChange={event => setFilename(event.target.value)} />
       </label>
-      <p id="filename-hint">{invalidName ? 'Enter a filename without / \\ : * ? " < > |.' : 'The selected format’s extension is added automatically.'}</p>
+      <p id={`${titleId}-filename-hint`}>{invalidName ? 'Enter a filename without / \\ : * ? " < > |.' : 'The selected format’s extension is added automatically.'}</p>
       <div className="export-formats">
         <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width)}px wide · native resolution</span></button>
         <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · can be imported back</span></button>
@@ -98,13 +87,7 @@ export function DocumentFiles({ doc, active, open, onClose, onImport }: { doc: M
       </div>
       <p>Internal notes are included only in .mote exports. HTML and PNG contain the published page.</p>
       {doc.floating.some(object => object.kind === 'html') && <p>HTML widgets stay interactive in HTML exports; their online resources still need a connection. PNG uses the screenshots you supplied.</p>}
-      {onImport && <section className="files-import"><h2>Import</h2><p>Import a .mote file or Mote-exported HTML. Import replaces the local draft after confirmation.</p>
-        <button disabled={!!busy} onClick={() => input.current!.click()}>Import .mote / HTML…</button>
-        <input ref={input} type="file" accept=".mote,.html,.htm" hidden aria-label="Mote document or Mote-exported HTML file" onChange={event => {
-          const file = event.target.files?.[0]; event.target.value = ''; if (file) void importing(file)
-        }} /></section>}
       <p className="files-status" role="status">{busy || result}</p>
       {error && <p className="error" role="alert">{error}</p>}
-    </dialog>
-  </>
+    </section>
 }
