@@ -130,7 +130,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .notes-source .code-source-track { min-height: 100%; }
 .notes-source .code-editor::placeholder { color: var(--ui-faint); -webkit-text-fill-color: var(--ui-faint); }
 .notes-divider { position: absolute; z-index: 2; top: -7px; height: 7px; width: 100%; cursor: row-resize; touch-action: none; }
-.notes-divider:hover, .notes-divider:focus-visible { background: var(--ui-accent-tint); outline: none; border-top: 1px solid var(--ui-accent-border); }
+.notes-divider:focus-visible { background: var(--ui-accent-tint); outline: none; border-top: 1px solid var(--ui-accent-border); }
 .workspace.reader { display: block; }
 .canvas-pane { --minimap-width: 100px; --bookmark-width: 96px; --bookmark-folded-width: 10px; position: relative; min-width: 0; height: 100%; min-height: 0; background: var(--page-background, var(--ui-canvas)); }
 .canvas-pane.has-minimap { display: grid; grid-template-columns: calc(var(--minimap-width) + var(--bookmark-folded-width)) minmax(0, 1fr); }
