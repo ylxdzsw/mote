@@ -72,9 +72,7 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
     finally { updateBusy('') }
   }
 
-  return <section className="document-files" aria-labelledby={titleId}>
-      <h2 id={titleId}>Export</h2>
-      <p>Export the current working copy, including changes not yet synced to the cloud.</p>
+  return <div className="document-files">
       <label className="export-filename">Filename
         <input type="text" value={filename} disabled={!!busy} aria-invalid={invalidName || undefined} aria-describedby={`${titleId}-filename-hint`}
           onFocus={event => event.currentTarget.select()} onChange={event => setFilename(event.target.value)} />
@@ -89,5 +87,5 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
       {doc.floating.some(object => object.kind === 'html') && <p>HTML widgets stay interactive in HTML exports; their online resources still need a connection. PNG uses the screenshots you supplied.</p>}
       <p className="files-status" role="status">{busy || result}</p>
       {error && <p className="error" role="alert">{error}</p>}
-    </section>
+    </div>
 }

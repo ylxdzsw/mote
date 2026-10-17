@@ -1,5 +1,4 @@
 .document-files { display: block; }
-.document-files h2 { margin: 0 0 8px; font-size: 13px; }
 .document-files p { font-size: 12px; line-height: 1.65; color: var(--ui-muted); margin: 8px 0 16px; }
 .export-filename { display: grid; gap: 7px; font-size: 12px; }
 .export-filename input { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-surface-raised); color: inherit; }

@@ -148,17 +148,17 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, 
       <button type="button" className="cloud-button cloud-close" aria-label="Close share dialog" disabled={!!busy || fileBusy} onClick={closeDialog}>×</button>
     </header>
     <div className="cloud-body">
-      <div className="cloud-tabs" role="tablist" aria-label="Share options" onKeyDown={onTabKeyDown}>
+      <div className="settings-tabs cloud-tabs" role="tablist" aria-label="Share options" onKeyDown={onTabKeyDown}>
         <button ref={element => { tabButtons.current.link = element }} type="button" className="cloud-tab" role="tab" id={`${titleId}-link-tab`}
           aria-controls={`${titleId}-link-panel`} aria-selected={tab === 'link'} tabIndex={tab === 'link' ? 0 : -1}
           disabled={privateDocument || !!busy || fileBusy} title={privateDocument ? 'Link sharing is disabled for Private documents.' : undefined} onClick={() => selectTab('link')}>Link</button>
         <button ref={element => { tabButtons.current.file = element }} type="button" className="cloud-tab" role="tab" id={`${titleId}-file-tab`}
           aria-controls={`${titleId}-file-panel`} aria-selected={tab === 'file'} tabIndex={tab === 'file' ? 0 : -1}
-          disabled={!!busy || fileBusy} onClick={() => selectTab('file')}>File</button>
+          disabled={!!busy || fileBusy} onClick={() => selectTab('file')}>Export</button>
       </div>
       <p id={`${titleId}-hint`} className="cloud-hint">{tab === 'file'
-        ? privateDocument ? 'This document is Private. Link sharing is disabled; you can still export a file.' : 'Download an independent copy to keep or share.'
-        : connection.offline ? 'You’re offline. Reconnect to manage links, or use File to export a copy.'
+        ? privateDocument ? 'This document is Private. Link sharing is disabled; you can still export the current working copy, including unsynced changes.' : 'Export the current working copy, including unsynced changes.'
+        : connection.offline ? 'You’re offline. Reconnect to manage links, or use Export to download a copy.'
           : 'Anyone with a link can read this document without signing in. Internal notes are excluded. Revoke a link to stop future access.'}</p>
       <section id={`${titleId}-link-panel`} role="tabpanel" aria-labelledby={`${titleId}-link-tab`} hidden={tab !== 'link'}>
         <fieldset className="cloud-share-modes" disabled={linkBusy || privateDocument}>
