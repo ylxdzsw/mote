@@ -364,6 +364,3 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .launchpad-tile:hover { background: var(--ui-surface-hover); border-color: var(--ui-border-strong); }
 .launchpad-tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .launchpad-hint { font-size: 9px; color: var(--ui-faint); margin: 8px 2px 0; }
-.launchpad-more { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ui-border); display: grid; gap: 4px; }
-.launchpad-more-heading { margin: 0 2px 4px; font-size: 9px; font-weight: 600; letter-spacing: .8px; color: var(--ui-muted); text-transform: uppercase; }
-.launchpad-more .launchpad-tile { width: 100%; }

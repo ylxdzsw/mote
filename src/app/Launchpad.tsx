@@ -17,7 +17,7 @@ function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: Launchpa
 }
 
 interface TileEntry {
-  kind: CreationTool | 'image' | 'table' | 'html' | 'katex' | 'more'
+  kind: CreationTool | 'image' | 'table' | 'html' | 'katex'
   label: string
   icon: ReactElement
 }
@@ -30,12 +30,12 @@ function Icon({ path, rect }: { path: string; rect?: string }) {
 }
 
 const TILES: TileEntry[] = [
+  { kind: 'paragraph', label: 'Paragraph',  icon: <Icon path="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" /> },
   { kind: 'text',      label: 'Text box',   icon: <Icon path="M3 4h18M3 9h18M3 14h12" /> },
   { kind: 'image',     label: 'Image',      icon: <Icon path="M3 3h18v18H3zM3 17l6-5 4 4 3-3 5 4" /> },
   { kind: 'table',     label: 'Table',      icon: <Icon path="M3 10h18M3 15h18M11 4v16" rect="x:3 y:4 width:18 height:16 rx:1" /> },
   { kind: 'drawing',   label: 'Drawing',    icon: <Icon path="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /> },
   { kind: 'ai',        label: 'AI object',  icon: <Icon path="M12 3H3v18h18v-9M6 17l4-5 4 5m1-11 1.2 3.8L23 6l-3.8 1.2L18 11l-1.2-3.8L13 6l3.8-1.2Z" /> },
-  { kind: 'more',      label: 'More',       icon: <Icon path="M12 5v.01M12 12v.01M12 19v.01" /> },
 ]
 
 // Additional native kinds and their creation tools.
@@ -43,7 +43,6 @@ const MORE_TILES: TileEntry[] = [
   { kind: 'code',      label: 'Code',       icon: <Icon path="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" /> },
   { kind: 'katex',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
-  { kind: 'paragraph', label: 'Paragraph',   icon: <Icon path="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" /> },
 ]
 
 interface Props {
@@ -80,7 +79,7 @@ export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
   }, [open])
 
   useEffect(() => { if (!open) setMore(false) }, [open])
-  useEffect(() => { if (more) ref.current?.querySelector<HTMLButtonElement>('[data-more-list] [role="menuitem"]')?.focus({ preventScroll: true }) }, [more])
+  useEffect(() => { if (more) ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')[TILES.length]?.focus({ preventScroll: true }) }, [more])
 
   if (!open || !origin) return null
 
@@ -88,18 +87,16 @@ export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
     if (event.key === 'Tab') { onClose(); return }
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation()
-      if (more) { setMore(false); ref.current?.querySelector<HTMLButtonElement>('[data-more-trigger]')?.focus({ preventScroll: true }) }
-      else onClose()
+      onClose()
       return
     }
     const keys = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']
     if (!keys.includes(event.key)) return
-    const scope = more ? '[data-more-list] ' : ':scope > .launchpad-grid > '
-    const items = [...ref.current!.querySelectorAll<HTMLButtonElement>(`${scope}[role="menuitem"]`)]
+    const items = [...ref.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     if (!items.length) return
     event.preventDefault()
     const index = items.indexOf(document.activeElement as HTMLButtonElement)
-    const cols = more ? 1 : 2
+    const cols = 2
     const next = event.key === 'ArrowRight' ? index + 1 : event.key === 'ArrowLeft' ? index - 1
       : event.key === 'ArrowDown' ? index + cols : index - cols
     items[Math.max(0, Math.min(items.length - 1, next))]?.focus()
@@ -113,23 +110,16 @@ export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
       <button aria-label="Close" className="launchpad-close" onClick={onClose}>×</button>
     </div>
     <div className="launchpad-grid">
-      {TILES.map(tile => tile.kind === 'more'
-        ? <button key="more" role="menuitem" data-more-trigger className="launchpad-tile" tabIndex={-1}
-            aria-haspopup="menu" aria-expanded={more} onClick={() => setMore(!more)}>
-            {tile.icon}<span>{tile.label}</span>
-          </button>
-        : <button key={String(tile.kind)} role="menuitem" className="launchpad-tile" tabIndex={-1}
+      {[...TILES, ...(more ? MORE_TILES : [])].map(tile =>
+        <button key={String(tile.kind)} role="menuitem" className="launchpad-tile" tabIndex={-1}
             onClick={() => choose(String(tile.kind))}>
             {tile.icon}<span>{tile.label}</span>
           </button>)}
+      {!more && <button role="menuitem" className="launchpad-tile" tabIndex={-1}
+        aria-expanded={false} onClick={() => setMore(true)}>
+        <Icon path="M12 5v.01M12 12v.01M12 19v.01" /><span>More</span>
+      </button>}
     </div>
-    {more && <div className="launchpad-more" role="menu" aria-label="More objects" data-more-list>
-      <p className="launchpad-more-heading">More objects</p>
-      {MORE_TILES.map(tile => <button key={String(tile.kind)} role="menuitem" className="launchpad-tile" tabIndex={-1}
-        onClick={() => choose(String(tile.kind))}>
-        {tile.icon}<span>{tile.label}</span>
-      </button>)}
-    </div>}
     <p className="launchpad-hint">Choose a tool, then place · Esc cancels</p>
   </div>
 }
