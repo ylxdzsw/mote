@@ -75,13 +75,14 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
 
   return <div className="document-files">
       <label className="export-filename">Filename
-        <input type="text" value={filename} disabled={!!busy} aria-invalid={invalidName || undefined} aria-describedby={`${titleId}-filename-hint`}
+        <input type="text" value={filename} disabled={!!busy} aria-invalid={invalidName || undefined} aria-describedby={invalidName ? `${titleId}-filename-hint` : undefined}
           onFocus={event => event.currentTarget.select()} onChange={event => setFilename(event.target.value)} />
       </label>
-      <p id={`${titleId}-filename-hint`}>{invalidName ? 'Enter a filename without / \\ : * ? " < > |.' : 'The selected format’s extension is added automatically.'}</p>
+      {invalidName && <p id={`${titleId}-filename-hint`}>Enter a filename without / \ : * ? " &lt; &gt; |.</p>}
       <div className="export-formats">
         <div className="export-png">
-          <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width * pngScale)}px wide · {pngScale}× resolution</span></button>
+          <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}
+            title="Exports the current page, including unsynced changes, as a full-length image without internal notes. Widgets use the screenshots you supplied. Higher resolution sharpens text and vectors; image detail depends on the source. Very large pages may require 1× resolution."><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width * pngScale)}px wide · {pngScale}× resolution</span></button>
           <label className="export-resolution">Resolution
             <select value={pngScale} disabled={!!busy} onChange={event => setPngScale(Number(event.currentTarget.value) as 1 | 2)}>
               <option value={1}>1× · Original</option>
@@ -89,11 +90,11 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
             </select>
           </label>
         </div>
-        <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · can be imported back</span></button>
-        <button disabled={!!busy || invalidName} onClick={() => void exporting('mote')}><strong>Mote document <small>.mote</small></strong><span>Compressed editable document · can be imported back</span></button>
+        <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}
+          title="Exports the current page, including unsynced changes, as a standalone browser reader that can be imported back into Mote. Internal notes are excluded, including from the embedded document. Widgets stay interactive; their online resources still need a connection. JavaScript is required to view the page."><strong>HTML</strong><span>Standalone reader · can be imported back · excludes internal notes</span></button>
+        <button disabled={!!busy || invalidName} onClick={() => void exporting('mote')}
+          title="Exports the complete current document, including unsynced changes and all internal notes, as a compressed editable file. Import it into Mote to continue editing. Internal notes are included in any copy you share."><strong>Mote document <small>.mote</small></strong><span>Compressed editable document · can be imported back · includes internal notes</span></button>
       </div>
-      <p>Internal notes are included only in .mote exports. HTML and PNG contain the published page.</p>
-      {doc.floating.some(object => object.kind === 'html') && <p>HTML widgets stay interactive in HTML exports; their online resources still need a connection. PNG uses the screenshots you supplied.</p>}
       <p className="files-status" role="status">{busy || result}</p>
       {error && <p className="error" role="alert">{error}</p>}
     </div>
