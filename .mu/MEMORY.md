@@ -1314,3 +1314,7 @@ Focused independent code review found no blocking correctness issues. Deployed s
 Share now uses the existing Settings tab style, replacing the rounded active underline with the same flat underline, spacing, and accent treatment as other settings tabs. File is labeled Export; its repeated inner Export heading and introductory paragraph are removed in favor of one working-copy hint. Format descriptions, notes/widget caveats, keyboard navigation, and sharing/export behavior remain unchanged.
 
 Production build/type and whitespace checks passed. Isolated fake-backed production-preview Chromium verified Link/Export keyboard switching, absence of the duplicate heading, and desktop/768px dialog layout; screenshots reviewed with no application exceptions. Static deployment verified live HTML and all three current JS/CSS assets byte-for-byte with no-store. Backend/cloud documents unchanged; existing bundle warnings remain.
+
+## 2026-10-21 — Narrower default document side margins
+
+New blank documents and examples now share 32px left/right margins, retaining 48px top/bottom and 960px width. Reset to example uses the same preset. Existing saved documents are unchanged. Production build/type and whitespace checks passed; static demo redeployed, with the published main asset matching the build and retaining no-store. Cloud data untouched.
