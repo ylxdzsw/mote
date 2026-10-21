@@ -73,7 +73,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
   const footprint = useRef<HTMLDivElement>(null)
-  const scrollFloor = useScrollFloor(stage, footprint)
+  const scrollFloor = useScrollFloor(stage, footprint, editable)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const { scale, automatic, zoomTo, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})

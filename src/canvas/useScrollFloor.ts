@@ -1,14 +1,14 @@
 import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 
 // The floor surrounds the scaled footprint; it never participates in page layout.
-export function useScrollFloor(stage: RefObject<HTMLDivElement | null>, footprint: RefObject<HTMLDivElement | null>) {
+export function useScrollFloor(stage: RefObject<HTMLDivElement | null>, footprint: RefObject<HTMLDivElement | null>, editable: boolean) {
   const container = useRef<HTMLDivElement>(null)
   const mounted = useRef(false)
   const control = useMemo(() => {
     let held = false, height = 0, frame = 0
-    function padding() {
+    function clearance() {
       const style = getComputedStyle(stage.current!)
-      return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+      return parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(getComputedStyle(container.current!).marginBottom)
     }
     function write(next: number) {
       if (next === height) return
@@ -18,7 +18,7 @@ export function useScrollFloor(stage: RefObject<HTMLDivElement | null>, footprin
     function trim(settled = true) {
       if (held || !height) return
       const viewport = stage.current!
-      const inset = padding()
+      const inset = clearance()
       // No scrollHeight feedback: after release the floor can only decrease.
       const needed = Math.max(0, Math.ceil(viewport.scrollTop + viewport.clientHeight - inset))
       const next = Math.min(height, needed)
@@ -29,7 +29,7 @@ export function useScrollFloor(stage: RefObject<HTMLDivElement | null>, footprin
       begin() {
         cancelAnimationFrame(frame)
         held = true
-        write(Math.max(0, Math.ceil(stage.current!.scrollHeight - padding())))
+        write(Math.max(0, Math.ceil(stage.current!.scrollHeight - clearance())))
       },
       end() {
         if (!mounted.current) return
@@ -47,7 +47,14 @@ export function useScrollFloor(stage: RefObject<HTMLDivElement | null>, footprin
   useLayoutEffect(() => {
     mounted.current = true
     const viewport = stage.current!
-    const observer = new ResizeObserver(control.settle)
+    function measure() {
+      // Leave the page bottom near the top of the viewport, without changing Auto zoom or page geometry.
+      const room = editable ? Math.max(0, viewport.clientHeight * .85 - parseFloat(getComputedStyle(viewport).paddingBottom)) : 0
+      container.current!.style.setProperty('--scroll-past-bottom', `${room}px`)
+      control.settle()
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
     observer.observe(viewport)
     observer.observe(footprint.current!)
     viewport.addEventListener('scroll', control.settle, { passive: true })
@@ -57,7 +64,7 @@ export function useScrollFloor(stage: RefObject<HTMLDivElement | null>, footprin
       observer.disconnect()
       viewport.removeEventListener('scroll', control.settle)
     }
-  }, [stage, footprint, control])
+  }, [stage, footprint, control, editable])
 
   return { container, begin: control.begin, end: control.end, reset: control.reset }
 }

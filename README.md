@@ -222,6 +222,8 @@ The Vite configuration builds the offline reader as a production IIFE and styles
 
 The minimap shares the rendered page through an inert, noneditable DOM snapshot, with editing controls and accessibility duplicates removed. Both sizing modes share this renderer and navigation geometry. Proportional mode keeps the page's aspect ratio and scrolls the miniature for long notes; fit mode compresses only the vertical axis as needed. Main-document zoom changes the viewport indicator, not miniature content scale. Scroll-only updates translate the existing snapshot and indicator; layout/content changes refresh the snapshot once per animation frame.
 
+Editing allows scrolling past the document bottom until it sits about 15% down the canvas viewport. This view-only room adapts to viewport height, shares clearance with the Notes overlay, and never changes document geometry or exports; reading/mobile retain their normal bottom clearance. Clicking this room does not insert content. The minimap keeps the real page snapshot and tracks the full scroll range.
+
 ## Deployment
 
 The current app is live at **https://mote.ylxdzsw.com**. Nginx serves `/var/www/mote` using `/etc/nginx/conf.d/mote.conf`, with the existing wildcard origin certificate and workspace cookie gate. Documents/AI require login; explicit shared reader URLs bypass it. Deployment includes the durable `moted` service, with no scheduled backups. See [CLOUD.md](CLOUD.md) for manual backup and restore instructions.
