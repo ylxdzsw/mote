@@ -18,12 +18,6 @@
 .is-editing .floating-note:not(.is-content-active) [data-scheme] { pointer-events: none; }
 .is-editing .floating-note:not(.is-content-active) .table-column-controls { display: none; }
 .sheet.is-editing .floating-image img { cursor: move; }
-.floating-note:is(.floating-rectangle, .floating-ellipse, .floating-line) { padding: 0; border: 0; border-radius: 0; background: transparent; }
-.floating-rectangle, .floating-ellipse, .floating-line { pointer-events: none; }
-.floating-vector { display: block; pointer-events: none; }
-.vector-ink { pointer-events: visiblePainted; }
-.vector-hit { fill: none; stroke: transparent; stroke-width: 10px; pointer-events: stroke; cursor: move; }
-.is-editing :is(.floating-rectangle, .floating-ellipse, .floating-line).is-selected { outline: 1px dashed var(--ui-accent-border); outline-offset: 4px; }
 .floating-note.is-caption .tiptap { min-height: 0; }
 .sheet.is-editing .floating-note.is-caption:hover { outline: 1px solid var(--ui-border); }
 .sheet.is-editing .floating-note.is-caption.is-selected { outline: 1px dashed var(--ui-accent-border); }
@@ -32,10 +26,5 @@
 .handle-ne { left: 100%; top: 0; cursor: nesw-resize; }
 .handle-sw { left: 0; top: 100%; cursor: nesw-resize; }
 .handle-se { left: 100%; top: 100%; cursor: nwse-resize; }
-.bend-handle { background: var(--ui-accent-soft); cursor: ew-resize; }
 .marquee-selection { position: absolute; pointer-events: none; border: 1px solid var(--ui-accent); background: var(--ui-accent-tint); z-index: 10000; }
-.attachment-guides { position: absolute; inset: 0; pointer-events: none; z-index: 10001; overflow: visible; }
-.attachment-guides circle { fill: var(--ui-surface-raised); stroke: var(--ui-accent); stroke-width: 1; }
-.attachment-guides .active { fill: var(--ui-accent); }
-.attachment-guides rect { fill: none; stroke: var(--ui-accent); stroke-dasharray: 3 3; }
-.is-reading :is(.object-handle, .vector-hit, .marquee-selection, .attachment-guides) { display: none; }
+.is-reading :is(.object-handle, .marquee-selection) { display: none; }

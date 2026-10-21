@@ -122,19 +122,19 @@ export async function fakeRunner(context) {
     const prefix = `fake-segment-${context.taskId}`
     const paragraphId = `${prefix}-paragraph`
     const spacerId = `${prefix}-spacer`
-    const rectangleId = `${prefix}-rectangle`
+    const drawingId = `${prefix}-drawing`
     const captionId = `${prefix}-caption`
-    const rectangleWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
+    const drawingWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
     const x = document.margins.left
     const content = [
       { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
       { type: 'spacer', attrs: { id: spacerId, height: 112 } },
     ]
-    const rectangle = { id: rectangleId, kind: 'rectangle', anchorId: spacerId, x, y: 12, width: rectangleWidth, height: 64, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
-    const caption = { id: captionId, anchorId: spacerId, x, y: 12, width: rectangleWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'AI shape' }] }] }, attachment: { targetId: rectangleId, position: 'below' } }
-    candidate.segment = { version: 'V0', type: 'segment', content, floating: [rectangle, caption], palette: [], geometry: {
-      [rectangleId]: { x, y: 40, width: rectangleWidth, height: 64 },
-      [captionId]: { x, y: 112, width: rectangleWidth, height: 22 },
+    const drawing = { id: drawingId, kind: 'drawing', anchorId: spacerId, x, y: 12, width: drawingWidth, height: 64, textFlow: 'overlap', background: null, strokes: [{ points: [[12, 12], [drawingWidth - 12, 52]], color: 'ink', width: 2 }], labels: [] }
+    const caption = { id: captionId, anchorId: spacerId, x, y: 12, width: drawingWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'AI drawing' }] }] }, attachment: { targetId: drawingId, position: 'below' } }
+    candidate.segment = { version: 'V0', type: 'segment', content, floating: [drawing, caption], palette: [], geometry: {
+      [drawingId]: { x, y: 40, width: drawingWidth, height: 64 },
+      [captionId]: { x, y: 112, width: drawingWidth, height: 22 },
     }, anchorTops: { [paragraphId]: 0, [spacerId]: 28 }, originTop: 0 }
   } else {
     const blocks = []

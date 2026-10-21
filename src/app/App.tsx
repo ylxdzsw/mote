@@ -7,7 +7,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { isText, createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
+import { isText, createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
@@ -281,7 +281,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (kind === 'html') { chooseWidgetScreenshot(); return }
     if (kind === 'table') { addObject('table'); return }
     if (kind === 'katex') { addObject('katex'); return }
-    if (['text','code','drawing','rectangle','ellipse','line','ai','paragraph'].includes(kind)) {
+    if (['text','code','drawing','ai','paragraph'].includes(kind)) {
       setTool(kind as CreationTool)
       setSelectedIds([])
     }
@@ -306,7 +306,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const imageGeneration = useRef(0)
   useEffect(() => () => { imageGeneration.current++ }, [editable, doc?.id, history.revision])
 
-  async function uploadImages(files: File[], target: NonNullable<typeof imageTarget.current>, position?: LineEnd) {
+  async function uploadImages(files: File[], target: NonNullable<typeof imageTarget.current>, position?: { x: number; y: number; anchorId: string | null }) {
     if (!editable || imageLoading || !files.length) return
     const generation = imageGeneration.current
     setImageLoading(true); setImageError('')

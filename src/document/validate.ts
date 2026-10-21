@@ -153,18 +153,6 @@ function color(value: unknown, path: string): void {
   if (value !== null) text(value, path)
 }
 
-function lineEnd(value: unknown, path: string): void {
-  const end = record(value, path)
-  finite(end.x, `${path}.x`)
-  finite(end.y, `${path}.y`, 0)
-  anchor(end.anchorId, `${path}.anchorId`)
-  if ('connection' in end) {
-    const connection = record(end.connection, `${path}.connection`)
-    identifier(connection.targetId, `${path}.connection.targetId`)
-    if (!['auto', 'top', 'bottom', 'left', 'right'].includes(connection.side as string)) invalid(`${path}.connection.side is unsupported`)
-  }
-}
-
 function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   const path = `floating[${index}]`
   const object = record(value, path)
@@ -245,23 +233,6 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
     embeddedImageSource(object.screenshot, `${path}.screenshot`)
     text(object.alt, `${path}.alt`)
     finite(object.height, `${path}.height`, Number.MIN_VALUE)
-    return
-  }
-  if (kind === 'rectangle' || kind === 'ellipse') {
-    finite(object.height, `${path}.height`, Number.MIN_VALUE)
-    color(object.fill, `${path}.fill`)
-    color(object.stroke, `${path}.stroke`)
-    finite(object.strokeWidth, `${path}.strokeWidth`, Number.MIN_VALUE)
-    if (typeof object.dashed !== 'boolean' || typeof object.rounded !== 'boolean') invalid(`${path} has invalid shape settings`)
-    return
-  }
-  if (kind === 'line') {
-    lineEnd(object.start, `${path}.start`)
-    lineEnd(object.end, `${path}.end`)
-    color(object.stroke, `${path}.stroke`)
-    finite(object.strokeWidth, `${path}.strokeWidth`, Number.MIN_VALUE)
-    finite(object.bend, `${path}.bend`)
-    if (!['straight', 'elbow'].includes(object.route as string) || typeof object.dashed !== 'boolean' || typeof object.arrowStart !== 'boolean' || typeof object.arrowEnd !== 'boolean') invalid(`${path} has invalid line settings`)
     return
   }
   if (kind !== undefined && kind !== 'text') invalid(`${path}.kind is unsupported`)

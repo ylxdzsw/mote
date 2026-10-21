@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { isText, type FloatingObject, type FloatingShape, type FloatingLine, type FloatingText, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type CaptionPosition, type Theme, type ThemeLength } from '../document/model'
+import { isText, type FloatingObject, type FloatingText, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type CaptionPosition, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
-import { neutralIds, softReference } from '../theme/palette'
 import { ContextHeading, InspectorField, InspectorGroup, InspectorHelp, InspectorRow, TypographyPreview } from './Inspector'
 import { PanelIcon } from './PanelIcon'
 import { codeLanguages } from '../document/code'
@@ -37,11 +36,9 @@ interface Props {
   reviseDisabled?: boolean
 }
 
-const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
+const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
 export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, caption, attachmentTargets, onCaption, onAttach, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
-  const shape = object.kind === 'rectangle' || object.kind === 'ellipse' ? object as FloatingShape : null
-  const line = object.kind === 'line' ? object as FloatingLine : null
   const attached = isText(object) ? object.attachment : null
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
@@ -83,8 +80,6 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         })}
         <TextPadding value={object.padding ?? 0} base={defaultFontSize} onChange={padding => onChange({ padding })} />
       </InspectorGroup>}
-      {shape && <ShapeControls shape={shape} theme={theme} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
-      {line && <LineControls line={line} theme={theme} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {text && <AttachmentControls object={object} targets={attachmentTargets} onAttach={onAttach} onDetach={() => onAction('detach')} onChange={onChange} />}
       {!attached && <InspectorGroup title="Caption">
         {caption ? <button onClick={() => onCaption()}>Edit caption</button> : <InspectorRow>
@@ -187,44 +182,6 @@ function HTMLWidgetControls({ value, onChange, imageLoading, onReplaceScreenshot
   </>
 }
 
-function StrokeControls({ value, theme, onChange, onHistoryBegin, onHistoryEnd }: { value: { stroke: string | null; strokeWidth: number; dashed: boolean }; theme: Theme; onChange: (patch: FloatingPatch) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
-  return <InspectorGroup title="Stroke">
-    <InspectorField label="Color"><PaletteControl theme={theme} label="Stroke color" value={value.stroke} optional="default" fallback={theme.defaults.color}
-      onFocus={() => onHistoryBegin('floating-stroke')} onBlur={onHistoryEnd} onChange={stroke => onChange({ stroke })} /></InspectorField>
-    <label className="inspector-field"><span className="field-heading">Width <output>{value.strokeWidth}px</output></span><input aria-label="Stroke width" type="range" min=".5" max="16" step=".5" value={value.strokeWidth} onPointerDown={() => onHistoryBegin('floating-stroke-width')} onPointerUp={onHistoryEnd} onPointerCancel={onHistoryEnd} onKeyDown={() => onHistoryBegin('floating-stroke-width')} onKeyUp={onHistoryEnd} onBlur={onHistoryEnd} onChange={event => onChange({ strokeWidth: Number(event.target.value) })} /></label>
-    <label className="inspector-field">Stroke style<select value={value.dashed ? 'dashed' : 'solid'} onChange={event => onChange({ dashed: event.target.value === 'dashed' })}><option value="solid">Solid</option><option value="dashed">Dashed</option></select></label>
-  </InspectorGroup>
-}
-
-function ShapeControls({ shape, theme, onChange, onHistoryBegin, onHistoryEnd }: { shape: FloatingShape; theme: Theme; onChange: (patch: FloatingPatch) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
-  const strokeReference = shape.stroke ?? theme.defaults.color
-  const chromatic = !neutralIds.includes(strokeReference.split(':')[0] as typeof neutralIds[number])
-  return <>
-    <InspectorGroup title="Fill">
-      <div className="inspector-field">
-        <PaletteControl theme={theme} label="Fill color" value={shape.fill} optional="none"
-          onFocus={() => onHistoryBegin('floating-fill')} onBlur={onHistoryEnd} onChange={fill => onChange({ fill })} />
-        {chromatic && <button className="quiet-action" onClick={() => { onHistoryEnd(); onChange({ fill: softReference(theme, strokeReference) }) }}>Use matching soft fill</button>}
-      </div>
-      {shape.kind === 'rectangle' && <label className="check-label"><input type="checkbox" checked={shape.rounded} onChange={event => onChange({ rounded: event.target.checked })} /> Rounded corners</label>}
-    </InspectorGroup>
-    <StrokeControls value={shape} theme={theme} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />
-  </>
-}
-
-function LineControls({ line, theme, onChange, onHistoryBegin, onHistoryEnd }: { line: FloatingLine; theme: Theme; onChange: (patch: FloatingPatch) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
-  return <>
-    <StrokeControls value={line} theme={theme} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />
-    <InspectorGroup title="Line">
-      <label className="inspector-field">Route<select value={line.route} onChange={event => onChange({ route: event.target.value as 'straight' | 'elbow' })}><option value="straight">Straight</option><option value="elbow">Elbow</option></select></label>
-      <InspectorField label="Arrowheads"><InspectorRow>
-        <label className="check-label"><input aria-label="Arrow at start" type="checkbox" checked={line.arrowStart} onChange={event => onChange({ arrowStart: event.target.checked })} /> Start</label>
-        <label className="check-label"><input aria-label="Arrow at end" type="checkbox" checked={line.arrowEnd} onChange={event => onChange({ arrowEnd: event.target.checked })} /> End</label>
-      </InspectorRow></InspectorField>
-    </InspectorGroup>
-  </>
-}
-
 function AttachmentControls({ object, targets, onAttach, onDetach, onChange }: {
   object: FloatingText; targets: FloatingObject[]; onAttach: Props['onAttach']; onDetach: () => void; onChange: Props['onChange']
 }) {
@@ -261,8 +218,6 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click to select or create a caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
-    case 'line': return <p>Drag the line to move it. Drag an endpoint to reshape or connect it to another object. Alt bypasses snapping. Double-click to select or create a caption.</p>
-    case 'rectangle': case 'ellipse': return <p>Drag the outline or a filled interior to move the shape. Transparent interiors are click-through. Select it to resize with the corner handles. Alt bypasses snapping. Double-click to select or create a caption.</p>
     case 'katex': return <p>Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
     default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents.</p></>
   }

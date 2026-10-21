@@ -90,7 +90,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const caption = floating.find(object => isText(object) && object.attachment?.targetId === note.id)
         if (caption?.textFlow === 'repel') {
           const objects = floating.map(object => ({ ...object, ...override[object.id] }) as FloatingObject)
-          const box = resolveGeometry(objects, anchors, sizes, tops)[caption.id]
+          const box = resolveGeometry(objects, sizes, tops)[caption.id]
           obstacles.push({ left: box.x - gap, right: box.x + box.width + gap,
             top: Math.max(anchorTop, box.y - gap), bottom: box.y + box.height + gap })
         }
@@ -162,11 +162,11 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
       const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
-      const geometry = resolveGeometry(objects, anchors, sizes, tops)
+      const geometry = resolveGeometry(objects, sizes, tops)
       // Only unused side margins may collapse in reading; retain every on-page object.
       let left = doc.margins.left, right = doc.width - doc.margins.right
       for (const note of objects) {
-        const bounds = horizontalBounds(note, geometry[note.id])
+        const bounds = horizontalBounds(geometry[note.id])
         const start = bounds.left + surface.clientLeft, end = bounds.right + surface.clientLeft
         if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
       }
@@ -177,7 +177,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
       })
       const sideInsets = { left: Math.max(0, left), right: Math.max(0, doc.width - right) }
-      const next = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...objects.map(note => visualBottom(note, geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
+      const next = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...objects.map(note => visualBottom(geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
       setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
       return next
     }
@@ -202,6 +202,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
   const objects = shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null)
     .map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
   const tops = Object.fromEntries(objects.map(note => [note.id, preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
-  const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops)
+  const geometry = resolveGeometry(objects, layout.geometry, tops)
   return { ...layout, tops, geometry, reflow, attach }
 }

@@ -127,7 +127,7 @@ function palette(document) {
   for (const object of document.floating) {
     if (object.content) visit(object.content)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
-    for (const key of ['fill', 'stroke', 'background', 'borderColor']) if (object[key] != null) ref(object[key], `${key} color`)
+    for (const key of ['background', 'borderColor']) if (object[key] != null) ref(object[key], `${key} color`)
   }
 }
 
@@ -150,13 +150,6 @@ function theme(value) {
     if (style.color !== undefined) text(style.color, 'theme block color', 128, true)
     if (style.weight !== undefined) finite(style.weight, 'theme block weight')
   }
-}
-
-function lineEnd(value, label) {
-  const end = record(value, label)
-  finite(end.x, `${label}.x`); finite(end.y, `${label}.y`, 0)
-  if (end.anchorId !== null) safeId(end.anchorId, `${label}.anchorId`)
-  if (end.connection) { const connection = record(end.connection, `${label}.connection`); safeId(connection.targetId, 'connection.targetId'); if (!['auto', 'top', 'bottom', 'left', 'right'].includes(connection.side)) throw new HttpError(400, 'invalid connection side') }
 }
 
 export function validateFloating(value, label = 'floating object', options = {}) {
@@ -209,9 +202,7 @@ export function validateFloating(value, label = 'floating object', options = {})
       text(item.text, `${name}.text`, 4096)
     }
   }
-  else if (kind === 'rectangle' || kind === 'ellipse') { finite(object.height, `${label}.height`, Number.MIN_VALUE); for (const key of ['fill', 'stroke']) if (object[key] !== null) text(object[key], `${label}.${key}`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); if (typeof object.dashed !== 'boolean' || typeof object.rounded !== 'boolean') throw new HttpError(400, 'invalid shape settings') }
-  else if (kind === 'line') { lineEnd(object.start, `${label}.start`); lineEnd(object.end, `${label}.end`); if (object.stroke !== null) text(object.stroke, `${label}.stroke`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); finite(object.bend, `${label}.bend`); if (!['straight', 'elbow'].includes(object.route) || typeof object.dashed !== 'boolean' || typeof object.arrowStart !== 'boolean' || typeof object.arrowEnd !== 'boolean') throw new HttpError(400, 'invalid line settings') }
-  else if (!['text', 'table', 'image', 'katex', 'html', 'code', 'rectangle', 'ellipse', 'line'].includes(kind)) throw new HttpError(400, 'unsupported floating kind')
+  else if (!['text', 'table', 'image', 'katex', 'html', 'code', 'drawing'].includes(kind)) throw new HttpError(400, 'unsupported floating kind')
   return object
 }
 
@@ -285,7 +276,7 @@ function segmentPaletteReferences(node, result = new Set()) {
 function segmentObjectPaletteReferences(object, result = new Set()) {
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) segmentPaletteReferences(object.content, result)
-  for (const key of ['fill', 'stroke', 'background', 'borderColor']) {
+  for (const key of ['background', 'borderColor']) {
     const value = object[key]
     if (typeof value === 'string') result.add(value)
   }
@@ -300,14 +291,6 @@ function validateSegmentGeometry(value, objectIds) {
     const box = record(value, `candidate.segment.geometry.${id}`)
     for (const key of ['x', 'y']) finite(box[key], `candidate.segment.geometry.${id}.${key}`)
     for (const key of ['width', 'height']) finite(box[key], `candidate.segment.geometry.${id}.${key}`, 0)
-    if (box.path !== undefined) {
-      if (!Array.isArray(box.path) || box.path.length > 10000) throw new HttpError(400, 'candidate.segment geometry path is invalid')
-      for (const [index, pointValue] of box.path.entries()) {
-        const point = record(pointValue, `candidate.segment.geometry.${id}.path[${index}]`)
-        finite(point.x, `candidate.segment.geometry.${id}.path[${index}].x`)
-        finite(point.y, `candidate.segment.geometry.${id}.path[${index}].y`)
-      }
-    }
   }
   return geometry
 }
@@ -367,12 +350,6 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   finite(payload.originTop, 'candidate.segment.originTop')
   for (const object of objects.values()) {
     if (object.anchorId !== null && !topIds.has(object.anchorId)) throw new HttpError(400, 'candidate.segment object anchor is outside the segment')
-    if (object.kind === 'line') {
-      for (const end of [object.start, object.end]) {
-        if (end.anchorId !== null && !topIds.has(end.anchorId)) throw new HttpError(400, 'candidate.segment line anchor is outside the segment')
-        if (end.connection && !objectIds.has(end.connection.targetId)) throw new HttpError(400, 'candidate.segment line connection is outside the segment')
-      }
-    }
   }
   const references = new Set()
   for (const node of payload.content) segmentPaletteReferences(node, references)
@@ -470,11 +447,6 @@ function segmentOwnedObjects(document, blocks, range, selected) {
   const owned = new Set()
   const baseIncluded = object => {
     if ((object.kind ?? 'text') === 'text' && object.attachment) return false
-    if (object.kind === 'line' && object.start.connection) {
-      const target = document.floating.find(other => other.id === object.start.connection.targetId)
-      if (target) return segmentPointSelected(target.anchorId, target.y, blocks, selected, range)
-    }
-    if (object.kind === 'line') return segmentPointSelected(object.start.anchorId, object.start.y, blocks, selected, range)
     return segmentPointSelected(object.anchorId, object.y, blocks, selected, range)
   }
   for (const object of document.floating) if (baseIncluded(object)) owned.add(object.id)

@@ -1,10 +1,10 @@
 import type { JSONContent } from '@tiptap/core'
-import type { FloatingObject, LineEnd, MoteDocument, PaletteEntry } from './model'
+import type { FloatingObject, MoteDocument, PaletteEntry } from './model'
 import { defaultTheme, isText } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { neutralIds, primaryVariables } from '../theme/palette'
-import type { Geometry, Geometries } from '../canvas/floatingGeometry'
+import type { Geometries } from '../canvas/floatingGeometry'
 
 export const SEGMENT_MIME = 'application/x-mote-segment+json'
 
@@ -173,13 +173,8 @@ function objectAnchorPlace(object: FloatingObject): AnchorPlace {
   return { anchorId: object.anchorId, y: object.y }
 }
 
-function objectBaseIncluded(object: FloatingObject, objects: readonly FloatingObject[], blocks: JSONContent[], selected: SelectedSegment, range: SegmentRange) {
+function objectBaseIncluded(object: FloatingObject, blocks: JSONContent[], selected: SelectedSegment, range: SegmentRange) {
   if (isText(object) && object.attachment) return false
-  if (object.kind === 'line' && object.start.connection) {
-    const target = objects.find(other => other.id === object.start.connection!.targetId)
-    if (target) return pointInSelectedRange(objectAnchorPlace(target), blocks, selected, range)
-  }
-  if (object.kind === 'line') return pointInSelectedRange({ anchorId: object.start.anchorId, y: object.start.y }, blocks, selected, range)
   return pointInSelectedRange(objectAnchorPlace(object), blocks, selected, range)
 }
 
@@ -187,7 +182,7 @@ function selectedObjectSet(doc: MoteDocument, range: SegmentRange): Set<string> 
   const blocks = blocksOf(doc)
   const selected = selectedSegment(blocks, range)
   const ids = new Set<string>()
-  for (const object of doc.floating) if (objectBaseIncluded(object, doc.floating, blocks, selected, range)) ids.add(object.id)
+  for (const object of doc.floating) if (objectBaseIncluded(object, blocks, selected, range)) ids.add(object.id)
   // Attached captions follow their target, not their own saved rectangle or
   // possibly stale anchor. Iterate so a caption is included even when its own
   // anchor is elsewhere.
@@ -212,17 +207,6 @@ function sourceAnchorTop(id: string | null, anchors: readonly { id: string; top:
   return anchorTop(id, anchors) + (slice?.start ?? 0)
 }
 
-function absoluteLinePoint(end: LineEnd, geometry: Geometry | undefined, first: boolean, anchors: readonly { id: string; top: number }[]): { x: number; y: number } {
-  if (geometry?.path?.length) return first ? geometry.path[0] : geometry.path.at(-1)!
-  return { x: end.x, y: anchorTop(end.anchorId, anchors) + end.y }
-}
-
-function relativeToSelectedAnchor(point: { x: number; y: number }, blocks: JSONContent[], selected: SelectedSegment, anchors: readonly { id: string; top: number }[], originTop: number): LineEnd {
-  const anchor = blocks.filter((_block, index) => selected.indices.has(index)).map(block => ({ id: blockId(block)!,
-    top: sourceAnchorTop(blockId(block)!, anchors, selected.spacers, originTop) })).findLast(anchor => anchor.top <= point.y)
-  return { x: point.x, y: Math.max(0, point.y - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
-}
-
 function transformCopiedObject(object: FloatingObject, selectedIds: Set<string>, blocks: JSONContent[], selected: SelectedSegment, anchors: readonly { id: string; top: number }[], geometry: Geometries, originTop: number): FloatingObject {
   const result = clone(object)
   const shiftAnchor = (id: string | null, y: number) => {
@@ -232,25 +216,7 @@ function transformCopiedObject(object: FloatingObject, selectedIds: Set<string>,
     return slice ? { anchorId: id, y: Math.max(0, y - slice.start) } : { anchorId: id, y }
   }
   Object.assign(result, shiftAnchor(result.anchorId, result.y))
-  if (result.kind === 'line') {
-    const sourceLine = object as Extract<FloatingObject, { kind: 'line' }>
-    result.start = { ...result.start, ...shiftAnchor(result.start.anchorId, result.start.y) }
-    result.end = { ...result.end, ...shiftAnchor(result.end.anchorId, result.end.y) }
-    const sourceGeometry = geometry[result.id]
-    const detach = (end: LineEnd, first: boolean) => {
-      const sourceEnd = first ? sourceLine.start : sourceLine.end
-      const point = absoluteLinePoint(sourceEnd, sourceGeometry, first, anchors)
-      const internal = anchorIsSelected(sourceEnd.anchorId, sourceEnd.y, blocks, selected)
-      if (!end.connection && internal) return end
-      if (end.connection && selectedIds.has(end.connection.targetId)) {
-        if (internal) return end
-        return { ...end, ...relativeToSelectedAnchor(point, blocks, selected, anchors, originTop) }
-      }
-      return relativeToSelectedAnchor(point, blocks, selected, anchors, originTop)
-    }
-    result.start = detach(result.start, true)
-    result.end = detach(result.end, false)
-  } else if (isText(result) && result.attachment && !selectedIds.has(result.attachment.targetId)) {
+  if (isText(result) && result.attachment && !selectedIds.has(result.attachment.targetId)) {
     const box = geometry[result.id]
     if (box) {
       result.x = box.x
@@ -271,7 +237,7 @@ function paletteReferences(content: JSONContent, result = new Set<string>()) {
 export function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) paletteReferences(object.content, result)
-  for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
+  for (const key of ['background', 'borderColor'] as const) {
     const value = (object as unknown as Record<string, unknown>)[key]
     if (typeof value === 'string') result.add(value)
   }
@@ -356,7 +322,7 @@ export function remapPaletteContent(node: JSONContent, remap: Map<string, string
 
 export function remapObjectPalette(object: FloatingObject, remap: Map<string, string>) {
   const reference = (value: string) => `${remap.get(value.split(':')[0]) ?? value.split(':')[0]}${value.endsWith(':soft') ? ':soft' : ''}`
-  for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
+  for (const key of ['background', 'borderColor'] as const) {
     const record = object as unknown as Record<string, unknown>, value = record[key]
     if (typeof value === 'string') record[key] = reference(value)
   }
@@ -417,7 +383,7 @@ function fallbackGeometry(object: FloatingObject, geometry: Geometries, anchors:
   return box ? { ...absoluteToAnchor({ x: box.x, y: box.y }, anchors), x: box.x } : { anchorId: null, y: 0 }
 }
 
-function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, selected: SelectedSegment, parts: Map<string, SpacerSlice>, aliases: Map<string, SpacerAlias>, geometry: Geometries, oldAnchors: readonly { id: string; top: number }[], resultAnchors: readonly { id: string; top: number }[]): FloatingObject {
+function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, selected: SelectedSegment, parts: Map<string, SpacerSlice>, aliases: Map<string, SpacerAlias>, geometry: Geometries, resultAnchors: readonly { id: string; top: number }[]): FloatingObject {
   const result = clone(object)
   const mapExisting = (id: string | null, y: number): AnchorMapping | undefined => {
     if (id === null) return { anchorId: null, y }
@@ -434,18 +400,7 @@ function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, s
   if (mapped) Object.assign(result, mapped)
   else Object.assign(result, fallbackGeometry(result, geometry, resultAnchors))
 
-  if (result.kind === 'line') {
-    const sourceGeometry = geometry[result.id]
-    const detach = (end: LineEnd, first: boolean) => {
-      const connectionGone = end.connection && selectedIds.has(end.connection.targetId)
-      const endpoint = mapExisting(end.anchorId, end.y)
-      if (!connectionGone && endpoint) return { ...end, ...endpoint }
-      const point = absoluteLinePoint(end, sourceGeometry, first, oldAnchors)
-      return { x: point.x, ...absoluteToAnchor(point, resultAnchors) }
-    }
-    result.start = detach(result.start, true)
-    result.end = detach(result.end, false)
-  } else if (isText(result) && result.attachment && selectedIds.has(result.attachment.targetId)) {
+  if (isText(result) && result.attachment && selectedIds.has(result.attachment.targetId)) {
     result.attachment = null
     const box = geometry[result.id]
     if (box) Object.assign(result, { x: box.x, width: box.width, ...absoluteToAnchor({ x: box.x, y: box.y }, resultAnchors) })
@@ -461,9 +416,6 @@ export function validateGeometry(geometry: unknown): asserts geometry is Geometr
     const box = value as Record<string, unknown>
     for (const key of ['x', 'y']) if (typeof box[key] !== 'number' || !Number.isFinite(box[key])) throw new Error('Invalid segment geometry')
     for (const key of ['width', 'height']) if (typeof box[key] !== 'number' || !Number.isFinite(box[key]) || box[key] < 0) throw new Error('Invalid segment geometry')
-    if (box.path !== undefined) {
-      if (!Array.isArray(box.path) || box.path.some(point => !point || typeof point !== 'object' || typeof (point as Record<string, unknown>).x !== 'number' || typeof (point as Record<string, unknown>).y !== 'number' || !Number.isFinite((point as Record<string, unknown>).x as number) || !Number.isFinite((point as Record<string, unknown>).y as number))) throw new Error('Invalid segment geometry path')
-    }
   }
 }
 
@@ -535,11 +487,6 @@ function destinationPayloadTop(payload: SegmentClipboard, sourceId: string | nul
   return insertionTop + sourcePayloadAnchorTop(payload, sourceId) - payload.originTop
 }
 
-function payloadEndpointPoint(payload: SegmentClipboard, end: LineEnd, geometry: Geometry | undefined, first: boolean) {
-  if (geometry?.path?.length) return first ? geometry.path[0] : geometry.path.at(-1)!
-  return { x: end.x, y: sourcePayloadAnchorTop(payload, end.anchorId) + end.y }
-}
-
 const segmentExtent = (node: JSONContent) => isSpacer(node) ? blockHeight(node) : 1
 
 export function segmentPosition(content: JSONContent[], point: SegmentPoint) {
@@ -593,7 +540,7 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
     const piece = moving.find(piece => piece.originalId === point.anchorId)
     if (piece) return applyAlias({ anchorId: blockId(piece.block)!, y: point.y }, aliases)
     const offset = (absoluteY ?? sourcePayloadAnchorTop(payload, point.anchorId) + point.y) - payload.originTop
-    // Upward-extending free endpoints need a preceding anchor, not clamping to the segment's top.
+    // Objects above the moved segment need a preceding anchor instead of clamping to its top.
     const mapped = offset < 0 ? absoluteToAnchor({ x: 0, y: Math.max(0, insertionTop + offset) }, prefixAnchors)
       : { anchorId: blockId(moving[0].block)!, y: offset }
     return applyAlias(mapped, aliases)
@@ -602,11 +549,6 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
   const floating = doc.floating.map(original => {
     const moved = movedObjects.get(original.id), object = moved ?? original
     const next = { ...object, ...(moved ? mapMoved(object, geometry[object.id]?.y) : mapRetained(object)) }
-    if (next.kind === 'line' && original.kind === 'line' && object.kind === 'line') {
-      const mapEnd = (end: LineEnd, source: LineEnd) => ({ ...end, ...(moved ? mapMoved(end) : mapRetained(end)), ...(source.connection && { connection: source.connection }) })
-      next.start = mapEnd(object.start, original.start)
-      next.end = mapEnd(object.end, original.end)
-    }
     return next
   })
   const insertion = at < start ? at : at - (end - start)
@@ -684,7 +626,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
     return [{ id: alias?.anchorId ?? id, top }]
   }).filter((anchor, index, all) => all.findIndex(other => other.id === anchor.id) === index)
 
-  const retained = doc.floating.filter(object => !selectedIds.has(object.id)).map(object => remapRetainedObject(object, selectedIds, selected, parts, aliases, geometry, anchors, resultAnchors))
+  const retained = doc.floating.filter(object => !selectedIds.has(object.id)).map(object => remapRetainedObject(object, selectedIds, selected, parts, aliases, geometry, resultAnchors))
   if (payload) {
     for (const object of payload.floating) {
       const nextId = freshId(used)
@@ -703,24 +645,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
       const aliasOffset = mapped.y - object.y
       next.anchorId = mappedAnchor
       next.y = mapped.y
-      if (next.kind === 'line') {
-        const sourceGeometry = payload.geometry[object.id]
-        const detach = (end: LineEnd, first: boolean) => {
-          const mappedEndAnchor = end.anchorId === null ? undefined : payloadBlockMap.get(end.anchorId)
-          if (end.connection && payloadObjectMap.has(end.connection.targetId)) {
-            const endpoint = mappedEndAnchor ? applyAlias({ anchorId: mappedEndAnchor, y: end.y }, aliases)
-              : translated(payloadEndpointPoint(payload, end, sourceGeometry, first))
-            return { ...end, ...endpoint, connection: { ...end.connection, targetId: payloadObjectMap.get(end.connection.targetId)! } }
-          }
-          if (mappedEndAnchor) return { x: end.x, ...applyAlias({ anchorId: mappedEndAnchor, y: end.y }, aliases) }
-          const point = payloadEndpointPoint(payload, end, sourceGeometry, first)
-          return translated(point)
-        }
-        const line = next as Extract<FloatingObject, { kind: 'line' }>
-        const sourceLine = object as Extract<FloatingObject, { kind: 'line' }>
-        line.start = detach(sourceLine.start, true)
-        line.end = detach(sourceLine.end, false)
-      } else if (isText(next)) {
+      if (isText(next)) {
         if (next.attachment && payloadObjectMap.has(next.attachment.targetId)) next.attachment = { ...next.attachment, targetId: payloadObjectMap.get(next.attachment.targetId)! }
         else if (next.attachment) {
           const box = payload.geometry[object.id]

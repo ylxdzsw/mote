@@ -31,20 +31,16 @@ function Icon({ path, rect }: { path: string; rect?: string }) {
 
 const TILES: TileEntry[] = [
   { kind: 'text',      label: 'Text box',   icon: <Icon path="M3 4h18M3 9h18M3 14h12" /> },
-  { kind: 'rectangle', label: 'Rectangle',  icon: <Icon path="" rect="x:3 y:5 width:18 height:14 rx:1" /> },
   { kind: 'image',     label: 'Image',      icon: <Icon path="M3 3h18v18H3zM3 17l6-5 4 4 3-3 5 4" /> },
   { kind: 'table',     label: 'Table',      icon: <Icon path="M3 10h18M3 15h18M11 4v16" rect="x:3 y:4 width:18 height:16 rx:1" /> },
-  { kind: 'line',      label: 'Line',       icon: <Icon path="M4 20 20 4M12 4h8v8" /> },
   { kind: 'drawing',   label: 'Drawing',    icon: <Icon path="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /> },
   { kind: 'ai',        label: 'AI object',  icon: <Icon path="M12 3H3v18h18v-9M6 17l4-5 4 5m1-11 1.2 3.8L23 6l-3.8 1.2L18 11l-1.2-3.8L13 6l3.8-1.2Z" /> },
   { kind: 'more',      label: 'More',       icon: <Icon path="M12 5v.01M12 12v.01M12 19v.01" /> },
 ]
 
-// Native kinds outside the eight-tile grid. Ellipse/Paragraph arm a
-// drawing tool; Formula and the HTML widget run their own setup first.
+// Additional native kinds and their creation tools.
 const MORE_TILES: TileEntry[] = [
   { kind: 'code',      label: 'Code',       icon: <Icon path="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" /> },
-  { kind: 'ellipse',   label: 'Ellipse',     icon: <Icon path="" rect="x:3 y:5 width:18 height:14 rx:9" /> },
   { kind: 'katex',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
   { kind: 'paragraph', label: 'Paragraph',   icon: <Icon path="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" /> },

@@ -120,34 +120,13 @@ export interface FloatingHTMLWidget extends FloatingGeometry {
   height: number
 }
 
-export type AttachmentSide = 'auto' | 'top' | 'bottom' | 'left' | 'right'
-export interface ObjectConnection { targetId: string; side: AttachmentSide }
-export interface LineEnd { x: number; y: number; anchorId: string | null; connection?: ObjectConnection }
 export type CaptionPosition = 'above' | 'below'
 export interface CaptionAttachment { targetId: string; position: CaptionPosition }
-export interface Stroke { stroke: string | null; strokeWidth: number; dashed: boolean }
-export interface FloatingShape extends FloatingGeometry, Stroke {
-  kind: 'rectangle' | 'ellipse'
-  height: number
-  fill: string | null
-  rounded: boolean
-}
-export interface FloatingLine extends FloatingGeometry, Stroke {
-  kind: 'line'
-  start: LineEnd
-  end: LineEnd
-  route: 'straight' | 'elbow'
-  // Horizontal offset from the endpoints' midpoint, in document pixels.
-  bend: number
-  arrowStart: boolean
-  arrowEnd: boolean
-}
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingShape | FloatingLine | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
 export type FloatingKind = NonNullable<FloatingObject['kind']>
 export const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
-export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stroke> & {
-  content?: JSONContent; src?: string; alt?: string; height?: number; fill?: string | null; rounded?: boolean
-  start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
+export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
+  content?: JSONContent; src?: string; alt?: string; height?: number
   attachment?: CaptionAttachment | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string; scheme?: 'light' | 'dark'
@@ -198,7 +177,6 @@ export function createDocument(): MoteDocument {
   const codeSpaceId = crypto.randomUUID()
   const attentionSpaceId = crypto.randomUUID()
   const motionSpaceId = crypto.randomUUID()
-  const rectangleId = crypto.randomUUID(), ellipseId = crypto.randomUUID()
   const imageId = crypto.randomUUID()
   return {
     version: 'V0',
@@ -221,7 +199,7 @@ export function createDocument(): MoteDocument {
         },
         { type: 'spacer', attrs: { id: spaceId, height: 176 } },
         paragraph('Meaning before appearance', 'heading'),
-        paragraph('Give paragraphs a role, then combine bold, color, and decoration within them. Text and shapes share one document palette; change a color once, and every use follows.'),
+        paragraph('Give paragraphs a role, then combine bold, color, and decoration within them. Text and drawings share one document palette; change a color once, and every use follows.'),
         paragraph('Try it out', 'heading'),
         paragraph('Write above the floating note and watch it follow its anchor. Select a phrase to highlight a key idea, or insert a spacer to leave room for something new.'),
         paragraph('This draft lives in this browser. No account, no cloud.', 'caption'),
@@ -292,23 +270,6 @@ export function createDocument(): MoteDocument {
       x: 135, y: 48, width: 340, textFlow: 'overlap',
       content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Space · 留白', 'One useful question']]),
     }, {
-      id: rectangleId, kind: 'rectangle', anchorId: spaceId, x: 135, y: 48, width: 112, height: 80,
-      textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: true,
-    }, {
-      id: ellipseId, kind: 'ellipse', anchorId: spaceId, x: 304, y: 48, width: 96, height: 80,
-      textFlow: 'overlap', fill: 'primary:soft', stroke: null, strokeWidth: 1, dashed: false, rounded: false,
-    }, {
-      id: crypto.randomUUID(), kind: 'line', anchorId: spaceId, x: 247, y: 88, width: 57,
-      textFlow: 'overlap', stroke: null, strokeWidth: 1, dashed: true, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true,
-      start: { x: 247, y: 88, anchorId: spaceId, connection: { targetId: rectangleId, side: 'right' } },
-      end: { x: 304, y: 88, anchorId: spaceId, connection: { targetId: ellipseId, side: 'left' } },
-    }, {
-      id: crypto.randomUUID(), anchorId: spaceId, x: 135, y: 48, width: 112, textFlow: 'overlap',
-      content: captionContent('Idea · 想法'), attachment: { targetId: rectangleId, position: 'below' },
-    }, {
-      id: crypto.randomUUID(), anchorId: spaceId, x: 304, y: 48, width: 96, textFlow: 'overlap',
-      content: captionContent('Explore'), attachment: { targetId: ellipseId, position: 'below' },
-    }, {
       id: crypto.randomUUID(), anchorId: sketchSpaceId, x: 135, y: 270, width: 340, textFlow: 'overlap',
       content: captionContent('A different path'), attachment: { targetId: imageId, position: 'below' },
     }, {
@@ -342,7 +303,7 @@ export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift 
     if (removed && point.anchorId === removed.id) return { ...point, anchorId: removed.anchorId, y: y + removed.offset }
     return y === point.y ? point : { ...point, y }
   }
-  return objects.map(note => note.kind === 'line' ? { ...move(note), start: move(note.start), end: move(note.end) } : move(note))
+  return objects.map(move)
 }
 
 // Keep notes when their anchor is removed: prefer the nearest surviving predecessor.
@@ -359,8 +320,6 @@ export function replaceMainContent(doc: MoteDocument, content: JSONContent, merg
   }
   const floating = shiftSpaceObjects(doc.floating, shift).map(note => {
     const { anchorId, y } = remap(note)
-    if (note.kind === 'line') return { ...note, anchorId, y,
-      start: { ...note.start, ...remap(note.start) }, end: { ...note.end, ...remap(note.end) } }
     return anchorId === note.anchorId && y === note.y ? note : { ...note, anchorId, y }
   })
   return { ...doc, content, floating }

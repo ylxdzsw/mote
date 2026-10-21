@@ -1,10 +1,10 @@
 import type { JSONContent } from '@tiptap/core'
-import { defaultTheme, isText, paragraph, type FloatingObject, type LineEnd, type MoteDocument, type PaletteEntry } from './model'
+import { defaultTheme, isText, paragraph, type FloatingObject, type MoteDocument, type PaletteEntry } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { collectNodeIds, freshNode, mergePalette, objectPaletteReferences, remapObjectPalette, remapPaletteContent, validateGeometry } from './segment'
 import { neutralIds } from '../theme/palette'
-import { anchorPoint, type Anchor, type Geometries, type Point } from '../canvas/floatingGeometry'
+import { anchorPoint, type Anchor, type Geometries } from '../canvas/floatingGeometry'
 
 export const FLOATING_MIME = 'application/x-mote-floating+json'
 export interface FloatingClipboard {
@@ -25,12 +25,7 @@ export function copyFloating(doc: MoteDocument, ids: Set<string>, geometry: Geom
   const floating = doc.floating.filter(object => ids.has(object.id)).map(original => {
     const object = structuredClone(original), box = geometry[object.id]
     Object.assign(object, { x: box.x, y: Math.max(0, box.y), anchorId: null })
-    if (object.kind === 'line') {
-      const endpoint = (end: LineEnd, point: Point): LineEnd => ({ ...anchorPoint(point, []),
-        ...(end.connection && ids.has(end.connection.targetId) ? { connection: end.connection } : {}) })
-      object.start = endpoint(object.start, box.path![0])
-      object.end = endpoint(object.end, box.path!.at(-1)!)
-    } else if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) {
+    if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) {
       object.width = box.width
       object.attachment = null
     }
@@ -57,10 +52,7 @@ export function parseFloating(json: string): FloatingClipboard {
   const ids = new Set(payload.floating.map(object => object.id))
   for (const object of payload.floating) {
     if (object.anchorId !== null || !payload.geometry[object.id]) throw new Error('Invalid floating clipboard geometry.')
-    if (object.kind === 'line') {
-      if ((payload.geometry[object.id].path?.length ?? 0) < 2) throw new Error('Invalid floating clipboard line.')
-      for (const end of [object.start, object.end]) if (end.anchorId !== null || end.connection && !ids.has(end.connection.targetId)) throw new Error('Invalid floating clipboard connection.')
-    } else if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) throw new Error('Invalid floating clipboard attachment.')
+    if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) throw new Error('Invalid floating clipboard attachment.')
   }
   return payload
 }
@@ -76,11 +68,7 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
     const object = structuredClone(original)
     object.id = mapping.get(original.id)!
     Object.assign(object, anchorPoint(payload.geometry[original.id], anchors))
-    if (object.kind === 'line') {
-      const endpoint = (end: LineEnd): LineEnd => ({ ...anchorPoint(end, anchors),
-        ...(end.connection ? { connection: { ...end.connection, targetId: mapping.get(end.connection.targetId)! } } : {}) })
-      object.start = endpoint(object.start); object.end = endpoint(object.end)
-    } else if (isText(object) && object.attachment) object.attachment.targetId = mapping.get(object.attachment.targetId)!
+    if (isText(object) && object.attachment) object.attachment.targetId = mapping.get(object.attachment.targetId)!
     if ('content' in object) object.content = remapPaletteContent(freshNode(object.content, used), remap)
     remapObjectPalette(object, remap)
     return object

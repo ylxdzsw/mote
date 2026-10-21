@@ -30,7 +30,6 @@ function sortedKeys(_key: string, value: unknown): unknown {
 export function objectContent(object: FloatingObject) {
   const { x, y, anchorId, ...content } = object
   void x; void y; void anchorId
-  if (content.kind === 'line') return { ...content, start: undefined, end: undefined, bend: undefined }
   if (isText(object)) return { ...content, attachment: undefined }
   return content
 }
@@ -116,13 +115,7 @@ function segmentObjectIds(doc: MoteDocument, range: SegmentRange) {
   }
   for (const object of doc.floating) {
     if (isText(object) && object.attachment) continue
-    if (object.kind === 'line' && object.start.connection) {
-      const target = doc.floating.find(candidate => candidate.id === object.start.connection!.targetId)
-      if (target && selectedAnchor(target.anchorId, target.y)) ids.add(object.id)
-      else if (!target && selectedAnchor(object.start.anchorId, object.start.y)) ids.add(object.id)
-    } else if (object.kind === 'line') {
-      if (selectedAnchor(object.start.anchorId, object.start.y)) ids.add(object.id)
-    } else if (selectedAnchor(object.anchorId, object.y)) ids.add(object.id)
+    if (selectedAnchor(object.anchorId, object.y)) ids.add(object.id)
   }
   let changed = true
   while (changed) {
@@ -269,20 +262,6 @@ export function currentPlacement(candidate: FloatingObject, original: FloatingOb
   const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.width, ...('height' in original && { height: original.height }) }) : candidate
   const result = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, textFlow: original.textFlow }
   if ('height' in original && 'height' in result) result.height = original.height
-  if (result.kind === 'line' && original.kind === 'line') return { ...result, start: original.start, end: original.end, bend: original.bend }
-  if (result.kind === 'line' && original.kind === 'drawing') {
-    // Conversion endpoints describe one local coordinate plane, not document anchors.
-    // Fit the whole path (including an elbow's bend) and drop external connections.
-    const bendX = result.start.x / 2 + result.end.x / 2 + result.bend
-    const xs = [result.start.x, result.end.x, ...(result.route === 'elbow' ? [bendX] : [])]
-    const left = Math.min(...xs), right = Math.max(...xs)
-    const top = Math.min(result.start.y, result.end.y), bottom = Math.max(result.start.y, result.end.y)
-    const x = (value: number) => original.x + (right === left ? .5 : (value - left) / (right - left)) * original.width
-    const y = (value: number) => original.y + (bottom === top ? .5 : (value - top) / (bottom - top)) * original.height
-    const start = { x: x(result.start.x), y: y(result.start.y), anchorId: original.anchorId }
-    const end = { x: x(result.end.x), y: y(result.end.y), anchorId: original.anchorId }
-    return { ...result, start, end, bend: result.route === 'elbow' ? x(bendX) - (start.x / 2 + end.x / 2) : 0 }
-  }
   if (isText(result)) return { ...result, attachment: isText(original) ? original.attachment : undefined }
   return result
 }
