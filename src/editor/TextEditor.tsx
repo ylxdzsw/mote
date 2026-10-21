@@ -6,7 +6,6 @@ import { ReplaceStep } from '@tiptap/pm/transform'
 import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import { paletteSwatches } from '../theme/palette'
 import { extensions } from './extensions'
-import './label.css'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
 import { reservationExtension } from './reservations'
@@ -19,8 +18,6 @@ interface Props {
   editable: boolean
   spatial?: boolean
   table?: boolean
-  singleLabel?: boolean
-  onFinish?: () => void
   label: string
   historyId: string
   onChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void
@@ -29,7 +26,7 @@ interface Props {
   aiReview?: AIReview
 }
 
-export function TextEditor({ content, editable, spatial = false, table = false, singleLabel = false, onFinish, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
+export function TextEditor({ content, editable, spatial = false, table = false, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
   const history = useHistory()
   const clipboardHistory = useRef(history)
   clipboardHistory.current = history
@@ -40,7 +37,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const syncedRevision = useRef(-1)
   const review = useRef(aiReview)
   review.current = editable ? aiReview : undefined
-  const schema = useMemo(() => [...extensions(spatial, table, singleLabel, onFinish), paragraphClipboard(clipboardHistory, historyId, !table && !singleLabel), reservationExtension(history, historyId, review)], [spatial, table, singleLabel, onFinish, historyId])
+  const schema = useMemo(() => [...extensions(spatial, table), paragraphClipboard(clipboardHistory, historyId, !table), reservationExtension(history, historyId, review)], [spatial, table, historyId])
   const editor = useEditor({
     extensions: schema,
     content,
@@ -139,5 +136,5 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const segmentRanges = JSON.stringify(aiReview?.segmentRanges ?? [])
   useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, aiReview?.mainActive, segmentPreviews, segmentRanges, aiReview?.activeSegmentId, editable])
 
-  return <EditorContent className={`text-content${singleLabel ? ' label-editor' : ''}`} editor={editor} />
+  return <EditorContent className="text-content" editor={editor} />
 }

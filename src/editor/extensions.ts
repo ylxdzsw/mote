@@ -1,12 +1,10 @@
-import { Extension, Node, mergeAttributes } from '@tiptap/core'
+import { Node, mergeAttributes } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import HardBreak from '@tiptap/extension-hard-break'
 import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor } from '@tiptap/extensions'
-import { Plugin } from '@tiptap/pm/state'
-import { Fragment, Slice } from '@tiptap/pm/model'
 import { blockClasses } from '../document/model'
 import { TableParagraph, tableExtensions } from './table'
 import { Spaces } from './spaces'
@@ -70,65 +68,6 @@ const MainParagraph = SemanticParagraph.extend({
   },
 })
 
-const LabelParagraph = Paragraph.extend({
-  parseHTML: () => [{ tag: 'p' }],
-  renderHTML: () => ['p', { 'data-semantic': 'label' }, 0],
-})
-
-function labelInlineContent(node: import('@tiptap/pm/model').Node, content: import('@tiptap/pm/model').Node[] = []) {
-  if (node.isText || node.type.name === 'hardBreak') {
-    content.push(node)
-    return content
-  }
-  node.forEach(child => {
-    if (child.isBlock && content.length) content.push(node.type.schema.nodes.hardBreak.create())
-    labelInlineContent(child, content)
-  })
-  return content
-}
-
-const LabelBehavior = Extension.create<{ onFinish?: () => void }>({
-  name: 'labelBehavior',
-  addOptions: () => ({ onFinish: undefined }),
-  addKeyboardShortcuts() {
-    const editor = this.editor
-    return {
-      Enter: () => {
-        if (this.options.onFinish) this.options.onFinish()
-        else editor.commands.blur()
-        return true
-      },
-      'Shift-Enter': () => editor.commands.setHardBreak(),
-    }
-  },
-  addProseMirrorPlugins() {
-    return [new Plugin({
-      props: {
-        handlePaste: (view, event, slice) => {
-          const clipboard = event.clipboardData
-          const content = clipboard && !clipboard.getData('text/html')
-            ? clipboard.getData('text/plain').replace(/\r\n?/g, '\n').split('\n').flatMap((line, index) => [
-              ...(index ? [view.state.schema.nodes.hardBreak.create()] : []),
-              ...(line ? [view.state.schema.text(line)] : []),
-            ])
-            : (() => {
-              const content: import('@tiptap/pm/model').Node[] = []
-              slice.content.forEach((node, index) => {
-                if (index) content.push(view.state.schema.nodes.hardBreak.create())
-                labelInlineContent(node, content)
-              })
-              return content
-            })()
-          view.dispatch(view.state.tr.replaceSelection(new Slice(
-            Fragment.from(view.state.schema.nodes.paragraph.create(null, content)), 1, 1,
-          )).setMeta('paste', true).scrollIntoView())
-          return true
-        },
-      },
-    })]
-  },
-})
-
 export const Spacer = Node.create({
   name: 'spacer',
   group: 'block',
@@ -147,11 +86,7 @@ export const Spacer = Node.create({
   renderHTML: ({ HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-spacer': '', 'aria-label': 'Vertical space' })],
 })
 
-export function extensions(spatial: boolean, table = false, singleLabel = false, onFinish?: () => void) {
-  if (singleLabel) return [
-    Document.extend({ content: 'paragraph' }), LabelParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
-    LabelBehavior.configure({ onFinish }),
-  ]
+export function extensions(spatial: boolean, table = false) {
   return [
     table ? Document.extend({ content: 'table' }) : Document,
     table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,

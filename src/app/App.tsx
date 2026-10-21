@@ -6,7 +6,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
+import { isText, createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type LineEnd, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
@@ -261,7 +261,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (kind === 'html') { chooseWidgetScreenshot(); return }
     if (kind === 'table') { addObject('table'); return }
     if (kind === 'katex') { addObject('katex'); return }
-    if (['text','code','rectangle','ellipse','line','label','ai','paragraph'].includes(kind)) {
+    if (['text','code','rectangle','ellipse','line','ai','paragraph'].includes(kind)) {
       setTool(kind as CreationTool)
       setSelectedIds([])
     }
@@ -544,7 +544,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
               </div> : <>
                 {selectedObject ? <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
-                  targetKind={selectedObject.kind === 'label' && selectedObject.attachment ? doc.floating.find(object => object.id === selectedObject.attachment?.targetId)?.kind : undefined}
+                  caption={doc.floating.find((object): object is import('../document/model').FloatingText => isText(object) && object.attachment?.targetId === selectedObject.id)}
+                  attachmentTargets={doc.floating.filter(target => target.id !== selectedObject.id && !assistant.lockedIds.has(target.id) && !(isText(target) && target.attachment)
+                    && !doc.floating.some(object => isText(object) && object.attachment?.targetId === target.id && object.id !== selectedObject.id)
+                    && !doc.floating.some(object => isText(object) && object.attachment?.targetId === selectedObject.id))}
+                  onCaption={position => actions.current?.caption(position)} onAttach={(targetId, position) => actions.current?.attachCaption(targetId, position)}
                   textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
                   tableControls={<TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
                   onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}

@@ -8,7 +8,7 @@ import motionHTML from './examples/motion.html?raw'
 import motionScreenshot from './examples/motion.png?inline'
 
 export const blockClasses = ['title', 'heading', 'body', 'caption', 'list'] as const
-export const themeBlockClasses = [...blockClasses, 'table', 'label', 'math', 'code'] as const
+export const themeBlockClasses = [...blockClasses, 'table', 'math', 'code'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
 
@@ -48,7 +48,6 @@ export const defaultTheme: Theme = {
     heading: { size: '1.5em', color: 'ink', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
     body: { size: '1em' },
     table: { size: '1em' },
-    label: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
     math: {},
     caption: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
     code: { size: '0.875em', family: 'mono', lineHeight: '1.375em' },
@@ -76,6 +75,7 @@ interface FloatingGeometry {
 export interface FloatingText extends FloatingGeometry {
   kind?: 'text'
   content: JSONContent
+  attachment?: CaptionAttachment | null
   padding?: ThemeLength
   background?: string | null
   borderColor?: string | null
@@ -115,8 +115,8 @@ export interface FloatingHTMLWidget extends FloatingGeometry {
 export type AttachmentSide = 'auto' | 'top' | 'bottom' | 'left' | 'right'
 export interface ObjectConnection { targetId: string; side: AttachmentSide }
 export interface LineEnd { x: number; y: number; anchorId: string | null; connection?: ObjectConnection }
-export type LabelPosition = 'center' | 'top-inside' | 'top-outside' | 'bottom-inside' | 'bottom-outside' | 'left' | 'right' | 'above' | 'below'
-export interface LabelAttachment { targetId: string; position: LabelPosition }
+export type CaptionPosition = 'above' | 'below'
+export interface CaptionAttachment { targetId: string; position: CaptionPosition }
 export interface Stroke { stroke: string | null; strokeWidth: number; dashed: boolean }
 export interface FloatingShape extends FloatingGeometry, Stroke {
   kind: 'rectangle' | 'ellipse'
@@ -134,24 +134,20 @@ export interface FloatingLine extends FloatingGeometry, Stroke {
   arrowStart: boolean
   arrowEnd: boolean
 }
-export interface FloatingLabel extends FloatingGeometry {
-  kind: 'label'
-  content: JSONContent
-  attachment: LabelAttachment | null
-}
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingLabel | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
 export type FloatingKind = NonNullable<FloatingObject['kind']>
+export const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
 export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stroke> & {
   content?: JSONContent; src?: string; alt?: string; height?: number; fill?: string | null; rounded?: boolean
   start?: LineEnd; end?: LineEnd; route?: 'straight' | 'elbow'; bend?: number; arrowStart?: boolean; arrowEnd?: boolean
-  attachment?: LabelAttachment | null
+  attachment?: CaptionAttachment | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string; scheme?: 'light' | 'dark'
   background?: string | null; borderColor?: string | null; padding?: ThemeLength
 }
 
-export function labelContent(text = ''): JSONContent {
-  return { type: 'doc', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }] }
+export function captionContent(text = ''): JSONContent {
+  return { type: 'doc', content: [paragraph(text, 'caption')] }
 }
 
 export type DocumentLanguage = 'en' | 'zh-Hans'
@@ -298,14 +294,14 @@ export function createDocument(): MoteDocument {
       start: { x: 247, y: 88, anchorId: spaceId, connection: { targetId: rectangleId, side: 'right' } },
       end: { x: 304, y: 88, anchorId: spaceId, connection: { targetId: ellipseId, side: 'left' } },
     }, {
-      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 135, y: 48, width: 12, textFlow: 'overlap',
-      content: labelContent('Idea · 想法'), attachment: { targetId: rectangleId, position: 'center' },
+      id: crypto.randomUUID(), anchorId: spaceId, x: 135, y: 48, width: 112, textFlow: 'overlap',
+      content: captionContent('Idea · 想法'), attachment: { targetId: rectangleId, position: 'below' },
     }, {
-      id: crypto.randomUUID(), kind: 'label', anchorId: spaceId, x: 304, y: 48, width: 12, textFlow: 'overlap',
-      content: labelContent('Explore'), attachment: { targetId: ellipseId, position: 'center' },
+      id: crypto.randomUUID(), anchorId: spaceId, x: 304, y: 48, width: 96, textFlow: 'overlap',
+      content: captionContent('Explore'), attachment: { targetId: ellipseId, position: 'below' },
     }, {
-      id: crypto.randomUUID(), kind: 'label', anchorId: sketchSpaceId, x: 135, y: 270, width: 12, textFlow: 'overlap',
-      content: labelContent('A different path'), attachment: { targetId: imageId, position: 'bottom-outside' },
+      id: crypto.randomUUID(), anchorId: sketchSpaceId, x: 135, y: 270, width: 340, textFlow: 'overlap',
+      content: captionContent('A different path'), attachment: { targetId: imageId, position: 'below' },
     }, {
       id: crypto.randomUUID(), kind: 'katex', anchorId: mathSpaceId,
       x: 135, y: 16, width: 690, textFlow: 'overlap', latex: exampleMath.trim(),

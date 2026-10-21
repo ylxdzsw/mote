@@ -1,8 +1,10 @@
 import type { JSONContent } from '@tiptap/core'
-import type { FloatingObject, MoteDocument } from '../document/model'
+import type { FloatingObject, FloatingText, MoteDocument } from '../document/model'
 import type { AITarget, AITask } from './types'
 import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
+
+const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
 
 export function paragraphSelection(doc: Node, from: number, to: number) {
   const blockIds: string[] = []
@@ -28,7 +30,7 @@ export function objectContent(object: FloatingObject) {
   const { x, y, anchorId, ...content } = object
   void x; void y; void anchorId
   if (content.kind === 'line') return { ...content, start: undefined, end: undefined, bend: undefined }
-  if (content.kind === 'label') return { ...content, attachment: undefined }
+  if (isText(object)) return { ...content, attachment: undefined }
   return content
 }
 
@@ -103,7 +105,7 @@ function segmentObjectIds(doc: MoteDocument, range: SegmentRange) {
     return y >= start && (y < end || end === segmentBlockHeight(block) && y >= segmentBlockHeight(block))
   }
   for (const object of doc.floating) {
-    if (object.kind === 'label' && object.attachment) continue
+    if (isText(object) && object.attachment) continue
     if (object.kind === 'line' && object.start.connection) {
       const target = doc.floating.find(candidate => candidate.id === object.start.connection!.targetId)
       if (target && selectedAnchor(target.anchorId, target.y)) ids.add(object.id)
@@ -115,7 +117,7 @@ function segmentObjectIds(doc: MoteDocument, range: SegmentRange) {
   let changed = true
   while (changed) {
     changed = false
-    for (const object of doc.floating) if (object.kind === 'label' && object.attachment && !ids.has(object.id) && ids.has(object.attachment.targetId)) {
+    for (const object of doc.floating) if (isText(object) && object.attachment && !ids.has(object.id) && ids.has(object.attachment.targetId)) {
       ids.add(object.id); changed = true
     }
   }
@@ -257,6 +259,6 @@ export function currentPlacement(candidate: FloatingObject, original: FloatingOb
   const result = { ...candidate, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, textFlow: original.textFlow }
   if ('height' in original && 'height' in result) result.height = original.height
   if (result.kind === 'line' && original.kind === 'line') return { ...result, start: original.start, end: original.end, bend: original.bend }
-  if (result.kind === 'label' && original.kind === 'label') return { ...result, attachment: original.attachment }
+  if (isText(result)) return { ...result, attachment: isText(original) ? original.attachment : undefined }
   return result
 }

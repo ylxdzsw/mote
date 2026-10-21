@@ -119,18 +119,18 @@ export async function fakeRunner(context) {
     const paragraphId = `${prefix}-paragraph`
     const spacerId = `${prefix}-spacer`
     const rectangleId = `${prefix}-rectangle`
-    const labelId = `${prefix}-label`
+    const captionId = `${prefix}-caption`
     const rectangleWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
     const x = document.margins.left
     const content = [
       { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
-      { type: 'spacer', attrs: { id: spacerId, height: 96 } },
+      { type: 'spacer', attrs: { id: spacerId, height: 112 } },
     ]
     const rectangle = { id: rectangleId, kind: 'rectangle', anchorId: spacerId, x, y: 12, width: rectangleWidth, height: 64, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
-    const label = { id: labelId, kind: 'label', anchorId: spacerId, x, y: 12, width: rectangleWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'AI shape' }] }] }, attachment: { targetId: rectangleId, position: 'center' } }
-    candidate.segment = { version: 'V0', type: 'segment', content, floating: [rectangle, label], palette: [], geometry: {
+    const caption = { id: captionId, anchorId: spacerId, x, y: 12, width: rectangleWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'AI shape' }] }] }, attachment: { targetId: rectangleId, position: 'below' } }
+    candidate.segment = { version: 'V0', type: 'segment', content, floating: [rectangle, caption], palette: [], geometry: {
       [rectangleId]: { x, y: 40, width: rectangleWidth, height: 64 },
-      [labelId]: { x, y: 40, width: rectangleWidth, height: 24 },
+      [captionId]: { x, y: 112, width: rectangleWidth, height: 22 },
     }, anchorTops: { [paragraphId]: 0, [spacerId]: 28 }, originTop: 0 }
   } else {
     const blocks = []

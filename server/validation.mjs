@@ -142,7 +142,7 @@ function theme(value) {
   themeLength(defaults.letterSpacing, 'theme.defaults.letterSpacing', false)
   text(defaults.color, 'theme.defaults.color', 128, true); text(defaults.background, 'theme.defaults.background', 128, true)
   const blocks = record(valueObject.blocks, 'theme.blocks')
-  for (const name of ['title', 'heading', 'body', 'caption', 'code', 'list', 'table', 'label', 'math']) {
+  for (const name of ['title', 'heading', 'body', 'caption', 'code', 'list', 'table', 'math']) {
     const style = record(blocks[name] ?? {}, `theme.blocks.${name}`)
     if (style.family !== undefined && !['sans', 'serif', 'mono'].includes(style.family)) throw new HttpError(400, 'invalid theme family')
     for (const key of ['size', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) if (style[key] !== undefined) themeLength(style[key], `theme.blocks.${name}.${key}`, key !== 'letterSpacing')
@@ -165,7 +165,14 @@ export function validateFloating(value, label = 'floating object', options = {})
   finite(object.x, `${label}.x`); finite(object.y, `${label}.y`, 0); finite(object.width, `${label}.width`, 0)
   if (!['overlap', 'repel'].includes(object.textFlow)) throw new HttpError(400, 'invalid text flow')
   const kind = object.kind ?? 'text'
-  if (['text', 'table', 'label'].includes(kind)) content(object.content, `${label}.content`)
+  if ('attachment' in object && kind !== 'text') throw new HttpError(400, `${label}.attachment is only supported on text objects`)
+  if (object.attachment !== undefined && object.attachment !== null) {
+    const attachment = record(object.attachment, `${label}.attachment`)
+    safeId(attachment.targetId, `${label}.attachment.targetId`)
+    if (attachment.targetId === object.id) throw new HttpError(400, `${label}.attachment cannot target itself`)
+    if (!['above', 'below'].includes(attachment.position)) throw new HttpError(400, `${label}.attachment.position is unsupported`)
+  }
+  if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`)
   if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object && object[key] !== null) text(object[key], `${label}.${key}`, 128) }
   if (kind === 'image') { embeddedImage(object.src, `${label}.src`); text(object.alt, `${label}.alt`, 4096) }
   else if (kind === 'katex') text(object.latex, `${label}.latex`)
@@ -178,9 +185,24 @@ export function validateFloating(value, label = 'floating object', options = {})
   }
   else if (kind === 'rectangle' || kind === 'ellipse') { finite(object.height, `${label}.height`, Number.MIN_VALUE); for (const key of ['fill', 'stroke']) if (object[key] !== null) text(object[key], `${label}.${key}`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); if (typeof object.dashed !== 'boolean' || typeof object.rounded !== 'boolean') throw new HttpError(400, 'invalid shape settings') }
   else if (kind === 'line') { lineEnd(object.start, `${label}.start`); lineEnd(object.end, `${label}.end`); if (object.stroke !== null) text(object.stroke, `${label}.stroke`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); finite(object.bend, `${label}.bend`); if (!['straight', 'elbow'].includes(object.route) || typeof object.dashed !== 'boolean' || typeof object.arrowStart !== 'boolean' || typeof object.arrowEnd !== 'boolean') throw new HttpError(400, 'invalid line settings') }
-  else if (kind === 'label') { if (!(object.attachment === null || object.attachment && typeof object.attachment === 'object')) throw new HttpError(400, 'invalid label attachment'); if (object.attachment) { safeId(object.attachment.targetId, 'label target'); if (!['center', 'top-inside', 'top-outside', 'bottom-inside', 'bottom-outside', 'left', 'right', 'above', 'below'].includes(object.attachment.position)) throw new HttpError(400, 'invalid label position') } }
   else if (!['text', 'table', 'image', 'katex', 'html', 'code', 'rectangle', 'ellipse', 'line'].includes(kind)) throw new HttpError(400, 'unsupported floating kind')
   return object
+}
+
+function validateAttachmentReferences(objects, scope) {
+  const byId = new Map(objects.map(object => [object.id, object]))
+  const captions = objects.filter(object => object.attachment).map(object => object.id)
+  const captionIds = new Set(captions)
+  const targets = new Set()
+  for (const object of objects) {
+    if (!object.attachment) continue
+    const targetId = object.attachment.targetId
+    if (!byId.has(targetId)) throw new HttpError(400, `${scope} attachment is outside its floating objects`)
+    if (captionIds.has(targetId)) throw new HttpError(400, `${scope} attachment cannot target a caption`)
+    if (targets.has(targetId)) throw new HttpError(400, `${scope} allows at most one caption per target`)
+    targets.add(targetId)
+  }
+
 }
 
 export function validateDocument(value) {
@@ -196,6 +218,7 @@ export function validateDocument(value) {
   theme(document.theme); content(document.content); if (document.content.type !== 'doc') throw new HttpError(400, 'document.content must be a doc node')
   if (!Array.isArray(document.floating)) throw new HttpError(400, 'document.floating must be an array')
   const ids = new Set(); for (const [i, object] of document.floating.entries()) { if (ids.has(object?.id)) throw new HttpError(400, 'duplicate floating object ID'); validateFloating(object, `document.floating[${i}]`); ids.add(object.id) }
+  validateAttachmentReferences(document.floating, 'document')
   palette(document)
   return document
 }
@@ -306,6 +329,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     objects.set(object.id, object)
   }
   const objectIds = new Set(objects.keys())
+  validateAttachmentReferences([...objects.values()], 'candidate.segment')
   const geometry = validateSegmentGeometry(payload.geometry, objectIds)
   const anchorTops = record(payload.anchorTops, 'candidate.segment.anchorTops')
   for (const [id, value] of Object.entries(anchorTops)) {
@@ -322,7 +346,6 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
         if (end.connection && !objectIds.has(end.connection.targetId)) throw new HttpError(400, 'candidate.segment line connection is outside the segment')
       }
     }
-    if (object.kind === 'label' && object.attachment && !objectIds.has(object.attachment.targetId)) throw new HttpError(400, 'candidate.segment label attachment is outside the segment')
   }
   const references = new Set()
   for (const node of payload.content) segmentPaletteReferences(node, references)
@@ -419,7 +442,7 @@ function segmentPointSelected(anchorId, y, blocks, selected, range) {
 function segmentOwnedObjects(document, blocks, range, selected) {
   const owned = new Set()
   const baseIncluded = object => {
-    if (object.kind === 'label' && object.attachment) return false
+    if ((object.kind ?? 'text') === 'text' && object.attachment) return false
     if (object.kind === 'line' && object.start.connection) {
       const target = document.floating.find(other => other.id === object.start.connection.targetId)
       if (target) return segmentPointSelected(target.anchorId, target.y, blocks, selected, range)
@@ -432,7 +455,7 @@ function segmentOwnedObjects(document, blocks, range, selected) {
   while (changed) {
     changed = false
     for (const object of document.floating) {
-      if (object.kind !== 'label' || !object.attachment || owned.has(object.id)) continue
+      if ((object.kind ?? 'text') !== 'text' || !object.attachment || owned.has(object.id)) continue
       if (owned.has(object.attachment.targetId)) { owned.add(object.id); changed = true }
     }
   }

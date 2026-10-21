@@ -185,19 +185,20 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
       finite(typeof object.padding === 'number' ? object.padding : parseFloat(object.padding as string), `${path}.padding`, 0)
     }
   }
-  if (kind === undefined || kind === 'text' || kind === 'table' || kind === 'label') {
+  if (kind === undefined || kind === 'text' || kind === 'table') {
     if (!('content' in object)) invalid(`${path}.content is missing`)
     inspectContent(object.content, `${path}.content`)
   }
-  if (kind === 'table') return
-  if (kind === 'label') {
-    if (!('attachment' in object) || (object.attachment !== null && !isRecord(object.attachment))) invalid(`${path}.attachment must be an object or null`)
-    if (object.attachment) {
-      identifier(object.attachment.targetId, `${path}.attachment.targetId`)
-      if (!['center', 'top-inside', 'top-outside', 'bottom-inside', 'bottom-outside', 'left', 'right', 'above', 'below'].includes(object.attachment.position as string)) invalid(`${path}.attachment.position is unsupported`)
+  if (kind === undefined || kind === 'text') {
+    if (object.attachment !== undefined && object.attachment !== null) {
+      const attachment = object.attachment
+      if (!isRecord(attachment)) invalid(`${path}.attachment must be an object`)
+      identifier(attachment.targetId, `${path}.attachment.targetId`)
+      if (!['above', 'below'].includes(attachment.position as string)) invalid(`${path}.attachment.position is unsupported`)
     }
-    return
   }
+  else if ('attachment' in object) invalid(`${path}.attachment is only supported on text boxes`)
+  if (kind === 'table') return
   if (kind === 'image') {
     embeddedImageSource(object.src, `${path}.src`)
     text(object.alt, `${path}.alt`)
@@ -257,5 +258,17 @@ export function validateDocument(value: unknown): asserts value is MoteDocument 
   if (!Array.isArray(document.floating)) invalid('document.floating must be an array')
   const ids = new Set<string>()
   document.floating.forEach((object, index) => checkFloating(object, index, ids))
+  const captions = new Set<string>()
+  const objects = document.floating as RecordValue[]
+  objects.forEach((object, index) => {
+    if (!isRecord(object.attachment)) return
+    const targetId = identifier(object.attachment.targetId, `floating[${index}].attachment.targetId`)
+    if (!ids.has(targetId)) invalid(`floating[${index}].attachment.targetId does not exist`)
+    if (captions.has(targetId)) invalid(`floating objects may have at most one caption per target`)
+    captions.add(targetId)
+    if (targetId === object.id) invalid(`floating[${index}].attachment cannot target itself`)
+    const target = objects.find(target => target.id === targetId)!
+    if (target.attachment) invalid(`floating[${index}].attachment cannot target a caption`)
+  })
 }
 

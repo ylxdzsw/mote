@@ -89,7 +89,7 @@ function selectedClasses(editor: Editor | null) {
   return {
     paragraph: paragraphs.size === 1 ? [...paragraphs][0] : '',
     text: paragraphs.size > 0, list: paragraphs.has('list'),
-    fixed: editor.schema.nodes.table ? 'Table' : !editor.schema.nodes.paragraph.spec.attrs?.semantic ? 'Label' : '',
+    fixed: editor.schema.nodes.table ? 'Table' : '',
     ...inline,
   }
 }
@@ -268,6 +268,6 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     {(['box', 'underline'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
       aria-pressed={selection.decoration === decoration} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration(decoration)}><TIcon name={decoration} /></button>)}
     </div>
-    <p className="tt-caption">{selection.fixed ? selection.fixed === 'Table' ? 'Table cell' : 'Label text' : selection.paragraph ? `${classLabel(selection.paragraph)} paragraph` : 'Mixed paragraph styles'}</p>
+    <p className="tt-caption">{selection.fixed ? 'Table cell' : selection.paragraph ? `${classLabel(selection.paragraph)} paragraph` : 'Mixed paragraph styles'}</p>
   </div>
 }

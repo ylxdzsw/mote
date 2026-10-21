@@ -1,8 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { isText, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { horizontalBounds, labelOutsideGap, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 import { nativeSize } from './measurement'
 
 export interface Placement { x: number; top: number }
@@ -77,6 +77,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const tops: Record<string, number> = {}
       const obstacles: Obstacle[] = []
       const activate = (note: FloatingObject, anchorTop: number) => {
+        if (isText(note) && note.attachment) return
         const moving = override[note.id]
         const top = moving?.top ?? anchorTop + note.y
         const left = moving?.x ?? note.x
@@ -86,6 +87,13 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           left: left - gap, right: left + width + gap,
           top: Math.max(anchorTop, top - gap), bottom: top + (heights.get(note.id) ?? 0) + gap,
         })
+        const caption = floating.find(object => isText(object) && object.attachment?.targetId === note.id)
+        if (caption?.textFlow === 'repel') {
+          const objects = floating.map(object => ({ ...object, ...override[object.id] }) as FloatingObject)
+          const box = resolveGeometry(objects, anchors, sizes, tops)[caption.id]
+          obstacles.push({ left: box.x - gap, right: box.x + box.width + gap,
+            top: Math.max(anchorTop, box.y - gap), bottom: box.y + box.height + gap })
+        }
       }
       // A dragged object has a fixed document-space position until release.
       for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
@@ -154,7 +162,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
       const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
-      const geometry = resolveGeometry(objects, anchors, sizes, tops, labelOutsideGap(doc.theme))
+      const geometry = resolveGeometry(objects, anchors, sizes, tops)
       // Only unused side margins may collapse in reading; retain every on-page object.
       let left = doc.margins.left, right = doc.width - doc.margins.right
       for (const note of objects) {
@@ -194,6 +202,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
   const objects = shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null)
     .map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
   const tops = Object.fromEntries(objects.map(note => [note.id, preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
-  const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops, labelOutsideGap(doc.theme))
+  const geometry = resolveGeometry(objects, layout.anchors, layout.geometry, tops)
   return { ...layout, tops, geometry, reflow, attach }
 }

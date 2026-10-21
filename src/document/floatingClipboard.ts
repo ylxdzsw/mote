@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import { defaultTheme, paragraph, type FloatingObject, type LineEnd, type MoteDocument, type PaletteEntry } from './model'
+import { defaultTheme, isText, paragraph, type FloatingObject, type LineEnd, type MoteDocument, type PaletteEntry } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { collectNodeIds, freshNode, mergePalette, objectPaletteReferences, remapPaletteContent, validateGeometry } from './segment'
@@ -17,7 +17,7 @@ export interface FloatingClipboard {
 
 export function floatingCopyIds(objects: FloatingObject[], selected: string[]) {
   const ids = new Set(selected)
-  for (const object of objects) if (object.kind === 'label' && object.attachment && ids.has(object.attachment.targetId)) ids.add(object.id)
+  for (const object of objects) if (isText(object) && object.attachment && ids.has(object.attachment.targetId)) ids.add(object.id)
   return ids
 }
 
@@ -30,7 +30,10 @@ export function copyFloating(doc: MoteDocument, ids: Set<string>, geometry: Geom
         ...(end.connection && ids.has(end.connection.targetId) ? { connection: end.connection } : {}) })
       object.start = endpoint(object.start, box.path![0])
       object.end = endpoint(object.end, box.path!.at(-1)!)
-    } else if (object.kind === 'label' && object.attachment && !ids.has(object.attachment.targetId)) object.attachment = null
+    } else if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) {
+      object.width = box.width
+      object.attachment = null
+    }
     return object
   })
   const references = new Set<string>()
@@ -57,7 +60,7 @@ export function parseFloating(json: string): FloatingClipboard {
     if (object.kind === 'line') {
       if ((payload.geometry[object.id].path?.length ?? 0) < 2) throw new Error('Invalid floating clipboard line.')
       for (const end of [object.start, object.end]) if (end.anchorId !== null || end.connection && !ids.has(end.connection.targetId)) throw new Error('Invalid floating clipboard connection.')
-    } else if (object.kind === 'label' && object.attachment && !ids.has(object.attachment.targetId)) throw new Error('Invalid floating clipboard attachment.')
+    } else if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) throw new Error('Invalid floating clipboard attachment.')
   }
   return payload
 }
@@ -77,7 +80,7 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
       const endpoint = (end: LineEnd): LineEnd => ({ ...anchorPoint(end, anchors),
         ...(end.connection ? { connection: { ...end.connection, targetId: mapping.get(end.connection.targetId)! } } : {}) })
       object.start = endpoint(object.start); object.end = endpoint(object.end)
-    } else if (object.kind === 'label' && object.attachment) object.attachment.targetId = mapping.get(object.attachment.targetId)!
+    } else if (isText(object) && object.attachment) object.attachment.targetId = mapping.get(object.attachment.targetId)!
     if ('content' in object) object.content = remapPaletteContent(freshNode(object.content, used), remap)
     for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
       const record = object as unknown as Record<string, unknown>, value = record[key]

@@ -40,11 +40,10 @@ const TILES: TileEntry[] = [
   { kind: 'more',      label: 'More',       icon: <Icon path="M12 5v.01M12 12v.01M12 19v.01" /> },
 ]
 
-// Native kinds outside the eight-tile grid. Ellipse/Label/Paragraph arm a
+// Native kinds outside the eight-tile grid. Ellipse/Paragraph arm a
 // drawing tool; Formula and the HTML widget run their own setup first.
 const MORE_TILES: TileEntry[] = [
   { kind: 'ellipse',   label: 'Ellipse',     icon: <Icon path="" rect="x:3 y:5 width:18 height:14 rx:9" /> },
-  { kind: 'label',     label: 'Label',       icon: <Icon path="M7 8V5h10v3M12 5v12M9 17h6M4 21h16" /> },
   { kind: 'katex',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
   { kind: 'paragraph', label: 'Paragraph',   icon: <Icon path="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" /> },

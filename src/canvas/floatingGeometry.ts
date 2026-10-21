@@ -1,4 +1,4 @@
-import type { AttachmentSide, FloatingObject, LabelPosition, LineEnd, Theme } from '../document/model'
+import { isText, type AttachmentSide, type FloatingObject, type CaptionPosition, type LineEnd } from '../document/model'
 
 export interface Point { x: number; y: number }
 export interface Box extends Point { width: number; height: number }
@@ -6,9 +6,7 @@ export interface Geometry extends Box { path?: Point[] }
 export type Geometries = Record<string, Geometry>
 export interface Anchor { id: string; top: number }
 export const gridSize = 16
-export const labelGap = 8
-export const boxLabelPositions: LabelPosition[] = ['center', 'top-inside', 'top-outside', 'bottom-inside', 'bottom-outside']
-export const lineLabelPositions: LabelPosition[] = ['center', 'left', 'right', 'above', 'below']
+export const captionGap = 8
 export const center = (box: Box): Point => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 })
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 
@@ -42,7 +40,7 @@ export function boundedTranslation(objects: FloatingObject[], boxes: Geometries,
     if (object.kind === 'line' && object.start.connection && object.end.connection
       && moving.has(object.start.connection.targetId) && moving.has(object.end.connection.targetId)) moving.add(object.id)
   }
-  for (const object of objects) if (object.kind === 'label' && object.attachment && moving.has(object.attachment.targetId)) moving.add(object.id)
+  for (const object of objects) if (isText(object) && object.attachment && moving.has(object.attachment.targetId)) moving.add(object.id)
   const selected = objects.filter(object => moving.has(object.id))
   const bounds = selected.map(object => horizontalBounds(object, boxes[object.id]))
   const left = Math.min(...bounds.map(box => box.left)), right = Math.max(...bounds.map(box => box.right))
@@ -74,44 +72,15 @@ export function boundary(box: Box, side: AttachmentSide, toward: Point, ellipse 
   return denominator ? { x: c.x + dx / denominator, y: c.y + dy / denominator } : { x: c.x + rx, y: c.y }
 }
 
-export function midpoint(path: Point[]): Point {
-  const length = path.slice(1).reduce((sum, point, i) => sum + distance(path[i], point), 0)
-  let remaining = length / 2
-  for (let i = 1; i < path.length; i++) {
-    const size = distance(path[i - 1], path[i])
-    if (remaining <= size && size) return { x: path[i - 1].x + (path[i].x - path[i - 1].x) * remaining / size, y: path[i - 1].y + (path[i].y - path[i - 1].y) * remaining / size }
-    remaining -= size
-  }
-  return path[0]
+export function captionPlacement(target: Geometry, height: number, position: CaptionPosition): Point {
+  return { x: target.x, y: position === 'above' ? target.y - captionGap - height : target.y + target.height + captionGap }
 }
 
-export function labelOutsideGap(theme: Theme) {
-  const size = theme.blocks.label.size ?? theme.defaults.size
-  const pixels = typeof size === 'number' ? size : parseFloat(size) * (size.endsWith('em') ? theme.defaults.size : 1)
-  return pixels / 3
-}
-
-export function labelPlacement(target: Geometry, size: Pick<Box, 'width' | 'height'>, position: LabelPosition, outsideGap: number): Point {
-  const c = target.path ? midpoint(target.path) : center(target)
-  const { width, height } = size
-  switch (position) {
-    case 'top-inside': return { x: c.x - width / 2, y: target.y + labelGap }
-    case 'top-outside': return { x: c.x - width / 2, y: target.y - outsideGap - height }
-    case 'bottom-inside': return { x: c.x - width / 2, y: target.y + target.height - labelGap - height }
-    case 'bottom-outside': return { x: c.x - width / 2, y: target.y + target.height + outsideGap }
-    case 'left': return { x: c.x - labelGap - width, y: c.y - height / 2 }
-    case 'right': return { x: c.x + labelGap, y: c.y - height / 2 }
-    case 'above': return { x: c.x - width / 2, y: c.y - labelGap - height }
-    case 'below': return { x: c.x - width / 2, y: c.y + labelGap }
-    default: return { x: c.x - width / 2, y: c.y - height / 2 }
-  }
-}
-
-export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], sizes: Record<string, { width: number; height: number }>, tops: Record<string, number>, outsideGap: number): Geometries {
+export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], sizes: Record<string, { width: number; height: number }>, tops: Record<string, number>): Geometries {
   const result: Geometries = {}
   const byId = new Map(objects.map(object => [object.id, object]))
   for (const object of objects) {
-    result[object.id] = { x: object.x, y: tops[object.id] ?? object.y, width: object.kind === 'label' ? sizes[object.id]?.width ?? 16 : object.width,
+    result[object.id] = { x: object.x, y: tops[object.id] ?? object.y, width: object.width,
       height: object.kind === 'rectangle' || object.kind === 'ellipse' || object.kind === 'html' ? object.height : sizes[object.id]?.height ?? 24 }
   }
   const free = (end: LineEnd): Point => ({ x: end.x, y: (anchors.find(a => a.id === end.anchorId)?.top ?? 0) + end.y })
@@ -130,9 +99,9 @@ export function resolveGeometry(objects: FloatingObject[], anchors: Anchor[], si
     result[object.id] = { x, y, width: Math.max(...path.map(p => p.x)) - x, height: Math.max(...path.map(p => p.y)) - y, path }
   }
   for (const object of objects) {
-    if (object.kind !== 'label' || !object.attachment) continue
+    if (!isText(object) || !object.attachment) continue
     const target = result[object.attachment.targetId]
-    if (target) result[object.id] = { ...result[object.id], ...labelPlacement(target, result[object.id], object.attachment.position, outsideGap) }
+    if (target) result[object.id] = { ...result[object.id], width: target.width, ...captionPlacement(target, result[object.id].height, object.attachment.position) }
   }
   return result
 }

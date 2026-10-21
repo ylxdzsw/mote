@@ -1,12 +1,15 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { compatibleTasks, currentPlacement, overlaps, permits, permitsEditor, paragraphSelection } from '../src/ai/reservations.ts'
+import { compatibleTasks, currentPlacement, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } from '../src/ai/reservations.ts'
 import { Schema } from '@tiptap/pm/model'
 import type { MoteDocument, FloatingObject } from '../src/document/model.ts'
 import type { AITask } from '../src/ai/types.ts'
 
 const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
 const object = { id: 'box', kind: 'html', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, textFlow: 'overlap', html: 'before', screenshot: 'png', alt: 'Figure' } as FloatingObject
+const caption = { id: 'caption', kind: 'text', anchorId: 'd', x: 24, y: 12, width: 88, textFlow: 'overlap',
+  content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text', semantic: 'caption' }, content: [{ type: 'text', text: 'Caption' }] }] },
+  attachment: { targetId: 'box', position: 'above' } } as FloatingObject
 const doc = { id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, floating: [object] } as MoteDocument
 const textTask = { target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
 const objectTask = { target: { kind: 'object', objectId: 'box' } } as AITask
@@ -66,6 +69,19 @@ test('concurrent tasks reject overlap and accepted object preserves current geom
   const applied = currentPlacement(candidate, moved)
   assert.equal(applied.x, 70); assert.equal(applied.y, 80); assert.equal(applied.width, 320)
   assert.equal(applied.anchorId, 'd'); assert.equal('html' in applied && applied.html, 'after')
+})
+
+test('attached text binding is placement for reservations and survives candidate acceptance', () => {
+  const captionDoc = { ...doc, floating: [object, caption] }
+  const task = { ...objectTask, target: { kind: 'object', objectId: 'caption' }, original: caption } as AITask
+  const below = { ...caption, attachment: { targetId: 'box', position: 'below' } } as FloatingObject
+  assert.equal(permits([task], captionDoc, { ...captionDoc, floating: [object, below] }), true)
+
+  const moved = { ...caption, x: 50, y: 80, attachment: { targetId: 'box', position: 'above' } } as FloatingObject
+  const candidate = { ...caption, x: 400, attachment: { targetId: 'other', position: 'below' } } as FloatingObject
+  const applied = currentPlacement(candidate, moved)
+  assert.equal(applied.x, 50); assert.equal(applied.y, 80)
+  assert.deepEqual(applied.attachment, moved.attachment)
 })
 
 const segmentTarget = (range: { start: { index: number; offset: number }; end: { index: number; offset: number } }, blockIds: string[], objectIds: string[] = [], bookmarks = {
@@ -133,4 +149,13 @@ test('segment guards preserve outside edits and reject interleaving or owned com
   const singleTarget = { ...target, objectIds: ['box'] }
   const singleTask = segmentTask(singleTarget, [paragraph('a'), paragraph('b')], single.floating)
   assert.equal(permits([singleTask], single, { ...single, floating: [{ ...single.floating[0], anchorId: 'c' }] }), false)
+})
+
+test('attached captions follow targets for segment ownership and reservation', () => {
+  const floating = [{ ...object, anchorId: 'a' }, caption]
+  const target = segmentTarget({ start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, ['a', 'b'], ['box', 'caption'])
+  const task = segmentTask(target, [paragraph('a'), paragraph('b')], floating)
+  const source = { ...doc, floating }
+  assert.equal(segmentReservationIntact(task, source), true)
+  assert.equal(segmentReservationIntact(task, { ...source, floating: [floating[0], { ...caption, attachment: null } as FloatingObject] }), false)
 })

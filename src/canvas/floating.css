@@ -13,17 +13,15 @@
 .is-editing .floating-note:not(.is-content-active) [data-scheme] { pointer-events: none; }
 .is-editing .floating-note:not(.is-content-active) .table-column-controls { display: none; }
 .sheet.is-editing .floating-image img { cursor: move; }
-.floating-note:is(.floating-rectangle, .floating-ellipse, .floating-line, .floating-label) { padding: 0; border: 0; border-radius: 0; background: transparent; }
+.floating-note:is(.floating-rectangle, .floating-ellipse, .floating-line) { padding: 0; border: 0; border-radius: 0; background: transparent; }
 .floating-rectangle, .floating-ellipse, .floating-line { pointer-events: none; }
 .floating-vector { display: block; pointer-events: none; }
 .vector-ink { pointer-events: visiblePainted; }
 .vector-hit { fill: none; stroke: transparent; stroke-width: 10px; pointer-events: stroke; cursor: move; }
 .is-editing :is(.floating-rectangle, .floating-ellipse, .floating-line).is-selected { outline: 1px dashed var(--ui-accent-border); outline-offset: 4px; }
-.floating-label { min-width: 12px; text-align: center; }
-.sheet.is-editing .floating-label:hover { outline: 1px solid var(--ui-border); outline-offset: 3px; }
-.floating-label .text-content { width: max-content; min-width: 12px; }
-.sheet.is-editing .floating-label.is-selected { outline: 1px dashed var(--ui-accent-border); outline-offset: 3px; }
-.floating-label .tiptap { min-width: 12px; }
+.floating-note.is-caption .tiptap { min-height: 0; }
+.sheet.is-editing .floating-note.is-caption:hover { outline: 1px solid var(--ui-border); }
+.sheet.is-editing .floating-note.is-caption.is-selected { outline: 1px dashed var(--ui-accent-border); }
 .object-handle { position: absolute; width: 9px; height: 9px; min-width: 0; padding: 0; margin: -4.5px 0 0 -4.5px; border: 1px solid var(--ui-accent); border-radius: 2px; background: var(--ui-surface-raised); pointer-events: auto; touch-action: none; cursor: crosshair; }
 .handle-nw { left: 0; top: 0; cursor: nwse-resize; }
 .handle-ne { left: 100%; top: 0; cursor: nesw-resize; }

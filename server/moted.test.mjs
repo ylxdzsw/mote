@@ -8,14 +8,14 @@ import { createMotedServer } from './moted.mjs'
 import { fakeRunner, stopWorkerUnit } from './runner.mjs'
 import { agentRequest, submitResult } from './submit.mjs'
 import { pathToFileURL } from 'node:url'
-import { validateCandidate, validateRequest } from './validation.mjs'
+import { validateCandidate, validateDocument, validateRequest } from './validation.mjs'
 
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const svg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`
 const theme = {
   hue: 145,
   defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
-  blocks: { title: {}, heading: {}, body: {}, caption: {}, code: {}, list: {}, table: {}, label: {}, math: {} },
+  blocks: { title: {}, heading: {}, body: {}, caption: {}, code: {}, list: {}, table: {}, math: {} },
   palette: [
     { id: 'ink', name: 'Ink', strong: '#303830' }, { id: 'muted', name: 'Muted', strong: '#687166' },
     { id: 'paper', name: 'Paper', strong: '#fffefa' },
@@ -37,13 +37,13 @@ function segmentDocument() {
   ]
   doc.floating = [
     { id: 'seg-shape', kind: 'rectangle', anchorId: 'seg-space', x: 40, y: 24, width: 160, height: 60, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true },
-    { id: 'seg-label', kind: 'label', anchorId: 'seg-space', x: 40, y: 24, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'Shape' }] }] }, attachment: { targetId: 'seg-shape', position: 'center' } },
+    { id: 'seg-caption', anchorId: 'seg-space', x: 40, y: 24, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'Shape' }] }] }, attachment: { targetId: 'seg-shape', position: 'below' } },
     { id: 'seg-widget', kind: 'html', anchorId: 'seg-p2', x: 40, y: 12, width: 120, height: 80, textFlow: 'overlap', html: '<p>source</p>', screenshot: svg, alt: 'Source widget' },
   ]
   return doc
 }
 function segmentTarget(overrides = {}) {
-  return { kind: 'segment', range: { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: ['seg-p0', 'seg-space'], objectIds: ['seg-shape', 'seg-label'], area: { x: 0, y: 0, width: 800, height: 180 }, ...overrides }
+  return { kind: 'segment', range: { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: ['seg-p0', 'seg-space'], objectIds: ['seg-shape', 'seg-caption'], area: { x: 0, y: 0, width: 800, height: 180 }, ...overrides }
 }
 function segmentPayload(withWidgets = false) {
   const content = [
@@ -51,9 +51,9 @@ function segmentPayload(withWidgets = false) {
     { type: 'spacer', attrs: { id: 'candidate-space', height: 72 } },
   ]
   const rectangle = { id: 'candidate-shape', kind: 'rectangle', anchorId: 'candidate-p', x: 32, y: 12, width: 160, height: 60, textFlow: 'overlap', fill: 'primary:soft', stroke: 'ink', strokeWidth: 1, dashed: false, rounded: true }
-  const label = { id: 'candidate-label', kind: 'label', anchorId: 'candidate-p', x: 32, y: 12, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'label' }, content: [{ type: 'text', text: 'Generated shape' }] }] }, attachment: { targetId: 'candidate-shape', position: 'center' } }
-  const floating = [rectangle, label]
-  const geometry = { 'candidate-shape': { x: 32, y: 12, width: 160, height: 60 }, 'candidate-label': { x: 32, y: 12, width: 160, height: 24 } }
+  const caption = { id: 'candidate-caption', anchorId: 'candidate-p', x: 32, y: 12, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'Generated shape' }] }] }, attachment: { targetId: 'candidate-shape', position: 'below' } }
+  const floating = [rectangle, caption]
+  const geometry = { 'candidate-shape': { x: 32, y: 12, width: 160, height: 60 }, 'candidate-caption': { x: 32, y: 12, width: 160, height: 24 } }
   if (withWidgets) for (const id of ['candidate-widget-a', 'candidate-widget-b']) {
     floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, textFlow: 'overlap', html: `<button>${id}</button>`, alt: id })
     geometry[id] = { x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80 }
@@ -112,7 +112,7 @@ test('new floating reservations accept all supported kinds, not only HTML and im
     { ...base, kind: 'table', content: { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [paragraph] }] }] }] } },
     ...['rectangle', 'ellipse'].map(kind => ({ ...base, ...stroke, kind, height: 100, fill: null, rounded: false })),
     { ...base, ...stroke, kind: 'line', start: { x, y, anchorId }, end: { x: 200, y: 80, anchorId }, route: 'straight', bend: 0, arrowStart: false, arrowEnd: true },
-    { ...base, kind: 'label', content: { type: 'doc', content: [paragraph] }, attachment: null },
+    { ...base, kind: 'text', content: { type: 'doc', content: [paragraph] }, attachment: null },
     { ...base, kind: 'image', src: png, alt: 'Image' }, original,
   ]
   for (const object of objects) {
@@ -126,25 +126,65 @@ test('segment targets use canonical points and exact block/object ownership', ()
   const accepted = validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget() })).target
   assert.equal(accepted.kind, 'segment')
   assert.deepEqual(accepted.blockIds, ['seg-p0', 'seg-space'])
-  assert.deepEqual(accepted.objectIds, ['seg-shape', 'seg-label'])
+  assert.deepEqual(accepted.objectIds, ['seg-shape', 'seg-caption'])
   assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget({ objectIds: [] }) })), /objectIds does not match/)
   assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget({ blockIds: ['seg-p0'] }) })), /blockIds does not match/)
-  const partial = segmentTarget({ range: { start: { index: 1, offset: 20 }, end: { index: 1, offset: 60 } }, blockIds: ['seg-space'], objectIds: ['seg-shape', 'seg-label'] })
+  const partial = segmentTarget({ range: { start: { index: 1, offset: 20 }, end: { index: 1, offset: 60 } }, blockIds: ['seg-space'], objectIds: ['seg-shape', 'seg-caption'] })
   assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target: partial })).target.range.start.offset, 20)
   const empty = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
   assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target: empty })).target.kind, 'segment')
   assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...empty, objectIds: ['seg-widget'] } })), /objectIds does not match/)
 })
 
+test('caption attachments validate in documents and standalone candidates', () => {
+  const doc = document()
+  const shape = { id: 'caption-target', kind: 'rectangle', anchorId: 'block-1', x: 40, y: 10, width: 80, height: 40, textFlow: 'overlap', fill: null, stroke: null, strokeWidth: 1, dashed: false, rounded: false }
+  const caption = { id: 'caption-1', anchorId: 'block-1', x: 40, y: 10, width: 80, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'A caption' }] }] }, attachment: { targetId: shape.id, position: 'below' } }
+  doc.floating.push(shape, caption)
+  assert.equal(validateDocument(doc).floating.at(-1).attachment.position, 'below')
+
+  const duplicate = structuredClone(doc)
+  duplicate.floating.push({ ...structuredClone(caption), id: 'caption-2' })
+  assert.throws(() => validateDocument(duplicate), /one caption per target/)
+  const missingTarget = structuredClone(doc)
+  missingTarget.floating.find(object => object.id === caption.id).attachment.targetId = 'outside'
+  assert.throws(() => validateDocument(missingTarget), /attachment is outside/)
+  const captionTarget = structuredClone(doc)
+  captionTarget.floating.push({ ...structuredClone(caption), id: 'caption-2', attachment: { targetId: caption.id, position: 'above' } })
+  assert.throws(() => validateDocument(captionTarget), /cannot target a caption/)
+  const self = structuredClone(doc)
+  self.floating.find(object => object.id === caption.id).attachment.targetId = caption.id
+  assert.throws(() => validateDocument(self), /cannot target itself/)
+  const otherKind = structuredClone(doc)
+  otherKind.floating.find(object => object.id === shape.id).attachment = null
+  assert.throws(() => validateDocument(otherKind), /only supported on text objects/)
+  const legacy = structuredClone(doc)
+  const legacyCaption = legacy.floating.find(object => object.id === caption.id)
+  legacyCaption.kind = 'label'
+  delete legacyCaption.attachment
+  assert.throws(() => validateDocument(legacy), /unsupported floating kind/)
+
+  const standalone = document()
+  const candidate = structuredClone(standalone.floating[0])
+  candidate.attachment = { targetId: 'not-in-candidate', position: 'above' }
+  assert.equal(validateCandidate({ object: candidate, summary: 'caption draft' }, standalone, { kind: 'object', objectId: candidate.id, isNew: false }).object.attachment.targetId, 'not-in-candidate')
+})
+
 test('segment candidate rejects external refs and accepts native composition payloads', () => {
   const doc = segmentDocument(), target = segmentTarget()
   const candidate = validateCandidate({ segment: segmentPayload(), summary: 'native segment' }, doc, target)
   assert.equal(candidate.segment.type, 'segment')
-  assert.deepEqual(candidate.segment.floating.map(object => object.id), ['candidate-shape', 'candidate-label'])
+  assert.deepEqual(candidate.segment.floating.map(object => object.id), ['candidate-shape', 'candidate-caption'])
+  assert.equal(candidate.segment.floating[1].attachment.position, 'below')
   const externalAnchor = segmentPayload(); externalAnchor.floating[0].anchorId = 'outside'
   assert.throws(() => validateCandidate({ segment: externalAnchor, summary: 'bad' }, doc, target), /anchor is outside/)
   const externalAttachment = segmentPayload(); externalAttachment.floating[1].attachment.targetId = 'outside'
   assert.throws(() => validateCandidate({ segment: externalAttachment, summary: 'bad' }, doc, target), /attachment is outside/)
+  const duplicateCaption = segmentPayload()
+  const secondCaption = { ...structuredClone(duplicateCaption.floating[1]), id: 'candidate-caption-2' }
+  duplicateCaption.floating.push(secondCaption)
+  duplicateCaption.geometry[secondCaption.id] = { x: 32, y: 12, width: 160, height: 24 }
+  assert.throws(() => validateCandidate({ segment: duplicateCaption, summary: 'bad' }, doc, target), /one caption per target/)
   const externalGeometry = segmentPayload(); externalGeometry.geometry.outside = { x: 0, y: 0, width: 1, height: 1 }
   assert.throws(() => validateCandidate({ segment: externalGeometry, summary: 'bad' }, doc, target), /geometry references/)
   const unknownPalette = segmentPayload(); unknownPalette.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
@@ -161,7 +201,7 @@ test('fake segment task returns a deterministic native composition', async t => 
   assert.equal(status.status, 'ready')
   assert.equal(status.candidate.summary, 'Fake candidate for segment target.')
   assert.deepEqual(status.candidate.segment.content.map(node => node.type), ['paragraph', 'spacer'])
-  assert.deepEqual(status.candidate.segment.floating.map(object => object.kind), ['rectangle', 'label'])
+  assert.deepEqual(status.candidate.segment.floating.map(object => object.kind ?? 'text'), ['rectangle', 'text'])
   assert.equal(status.candidate.segment.floating[1].attachment.targetId, status.candidate.segment.floating[0].id)
   assert.deepEqual(Object.keys(status.candidate.segment.geometry).sort(), status.candidate.segment.floating.map(object => object.id).sort())
 })

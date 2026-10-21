@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, LineEnd, MoteDocument, PaletteEntry } from './model'
-import { defaultTheme } from './model'
+import { defaultTheme, isText } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { neutralIds, primaryVariables } from '../theme/palette'
@@ -174,7 +174,7 @@ function objectAnchorPlace(object: FloatingObject): AnchorPlace {
 }
 
 function objectBaseIncluded(object: FloatingObject, objects: readonly FloatingObject[], blocks: JSONContent[], selected: SelectedSegment, range: SegmentRange) {
-  if (object.kind === 'label' && object.attachment) return false
+  if (isText(object) && object.attachment) return false
   if (object.kind === 'line' && object.start.connection) {
     const target = objects.find(other => other.id === object.start.connection!.targetId)
     if (target) return pointInSelectedRange(objectAnchorPlace(target), blocks, selected, range)
@@ -188,14 +188,14 @@ function selectedObjectSet(doc: MoteDocument, range: SegmentRange): Set<string> 
   const selected = selectedSegment(blocks, range)
   const ids = new Set<string>()
   for (const object of doc.floating) if (objectBaseIncluded(object, doc.floating, blocks, selected, range)) ids.add(object.id)
-  // Attached labels follow their target, not their own saved rectangle or
-  // possibly stale anchor. Iterate so a label attached to a selected object
-  // is included even when its own anchor is elsewhere.
+  // Attached captions follow their target, not their own saved rectangle or
+  // possibly stale anchor. Iterate so a caption is included even when its own
+  // anchor is elsewhere.
   let changed = true
   while (changed) {
     changed = false
     for (const object of doc.floating) {
-      if (object.kind !== 'label' || !object.attachment || ids.has(object.id)) continue
+      if (!isText(object) || !object.attachment || ids.has(object.id)) continue
       if (ids.has(object.attachment.targetId)) { ids.add(object.id); changed = true }
     }
   }
@@ -250,11 +250,12 @@ function transformCopiedObject(object: FloatingObject, selectedIds: Set<string>,
     }
     result.start = detach(result.start, true)
     result.end = detach(result.end, false)
-  } else if (result.kind === 'label' && result.attachment && !selectedIds.has(result.attachment.targetId)) {
+  } else if (isText(result) && result.attachment && !selectedIds.has(result.attachment.targetId)) {
     const box = geometry[result.id]
     if (box) {
       result.x = box.x
       result.y = Math.max(0, box.y - sourceAnchorTop(result.anchorId, anchors, selected.spacers, originTop))
+      result.width = box.width
     }
     result.attachment = null
   }
@@ -431,10 +432,10 @@ function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, s
     }
     result.start = detach(result.start, true)
     result.end = detach(result.end, false)
-  } else if (result.kind === 'label' && result.attachment && selectedIds.has(result.attachment.targetId)) {
+  } else if (isText(result) && result.attachment && selectedIds.has(result.attachment.targetId)) {
     result.attachment = null
     const box = geometry[result.id]
-    if (box) Object.assign(result, { x: box.x, ...absoluteToAnchor({ x: box.x, y: box.y }, resultAnchors) })
+    if (box) Object.assign(result, { x: box.x, width: box.width, ...absoluteToAnchor({ x: box.x, y: box.y }, resultAnchors) })
   }
   return result
 }
@@ -706,11 +707,11 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
         const sourceLine = object as Extract<FloatingObject, { kind: 'line' }>
         line.start = detach(sourceLine.start, true)
         line.end = detach(sourceLine.end, false)
-      } else if (next.kind === 'label') {
+      } else if (isText(next)) {
         if (next.attachment && payloadObjectMap.has(next.attachment.targetId)) next.attachment = { ...next.attachment, targetId: payloadObjectMap.get(next.attachment.targetId)! }
         else if (next.attachment) {
           const box = payload.geometry[object.id]
-          if (box) { next.x = box.x; next.y = Math.max(0, box.y - sourcePayloadAnchorTop(payload, sourceAnchor) + aliasOffset) }
+          if (box) { next.x = box.x; next.y = Math.max(0, box.y - sourcePayloadAnchorTop(payload, sourceAnchor) + aliasOffset); next.width = box.width }
           next.attachment = null
         }
       }
