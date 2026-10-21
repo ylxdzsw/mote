@@ -46,7 +46,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   const hasFlow = text || ['image', 'table', 'katex', 'html', 'code', 'drawing'].includes(object.kind!)
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
-    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : text ? 'Native rich text' : object.kind === 'code' ? 'Plain source' : 'Floating object'} />
+    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : text ? 'Native rich text' : undefined} />
     {count === 1 && <>
       {object.kind === 'drawing' && <InspectorGroup title="Content">
         <button onClick={onDrawingEdit}>Edit drawing…</button>

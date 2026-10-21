@@ -112,8 +112,8 @@ export function InspectorHelp({ children }: { children: ReactNode }) {
   return <details className="inspector-help"><summary>Help &amp; shortcuts</summary><div>{children}</div></details>
 }
 
-export function ContextHeading({ title, subtitle }: { title: string; subtitle: string }) {
-  return <header className="context-heading"><h2>{title}</h2><p>{subtitle}</p></header>
+export function ContextHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  return <header className="context-heading"><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</header>
 }
 
 export function TypographyPreview({ theme, semantic }: { theme: Theme; semantic: string }) {
@@ -232,7 +232,6 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
   const colorSwatch = swatchColor(theme, selection.color === null ? inheritedColor : selection.color)
   return <div className="text-tools" ref={tools}
     style={{ '--palette-ink': paletteColor(theme, 'ink'), '--palette-muted': paletteColor(theme, 'muted'), '--palette-paper': paletteColor(theme, 'paper') } as CSSProperties}>
-    <div className="tools-heading"><span>Text</span></div>
     <div className="text-tools-row" role="toolbar" aria-label="Text formatting" onKeyDown={event => {
       if ((event.target as HTMLElement).closest('[role="menu"]')) return
       if (event.key === 'Escape') { event.preventDefault(); editor?.commands.focus(); return }
