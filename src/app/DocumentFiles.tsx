@@ -30,6 +30,7 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
   const [filename, setFilename] = useState('Untitled')
+  const [pngScale, setPngScale] = useState<1 | 2>(2)
   const basename = filename.trim().replace(/\.(png|html|mote)$/i, '')
   const invalidName = !basename || /^[. ]+$/.test(basename) || /[<>:"/\\|?*\u0000-\u001f]/.test(basename)
 
@@ -57,7 +58,7 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
       updateBusy(preparing)
       const snapshot = structuredClone(doc)
       const blob = format === 'mote' ? await encodeMote(snapshot)
-        : format === 'html' ? await exportHtml(snapshot) : await exportPng(snapshot)
+        : format === 'html' ? await exportHtml(snapshot) : await exportPng(snapshot, pngScale)
       if (handle) {
         updateBusy('Saving file…')
         const writable = await handle.createWritable()
@@ -79,7 +80,15 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
       </label>
       <p id={`${titleId}-filename-hint`}>{invalidName ? 'Enter a filename without / \\ : * ? " < > |.' : 'The selected format’s extension is added automatically.'}</p>
       <div className="export-formats">
-        <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width)}px wide · native resolution</span></button>
+        <div className="export-png">
+          <button disabled={!!busy || invalidName} onClick={() => void exporting('png')}><strong>PNG</strong><span>Full-length image · {Math.ceil(doc.width * pngScale)}px wide · {pngScale}× resolution</span></button>
+          <label className="export-resolution">Resolution
+            <select value={pngScale} disabled={!!busy} onChange={event => setPngScale(Number(event.currentTarget.value) as 1 | 2)}>
+              <option value={1}>1× · Original</option>
+              <option value={2}>2× · High resolution</option>
+            </select>
+          </label>
+        </div>
         <button disabled={!!busy || invalidName} onClick={() => void exporting('html')}><strong>HTML</strong><span>Standalone reader · can be imported back</span></button>
         <button disabled={!!busy || invalidName} onClick={() => void exporting('mote')}><strong>Mote document <small>.mote</small></strong><span>Compressed editable document · can be imported back</span></button>
       </div>

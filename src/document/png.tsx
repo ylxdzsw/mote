@@ -3,7 +3,6 @@ import type { MoteDocument } from './model'
 import { ReadDocument } from '../canvas/ReadDocument'
 
 const frame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-const tooLarge = 'This document is too large for PNG export in this browser. Export HTML or a .mote document instead.'
 
 async function svgImage(xml: string) {
   const image = new Image()
@@ -26,7 +25,8 @@ async function settle(surface: HTMLElement) {
   }
 }
 
-export async function exportPng(doc: MoteDocument): Promise<Blob> {
+export async function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Blob> {
+  const tooLarge = `This document is too large for ${scale}× PNG export in this browser. ${scale === 2 ? 'Try 1× resolution, or export' : 'Export'} HTML or a .mote document instead.`
   const host = document.createElement('div')
   host.style.cssText = `position:fixed;left:-100000px;top:0;width:${doc.width + 48}px;height:600px;pointer-events:none`
   host.inert = true
@@ -38,8 +38,8 @@ export async function exportPng(doc: MoteDocument): Promise<Blob> {
     await new Promise<void>(resolve => root.render(<ReadDocument initial={doc} onReady={resolve} staticWidgets initialScale={1} />))
     await settle(host)
     const source = host.querySelector<HTMLElement>('.stage .sheet')!
-    const width = Math.ceil(doc.width), height = Math.ceil(source.getBoundingClientRect().height)
-    if (height > 32767 || width * height > 32_000_000) throw new Error(tooLarge)
+    const width = Math.ceil(doc.width * scale), height = Math.ceil(source.getBoundingClientRect().height * scale)
+    if (width > 32767 || height > 32767 || width * height > 32_000_000) throw new Error(tooLarge)
     canvas = document.createElement('canvas')
     canvas.width = width; canvas.height = height
     const context = canvas.getContext('2d')
@@ -62,8 +62,8 @@ export async function exportPng(doc: MoteDocument): Promise<Blob> {
     const images = [...source.querySelectorAll('img')]
     for (const [index, image] of [...copy.querySelectorAll('img')].entries()) {
       const original = images[index], raster = document.createElement('canvas')
-      raster.width = Math.max(1, Math.ceil(original.getBoundingClientRect().width))
-      raster.height = Math.max(1, Math.ceil(original.getBoundingClientRect().height))
+      raster.width = Math.max(1, Math.ceil(original.getBoundingClientRect().width * scale))
+      raster.height = Math.max(1, Math.ceil(original.getBoundingClientRect().height * scale))
       raster.getContext('2d')!.drawImage(original, 0, 0, raster.width, raster.height)
       image.src = raster.toDataURL('image/png')
       // Preserve the original intrinsic aspect ratio after raster rounding.
@@ -78,6 +78,8 @@ export async function exportPng(doc: MoteDocument): Promise<Blob> {
     const ns = 'http://www.w3.org/2000/svg'
     const svg = document.createElementNS(ns, 'svg')
     svg.setAttribute('width', String(width)); svg.setAttribute('height', String(height))
+    // Scale rasterization, not document layout or a previously rendered bitmap.
+    svg.setAttribute('viewBox', `0 0 ${width / scale} ${height / scale}`)
     const foreign = document.createElementNS(ns, 'foreignObject')
     foreign.setAttribute('width', '100%'); foreign.setAttribute('height', '100%')
     const wrapper = document.createElement('div')
