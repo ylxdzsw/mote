@@ -232,7 +232,7 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
   const colorSwatch = swatchColor(theme, selection.color === null ? inheritedColor : selection.color)
   return <div className="text-tools" ref={tools}
     style={{ '--palette-ink': paletteColor(theme, 'ink'), '--palette-muted': paletteColor(theme, 'muted'), '--palette-paper': paletteColor(theme, 'paper') } as CSSProperties}>
-    <div className="tools-heading"><span>Text</span><button title="Focus text tools · Alt F10" onClick={() => tools.current?.querySelector<HTMLButtonElement>('.tt-btn:not(:disabled)')?.focus()}><kbd>Alt F10</kbd></button></div>
+    <div className="tools-heading"><span>Text</span></div>
     <div className="text-tools-row" role="toolbar" aria-label="Text formatting" onKeyDown={event => {
       if ((event.target as HTMLElement).closest('[role="menu"]')) return
       if (event.key === 'Escape') { event.preventDefault(); editor?.commands.focus(); return }
@@ -268,6 +268,5 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     {(['box', 'underline'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
       aria-pressed={selection.decoration === decoration} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration(decoration)}><TIcon name={decoration} /></button>)}
     </div>
-    <p className="tt-caption">{selection.fixed ? 'Table cell' : selection.paragraph ? `${classLabel(selection.paragraph)} paragraph` : 'Mixed paragraph styles'}</p>
   </div>
 }
