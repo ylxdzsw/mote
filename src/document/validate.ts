@@ -199,6 +199,32 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   }
   else if ('attachment' in object) invalid(`${path}.attachment is only supported on text boxes`)
   if (kind === 'table') return
+  if (kind === 'drawing') {
+    finite(object.width, `${path}.width`, Number.MIN_VALUE)
+    finite(object.height, `${path}.height`, Number.MIN_VALUE)
+    if (object.background !== null && object.background !== 'paper') invalid(`${path}.background must be paper or null`)
+    if (!Array.isArray(object.strokes) || object.strokes.length > 10000) invalid(`${path}.strokes must contain at most 10000 strokes`)
+    let points = 0
+    for (const [index, value] of object.strokes.entries()) {
+      const name = `${path}.strokes[${index}]`, stroke = record(value, name)
+      text(stroke.color, `${name}.color`)
+      finite(stroke.width, `${name}.width`, Number.MIN_VALUE)
+      if (!Array.isArray(stroke.points) || !stroke.points.length || (points += stroke.points.length) > 100000) invalid(`${path} must contain at most 100000 points, with at least one per stroke`)
+      for (const point of stroke.points) {
+        if (!Array.isArray(point) || point.length !== 2) invalid(`${name}.points must contain coordinate pairs`)
+        finite(point[0], `${name}.point.x`); finite(point[1], `${name}.point.y`)
+      }
+    }
+    if (!Array.isArray(object.labels) || object.labels.length > 1000) invalid(`${path}.labels must contain at most 1000 labels`)
+    for (const [index, value] of object.labels.entries()) {
+      const name = `${path}.labels[${index}]`, label = record(value, name)
+      finite(label.x, `${name}.x`); finite(label.y, `${name}.y`)
+      finite(label.size, `${name}.size`, Number.MIN_VALUE)
+      text(label.color, `${name}.color`)
+      if (text(label.text, `${name}.text`).length > 4096) invalid(`${name}.text must be at most 4096 characters`)
+    }
+    return
+  }
   if (kind === 'image') {
     embeddedImageSource(object.src, `${path}.src`)
     text(object.alt, `${path}.alt`)

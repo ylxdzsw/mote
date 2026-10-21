@@ -36,6 +36,66 @@ function embeddedImage(value) {
   return { extension, bytes }
 }
 
+// The helper is copied into isolated index tasks: keep it dependency-free.
+function primaryColor(hue, soft) {
+  const lightness = soft ? .95 : .43, chroma = soft ? .025 : .09, angle = hue * Math.PI / 180
+  const rgb = c => {
+    const a = c * Math.cos(angle), b = c * Math.sin(angle)
+    const l = (lightness + .3963377774 * a + .2158037573 * b) ** 3
+    const m = (lightness - .1055613458 * a - .0638541728 * b) ** 3
+    const s = (lightness - .0894841775 * a - 1.291485548 * b) ** 3
+    return [4.0767416621 * l - 3.3077115913 * m + .2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - .3413193965 * s, -.0041960863 * l - .7034186147 * m + 1.707614701 * s]
+  }
+  let low = 0, high = chroma
+  const inGamut = values => values.every(value => value >= 0 && value <= 1)
+  if (inGamut(rgb(chroma))) low = chroma
+  else for (let i = 0; i < 16; i++) { const mid = (low + high) / 2; if (inGamut(rgb(mid))) low = mid; else high = mid }
+  return `#${rgb(low).map(value => Math.round(Math.max(0, Math.min(1, value <= .0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - .055)) * 255).toString(16).padStart(2, '0')).join('')}`
+}
+
+function drawingImage(object, theme) {
+  const number = value => typeof value === 'number' && Number.isFinite(value)
+  const positive = value => number(value) && value > 0
+  if (!positive(object.width) || !positive(object.height) || ![null, 'paper'].includes(object.background)
+    || !Array.isArray(object.strokes) || object.strokes.length > 10000 || !Array.isArray(object.labels) || object.labels.length > 1000) return
+  const colors = new Map()
+  for (const entry of theme?.palette ?? []) {
+    if (/^#[0-9a-f]{6}$/i.test(entry?.strong)) colors.set(entry.id, entry.strong)
+    if (/^#[0-9a-f]{6}$/i.test(entry?.soft)) colors.set(`${entry.id}:soft`, entry.soft)
+  }
+  if (number(theme?.hue) && theme.hue >= 0 && theme.hue < 360) {
+    colors.set('primary', primaryColor(theme.hue, false)); colors.set('primary:soft', primaryColor(theme.hue, true))
+  }
+  const escape = value => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character])
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${object.width}" height="${object.height}" viewBox="0 0 ${object.width} ${object.height}">`]
+  if (object.background === 'paper') {
+    if (!colors.has('paper')) return
+    parts.push(`<rect width="100%" height="100%" fill="${colors.get('paper')}"/>`)
+  }
+  let points = 0
+  for (const stroke of object.strokes) {
+    if (!stroke || !positive(stroke.width) || !colors.has(stroke.color) || !Array.isArray(stroke.points) || !stroke.points.length
+      || (points += stroke.points.length) > 100000 || stroke.points.some(point => !Array.isArray(point) || point.length !== 2 || !point.every(number))) return
+    if (stroke.points.length === 1) parts.push(`<circle cx="${stroke.points[0][0]}" cy="${stroke.points[0][1]}" r="${stroke.width / 2}" fill="${colors.get(stroke.color)}"/>`)
+    else {
+      let path = `M${stroke.points[0].join(' ')}`
+      for (let i = 1; i < stroke.points.length - 1; i++) {
+        const a = stroke.points[i], b = stroke.points[i + 1]
+        path += `Q${a.join(' ')} ${(a[0] / 2 + b[0] / 2)} ${(a[1] / 2 + b[1] / 2)}`
+      }
+      path += `L${stroke.points.at(-1).join(' ')}`
+      parts.push(`<path d="${path}" fill="none" stroke="${colors.get(stroke.color)}" stroke-width="${stroke.width}" stroke-linecap="round" stroke-linejoin="round"/>`)
+    }
+  }
+  for (const label of object.labels) {
+    if (!label || !number(label.x) || !number(label.y) || !positive(label.size) || !colors.has(label.color) || typeof label.text !== 'string' || label.text.length > 4096) return
+    parts.push(`<text x="${label.x}" y="${label.y}" font-size="${label.size}" font-family="ui-sans-serif, system-ui, sans-serif" fill="${colors.get(label.color)}" dominant-baseline="text-before-edge" xml:space="preserve">${label.text.split('\n').map((line, index) => `<tspan x="${label.x}" dy="${index ? label.size * 1.2 : 0}">${escape(line)}</tspan>`).join('')}</text>`)
+  }
+  parts.push('</svg>')
+  const bytes = Buffer.from(parts.join(''))
+  return bytes.length <= MAX_IMAGE_BYTES ? { extension: 'svg', bytes } : undefined
+}
+
 export async function extractNativeVisuals(documentPath, outputDir) {
   const inputStat = await fs.lstat(documentPath)
   if (inputStat.isSymbolicLink() || !inputStat.isFile() || inputStat.size > MAX_DOCUMENT_BYTES) throw new Error('native document is not a bounded regular file')
@@ -47,18 +107,24 @@ export async function extractNativeVisuals(documentPath, outputDir) {
 
   const images = []
   let skipped = 0, totalBytes = 0
+  const add = image => {
+    if (images.length >= MAX_IMAGES || totalBytes + image.bytes.length > MAX_TOTAL_BYTES) skipped++
+    else { images.push(image); totalBytes += image.bytes.length }
+  }
   const visit = (value, key) => {
     if (key === 'src' || key === 'screenshot') {
       const image = embeddedImage(value)
-      if (image) {
-        if (images.length >= MAX_IMAGES || totalBytes + image.bytes.length > MAX_TOTAL_BYTES) skipped++
-        else { images.push(image); totalBytes += image.bytes.length }
-      }
+      if (image) add(image)
     }
     if (Array.isArray(value)) value.forEach(item => visit(item, ''))
     else if (value && typeof value === 'object') for (const [childKey, child] of Object.entries(value)) visit(child, childKey)
   }
   visit(document, '')
+  for (const object of document.floating ?? []) if (object?.kind === 'drawing') {
+    const image = drawingImage(object, document.theme)
+    if (image) add(image)
+    else skipped++
+  }
 
   const paths = []
   for (const [index, image] of images.entries()) {
@@ -76,8 +142,8 @@ async function main() {
   if (!documentPath || !outputDir || process.argv.length !== 4) throw new Error('usage: node index-visuals.mjs DOCUMENT.json OUTPUT_DIR')
   const result = await extractNativeVisuals(documentPath, outputDir)
   for (const file of result.paths) console.log(file)
-  if (result.skipped) console.log(`Skipped ${result.skipped} embedded images due to extraction limits.`)
-  if (!result.paths.length) console.log('No supported embedded images or widget screenshots were found.')
+  if (result.skipped) console.log(`Skipped ${result.skipped} visuals due to invalid data or extraction limits.`)
+  if (!result.paths.length) console.log('No supported embedded images, widget screenshots, or drawings were found.')
 }
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {

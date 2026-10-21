@@ -3,6 +3,7 @@ import type { FloatingObject, FloatingText, MoteDocument } from '../document/mod
 import type { AITarget, AITask } from './types'
 import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
+import { patchFloating } from '../canvas/patchFloating.ts'
 
 const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
 
@@ -37,7 +38,16 @@ export function objectContent(object: FloatingObject) {
 export const canResizeReservation = (task: AITask) => !task.submitted && !task.requestSent && !task.pendingExecutor && ['draft', 'error', 'stopped'].includes(task.status)
 export function reservedObjectContent(task: AITask, object: FloatingObject) {
   const content = objectContent(object)
-  return canResizeReservation(task) ? { ...content, width: undefined, height: undefined } : content
+  if (!canResizeReservation(task)) return content
+  // Normalize only positions: repeated resize arithmetic must not release a draft.
+  // Ten decimal places tolerate subpixel rounding while keeping all other data exact.
+  const coordinate = (value: number, extent: number) => Number((value / extent).toFixed(10))
+  return { ...content, width: undefined, height: undefined,
+    ...(object.kind === 'drawing' && {
+      strokes: object.strokes.map(stroke => ({ ...stroke, points: stroke.points.map(([x, y]) => [coordinate(x, object.width), coordinate(y, object.height)]) })),
+      labels: object.labels.map(label => ({ ...label, x: coordinate(label.x, object.width), y: coordinate(label.y, object.height) })),
+    }),
+  }
 }
 
 function segmentTarget(target: AITarget) {
@@ -256,9 +266,23 @@ export function permitsEditor(tasks: AITask[], historyId: string, before: JSONCo
 }
 
 export function currentPlacement(candidate: FloatingObject, original: FloatingObject): FloatingObject {
-  const result = { ...candidate, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, textFlow: original.textFlow }
+  const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.width, ...('height' in original && { height: original.height }) }) : candidate
+  const result = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, textFlow: original.textFlow }
   if ('height' in original && 'height' in result) result.height = original.height
   if (result.kind === 'line' && original.kind === 'line') return { ...result, start: original.start, end: original.end, bend: original.bend }
+  if (result.kind === 'line' && original.kind === 'drawing') {
+    // Conversion endpoints describe one local coordinate plane, not document anchors.
+    // Fit the whole path (including an elbow's bend) and drop external connections.
+    const bendX = result.start.x / 2 + result.end.x / 2 + result.bend
+    const xs = [result.start.x, result.end.x, ...(result.route === 'elbow' ? [bendX] : [])]
+    const left = Math.min(...xs), right = Math.max(...xs)
+    const top = Math.min(result.start.y, result.end.y), bottom = Math.max(result.start.y, result.end.y)
+    const x = (value: number) => original.x + (right === left ? .5 : (value - left) / (right - left)) * original.width
+    const y = (value: number) => original.y + (bottom === top ? .5 : (value - top) / (bottom - top)) * original.height
+    const start = { x: x(result.start.x), y: y(result.start.y), anchorId: original.anchorId }
+    const end = { x: x(result.end.x), y: y(result.end.y), anchorId: original.anchorId }
+    return { ...result, start, end, bend: result.route === 'elbow' ? x(bendX) - (start.x / 2 + end.x / 2) : 0 }
+  }
   if (isText(result)) return { ...result, attachment: isText(original) ? original.attachment : undefined }
   return result
 }

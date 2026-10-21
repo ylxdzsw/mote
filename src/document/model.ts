@@ -92,6 +92,14 @@ export interface FloatingImage extends FloatingGeometry {
   alt: string
 }
 
+export interface FloatingDrawing extends FloatingGeometry {
+  kind: 'drawing'
+  height: number
+  strokes: Array<{ points: [number, number][]; color: string; width: number }>
+  labels: Array<{ x: number; y: number; text: string; color: string; size: number }>
+  background: 'paper' | null
+}
+
 export interface FloatingKaTeX extends FloatingGeometry {
   kind: 'katex'
   latex: string
@@ -134,7 +142,7 @@ export interface FloatingLine extends FloatingGeometry, Stroke {
   arrowStart: boolean
   arrowEnd: boolean
 }
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingShape | FloatingLine | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingShape | FloatingLine | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
 export type FloatingKind = NonNullable<FloatingObject['kind']>
 export const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
 export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stroke> & {
@@ -143,6 +151,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & Partial<Stro
   attachment?: CaptionAttachment | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string; scheme?: 'light' | 'dark'
+  strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
   background?: string | null; borderColor?: string | null; padding?: ThemeLength
 }
 

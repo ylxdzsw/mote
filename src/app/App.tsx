@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type React from 'react'
+import { createPortal } from 'react-dom'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
@@ -20,6 +21,8 @@ import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
+import { DrawingEditor } from './DrawingEditor'
+import { patchFloating } from '../canvas/patchFloating'
 import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
@@ -118,6 +121,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
   const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
+  const [drawingId, setDrawingId] = useState<string | null>(null)
+  const drawing = doc?.floating.find(object => object.id === drawingId)
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
   const [imageError, setImageError] = useState('')
@@ -125,11 +130,16 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const workspace = useRef<HTMLElement>(null)
 
   useEffect(() => {
+    if (drawingId && (!editable || drawing?.kind !== 'drawing' || assistant.lockedIds.has(drawingId))) setDrawingId(null)
+  }, [drawingId, drawing, editable, assistant.lockedIds])
+
+  useEffect(() => {
     if (editable) return
     setSettingsOpen(false)
     setShareOpen(false)
     setLaunchpadPoint(null)
     setLaunchpadAnchor(null)
+    setDrawingId(null)
   }, [editable])
 
   useEffect(() => {
@@ -193,6 +203,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       if (!editable || isComposingKey(event)) return
       if (key !== 'z' && key !== 'y') return
       const target = event.target as HTMLElement
+      if (target.closest('.drawing-editor')) return
       if (!target.matches('[data-code-source], [data-document-notes]') && target.matches('textarea, input:not([type=range]):not([type=color]):not([type=checkbox]):not([type=radio])')) return
       event.preventDefault(); event.stopPropagation()
       if (key === 'y' || event.shiftKey) history.redo(); else history.undo()
@@ -239,7 +250,16 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   function updateFloating(floating: FloatingObject[]) { setDoc(current => current && ({ ...current, floating })) }
 
   function updateObject(id: string, patch: FloatingPatch) {
-    setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? { ...object, ...patch } : object) }))
+    setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? patchFloating(object, patch) : object) }))
+  }
+
+  function editDrawing(id: string) {
+    history.boundary(); setActiveEditor(null); setTool(null); setDrawingId(id)
+  }
+
+  function closeDrawing() {
+    history.boundary(); setDrawingId(null)
+    requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>(`[data-note-id="${drawingId}"]`)?.focus({ preventScroll: true }))
   }
 
   function reorder(front: boolean) {
@@ -261,7 +281,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (kind === 'html') { chooseWidgetScreenshot(); return }
     if (kind === 'table') { addObject('table'); return }
     if (kind === 'katex') { addObject('katex'); return }
-    if (['text','code','rectangle','ellipse','line','ai','paragraph'].includes(kind)) {
+    if (['text','code','drawing','rectangle','ellipse','line','ai','paragraph'].includes(kind)) {
       setTool(kind as CreationTool)
       setSelectedIds([])
     }
@@ -554,7 +574,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
                   onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
                   maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
-                  onReplaceImage={() => chooseImage(selectedObject)}
+                  onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   onRevise={() => { setTool(null); reserveSelection() }} />
                 : tool ? <div className="context-inspector">
                     <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle="Click or drag to place on the document." />
@@ -579,10 +599,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onMainReady={setMainEditor} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
-        onContextMenu={handleCanvasContextMenu} />
+        onContextMenu={handleCanvasContextMenu} onDrawingEdit={editDrawing} />
       {editable && <DocumentNotes key={doc.id} value={doc.notes ?? ''}
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
+    {editable && drawing?.kind === 'drawing' && !assistant.lockedIds.has(drawing.id) && createPortal(
+      <DrawingEditor key={drawing.id} drawing={drawing} theme={doc.theme} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
+      document.querySelector('.app')!)}
     {editable && <Launchpad
       point={launchpadPoint}
       anchor={launchpadAnchor}

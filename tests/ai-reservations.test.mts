@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { compatibleTasks, currentPlacement, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } from '../src/ai/reservations.ts'
+import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } from '../src/ai/reservations.ts'
+import { patchFloating } from '../src/canvas/patchFloating.ts'
 import { Schema } from '@tiptap/pm/model'
-import type { MoteDocument, FloatingObject } from '../src/document/model.ts'
+import type { MoteDocument, FloatingDrawing, FloatingLine, FloatingObject } from '../src/document/model.ts'
 import type { AITask } from '../src/ai/types.ts'
 
 const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
@@ -34,6 +35,107 @@ test('reservations allow unrelated edits and placement, but block content, size,
   }
   assert.equal(permits([objectTask], doc, { ...doc, floating: [] }), false)
   assert.equal(permits([textTask], doc, { ...doc, content: { ...doc.content, content: [paragraph('a', 'edited'), ...doc.content.content!.slice(1)] } }), true)
+})
+
+test('drawing reservations lock strokes and labels while figure projection retains placement', () => {
+  const drawing: FloatingObject = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, textFlow: 'repel', background: null,
+    strokes: [{ points: [[1, 2], [3, 4]], color: 'ink', width: 2 }], labels: [{ x: 5, y: 6, text: 'A', color: 'ink', size: 16 }] }
+  const source = { ...doc, floating: [drawing] }
+  assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, x: 50 }] }), true)
+  for (const patch of [{ strokes: [] }, { labels: [] }, { width: 500 }, { background: 'paper' as const }]) {
+    assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, ...patch }] }), false)
+  }
+  const projected = currentPlacement(object, drawing)
+  assert.equal(projected.kind, 'html')
+  assert.equal(projected.width, drawing.width)
+  assert.equal('height' in projected && projected.height, drawing.height)
+  assert.equal(projected.textFlow, 'repel')
+  assert.equal(projected.anchorId, 'a')
+})
+
+const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 317, height: 179, textFlow: 'repel', background: null,
+  strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'ink', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'ink', size: 16 }] }
+
+test('draft drawing reservations accept scaled positions without unlocking drawing content', () => {
+  const task = { ...objectTask, documentId: doc.id, original: drawing, status: 'draft', submitted: false } as AITask
+  const source = { ...doc, floating: [drawing] }
+  let previous = source
+  for (const [width, height] of [[431, 257], [703, 311], [317, 179]]) {
+    const resized = patchFloating(previous.floating[0], { width, height }) as FloatingDrawing
+    const next = { ...source, floating: [resized] }
+    assert.equal(permits([task], previous, next), true)
+    assert.equal(inactiveTaskReason(task, next), null)
+    previous = next
+  }
+  const resized = patchFloating(drawing, { width: 431, height: 257 }) as FloatingDrawing
+  resized.strokes[0].points[0][0] += 1e-10
+  const next = { ...source, floating: [resized] }
+  assert.equal(permits([task], source, next), true)
+  assert.equal(inactiveTaskReason(task, next), null)
+  const edits: Array<(value: FloatingDrawing) => void> = [
+    value => { value.strokes[0].points[0][0] += .01 }, value => { value.strokes[0].points.reverse() },
+    value => { value.strokes[0].points.push([10, 10]) }, value => { value.strokes.push(structuredClone(value.strokes[0])) },
+    value => { value.strokes[0].width = 3 }, value => { value.strokes[0].color = 'muted' },
+    value => { value.labels[0].x += .01 }, value => { value.labels[0].size = 17 },
+    value => { value.labels[0].color = 'muted' }, value => { value.labels[0].text = 'B' },
+    value => { value.labels = [] }, value => { value.background = 'paper' },
+  ]
+  for (const edit of edits) {
+    const changed = structuredClone(resized); edit(changed)
+    const after = { ...source, floating: [changed] }
+    assert.equal(permits([task], source, after), false)
+    assert.notEqual(inactiveTaskReason(task, after), null)
+  }
+  for (const patch of [{ status: 'preparing' }, { requestSent: true }, { submitted: true }, { pendingExecutor: { executor: 'external', operationId: 'switch' } }]) {
+    const frozen = { ...task, ...patch } as AITask
+    assert.equal(permits([frozen], source, next), false)
+    assert.notEqual(inactiveTaskReason(frozen, next), null)
+  }
+})
+
+test('drawing candidate placement scales positions into target bounds while retaining pen and font sizes', () => {
+  const candidate: FloatingDrawing = { ...drawing, x: 999, y: 999, width: 100, height: 50,
+    strokes: [{ points: [[25, 10], [100, 50]], color: 'muted', width: 3 }], labels: [{ x: 50, y: 25, text: 'B', color: 'ink', size: 18 }] }
+  const before = structuredClone(candidate)
+  for (const original of [{ ...drawing, width: 200, height: 150 }, { ...object, width: 200, height: 150 }]) {
+    const placed = currentPlacement(candidate, original) as FloatingDrawing
+    assert.deepEqual(placed.strokes, [{ points: [[50, 30], [200, 150]], color: 'muted', width: 3 }])
+    assert.deepEqual(placed.labels, [{ x: 100, y: 75, text: 'B', color: 'ink', size: 18 }])
+    assert.equal(placed.x, original.x); assert.equal(placed.y, original.y)
+    assert.equal(placed.width, 200); assert.equal(placed.height, 150)
+    assert.deepEqual(currentPlacement(candidate, original), placed)
+  }
+  assert.deepEqual(candidate, before)
+})
+
+test('drawing-to-line conversion fits path and bend to the moved target without external connections', () => {
+  const candidate: FloatingLine = { id: 'box', kind: 'line', anchorId: 'old', x: 20, y: 20, width: 100, textFlow: 'overlap',
+    start: { x: 100, y: 20, anchorId: 'outside-a', connection: { targetId: 'other', side: 'auto' } },
+    end: { x: 20, y: 80, anchorId: 'outside-b', connection: { targetId: 'other-2', side: 'auto' } },
+    route: 'elbow', bend: 60, stroke: 'ink', strokeWidth: 2, dashed: false, arrowStart: false, arrowEnd: true }
+  const moved = { ...drawing, x: 10, y: 40, width: 320, height: 180, anchorId: 'c' }
+  const placed = currentPlacement(candidate, moved) as FloatingLine
+  assert.deepEqual(placed.start, { x: 266, y: 40, anchorId: 'c' })
+  assert.deepEqual(placed.end, { x: 10, y: 220, anchorId: 'c' })
+  assert.equal(placed.bend, 192)
+  assert.equal((placed.start.x + placed.end.x) / 2 + placed.bend, moved.x + moved.width)
+  assert.equal(placed.arrowEnd, true); assert.equal(placed.strokeWidth, 2)
+  for (const [start, end, expectedStart, expectedEnd] of [
+    [[100, 20], [20, 20], [330, 130], [10, 130]],
+    [[20, 80], [20, 20], [170, 220], [170, 40]],
+    [[20, 20], [20, 20], [170, 130], [170, 130]],
+  ]) {
+    const straight = { ...candidate, route: 'straight' as const, start: { x: start[0], y: start[1], anchorId: null }, end: { x: end[0], y: end[1], anchorId: null } }
+    const bound = currentPlacement(straight, moved) as FloatingLine
+    assert.deepEqual([bound.start.x, bound.start.y], expectedStart)
+    assert.deepEqual([bound.end.x, bound.end.y], expectedEnd)
+    assert.equal(bound.bend, 0)
+  }
+  const originalLine = { ...candidate, start: { x: 5, y: 6, anchorId: 'd' }, bend: 17 }
+  const unchanged = currentPlacement(candidate, originalLine) as FloatingLine
+  assert.deepEqual(unchanged.start, originalLine.start)
+  assert.deepEqual(unchanged.end, originalLine.end)
+  assert.equal(unchanged.bend, 17)
 })
 
 test('text boundary locks reject cross-range replacement, deletion, and interleaving', () => {

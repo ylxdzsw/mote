@@ -106,6 +106,7 @@ test('new floating reservations accept all supported kinds, not only HTML and im
   const paragraph = { type: 'paragraph', attrs: { semantic: 'body' }, content: [{ type: 'text', text: 'Native text' }] }
   const stroke = { stroke: null, strokeWidth: 1, dashed: false }
   const objects = [
+    { ...base, kind: 'drawing', height: 100, background: null, strokes: [{ points: [[5, 8]], color: 'ink', width: 2.5 }], labels: [] },
     { ...base, kind: 'code', source: 'const answer = 42\n', language: 'javascript', scheme: 'dark' },
     { ...base, kind: 'katex', latex: String.raw`\int_0^1 x^2\,dx = \frac{1}{3}` },
     { ...base, kind: 'text', content: { type: 'doc', content: [paragraph] } },
@@ -119,6 +120,32 @@ test('new floating reservations accept all supported kinds, not only HTML and im
     assert.equal(validateCandidate({ object, summary: 'Candidate' }, doc, target).object.kind, object.kind)
     if (object.kind !== 'html') assert.throws(() => validateCandidate({ object, summary: 'Candidate' }, doc, { ...target, isNew: false }), /retain target kind/)
   }
+})
+
+test('drawings roundtrip with bounded native data and allow single-object figure conversion', () => {
+  const doc = document('html'), widget = doc.floating[0]
+  const drawing = { id: widget.id, kind: 'drawing', anchorId: widget.anchorId, x: widget.x, y: widget.y, width: widget.width, height: 100, textFlow: 'overlap', background: 'paper',
+    strokes: [{ points: [[-1, 2], [3.5, 8]], color: 'primary:soft', width: 2.5 }], labels: [{ x: 1, y: 2, text: 'A < B', color: 'ink', size: 13.5 }] }
+  doc.floating = [drawing]
+  assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(doc))), doc)
+  const target = { kind: 'object', objectId: drawing.id, isNew: false, area: { x: drawing.x, y: drawing.y, width: drawing.width, height: drawing.height } }
+  for (const object of [drawing, widget, { ...widget, kind: 'image', src: png }, document().floating[0]]) {
+    assert.equal(validateCandidate({ object, summary: 'Convert sketch to figure' }, doc, target).object, object)
+  }
+  const mutations = [value => { value.width = 0 }, value => { value.height = 0 }, value => { value.background = 'ink' },
+    value => { value.strokes[0].width = 0 }, value => { value.strokes[0].points = [] }, value => { value.strokes[0].points[0] = [NaN, 0] },
+    value => { value.strokes[0].points[0].push(0) }, value => { value.strokes[0].points = Array(100001).fill([0, 0]) },
+    value => { value.labels[0].size = -1 }, value => { value.labels[0].x = Infinity }, value => { value.labels[0].text = 'x'.repeat(4097) },
+    value => { value.labels[0].color = 'missing' }, value => { value.strokes[0].color = '#ffffff' }]
+  for (const mutate of mutations) {
+    const invalid = structuredClone(doc); mutate(invalid.floating[0])
+    assert.throws(() => validateDocument(invalid))
+  }
+  const segment = segmentPayload()
+  segment.floating.push({ ...drawing, id: 'candidate-drawing', anchorId: 'candidate-p' })
+  assert.equal(validateCandidate({ segment, summary: 'A drawing in a segment' }, segmentDocument(), segmentTarget()).segment, segment)
+  segment.floating.at(-1).labels[0].color = 'missing'
+  assert.throws(() => validateCandidate({ segment, summary: 'Invalid palette' }, segmentDocument(), segmentTarget()), /unknown palette/)
 })
 
 test('segment targets use canonical points and exact block/object ownership', () => {

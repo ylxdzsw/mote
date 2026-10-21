@@ -126,6 +126,7 @@ function palette(document) {
   visit(document.content)
   for (const object of document.floating) {
     if (object.content) visit(object.content)
+    if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
     for (const key of ['fill', 'stroke', 'background', 'borderColor']) if (object[key] != null) ref(object[key], `${key} color`)
   }
 }
@@ -182,6 +183,31 @@ export function validateFloating(value, label = 'floating object', options = {})
     const language = text(object.language, `${label}.language`, 64, true)
     if (!SAFE_LANGUAGE.test(language)) throw new HttpError(400, `${label}.language must be a safe identifier`)
     if (!['light', 'dark'].includes(object.scheme)) throw new HttpError(400, `${label}.scheme must be light or dark`)
+  }
+  else if (kind === 'drawing') {
+    finite(object.width, `${label}.width`, Number.MIN_VALUE)
+    finite(object.height, `${label}.height`, Number.MIN_VALUE)
+    if (object.background !== null && object.background !== 'paper') throw new HttpError(400, `${label}.background must be paper or null`)
+    if (!Array.isArray(object.strokes) || object.strokes.length > 10000) throw new HttpError(400, `${label}.strokes must contain at most 10000 strokes`)
+    let points = 0
+    for (const [index, value] of object.strokes.entries()) {
+      const name = `${label}.strokes[${index}]`, stroke = record(value, name)
+      text(stroke.color, `${name}.color`, 128, true)
+      finite(stroke.width, `${name}.width`, Number.MIN_VALUE)
+      if (!Array.isArray(stroke.points) || !stroke.points.length || (points += stroke.points.length) > 100000) throw new HttpError(400, `${label} must contain at most 100000 points, with at least one per stroke`)
+      for (const point of stroke.points) {
+        if (!Array.isArray(point) || point.length !== 2) throw new HttpError(400, `${name}.points must contain coordinate pairs`)
+        finite(point[0], `${name}.point.x`); finite(point[1], `${name}.point.y`)
+      }
+    }
+    if (!Array.isArray(object.labels) || object.labels.length > 1000) throw new HttpError(400, `${label}.labels must contain at most 1000 labels`)
+    for (const [index, value] of object.labels.entries()) {
+      const name = `${label}.labels[${index}]`, item = record(value, name)
+      finite(item.x, `${name}.x`); finite(item.y, `${name}.y`)
+      finite(item.size, `${name}.size`, Number.MIN_VALUE)
+      text(item.color, `${name}.color`, 128, true)
+      text(item.text, `${name}.text`, 4096)
+    }
   }
   else if (kind === 'rectangle' || kind === 'ellipse') { finite(object.height, `${label}.height`, Number.MIN_VALUE); for (const key of ['fill', 'stroke']) if (object[key] !== null) text(object[key], `${label}.${key}`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); if (typeof object.dashed !== 'boolean' || typeof object.rounded !== 'boolean') throw new HttpError(400, 'invalid shape settings') }
   else if (kind === 'line') { lineEnd(object.start, `${label}.start`); lineEnd(object.end, `${label}.end`); if (object.stroke !== null) text(object.stroke, `${label}.stroke`, 128); finite(object.strokeWidth, `${label}.strokeWidth`, Number.MIN_VALUE); finite(object.bend, `${label}.bend`); if (!['straight', 'elbow'].includes(object.route) || typeof object.dashed !== 'boolean' || typeof object.arrowStart !== 'boolean' || typeof object.arrowEnd !== 'boolean') throw new HttpError(400, 'invalid line settings') }
@@ -257,6 +283,7 @@ function segmentPaletteReferences(node, result = new Set()) {
 }
 
 function segmentObjectPaletteReferences(object, result = new Set()) {
+  if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) segmentPaletteReferences(object.content, result)
   for (const key of ['fill', 'stroke', 'background', 'borderColor']) {
     const value = object[key]
@@ -540,7 +567,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
   if (selectedTarget.kind === 'object') {
     if (!candidate.object || candidate.object.id !== selectedTarget.objectId) throw new HttpError(400, 'candidate.object must retain target id')
     const original = document.floating.find(item => item.id === selectedTarget.objectId)
-    if (!selectedTarget.isNew && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new HttpError(400, 'candidate.object must retain target kind')
+    if (!selectedTarget.isNew && original.kind !== 'drawing' && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new HttpError(400, 'candidate.object must retain target kind')
     const hasScreenshotPath = candidate.screenshotPath !== undefined
     const candidateObject = hasScreenshotPath && (candidate.object.kind ?? 'text') === 'html' ? { ...candidate.object } : candidate.object
     if (hasScreenshotPath) delete candidateObject.screenshot

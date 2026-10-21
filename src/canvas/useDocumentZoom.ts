@@ -78,6 +78,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   })
   const key = useEffectEvent((event: KeyboardEvent) => {
     if (isComposingKey(event)) return
+    if ((event.target as Element).closest('.drawing-editor')) return
     if (!(event.ctrlKey || event.metaKey) || !['+', '=', '-', '0'].includes(event.key)) return
     event.preventDefault()
     if (event.key === '0') reset()

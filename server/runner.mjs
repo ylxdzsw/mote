@@ -110,6 +110,10 @@ export async function fakeRunner(context) {
       candidate.object.html = '<button id="mote-fake-button" type="button">AI draft: 0</button><script>document.querySelector("button").addEventListener("click", event => { event.currentTarget.textContent = `AI draft: ${Number(event.currentTarget.textContent.split(\": \")[1] || 0) + 1}` })</script>'
     } else if (candidate.object?.kind === 'code') {
       candidate.object.source = `AI draft\n${candidate.object.source}`
+    } else if (candidate.object?.kind === 'drawing') {
+      const { id, anchorId, x, y, width, height, textFlow } = candidate.object
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 480 320"><rect x="40" y="100" width="140" height="100" rx="12" fill="#e8eef7" stroke="#425f87" stroke-width="2"/><path d="M180 150h100m-12-8 12 8-12 8" fill="none" stroke="#425f87" stroke-width="2"/><rect x="280" y="100" width="160" height="100" rx="12" fill="#f6edde" stroke="#875a35" stroke-width="2"/><text x="110" y="156" text-anchor="middle" font-family="sans-serif" font-size="18">Sketch</text><text x="360" y="156" text-anchor="middle" font-family="sans-serif" font-size="18">AI figure</text></svg>`
+      candidate.object = { id, anchorId, x, y, width, textFlow, kind: 'image', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'Fake sketch-to-figure candidate' }
     } else if ((candidate.object?.kind ?? 'text') === 'text' && candidate.object.content?.content?.[0]) {
       const first = candidate.object.content.content[0]
       candidate.object.content = { ...candidate.object.content, content: [{ ...first, content: [{ type: 'text', text: `AI draft: ${textOf(first) || 'generated note'}` }] }, ...candidate.object.content.content.slice(1)] }

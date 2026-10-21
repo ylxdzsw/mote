@@ -269,6 +269,7 @@ function paletteReferences(content: JSONContent, result = new Set<string>()) {
 }
 
 export function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
+  if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) paletteReferences(object.content, result)
   for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
     const value = (object as unknown as Record<string, unknown>)[key]
@@ -350,6 +351,18 @@ export function remapPaletteContent(node: JSONContent, remap: Map<string, string
     ...(node.marks && { marks: node.marks.map(mark => mark.type === 'color' && typeof mark.attrs?.color === 'string'
       ? { ...mark, attrs: { ...mark.attrs, color: remap.get(mark.attrs.color.split(':')[0]) ? `${remap.get(mark.attrs.color.split(':')[0])}${mark.attrs.color.endsWith(':soft') ? ':soft' : ''}` : mark.attrs?.color } } : mark) }),
     ...(node.content && { content: node.content.map(child => remapPaletteContent(child, remap)) }),
+  }
+}
+
+export function remapObjectPalette(object: FloatingObject, remap: Map<string, string>) {
+  const reference = (value: string) => `${remap.get(value.split(':')[0]) ?? value.split(':')[0]}${value.endsWith(':soft') ? ':soft' : ''}`
+  for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
+    const record = object as unknown as Record<string, unknown>, value = record[key]
+    if (typeof value === 'string') record[key] = reference(value)
+  }
+  if (object.kind === 'drawing') {
+    object.strokes = object.strokes.map(stroke => ({ ...stroke, color: reference(stroke.color) }))
+    object.labels = object.labels.map(label => ({ ...label, color: reference(label.color) }))
   }
 }
 
@@ -716,13 +729,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
         }
       }
       if ('content' in next) next.content = remapPaletteContent(freshNode(next.content, used), paletteMap)
-      for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
-        const value = (next as unknown as Record<string, unknown>)[key]
-        if (typeof value === 'string') {
-          const mapped = paletteMap.get(value.split(':')[0])
-          if (mapped) (next as unknown as Record<string, unknown>)[key] = `${mapped}${value.endsWith(':soft') ? ':soft' : ''}`
-        }
-      }
+      remapObjectPalette(next, paletteMap)
       retained.push(next)
     }
   }

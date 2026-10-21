@@ -3,6 +3,7 @@ import { replaceMainContent } from '../document/model'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import type { ViewSettings } from '../app/GlobalSettings'
 import { DocumentCanvas, type CanvasActions } from './DocumentCanvas'
+import { patchFloating } from './patchFloating'
 
 const noop = () => {}
 
@@ -20,6 +21,6 @@ export function ReadDocument({ initial, zoomHost = null, minimap = false, minima
     minimap={minimap} minimapSize={minimapSize} selectedIds={[]} tool={null} staticWidgets={staticWidgets} initialScale={initialScale}
     onSelect={noop} onToolChange={noop} onActions={onActions} onActive={noop} onMainReady={onReady}
     onMainChange={(content, merges) => setDoc(current => current && replaceMainContent(current, content, merges))}
-    onNoteChange={(id, patch) => setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? { ...object, ...patch } : object) }))}
+    onNoteChange={(id, patch) => setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? patchFloating(object, patch) : object) }))}
     onFloatingChange={floating => setDoc(current => current && ({ ...current, floating }))} /></HistoryContext>
 }

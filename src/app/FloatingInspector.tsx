@@ -32,24 +32,29 @@ interface Props {
   onWidgetRun: (id: string) => void
   onReplaceScreenshot: (object: FloatingHTMLWidget) => void
   onReplaceImage: () => void
+  onDrawingEdit: () => void
   onRevise?: () => void
   reviseDisabled?: boolean
 }
 
-const kindName = (object: FloatingObject) => object.kind === 'code' ? 'Code' : object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
+const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'rectangle' ? 'Rectangle' : object.kind === 'ellipse' ? 'Ellipse' : object.kind === 'line' ? 'Line' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, caption, attachmentTargets, onCaption, onAttach, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, caption, attachmentTargets, onCaption, onAttach, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const shape = object.kind === 'rectangle' || object.kind === 'ellipse' ? object as FloatingShape : null
   const line = object.kind === 'line' ? object as FloatingLine : null
   const attached = isText(object) ? object.attachment : null
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
-  const hasFlow = text || ['image', 'table', 'katex', 'html', 'code'].includes(object.kind!)
+  const hasFlow = text || ['image', 'table', 'katex', 'html', 'code', 'drawing'].includes(object.kind!)
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
     <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : text ? 'Native rich text' : object.kind === 'code' ? 'Plain source' : 'Floating object'} />
     {count === 1 && <>
+      {object.kind === 'drawing' && <InspectorGroup title="Content">
+        <button onClick={onDrawingEdit}>Edit drawing…</button>
+        <p className="hint">Sketch freely, then ask Assistant to turn it into a figure.</p>
+      </InspectorGroup>}
       {object.kind === 'code' && <InspectorGroup title="Content">
         <label className="inspector-field">Language<select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
           {!codeLanguages.some(language => language.value === object.language) && <option value={object.language}>{object.language || 'Plain text'}</option>}
@@ -89,6 +94,10 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       </InspectorGroup>}
       {katex && <KaTeXControls value={katex} onChange={onChange} onTheme={onTheme} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {hasFlow && <InspectorGroup title="Layout">
+        {object.kind === 'drawing' && <InspectorRow>
+          <InspectorField label="Width"><NumberField label="Drawing width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
+          <InspectorField label="Height"><NumberField label="Drawing height" value={object.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
+        </InspectorRow>}
         {object.kind === 'code' && <InspectorField label="Width"><NumberField label="Code width" value={object.width} min={120} max={Math.max(120, maxWidth)} onChange={width => onChange({ width })} /></InspectorField>}
         {widget && <InspectorRow>
           <InspectorField label="Width"><NumberField label="Widget width" value={widget.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
@@ -247,6 +256,7 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
   if (count > 1) return <p>Drag any selected object to move the group. Select one object alone to edit its contents. Shift-click adds or removes objects from the selection.</p>
   if (isText(object) && object.attachment) return <p>Select the caption, then click its text to edit. Its width and position follow its object; use Attachment to switch above/below or detach.</p>
   switch (object.kind) {
+    case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; use the right border to resize proportionally or corners to change the bounds. Pen widths stay in document pixels. Revise with AI can turn the sketch into a figure.</p></>
     case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. The selected light or dark syntax scheme supplies its own colors independently of the document palette.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click to select or create a caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>

@@ -43,7 +43,8 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = t
     if (target.kind === 'object') {
       const original = doc.floating.find(object => object.id === target.objectId)
       if (!original || !candidate.object || candidate.content || candidate.segment) throw new Error('The candidate must deliver exactly one floating object.')
-      if (!target.isNew && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new Error('A revision must retain the object kind.')
+      if (candidate.object.id !== target.objectId) throw new Error('A revision must retain the target object ID.')
+      if (!target.isNew && original.kind !== 'drawing' && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new Error('A revision must retain the object kind.')
       result = { ...doc, floating: doc.floating.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
     } else if (target.kind === 'text') {
       if (!candidate.content?.length || candidate.object || candidate.segment || candidate.content.some(node => node.type !== 'paragraph')) throw new Error('The candidate must deliver paragraphs.')

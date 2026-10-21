@@ -114,6 +114,29 @@ test('visual extraction accepts only embedded native image fields and writes fix
   await assert.rejects(fsStat(path.join(root, 'outside.png')))
 })
 
+test('drawing extraction generates bounded inert SVG with escaped labels and palette colors', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'mote-drawing-visuals-test-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const source = document('drawing-doc')
+  source.floating.push({ kind: 'drawing', width: 200, height: 100, background: 'paper',
+    strokes: [{ points: [[1, 2], [3, 4], [5, 6]], color: 'primary', width: 2.5 }],
+    labels: [{ x: 5, y: 6, text: '<script>alert("x")</script>\nA & B', color: 'ink', size: 16 }] })
+  source.floating.push({ ...source.floating[0], labels: [{ ...source.floating[0].labels[0], color: 'url(https://example.invalid)' }] })
+  const input = path.join(root, 'document.json')
+  await writeFile(input, JSON.stringify(source))
+  const result = await extractNativeVisuals(input, path.join(root, 'output'))
+  assert.equal(result.paths.length, 1)
+  assert.equal(result.skipped, 1)
+  assert.equal(path.basename(result.paths[0]), 'visual-001.svg')
+  const svg = await readFile(result.paths[0], 'utf8')
+  assert.match(svg, /viewBox="0 0 200 100"/)
+  assert.match(svg, /fill="#fffefa"/)
+  assert.match(svg, /d="M1 2Q3 4 4 5L5 6"/)
+  assert.match(svg, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/)
+  assert.match(svg, /A &amp; B/)
+  assert.doesNotMatch(svg, /<script|https:\/\/example|onload=/)
+})
+
 test('workspace index and historical reads enforce current source privacy, including Private own document', async t => {
   const { store } = await fixture(t)
   const own = await addDocument(store, 'Own private doc', 'owner-only content', true)

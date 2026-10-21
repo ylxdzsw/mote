@@ -32,6 +32,7 @@ export function paletteEntryUsed(doc: MoteDocument, id: string): boolean {
   return uses(doc.theme.defaults.color) || uses(doc.theme.defaults.background)
     || Object.values(doc.theme.blocks).some(style => uses(style.color)) || content(doc.content)
     || doc.floating.some(object => ('content' in object && content(object.content))
+      || (object.kind === 'drawing' && [...object.strokes, ...object.labels].some(item => uses(item.color)))
       || (['fill', 'stroke', 'background', 'borderColor'] as const).some(key => key in object && uses((object as unknown as Record<string, string | null>)[key])))
 }
 
@@ -47,6 +48,7 @@ export function replacePaletteEntry(doc: MoteDocument, id: string, replacement: 
     defaults: { ...doc.theme.defaults, color: replace(doc.theme.defaults.color)!, background: replace(doc.theme.defaults.background)! },
     blocks: Object.fromEntries(Object.entries(doc.theme.blocks).map(([name, style]) => [name, { ...style, ...(style.color && { color: replace(style.color) }) }])) as Theme['blocks'],
   }, content: content(doc.content), floating: doc.floating.map(object => ({ ...object,
+    ...(object.kind === 'drawing' && { strokes: object.strokes.map(stroke => ({ ...stroke, color: replace(stroke.color)! })), labels: object.labels.map(label => ({ ...label, color: replace(label.color)! })) }),
     ...('content' in object && { content: content(object.content) }),
     ...('fill' in object && { fill: replace(object.fill) }),
     ...('stroke' in object && { stroke: replace(object.stroke) }),
@@ -97,6 +99,7 @@ export function validatePaletteReferences(doc: MoteDocument) {
   }
   content(doc.content)
   for (const object of doc.floating) {
+    if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) reference(item.color)
     if ('content' in object) content(object.content)
     for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
       if (key in object) {

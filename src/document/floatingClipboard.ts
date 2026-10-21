@@ -2,7 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import { defaultTheme, isText, paragraph, type FloatingObject, type LineEnd, type MoteDocument, type PaletteEntry } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
-import { collectNodeIds, freshNode, mergePalette, objectPaletteReferences, remapPaletteContent, validateGeometry } from './segment'
+import { collectNodeIds, freshNode, mergePalette, objectPaletteReferences, remapObjectPalette, remapPaletteContent, validateGeometry } from './segment'
 import { neutralIds } from '../theme/palette'
 import { anchorPoint, type Anchor, type Geometries, type Point } from '../canvas/floatingGeometry'
 
@@ -82,10 +82,7 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
       object.start = endpoint(object.start); object.end = endpoint(object.end)
     } else if (isText(object) && object.attachment) object.attachment.targetId = mapping.get(object.attachment.targetId)!
     if ('content' in object) object.content = remapPaletteContent(freshNode(object.content, used), remap)
-    for (const key of ['fill', 'stroke', 'background', 'borderColor'] as const) {
-      const record = object as unknown as Record<string, unknown>, value = record[key]
-      if (typeof value === 'string' && remap.has(value.split(':')[0])) record[key] = `${remap.get(value.split(':')[0])}${value.endsWith(':soft') ? ':soft' : ''}`
-    }
+    remapObjectPalette(object, remap)
     return object
   })
   return { floating, palette }
@@ -93,7 +90,7 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
 
 export function floatingText(payload: FloatingClipboard) {
   const text = (node: JSONContent): string => node.text ?? (node.type === 'hardBreak' ? '\n' : node.content?.map(text).join(node.type === 'tableRow' ? '\t' : node.type === 'doc' || node.type === 'table' ? '\n' : '') ?? '')
-  return payload.floating.map(object => 'content' in object ? text(object.content) : object.kind === 'code' ? object.source : object.kind === 'katex' ? object.latex : object.kind === 'image' ? object.alt : `[${object.kind}]`).join('\n')
+  return payload.floating.map(object => 'content' in object ? text(object.content) : object.kind === 'drawing' ? object.labels.map(label => label.text).join('\n') || '[drawing]' : object.kind === 'code' ? object.source : object.kind === 'katex' ? object.latex : object.kind === 'image' ? object.alt : `[${object.kind}]`).join('\n')
 }
 
 export function floatingClipboardJSON(data: DataTransfer) {

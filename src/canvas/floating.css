@@ -1,4 +1,9 @@
 .sheet { isolation: isolate; }
+.floating-note.floating-drawing { border: 0; border-radius: 0; }
+.floating-drawing > svg { display: block; width: 100%; height: 100%; pointer-events: none; }
+.sheet.is-editing .floating-drawing { outline: 1px dashed var(--ui-border); }
+.sheet.is-editing .floating-drawing.is-selected { outline: 1px solid var(--ui-accent-border); }
+.floating-drawing .drawing-edit-button { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 38px; height: 38px; padding: 0; margin: 0; border: 1px solid var(--ui-border); border-radius: 50%; color: var(--ui-ink); background: var(--ui-surface-raised); box-shadow: 0 2px 8px var(--ui-shadow); cursor: pointer; }
 .sheet.show-floating-grid, .sheet.is-editing:has(.table-column-divider.is-dragging) { background-image: radial-gradient(circle, color-mix(in srgb, var(--ui-grid) 40%, transparent) .8px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; background-origin: padding-box; }
 .sheet.has-creation-tool { cursor: crosshair; }
 .sheet.has-creation-tool .main-text { cursor: crosshair; }
