@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument, PaletteEntry } from './model'
-import { defaultTheme, supportsCaption } from './model'
+import { defaultTheme, isText, supportsCaption } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { neutralIds, primaryVariables } from '../theme/palette'
@@ -208,6 +208,7 @@ function paletteReferences(content: JSONContent, result = new Set<string>()) {
 }
 
 export function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
+  if (isText(object) && object.decoration) result.add(object.decoration.color)
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) paletteReferences(object.content, result)
   if (supportsCaption(object) && object.caption) paletteReferences(object.caption, result)
@@ -296,6 +297,7 @@ export function remapPaletteContent(node: JSONContent, remap: Map<string, string
 
 export function remapObjectPalette(object: FloatingObject, remap: Map<string, string>) {
   const reference = (value: string) => `${remap.get(value.split(':')[0]) ?? value.split(':')[0]}${value.endsWith(':soft') ? ':soft' : ''}`
+  if (isText(object) && object.decoration) object.decoration = { ...object.decoration, color: reference(object.decoration.color) }
   for (const key of ['background', 'borderColor'] as const) {
     const record = object as unknown as Record<string, unknown>, value = record[key]
     if (typeof value === 'string') record[key] = reference(value)

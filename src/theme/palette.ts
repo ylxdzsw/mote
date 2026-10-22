@@ -1,4 +1,4 @@
-import { supportsCaption, type MoteDocument, type Theme } from '../document/model'
+import { boxDecorations, isText, supportsCaption, type BoxDecoration, type MoteDocument, type Theme } from '../document/model'
 import type { JSONContent } from '@tiptap/core'
 import { primaryEntry } from './colors'
 
@@ -26,12 +26,22 @@ export function softReference(theme: Theme, reference: string) {
   return paletteEntries(theme).find(entry => entry.id === id)?.soft ? `${id}:soft` : 'primary:soft'
 }
 
+export function boxDecorationPalette(theme: Theme, kind: BoxDecoration['kind']) {
+  const existing = theme.palette.find(entry => entry.id === kind)
+  if (existing) return { palette: theme.palette, color: existing.id }
+  const names = new Set([...primaryVariables, ...theme.palette.flatMap(entry => [entry.id, `${entry.id}-soft`, `${entry.id}-surface`])])
+  let id: string = kind
+  while ([id, `${id}-soft`, `${id}-surface`].some(name => names.has(name))) id = `${kind}-${crypto.randomUUID()}`
+  return { palette: [...theme.palette, { ...boxDecorations[kind], id }], color: id }
+}
+
 export function paletteEntryUsed(doc: MoteDocument, id: string): boolean {
   const uses = (value: string | null | undefined) => value?.split(':')[0] === id
   const content = (node: JSONContent): boolean => !!(node.marks?.some(mark => mark.type === 'color' && uses(mark.attrs?.color)) || node.content?.some(content))
   return uses(doc.theme.defaults.color) || uses(doc.theme.defaults.background)
     || Object.values(doc.theme.blocks).some(style => uses(style.color)) || content(doc.content)
     || doc.floating.some(object => ('content' in object && content(object.content))
+      || (isText(object) && uses(object.decoration?.color))
       || (supportsCaption(object) && !!object.caption && content(object.caption))
       || (object.kind === 'drawing' && [...object.strokes, ...object.labels].some(item => uses(item.color)))
       || (['background', 'borderColor'] as const).some(key => key in object && uses((object as unknown as Record<string, string | null>)[key])))
@@ -49,6 +59,7 @@ export function replacePaletteEntry(doc: MoteDocument, id: string, replacement: 
     defaults: { ...doc.theme.defaults, color: replace(doc.theme.defaults.color)!, background: replace(doc.theme.defaults.background)! },
     blocks: Object.fromEntries(Object.entries(doc.theme.blocks).map(([name, style]) => [name, { ...style, ...(style.color && { color: replace(style.color) }) }])) as Theme['blocks'],
   }, content: content(doc.content), floating: doc.floating.map(object => ({ ...object,
+    ...(isText(object) && object.decoration && { decoration: { ...object.decoration, color: replace(object.decoration.color)! } }),
     ...(object.kind === 'drawing' && { strokes: object.strokes.map(stroke => ({ ...stroke, color: replace(stroke.color)! })), labels: object.labels.map(label => ({ ...label, color: replace(label.color)! })) }),
     ...('content' in object && { content: content(object.content) }),
     ...('background' in object && { background: replace(object.background) }),
@@ -99,6 +110,7 @@ export function validatePaletteReferences(doc: MoteDocument) {
   }
   content(doc.content)
   for (const object of doc.floating) {
+    if (isText(object) && object.decoration) reference(object.decoration.color)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) reference(item.color)
     if ('content' in object) content(object.content)
     if (supportsCaption(object) && object.caption) content(object.caption)

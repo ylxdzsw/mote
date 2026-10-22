@@ -1,6 +1,7 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
+import { validateDocument as validateServerDocument } from '../server/validation.mjs'
 
 // Vite loads the model's embedded example assets and the actual editor schema.
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
@@ -61,6 +62,38 @@ test('captions use one id-only paragraph and participate in palette replacement'
   const replaced = replacePaletteEntry(source, 'detail', 'muted')
   assert.equal(replaced.floating[0].caption.content[0].content[0].marks[0].attrs.color, 'muted')
   initializeDocument(replaced)
+})
+
+test('text-box decorations validate and retain their palette through replacement and clipboard', () => {
+  const source = doc()
+  source.floating[0].src = 'data:image/png;base64,iVBORw0KGgo='
+  const note = { id: 'note', kind: 'text', placement: 'float', anchorId: 'before', x: 0, y: 0, width: 200,
+    content: { type: 'doc', content: [p('note-text')] }, background: 'paper', borderColor: 'term', decoration: { kind: 'info', color: 'info' } }
+  source.floating.push(note)
+  for (const validate of [value => { validateDocument(value); initializeDocument(value) }, validateServerDocument]) {
+    validate(source)
+    for (const decoration of [{ kind: 'unknown', color: 'info' }, { kind: 'info', color: 'missing' }, 'info']) {
+      const invalid = structuredClone(source); invalid.floating.at(-1).decoration = decoration
+      assert.throws(() => validate(invalid))
+    }
+    const invalid = structuredClone(source); invalid.floating[0].decoration = note.decoration
+    assert.throws(() => validate(invalid))
+  }
+  assert.equal(paletteEntryUsed(source, 'info'), true)
+  const replaced = replacePaletteEntry(source, 'info', 'detail')
+  assert.deepEqual(replaced.floating.at(-1).decoration, { kind: 'info', color: 'detail' })
+  initializeDocument(replaced); validateServerDocument(replaced)
+  const payload = parseFloating(JSON.stringify(copyFloating(source, new Set(['note']), { note: { x: 0, y: 20, width: 200, height: 50 } })))
+  assert.ok(payload.palette.some(entry => entry.id === 'info'))
+  const destination = doc()
+  destination.floating[0].src = source.floating[0].src
+  destination.theme.palette.find(entry => entry.id === 'info').strong = '#112233'
+  const pasted = pasteFloating(destination, payload, anchors)
+  const copied = pasted.floating.at(-1)
+  assert.notEqual(copied.decoration.color, 'info')
+  assert.equal(pasted.theme.palette.find(entry => entry.id === copied.decoration.color).strong, source.theme.palette.find(entry => entry.id === 'info').strong)
+  assert.equal(copied.background, 'paper'); assert.equal(copied.borderColor, 'term')
+  initializeDocument(pasted); validateServerDocument(pasted)
 })
 
 test('structural insertion and conversion preserve bindings and measured annotation geometry', () => {

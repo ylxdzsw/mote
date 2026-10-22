@@ -33,6 +33,12 @@ export interface PaletteEntry {
   soft?: string
 }
 
+export const boxDecorations = {
+  info: { id: 'info', name: 'Info', strong: '#2874b8', soft: '#eaf3fc' },
+  warning: { id: 'warning', name: 'Warning', strong: '#c99716', soft: '#fff5cc' },
+} satisfies Record<string, PaletteEntry>
+export type BoxDecoration = { kind: keyof typeof boxDecorations; color: string }
+
 export interface Theme {
   hue: number
   autospace?: boolean
@@ -61,6 +67,7 @@ export const defaultTheme: Theme = {
     { id: 'detail', name: 'Detail', strong: '#425f87', soft: '#e8eef7' },
     { id: 'term', name: 'Term', strong: '#875a35', soft: '#f6edde' },
     { id: 'caution', name: 'Caution', strong: '#984b38', soft: '#fae9e1' },
+    ...Object.values(boxDecorations),
   ],
 }
 
@@ -77,6 +84,7 @@ interface FloatingGeometry {
 export interface FloatingText extends FloatingGeometry {
   kind?: 'text'
   content: JSONContent
+  decoration?: BoxDecoration | null
   padding?: ThemeLength
   background?: string | null
   borderColor?: string | null
@@ -134,7 +142,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string; scheme?: 'light' | 'dark'
   strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
-  background?: string | null; borderColor?: string | null; padding?: ThemeLength
+  background?: string | null; borderColor?: string | null; padding?: ThemeLength; decoration?: BoxDecoration | null
 }
 
 export function captionContent(text = ''): JSONContent {

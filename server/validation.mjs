@@ -170,6 +170,7 @@ function palette(document) {
   }
   visit(document.content)
   for (const object of document.floating) {
+    if (object.decoration) ref(object.decoration.color, 'decoration color')
     if (object.content) visit(object.content)
     if (object.caption) visit(object.caption)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
@@ -208,6 +209,14 @@ export function validateFloating(value, label = 'floating object', options = {})
   if (object.centered !== undefined && typeof object.centered !== 'boolean') throw new HttpError(400, 'centered must be a boolean')
   if (object.placement === 'flow' && (object.anchorId === null || object.y !== 0)) throw new HttpError(400, 'Flow objects require their block anchor and y=0')
   const kind = object.kind ?? 'text'
+  if ('decoration' in object) {
+    if (kind !== 'text') throw new HttpError(400, `${label}.decoration is only supported on text boxes`)
+    if (object.decoration !== null) {
+      const decoration = record(object.decoration, `${label}.decoration`)
+      if (!['info', 'warning'].includes(decoration.kind)) throw new HttpError(400, `${label}.decoration.kind is unsupported`)
+      text(decoration.color, `${label}.decoration.color`, 128, true)
+    }
+  }
   if ('caption' in object) {
     if (!['image', 'html', 'table'].includes(kind)) throw new HttpError(400, `${label}.caption is only supported on image, html, and table objects`)
     validateCaption(object.caption, `${label}.caption`)
@@ -336,6 +345,7 @@ function segmentPaletteReferences(node, result = new Set()) {
 }
 
 function segmentObjectPaletteReferences(object, result = new Set()) {
+  if (object.decoration) result.add(object.decoration.color)
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) segmentPaletteReferences(object.content, result)
   if ('caption' in object) segmentPaletteReferences(object.caption, result)

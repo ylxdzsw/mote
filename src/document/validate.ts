@@ -215,6 +215,14 @@ function checkFloating(value: unknown, index: number, ids: Set<string>, captionI
   if ('centered' in object && typeof object.centered !== 'boolean') invalid(`${path}.centered must be a boolean`)
 
   const kind = object.kind
+  if ('decoration' in object) {
+    if (kind !== undefined && kind !== 'text') invalid(`${path}.decoration is only supported on text boxes`)
+    if (object.decoration !== null) {
+      const decoration = record(object.decoration, `${path}.decoration`)
+      if (!['info', 'warning'].includes(decoration.kind as string)) invalid(`${path}.decoration.kind is unsupported`)
+      text(decoration.color, `${path}.decoration.color`)
+    }
+  }
   if (kind === undefined || kind === 'text') {
     for (const property of ['background', 'borderColor']) if (property in object) color(object[property], `${path}.${property}`)
     if ('padding' in object) {

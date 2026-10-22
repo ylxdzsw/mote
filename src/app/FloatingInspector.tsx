@@ -1,9 +1,10 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { isText, supportsCaption, type FloatingObject, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
+import { boxDecorations, isText, supportsCaption, type BoxDecoration, type FloatingObject, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
+import { paletteColor, softReference } from '../theme/palette'
 import { ContextHeading, InspectorField, InspectorGroup, InspectorHelp, InspectorRow, TypographyPreview } from './Inspector'
 import { PanelIcon } from './PanelIcon'
 import { codeLanguages } from '../document/code'
@@ -14,6 +15,7 @@ interface Props {
   theme: Theme
   defaultFontSize: number
   onChange: (patch: FloatingPatch) => void
+  onDecoration: (kind: BoxDecoration['kind'] | null) => void
   onPlacement: (placement: 'flow' | 'float') => void
   onAction: (action: 'remove' | 'duplicate') => void
   onCaption: () => void
@@ -36,11 +38,12 @@ interface Props {
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onDecoration, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
   const placementId = useId()
+  const decorationId = useId()
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
     <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : object.placement === 'flow' ? 'Flow object' : 'Float object'} />
@@ -82,12 +85,26 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       </InspectorGroup>}
       {object.kind === 'table' && tableControls}
       {text && <InspectorGroup title="Appearance">
-        {(['background', 'borderColor'] as const).map(property => {
+        <InspectorField label="Decoration">
+          <div className="placement-options decoration-options" role="radiogroup" aria-label="Text box decoration">
+            {(['none', 'info', 'warning'] as const).map(kind => {
+              const preset = kind === 'none' ? null : boxDecorations[kind]
+              const color = object.decoration?.kind === kind ? object.decoration.color : theme.palette.find(entry => entry.id === kind)?.id
+              return <label key={kind}>
+                <input type="radio" name={decorationId} value={kind} checked={(object.decoration?.kind ?? 'none') === kind}
+                  onChange={() => onDecoration(kind === 'none' ? null : kind)} />
+                <span>{preset && <i aria-hidden="true" style={{ borderLeftColor: color ? paletteColor(theme, color) : preset.strong,
+                  background: color ? paletteColor(theme, softReference(theme, color)) : preset.soft }} />}{preset?.name ?? 'None'}</span>
+              </label>
+            })}
+          </div>
+        </InspectorField>
+        {!object.decoration && (['background', 'borderColor'] as const).map(property => {
           const name = property === 'background' ? 'Background color' : 'Border color'
           return <InspectorField label={name} key={property}><PaletteControl theme={theme} label={name} value={object[property] ?? null} optional="none"
             onFocus={() => onHistoryBegin(`floating-${property}`)} onBlur={onHistoryEnd} onChange={value => onChange({ [property]: value })} /></InspectorField>
         })}
-        <TextPadding value={object.padding ?? 0} base={defaultFontSize} onChange={padding => onChange({ padding })} />
+        <TextPadding value={object.padding ?? (object.decoration ? '0.75em' : 0)} base={defaultFontSize} onChange={padding => onChange({ padding })} />
       </InspectorGroup>}
       {supportsCaption(object) && <InspectorGroup title="Caption">
         {object.caption ? <InspectorRow>

@@ -1,6 +1,6 @@
 import { useRef, type PointerEvent } from 'react'
 import type { Editor } from '@tiptap/core'
-import { supportsCaption, type FloatingObject, type FloatingPatch } from '../document/model'
+import { isText, supportsCaption, type FloatingObject, type FloatingPatch } from '../document/model'
 import { TextEditor } from '../editor/TextEditor'
 import { type Geometry } from './floatingGeometry'
 import { MathView } from './MathView'
@@ -30,7 +30,13 @@ interface Props {
 export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview, inFlow = false }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
-  const textStyle = !note.kind || note.kind === 'text' ? { padding: pixels(note.padding ?? 0, defaultFontSize), backgroundColor: note.background ? paletteCSS(note.background) : 'transparent', borderColor: note.borderColor ? paletteCSS(note.borderColor) : 'transparent' } : {}
+  const decoration = isText(note) ? note.decoration : null
+  const textStyle = isText(note) ? {
+    padding: pixels(note.padding ?? (decoration ? '0.75em' : 0), defaultFontSize),
+    backgroundColor: decoration ? `var(--palette-${decoration.color.split(':')[0]}-soft, var(--palette-primary-soft))` : note.background ? paletteCSS(note.background) : 'transparent',
+    borderColor: decoration ? 'transparent' : note.borderColor ? paletteCSS(note.borderColor) : 'transparent',
+    ...(decoration && { borderWidth: '0 0 0 4px', borderLeftColor: paletteCSS(decoration.color) }),
+  } : {}
   function begin(part: DragPart, event: PointerEvent) { if (editable && event.button === 0) onBegin(part, event) }
   const caption = supportsCaption(note) ? note.caption : undefined
   const captionVisible = caption && (editable && selected || caption.content?.[0]?.content?.some(node => node.text?.replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, '')))
@@ -55,7 +61,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       onChange={caption => onChange({ caption })} onActive={onActive} />
   </div>
   return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
-    data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-placement={note.placement} data-in-flow={inFlow ? '' : undefined}
+    data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-placement={note.placement} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
     style={{ ...textStyle, '--ai-object-x': `${box.x}px`, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
       width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.height : box.height) : undefined } as React.CSSProperties & { '--ai-object-x': string }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`} aria-describedby={captionVisible ? `${note.id}-caption` : undefined}
