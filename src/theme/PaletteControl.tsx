@@ -1,7 +1,7 @@
 import { useId, type CSSProperties } from 'react'
 import type { Theme } from '../document/model'
 import { useHistory } from '../document/history'
-import { paletteColor, paletteEntries, pageColor } from './palette'
+import { boxColorIds, paletteColor, paletteEntries, pageColor } from './palette'
 import './palette.css'
 
 export type PaletteControlOptional = 'none' | 'default'
@@ -13,17 +13,21 @@ export interface PaletteControlProps {
   optional?: PaletteControlOptional
   fallback?: string
   tones?: boolean
+  // Pick a Strong/Soft pair by family ID (Gray 4/Gray 5 as the single gray pair).
+  pairs?: boolean
   onFocus?: () => void
   onBlur?: () => void
 }
 
-export function PaletteControl({ theme, label, value, onChange, optional, fallback, tones = true, onFocus, onBlur }: PaletteControlProps) {
+export function PaletteControl({ theme, label, value, onChange, optional, fallback, tones = true, pairs = false, onFocus, onBlur }: PaletteControlProps) {
   const group = useId()
-  const entries = paletteEntries(theme)
-  const choice = (reference: string | null, name: string, color?: string) => <input type="radio" name={group}
-    id={`${group}-${reference ?? 'optional'}`} className={`palette-choice${color ? '' : ' is-empty'}`}
+  const entries = pairs
+    ? paletteEntries(theme).filter(entry => boxColorIds.includes(entry.id)).map(entry => entry.soft ? entry : { ...entry, name: 'Gray', soft: paletteColor(theme, 'gray5') })
+    : paletteEntries(theme)
+  const choice = (reference: string | null, name: string, color?: string, soft?: string) => <input type="radio" name={group}
+    id={`${group}-${reference ?? 'optional'}`} className={`palette-choice${color ? '' : ' is-empty'}${soft ? ' is-pair' : ''}`}
     aria-label={name} title={name} checked={value === reference} value={reference ?? ''}
-    style={{ '--swatch-color': color } as CSSProperties} onChange={() => onChange(reference)} />
+    style={{ '--swatch-color': color, '--swatch-soft': soft } as CSSProperties} onChange={() => onChange(reference)} />
   const optionalName = optional === 'none' ? 'None' : 'Inherit'
   return <div className="palette-control" role="radiogroup" aria-label={label}
     onFocus={event => { if (!event.currentTarget.contains(event.relatedTarget)) onFocus?.() }}
@@ -33,8 +37,10 @@ export function PaletteControl({ theme, label, value, onChange, optional, fallba
     </label>}
     {[entries.slice(0, 2), entries.slice(2, 8), entries.slice(8)].map((section, index) => <div key={index} className={`palette-group palette-group-${index}`}>
       {section.map(entry => <div className="palette-pair" key={entry.id}>
-        {choice(entry.id, entry.soft ? `${entry.name} · Strong` : entry.name, entry.strong)}
-        {tones && entry.soft && choice(`${entry.id}:soft`, `${entry.name} · Soft`, entry.soft)}
+        {pairs ? choice(entry.id, entry.name, entry.strong, entry.soft) : <>
+          {choice(entry.id, entry.soft ? `${entry.name} · Strong` : entry.name, entry.strong)}
+          {tones && entry.soft && choice(`${entry.id}:soft`, `${entry.name} · Soft`, entry.soft)}
+        </>}
       </div>)}
     </div>)}
   </div>

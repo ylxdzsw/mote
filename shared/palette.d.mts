@@ -9,3 +9,4 @@ export function oklchHex(lightness: number, chroma: number, hue: number): string
 export function validPaletteReference(value: unknown): boolean
 export function pageColor(theme: PaletteTheme): string
 export function paletteEntries(theme: PaletteTheme): PaletteEntry[]
+export const boxColorIds: string[]

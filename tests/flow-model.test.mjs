@@ -113,16 +113,20 @@ test('captions use one id-only paragraph and fixed color references', () => {
   initializeDocument(source)
 })
 
-test('text-box decorations keep fixed slots and destination theme on paste', () => {
+test('text-box decorations pick one color pair and keep the destination theme on paste', () => {
   const source = doc()
   source.floating[0].src = 'data:image/png;base64,iVBORw0KGgo='
   const note = { id: 'note', kind: 'text', placement: 'float', anchorId: 'before', x: 0, y: 0, width: 200,
-    content: { type: 'doc', content: [p('note-text')] }, background: 'gray6', borderColor: 'secondary', decoration: { kind: 'info', color: 'blue' } }
+    content: { type: 'doc', content: [p('note-text')] }, decoration: { kind: 'left', color: 'blue' } }
   source.floating.push(note)
   for (const validate of [value => { validateDocument(value); initializeDocument(value) }, validateServerDocument]) {
     validate(source)
-    for (const decoration of [{ kind: 'unknown', color: 'blue' }, { kind: 'info', color: 'missing' }, 'info']) {
+    for (const decoration of [{ kind: 'info', color: 'blue' }, { kind: 'box', color: 'blue:soft' }, { kind: 'box', color: 'gray6' }, 'box']) {
       const invalid = structuredClone(source); invalid.floating.at(-1).decoration = decoration
+      assert.throws(() => validate(invalid))
+    }
+    for (const key of ['background', 'borderColor']) {
+      const invalid = structuredClone(source); invalid.floating.at(-1)[key] = null
       assert.throws(() => validate(invalid))
     }
     const invalid = structuredClone(source); invalid.floating[0].decoration = note.decoration
@@ -137,7 +141,6 @@ test('text-box decorations keep fixed slots and destination theme on paste', () 
   const copied = pasted.floating.at(-1)
   assert.equal(pasted.theme, destination.theme)
   assert.deepEqual(copied.decoration, note.decoration)
-  assert.equal(copied.background, 'gray6'); assert.equal(copied.borderColor, 'secondary')
   initializeDocument(pasted); validateServerDocument(pasted)
 })
 

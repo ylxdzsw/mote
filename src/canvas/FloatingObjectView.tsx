@@ -35,9 +35,8 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
   const decoration = isText(note) ? note.decoration : null
   const textStyle = isText(note) ? {
     padding: pixels(note.padding ?? (decoration ? '0.75em' : 0), defaultFontSize),
-    backgroundColor: decoration ? `var(--palette-${decoration.color.split(':')[0]}-soft, var(--palette-primary-soft))` : note.background ? paletteCSS(note.background) : 'transparent',
-    borderColor: decoration ? 'transparent' : note.borderColor ? paletteCSS(note.borderColor) : 'transparent',
-    ...(decoration && { borderWidth: '0 0 0 4px', borderLeftColor: paletteCSS(decoration.color) }),
+    ...(decoration && { backgroundColor: `var(--palette-${decoration.color}-soft)`, borderColor: paletteCSS(decoration.color),
+      ...(decoration.kind === 'left' && { borderWidth: '0 0 0 4px' }) }),
   } : {}
   function begin(part: DragPart, event: PointerEvent, caption = false) { if (editable && event.button === 0) onBegin(part, event, caption) }
   const caption = supportsCaption(note) ? note.caption : undefined

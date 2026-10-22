@@ -57,7 +57,8 @@ The fixed color references are `primary`, `secondary`, `red`, `amber`, `green`,
 `blue`, `violet`, and `pink`, each also supporting `:soft`, plus the single-tone
 `gray1` through `gray6`. Every slot adapts to the document mode; Primary and
 Secondary also follow their theme hues. The page background follows the mode.
-Drawing `background` is `"gray6"` or `null`.
+Drawing `background` is `"gray6"` or `null`. Text-box `decoration.color` is a
+pair: a family ID or `gray4` (Gray 4 / Gray 5).
 
 Document validation rejects `theme.palette` and `theme.defaults.background`.
 Segment/clipboard payloads reject any `palette` field, including `[]`; fixed

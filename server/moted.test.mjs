@@ -1,3 +1,4 @@
+import { boxColorIds } from '../shared/palette.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, symlink, readdir } from 'node:fs/promises'
@@ -103,7 +104,7 @@ test('fixed palette slots validate across documents, text candidates, and segmen
     doc.theme.defaults.color = color
     doc.theme.blocks.math = { color }
     doc.content.content[0].content = paragraph(color).content
-    Object.assign(doc.floating[0], { background: color, borderColor: color, decoration: { kind: 'info', color } })
+    if (boxColorIds.includes(color)) doc.floating[0].decoration = { kind: 'box', color }
     assert.equal(validateDocument(doc), doc)
     assert.doesNotThrow(() => validateCandidate({ content: [paragraph(color)], summary: 'Color' }, doc, request('unused', doc).target))
     const segment = segmentPayload()

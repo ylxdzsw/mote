@@ -1,4 +1,4 @@
-import { validPaletteReference } from '../shared/palette.mjs'
+import { boxColorIds, validPaletteReference } from '../shared/palette.mjs'
 
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -158,7 +158,6 @@ function palette(document) {
     if (object.content) visit(object.content)
     if (object.caption) visit(object.caption.content)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
-    for (const key of ['background', 'borderColor']) if (object[key] != null) ref(object[key], `${key} color`)
   }
 }
 
@@ -201,8 +200,8 @@ export function validateFloating(value, label = 'floating object', options = {})
     if (kind !== 'text') throw new HttpError(400, `${label}.decoration is only supported on text boxes`)
     if (object.decoration !== null) {
       const decoration = record(object.decoration, `${label}.decoration`)
-      if (!['info', 'warning'].includes(decoration.kind)) throw new HttpError(400, `${label}.decoration.kind is unsupported`)
-      text(decoration.color, `${label}.decoration.color`, 128, true)
+      if (!['left', 'box'].includes(decoration.kind)) throw new HttpError(400, `${label}.decoration.kind is unsupported`)
+      if (!boxColorIds.includes(decoration.color)) throw new HttpError(400, `${label}.decoration.color must be a color pair`)
     }
   }
   if ('caption' in object) {
@@ -213,7 +212,7 @@ export function validateFloating(value, label = 'floating object', options = {})
   if ('style' in object && !['simple', 'academic', 'business'].includes(object.style)) throw new HttpError(400, `${label}.style must be simple, academic, or business`)
   if ('headerRow' in object && typeof object.headerRow !== 'boolean') throw new HttpError(400, `${label}.headerRow must be a boolean`)
   if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`)
-  if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object && object[key] !== null) text(object[key], `${label}.${key}`, 128) }
+  if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object) throw new HttpError(400, `${label}.${key} is unsupported`) }
   if (kind === 'image') { embeddedImage(object.src, `${label}.src`); text(object.alt, `${label}.alt`, 4096) }
   else if (kind === 'katex') text(object.latex, `${label}.latex`)
   else if (kind === 'html') { text(object.html, `${label}.html`); if (!(options.allowMissingScreenshot && object.screenshot === undefined)) embeddedImage(object.screenshot, `${label}.screenshot`); text(object.alt, `${label}.alt`, 4096); finite(object.height, `${label}.height`, Number.MIN_VALUE) }
@@ -320,10 +319,6 @@ function segmentObjectPaletteReferences(object, result = new Set()) {
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) segmentPaletteReferences(object.content, result)
   if ('caption' in object) segmentPaletteReferences(object.caption.content, result)
-  for (const key of ['background', 'borderColor']) {
-    const value = object[key]
-    if (typeof value === 'string') result.add(value)
-  }
   return result
 }
 

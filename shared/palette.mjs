@@ -60,6 +60,9 @@ export function validPaletteReference(value) {
   return neutralIds.includes(value) || pairIds.some(id => value === id || value === `${id}:soft`)
 }
 
+// Text-box decorations pick a Strong/Soft pair; Gray 4/Gray 5 is the only gray pair.
+export const boxColorIds = [...pairIds, 'gray4']
+
 export function pageColor(theme) {
   return theme.mode === 'dark' ? '#181818' : '#ffffff'
 }

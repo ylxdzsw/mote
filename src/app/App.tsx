@@ -24,7 +24,6 @@ import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { patchFloating } from '../canvas/patchFloating'
 import { constrainCaptionResize } from '../canvas/floatingGeometry'
-import { boxDecorations } from '../document/model'
 import { reconcileObjectDeletions } from '../document/flow'
 import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
@@ -580,16 +579,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
               </div> : <>
                 {selectedObject ? <FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
                   captionMaxWidth={doc.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
-                  onDecoration={kind => {
-                    history.boundary()
-                    setDoc(current => {
-                      if (!current) return current
-                      const color = kind ? boxDecorations[kind].color : null
-                      return { ...current,
-                        floating: current.floating.map(object => object.id === selectedObject.id ? patchFloating(object, { decoration: kind && color ? { kind, color } : null }) : object) }
-                    })
-                    history.boundary()
-                  }}
                   onCaption={() => actions.current?.caption()}
                   textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
                   tableControls={isCaptionEditor(activeEditor) ? null : <TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}

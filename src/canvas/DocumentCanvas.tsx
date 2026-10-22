@@ -94,7 +94,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (!tool || tool === 'paragraph') return null
     const base = { id: crypto.randomUUID(), anchorId: null, x: 0, y: 0, width: 340, placement: 'float' as const }
     return tool === 'ai' ? aiPlaceholder(base)
-      : tool === 'text' ? { ...base, kind: 'text', background: null, borderColor: null, content: { type: 'doc', content: [paragraph('')] } }
+      : tool === 'text' ? { ...base, kind: 'text', content: { type: 'doc', content: [paragraph('')] } }
       : tool === 'code' ? { ...base, kind: 'code', width: 420, source: '', language: 'plaintext', scheme: 'light' }
       : { ...base, kind: 'drawing', width: 480, height: 320, strokes: [], labels: [], background: null }
   }, [tool])

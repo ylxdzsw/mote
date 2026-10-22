@@ -1,4 +1,5 @@
-import { supportsCaption, tableStyles, themeBlockClasses, type FloatingObject, type MoteDocument, type TableStyle } from './model'
+import { boxDecorationKinds, supportsCaption, tableStyles, themeBlockClasses, type BoxDecoration, type FloatingObject, type MoteDocument, type TableStyle } from './model'
+import { boxColorIds } from '../../shared/palette.mjs'
 
 export class MoteFileError extends Error {
   constructor(message: string) {
@@ -200,9 +201,6 @@ function anchor(value: unknown, path: string): void {
   if (value !== null) identifier(value, path)
 }
 
-function color(value: unknown, path: string): void {
-  if (value !== null) text(value, path)
-}
 
 function checkFloating(value: unknown, index: number, ids: Set<string>, captionIds: Set<string>): void {
   const path = `floating[${index}]`
@@ -224,12 +222,12 @@ function checkFloating(value: unknown, index: number, ids: Set<string>, captionI
     if (kind !== undefined && kind !== 'text') invalid(`${path}.decoration is only supported on text boxes`)
     if (object.decoration !== null) {
       const decoration = record(object.decoration, `${path}.decoration`)
-      if (!['info', 'warning'].includes(decoration.kind as string)) invalid(`${path}.decoration.kind is unsupported`)
-      text(decoration.color, `${path}.decoration.color`)
+      if (!boxDecorationKinds.includes(decoration.kind as BoxDecoration['kind'])) invalid(`${path}.decoration.kind is unsupported`)
+      if (!boxColorIds.includes(decoration.color as string)) invalid(`${path}.decoration.color must be a color pair`)
     }
   }
   if (kind === undefined || kind === 'text') {
-    for (const property of ['background', 'borderColor']) if (property in object) color(object[property], `${path}.${property}`)
+    for (const property of ['background', 'borderColor']) if (property in object) invalid(`${path}.${property} is unsupported`)
     if ('padding' in object) {
       themeLength(object.padding, `${path}.padding`)
       finite(typeof object.padding === 'number' ? object.padding : parseFloat(object.padding as string), `${path}.padding`, 0)

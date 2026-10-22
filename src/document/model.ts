@@ -26,11 +26,9 @@ export interface BlockStyle {
   letterSpacing: ThemeLength
 }
 
-export const boxDecorations = {
-  info: { name: 'Info', color: 'blue' },
-  warning: { name: 'Warning', color: 'amber' },
-}
-export type BoxDecoration = { kind: keyof typeof boxDecorations; color: string }
+export const boxDecorationKinds = ['left', 'box'] as const
+// `color` is a pair: a family ID or `gray4` (Gray 4 border, Gray 5 background).
+export type BoxDecoration = { kind: typeof boxDecorationKinds[number]; color: string }
 
 export interface Theme {
   mode: 'light' | 'dark'
@@ -78,8 +76,6 @@ export interface FloatingText extends FloatingGeometry {
   content: JSONContent
   decoration?: BoxDecoration | null
   padding?: ThemeLength
-  background?: string | null
-  borderColor?: string | null
 }
 
 export const tableStyles = ['simple', 'academic', 'business'] as const
@@ -140,7 +136,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
   source?: string; language?: string; scheme?: 'light' | 'dark'
   style?: TableStyle; headerRow?: boolean
   strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
-  background?: string | null; borderColor?: string | null; padding?: ThemeLength; decoration?: BoxDecoration | null
+  background?: string | null; padding?: ThemeLength; decoration?: BoxDecoration | null
 }
 
 export function captionContent(text = ''): JSONContent {
@@ -209,11 +205,11 @@ export function createDocument(): MoteDocument {
   const imageObject = floating.find(object => object.id === image.attrs!.objectId)!
   if (supportsCaption(imageObject)) imageObject.caption = { content: captionContent('A path worth following. This caption stays with the image, and the next paragraph follows both.') }
   floating.push({ ...base(210), placement: 'float', kind: 'text', anchorId: image.attrs!.id, x: 400, y: 36,
-    padding: '0.75em', background: 'gray6', borderColor: 'primary',
+    decoration: { kind: 'box', color: 'primary' },
     content: { type: 'doc', content: [paragraph('A thought on the landscape', 'caption'), paragraph('Move the image: this note follows in both directions.', 'caption')] } })
   const alongside = paragraph('Some thoughts belong beside the main thread. A Float can sit anywhere on the page while the main text uses the space to its left. It can also overlap a figure or another Float. The figure itself keeps its own place in the document.')
   floating.push({ ...base(260), placement: 'float', centered: false, anchorId: alongside.attrs!.id, x: 628, y: 8,
-    padding: '1em', background: 'primary:soft', borderColor: null,
+    padding: '1em', decoration: { kind: 'left', color: 'secondary' },
     content: { type: 'doc', content: [paragraph('A different angle', 'heading'), paragraph('Keep a question close to the passage that inspired it. 灵感随行。', 'caption')] } })
   const table = flow({ ...base(894), kind: 'table', style: 'academic', headerRow: true, content: tableContent([
     ['Content', 'Placement', 'What moves with it'],

@@ -1,7 +1,7 @@
 import { isText, supportsCaption, type MoteDocument, type Theme } from '../document/model'
 import type { JSONContent } from '@tiptap/core'
 import { paletteEntries, validPaletteReference } from '../../shared/palette.mjs'
-export { paletteEntries, pageColor, neutralIds } from '../../shared/palette.mjs'
+export { paletteEntries, pageColor, neutralIds, boxColorIds } from '../../shared/palette.mjs'
 
 export function paletteColor(theme: Theme, reference: string): string {
   const [id, tone] = reference.split(':')
@@ -44,11 +44,5 @@ export function validatePaletteReferences(doc: MoteDocument) {
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) reference(item.color)
     if ('content' in object) content(object.content)
     if (supportsCaption(object) && object.caption) content(object.caption.content)
-    for (const key of ['background', 'borderColor'] as const) {
-      if (key in object) {
-        const value = (object as unknown as Record<string, unknown>)[key]
-        if (value !== undefined && value !== null) reference(value)
-      }
-    }
   }
 }
