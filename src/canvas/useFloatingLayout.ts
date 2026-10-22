@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { supportsCaption, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
 import { horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 import { nativeSize } from './measurement'
@@ -82,6 +82,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const column = { left: doc.margins.left, width: surface.clientWidth - doc.margins.left - doc.margins.right }
       const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
+      const bodyHeights = new Map<string, number>()
+      const captionHeights = new Map<string, number>()
       const notes = new Map<string, HTMLElement>()
       const sizes: Record<string, { width: number; height: number }> = {}
       surface.querySelectorAll<HTMLElement>('.floating-note').forEach(element => {
@@ -89,6 +91,12 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const size = nativeSize(element)
         notes.set(element.dataset.noteId!, element)
         heights.set(element.dataset.noteId!, size.height)
+        const caption = element.querySelector<HTMLElement>('.object-caption')
+        if (caption) {
+          bodyHeights.set(element.dataset.noteId!, nativeSize(element.querySelector<HTMLElement>('.object-body')!).height)
+          captionHeights.set(element.dataset.noteId!, nativeSize(caption).height)
+          elements.add(caption)
+        }
         sizes[element.dataset.noteId!] = size
         elements.add(element)
       })
@@ -103,11 +111,18 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const left = moving?.x ?? anchorLeft + note.x
         const width = moving?.width ?? note.width
         tops[note.id] = top
-        const height = heights.get(note.id) ?? 0
+        const height = bodyHeights.get(note.id) ?? heights.get(note.id) ?? 0
         obstacles.push({
           left: left - gap, right: left + width + gap,
           top: Math.max(anchorTop, top - gap), bottom: top + height + gap,
         })
+        const caption = moving?.caption ?? (supportsCaption(note) ? note.caption : undefined)
+        if (caption && captionHeights.has(note.id)) {
+          const captionWidth = caption.width ?? width
+          const captionLeft = left + (width - captionWidth) / 2
+          obstacles.push({ left: captionLeft - gap, right: captionLeft + captionWidth + gap,
+            top: top + height, bottom: top + height + 8 + captionHeights.get(note.id)! + gap })
+        }
       }
       // A dragged object has a fixed document-space position until release.
       for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)

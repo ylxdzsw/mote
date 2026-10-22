@@ -22,7 +22,7 @@ export function initializeDocument(draft: MoteDocument): MoteDocument {
   validateDocument(draft)
   for (const object of draft.floating) {
     if ('content' in object) getSchema(extensions(false, object.kind === 'table')).nodeFromJSON(object.content).check()
-    if (supportsCaption(object) && object.caption) getSchema(extensions(false, false, true)).nodeFromJSON(object.caption).check()
+    if (supportsCaption(object) && object.caption) getSchema(extensions(false, false, true)).nodeFromJSON(object.caption.content).check()
   }
   return draft
 }

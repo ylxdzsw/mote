@@ -133,18 +133,21 @@ function inspectContent(value: unknown, path: string, allowFlow = false): void {
 }
 
 function checkCaption(value: unknown, path: string): string {
-  const doc = record(value, path)
+  const caption = record(value, path)
+  if (!('content' in caption) || Object.keys(caption).some(key => !['content', 'width'].includes(key))) invalid(`${path} must contain content and optional width`)
+  if ('width' in caption) finite(caption.width, `${path}.width`, Number.MIN_VALUE)
+  const doc = record(caption.content, `${path}.content`)
   if (doc.type !== 'doc' || Object.keys(doc).some(key => !['type', 'content'].includes(key))
     || !Array.isArray(doc.content) || doc.content.length !== 1) invalid(`${path} must be a document with exactly one paragraph`)
-  const paragraph = record(doc.content[0], `${path}.content[0]`)
+  const paragraph = record(doc.content[0], `${path}.content.content[0]`)
   if (paragraph.type !== 'paragraph' || Object.keys(paragraph).some(key => !['type', 'attrs', 'content'].includes(key))) invalid(`${path} must contain exactly one paragraph`)
-  const attrs = record(paragraph.attrs, `${path}.content[0].attrs`)
+  const attrs = record(paragraph.attrs, `${path}.content.content[0].attrs`)
   if (Object.keys(attrs).length !== 1 || !('id' in attrs)) invalid(`${path} paragraph attributes must contain only id`)
-  const id = identifier(attrs.id, `${path}.content[0].attrs.id`)
-  if ('content' in paragraph && !Array.isArray(paragraph.content)) invalid(`${path}.content[0].content must be an array`)
+  const id = identifier(attrs.id, `${path}.content.content[0].attrs.id`)
+  if ('content' in paragraph && !Array.isArray(paragraph.content)) invalid(`${path}.content.content[0].content must be an array`)
   const inlineNodes = paragraph.content === undefined ? [] : paragraph.content as unknown[]
   for (const [index, inlineValue] of inlineNodes.entries()) {
-    const inlinePath = `${path}.content[0].content[${index}]`
+    const inlinePath = `${path}.content.content[0].content[${index}]`
     const inline = record(inlineValue, inlinePath)
     const keys = inline.type === 'text' ? ['type', 'text', 'marks'] : inline.type === 'hardBreak' ? ['type', 'marks'] : []
     if (!keys.length || Object.keys(inline).some(key => !keys.includes(key))) invalid(`${inlinePath} must be inline text or a hard break`)

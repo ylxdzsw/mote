@@ -5,6 +5,9 @@ import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
 import { patchFloating } from '../canvas/patchFloating.ts'
 
+const supportsCaption = (object: FloatingObject): object is Extract<FloatingObject, { kind: 'image' | 'html' | 'table' }> =>
+  object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
+
 export function paragraphSelection(doc: Node, from: number, to: number) {
   const blockIds: string[] = []
   let start = -1, end = -1, crossesSpace = false
@@ -28,6 +31,7 @@ function sortedKeys(_key: string, value: unknown): unknown {
 export function objectContent(object: FloatingObject) {
   const { x, y, anchorId, placement, centered, ...content } = object
   void x; void y; void anchorId; void placement; void centered
+  if (supportsCaption(object) && object.caption) return { ...content, caption: { content: object.caption.content } }
   return content
 }
 
@@ -255,10 +259,15 @@ export function currentPlacement(candidate: FloatingObject, original: FloatingOb
   const result: FloatingObject = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, placement: original.placement, centered: original.centered }
   if (original.centered === undefined) delete result.centered
   if ('height' in original && 'height' in result) result.height = original.height
-  if (result.kind === 'image' || result.kind === 'html' || result.kind === 'table') {
-    if (result.caption === undefined && (original.kind === 'image' || original.kind === 'html' || original.kind === 'table') && original.caption) result.caption = original.caption
-    if (result.caption?.type === 'doc' && result.caption.content?.length === 1
-      && result.caption.content[0].type === 'paragraph' && !result.caption.content[0].content?.length) delete result.caption
+  if (supportsCaption(result)) {
+    const originalCaption = supportsCaption(original) ? original.caption : undefined
+    if (result.caption === undefined && originalCaption) result.caption = originalCaption
+    if (result.caption && originalCaption) {
+      const { width: _candidateWidth, ...caption } = result.caption
+      result.caption = originalCaption.width === undefined ? caption : { ...caption, width: originalCaption.width }
+    }
+    if (result.caption?.content.type === 'doc' && result.caption.content.content?.length === 1
+      && result.caption.content.content[0].type === 'paragraph' && !result.caption.content.content[0].content?.length) delete result.caption
   }
   return result
 }

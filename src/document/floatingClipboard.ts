@@ -81,7 +81,7 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
       Object.assign(object, placementAtPoint(doc, point, anchor?.id ?? null, { anchors }))
     }
     if ('content' in object) object.content = remapPaletteContent(freshNode(object.content, used), remap)
-    if (supportsCaption(object) && object.caption) object.caption = freshNode(object.caption, used)
+    if (supportsCaption(object) && object.caption) object.caption = { ...object.caption, content: freshNode(object.caption.content, used) }
     remapObjectPalette(object, remap)
     return object
   })
@@ -98,7 +98,7 @@ export function floatingText(payload: FloatingClipboard) {
   const text = (node: JSONContent): string => node.text ?? (node.type === 'hardBreak' ? '\n' : node.content?.map(text).join(node.type === 'tableRow' ? '\t' : node.type === 'doc' || node.type === 'table' ? '\n' : '') ?? '')
   return payload.floating.map(object => [
     'content' in object ? text(object.content) : object.kind === 'drawing' ? object.labels.map(label => label.text).join('\n') || '[drawing]' : object.kind === 'code' ? object.source : object.kind === 'katex' ? object.latex : object.kind === 'image' ? object.alt : `[${object.kind}]`,
-    supportsCaption(object) && object.caption ? text(object.caption) : '',
+    supportsCaption(object) && object.caption ? text(object.caption.content) : '',
   ].filter(Boolean).join('\n')).join('\n')
 }
 

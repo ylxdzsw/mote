@@ -42,7 +42,7 @@ export function paletteEntryUsed(doc: MoteDocument, id: string): boolean {
     || Object.values(doc.theme.blocks).some(style => uses(style.color)) || content(doc.content)
     || doc.floating.some(object => ('content' in object && content(object.content))
       || (isText(object) && uses(object.decoration?.color))
-      || (supportsCaption(object) && !!object.caption && content(object.caption))
+      || (supportsCaption(object) && !!object.caption && content(object.caption.content))
       || (object.kind === 'drawing' && [...object.strokes, ...object.labels].some(item => uses(item.color)))
       || (['background', 'borderColor'] as const).some(key => key in object && uses((object as unknown as Record<string, string | null>)[key])))
 }
@@ -64,7 +64,7 @@ export function replacePaletteEntry(doc: MoteDocument, id: string, replacement: 
     ...('content' in object && { content: content(object.content) }),
     ...('background' in object && { background: replace(object.background) }),
     ...('borderColor' in object && { borderColor: replace(object.borderColor) }),
-    ...(supportsCaption(object) && object.caption && { caption: content(object.caption) }),
+    ...(supportsCaption(object) && object.caption && { caption: { ...object.caption, content: content(object.caption.content) } }),
   })) as MoteDocument['floating'] }
 }
 
@@ -113,7 +113,7 @@ export function validatePaletteReferences(doc: MoteDocument) {
     if (isText(object) && object.decoration) reference(object.decoration.color)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) reference(item.color)
     if ('content' in object) content(object.content)
-    if (supportsCaption(object) && object.caption) content(object.caption)
+    if (supportsCaption(object) && object.caption) content(object.caption.content)
     for (const key of ['background', 'borderColor'] as const) {
       if (key in object) {
         const value = (object as unknown as Record<string, unknown>)[key]

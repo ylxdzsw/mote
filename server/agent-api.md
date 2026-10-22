@@ -15,14 +15,16 @@ unsupported. Each Flow has exactly one top-level main node
 or `centered:true` centers it within the text width. A Float anchored to a Flow
 block uses `x,y` relative to that Flow object’s top-left; other Floats use page
 `x` and nonnegative anchor-relative `y`. Flow-relative Float offsets may be negative.
-Optional captions are rich-text fields on table, image, and HTML objects: they
-appear above tables and below images/widgets, use the document's Caption theme,
-and have no separate floating-object ID, geometry, or position. Legacy
-`attachment` keys are rejected anywhere in V0 data, even when null; no migration
-is performed. Each caption is a
-JSONContent doc with exactly one paragraph whose `attrs` contains only `id`;
-inline text and hard breaks use the shared bold, color, and decoration marks. A caption is part
-of its owning object's content and reservation. Floats repel main paragraphs only.
+Optional captions belong only to image, HTML, and table objects. They always
+appear below the owner, including tables, and use the document's Caption theme.
+The schema is `{content: JSONContent, width?: number}`: `content` is a doc with
+exactly one paragraph whose `attrs` contains only `id`; inline text and hard
+breaks use the shared bold, color, and decoration marks. An omitted width
+follows the owner's width; an explicit width is a finite positive document-pixel
+value that remains fixed when the owner is resized. Captions have no separate
+floating-object ID, x/y, or placement and cannot be detached. Previous V0
+bare-document captions and legacy `attachment` keys are rejected without
+migration. Floats repel main paragraphs only.
 
 Segment scope includes Flow blocks, their objects and built-in captions, and
 anchored Floats. A segment delivery may generate or replace these complete
@@ -31,8 +33,12 @@ Captions remain within the owning object's fields and are not separate
 `objectIds` or geometry entries. Main-text tasks accept paragraphs only and
 cannot cross Flow blocks. A single-object revision retains the current target
 placement, centered state, geometry, and existing caption when the candidate
-omits `caption`; an explicit empty caption paragraph clears it. It does not
-replace main nodes. A new single-object placeholder may remain Float. Indexing
+omits `caption`; an explicit empty `caption.content` paragraph clears it.
+Caption rich text belongs to the reservation, but width is user-owned: the
+frontend preserves its current value and the backend normalizes candidate width
+to the saved value (or omission when the saved width followed the owner). A
+caption added to an existing object follows the owner. It does not replace main
+nodes. A new single-object placeholder may remain Float. Indexing
 reads both placements and built-in captions from the same full native document
 and remains subject to the source’s current Private policy.
 

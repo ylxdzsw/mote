@@ -37,7 +37,7 @@ function segmentDocument() {
     { type: 'paragraph', attrs: { id: 'seg-p2', semantic: 'body' }, content: [{ type: 'text', text: 'Last' }] },
   ]
   doc.floating = [
-    { id: 'seg-image', kind: 'image', anchorId: 'seg-space', x: 40, y: 24, width: 160, placement: 'float', src: svg, alt: 'Source figure', caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'seg-image-caption' }, content: [{ type: 'text', text: 'Figure caption' }] }] } },
+    { id: 'seg-image', kind: 'image', anchorId: 'seg-space', x: 40, y: 24, width: 160, placement: 'float', src: svg, alt: 'Source figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'seg-image-caption' }, content: [{ type: 'text', text: 'Figure caption' }] }] } } },
     { id: 'seg-widget', kind: 'html', anchorId: 'seg-p2', x: 40, y: 12, width: 120, height: 80, placement: 'float', html: '<p>source</p>', screenshot: svg, alt: 'Source widget' },
   ]
   return doc
@@ -50,11 +50,11 @@ function segmentPayload(withWidgets = false) {
     { type: 'paragraph', attrs: { id: 'candidate-p', semantic: 'heading' }, content: [{ type: 'text', text: 'Generated composition' }] },
     { type: 'spacer', attrs: { id: 'candidate-space', height: 72 } },
   ]
-  const image = { id: 'candidate-image', kind: 'image', anchorId: 'candidate-p', x: 32, y: 12, width: 160, placement: 'float', src: svg, alt: 'Generated figure', caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'candidate-image-caption' }, content: [{ type: 'text', text: 'Generated figure' }] }] } }
+  const image = { id: 'candidate-image', kind: 'image', anchorId: 'candidate-p', x: 32, y: 12, width: 160, placement: 'float', src: svg, alt: 'Generated figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'candidate-image-caption' }, content: [{ type: 'text', text: 'Generated figure' }] }] } } }
   const floating = [image]
   const geometry = { 'candidate-image': { x: 32, y: 12, width: 160, height: 60 } }
   if (withWidgets) for (const id of ['candidate-widget-a', 'candidate-widget-b']) {
-    floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, placement: 'float', html: `<button>${id}</button>`, alt: id, ...(id.endsWith('a') ? { caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `${id}-caption` }, content: [{ type: 'text', text: 'Widget caption' }] }] } } : {}) })
+    floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, placement: 'float', html: `<button>${id}</button>`, alt: id, ...(id.endsWith('a') ? { caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `${id}-caption` }, content: [{ type: 'text', text: 'Widget caption' }] }] } } } : {}) })
     geometry[id] = { x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80 }
   }
   return { version: 'V0', type: 'segment', content, floating, palette: [], geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
@@ -163,13 +163,24 @@ test('segment targets use canonical points and exact block/object ownership', ()
   assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...empty, objectIds: ['seg-widget'] } })), /objectIds does not match/)
 })
 
-test('built-in captions validate, preserve existing content, clear when explicitly empty, and reject legacy attachments', () => {
-  const caption = (id, textValue = 'A caption') => ({ type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'muted' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] }] }] })
+test('caption subobjects validate, preserve content and user width, clear when explicitly empty, and reject legacy schemas', () => {
+  const caption = (id, textValue = 'A caption', width) => ({ content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'muted' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] }] }] }, ...(width === undefined ? {} : { width }) })
   const doc = document('html')
-  doc.floating[0].caption = caption('html-caption')
-  assert.equal(validateDocument(doc).floating[0].caption.content[0].content[0].text, 'A caption')
+  doc.floating[0].caption = caption('html-caption', 'A caption', 240)
+  assert.equal(validateDocument(doc).floating[0].caption.content.content[0].content[0].text, 'A caption')
+  assert.equal(doc.floating[0].caption.width, 240, 'caption width may exceed the owner width')
+  const followsOwner = { ...document('html'), floating: [{ ...document('html').floating[0], caption: caption('owner-width-caption') }] }
+  assert.equal(validateDocument(followsOwner).floating[0].caption.width, undefined)
+  for (const width of [0, -1, Infinity, NaN, '200']) {
+    const invalid = document('html'); invalid.floating[0].caption = caption('bad-width-caption', 'A caption', width)
+    assert.throws(() => validateDocument(invalid), /caption.width must be a finite number/)
+  }
+  for (const key of ['id', 'x', 'y', 'placement', 'detach']) {
+    const invalid = document('html'); invalid.floating[0].caption = { ...caption('extra-caption-field'), [key]: key === 'x' || key === 'y' ? 0 : 'value' }
+    assert.throws(() => validateDocument(invalid), /caption must contain content and optional width/)
+  }
 
-  const table = { id: 'caption-table', kind: 'table', anchorId: 'block-1', x: 0, y: 0, width: 200, placement: 'float', content: { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph', content: [] }] }] }] }] }, caption: caption('table-caption') }
+  const table = { id: 'caption-table', kind: 'table', anchorId: 'block-1', x: 0, y: 0, width: 200, placement: 'float', content: { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph', content: [] }] }] }] }] }, caption: caption('table-caption', 'Table caption', 240) }
   const image = { id: 'caption-image', kind: 'image', anchorId: 'block-1', x: 0, y: 0, width: 200, placement: 'float', src: png, alt: 'Image', caption: caption('image-caption') }
   assert.doesNotThrow(() => validateDocument({ ...document(), floating: [table, image] }))
   for (const id of ['table-caption', 'caption-image', 'block-1']) {
@@ -179,38 +190,49 @@ test('built-in captions validate, preserve existing content, clear when explicit
   const unsupported = { ...document(), floating: [{ id: 'drawing-caption', kind: 'drawing', anchorId: 'block-1', x: 0, y: 0, width: 20, height: 20, placement: 'float', background: null, strokes: [], labels: [], caption: null }] }
   assert.throws(() => validateDocument(unsupported), /caption is only supported/)
   for (const mutate of [
-    value => { value.content.push({ type: 'paragraph', attrs: { id: 'second-caption' } }) },
-    value => { value.content[0].attrs.semantic = 'caption' },
-    value => { value.content[0].attrs.listLevel = 0 },
-    value => { value.content[0].content[0].type = 'image' },
-    value => { value.content[0].attrs = { id: 'bad-caption', semantic: 'caption' } },
-    value => { value.content[0].content[0].marks[0].attrs = { weight: 700 } },
+    value => { value.content.content.push({ type: 'paragraph', attrs: { id: 'second-caption' } }) },
+    value => { value.content.content[0].attrs.semantic = 'caption' },
+    value => { value.content.content[0].attrs.listLevel = 0 },
+    value => { value.content.content[0].content[0].type = 'image' },
+    value => { value.content.content[0].attrs = { id: 'bad-caption', semantic: 'caption' } },
+    value => { value.content.content[0].content[0].marks[0].attrs = { weight: 700 } },
   ]) {
     const invalid = caption('invalid-caption')
     mutate(invalid)
     const badDoc = document('html'); badDoc.floating[0].caption = invalid
     assert.throws(() => validateDocument(badDoc))
   }
-  const badPalette = document('html'); badPalette.floating[0].caption = { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'bad-color-caption' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color: 'missing' } }] }] }] }
+  const badPalette = document('html'); badPalette.floating[0].caption = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'bad-color-caption' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color: 'missing' } }] }] }] } }
   assert.throws(() => validateDocument(badPalette), /unknown palette color/)
 
   const original = document('html')
-  original.floating[0].caption = caption('original-caption', 'Retained caption')
+  original.floating[0].caption = caption('original-caption', 'Retained caption', 240)
   const target = { kind: 'object', objectId: 'object-1', isNew: false, area: { x: 40, y: 10, width: 200, height: 100 } }
   const reservation = validateRequest(request(crypto.randomUUID(), original, { target }))
-  assert.equal(reservation.document.floating[0].caption.content[0].content[0].text, 'Retained caption')
+  assert.equal(reservation.document.floating[0].caption.content.content[0].content[0].text, 'Retained caption')
   const omitted = structuredClone(original.floating[0]); delete omitted.caption
   assert.deepEqual(validateCandidate({ object: omitted, summary: 'Retain caption' }, original, target).object.caption, original.floating[0].caption)
-  const cleared = { ...omitted, screenshot: `data:image/png;base64,${pngHeader(200, 100).toString('base64')}`, caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'empty-caption' }, content: [] }] } }
+  const revised = { ...structuredClone(original.floating[0]), screenshot: `data:image/png;base64,${pngHeader(200, 100).toString('base64')}`, caption: caption('revised-caption', 'New text', 320) }
+  const revisedResult = { object: revised, summary: 'Revise caption' }
+  assert.equal(validateCandidate(revisedResult, original, target).object.caption.width, 240, 'AI revisions retain user-owned caption width')
+  assert.equal(validateDelivery(revisedResult, {}, original, target).object.caption.width, 240)
+  const originalFollowsOwner = document('html')
+  originalFollowsOwner.floating[0].caption = caption('original-follow-owner')
+  const candidateAddsCaption = { ...structuredClone(originalFollowsOwner.floating[0]), caption: caption('added-caption', 'New caption', 320) }
+  assert.equal(validateCandidate({ object: candidateAddsCaption, summary: 'Add caption' }, originalFollowsOwner, target).object.caption.width, undefined)
+  const cleared = { ...omitted, screenshot: `data:image/png;base64,${pngHeader(200, 100).toString('base64')}`, caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'empty-caption' }, content: [] }] }, width: 320 } }
   const clearResult = { object: cleared, summary: 'Clear caption' }
-  assert.deepEqual(validateCandidate(clearResult, original, target).object.caption, cleared.caption)
-  assert.deepEqual(validateDelivery(clearResult, {}, original, target).object.caption, cleared.caption)
+  assert.deepEqual(validateCandidate(clearResult, original, target).object.caption, { ...cleared.caption, width: 240 })
+  assert.deepEqual(validateDelivery(clearResult, {}, original, target).object.caption, { ...cleared.caption, width: 240 })
   assert.throws(() => validateCandidate({ object: { ...omitted, attachment: null }, summary: 'Legacy field' }, original, target), /legacy attachment/)
   const legacy = document('html'); legacy.floating[0].attachment = null
   assert.throws(() => validateDocument(legacy), /legacy attachment/)
   const nestedLegacy = document('html'); nestedLegacy.content.content[0].attachment = null
   assert.throws(() => validateDocument(nestedLegacy), /legacy attachment/)
   assert.throws(() => validateCandidate({ object: omitted, summary: 'Legacy source field' }, legacy, target), /legacy attachment/)
+  const bareCaption = document('html'); bareCaption.floating[0].caption = { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'bare-caption' }, content: [] }] }
+  assert.throws(() => validateDocument(bareCaption), /caption must contain content and optional width/)
+  assert.throws(() => validateCandidate({ object: { ...omitted, caption: bareCaption.floating[0].caption }, summary: 'Legacy caption' }, original, target), /caption must contain content and optional width/)
   const legacyLabel = structuredClone(original); legacyLabel.floating[0].kind = 'label'; delete legacyLabel.floating[0].caption
   assert.throws(() => validateDocument(legacyLabel), /unsupported floating kind/)
 })
@@ -220,14 +242,14 @@ test('segment candidate rejects external refs and accepts native composition pay
   const candidate = validateCandidate({ segment: segmentPayload(), summary: 'native segment' }, doc, target)
   assert.equal(candidate.segment.type, 'segment')
   assert.deepEqual(candidate.segment.floating.map(object => object.id), ['candidate-image'])
-  assert.equal(candidate.segment.floating[0].caption.content[0].content[0].text, 'Generated figure')
+  assert.equal(candidate.segment.floating[0].caption.content.content[0].content[0].text, 'Generated figure')
   const externalAnchor = segmentPayload(); externalAnchor.floating[0].anchorId = 'outside'
   assert.throws(() => validateCandidate({ segment: externalAnchor, summary: 'bad' }, doc, target), /anchor is outside/)
   const externalGeometry = segmentPayload(); externalGeometry.geometry.outside = { x: 0, y: 0, width: 1, height: 1 }
   assert.throws(() => validateCandidate({ segment: externalGeometry, summary: 'bad' }, doc, target), /geometry references/)
   const unknownPalette = segmentPayload(); unknownPalette.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
   assert.throws(() => validateCandidate({ segment: unknownPalette, summary: 'bad' }, doc, target), /unknown palette/)
-  const unknownCaptionPalette = segmentPayload(); unknownCaptionPalette.floating[0].caption.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
+  const unknownCaptionPalette = segmentPayload(); unknownCaptionPalette.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
   assert.throws(() => validateCandidate({ segment: unknownCaptionPalette, summary: 'bad' }, doc, target), /unknown palette/)
   const emptyTarget = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
   assert.deepEqual(validateCandidate({ segment: { version: 'V0', type: 'segment', content: [], floating: [], palette: [], geometry: {}, anchorTops: {}, originTop: 0 }, summary: 'empty' }, doc, emptyTarget).segment.content, [])
@@ -242,7 +264,7 @@ test('fake segment task returns a deterministic native composition', async t => 
   assert.equal(status.candidate.summary, 'Fake candidate for segment target.')
   assert.deepEqual(status.candidate.segment.content.map(node => node.type), ['paragraph', 'flow'])
   assert.deepEqual(status.candidate.segment.floating.map(object => object.kind ?? 'text'), ['image'])
-  assert.equal(status.candidate.segment.floating[0].caption.content[0].content[0].text, 'AI figure')
+  assert.equal(status.candidate.segment.floating[0].caption.content.content[0].content[0].text, 'AI figure')
   assert.equal(status.candidate.segment.floating[0].placement, 'flow')
   assert.equal(status.candidate.segment.floating[0].anchorId, status.candidate.segment.content[1].attrs.id)
   assert.equal(status.candidate.segment.content[1].attrs.objectId, status.candidate.segment.floating[0].id)
@@ -271,7 +293,7 @@ test('Flow validation enforces structural pairs, scope ownership, and paragraph-
     value => { value.content.content[0].attrs.id = 'seg-image' },
     value => { value.floating[1].placement = 'flow' },
     value => { value.floating[0].textFlow = 'repel' },
-    value => { value.floating[0].caption.content[0].content.push(flow) },
+    value => { value.floating[0].caption.content.content[0].content.push(flow) },
   ]) {
     const invalid = structuredClone(doc); mutate(invalid)
     assert.throws(() => validateDocument(invalid))

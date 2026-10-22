@@ -23,6 +23,7 @@ import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { patchFloating } from '../canvas/patchFloating'
+import { constrainCaptionResize } from '../canvas/floatingGeometry'
 import { boxDecorationPalette } from '../theme/palette'
 import { reconcileObjectDeletions } from '../document/flow'
 import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
@@ -118,6 +119,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
   const [zoomHost, setZoomHost] = useState<HTMLDivElement | null>(null)
+  const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [tool, setTool] = useState<CreationTool>(null)
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
@@ -254,7 +256,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   function updateFloating(floating: FloatingObject[]) { setDoc(current => current && reconcileObjectDeletions(current, floating, actions.current?.segmentContext())) }
 
   function updateObject(id: string, patch: FloatingPatch) {
-    setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? patchFloating(object, patch) : object) }))
+    setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id
+      ? patchFloating(object, patch.x === undefined ? constrainCaptionResize(object, patch, actions.current?.segmentContext()?.geometry[id], current.width - 2) : patch) : object) }))
   }
 
   function editDrawing(id: string) {
@@ -360,7 +363,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     const sheet = document.querySelector<HTMLElement>('.workspace > .canvas-pane .sheet')
     if (!element || !sheet) return { x: doc!.margins.left, y: doc!.margins.top, width: doc!.width - doc!.margins.left - doc!.margins.right, height: 24 }
     const origin = sheet.getBoundingClientRect(), rect = element.getBoundingClientRect(), scale = origin.width / sheet.offsetWidth
-    return { x: (rect.left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: rect.width / scale, height: rect.height / scale }
+    const caption = element.querySelector('.object-caption')?.getBoundingClientRect()
+    const left = Math.min(rect.left, caption?.left ?? rect.left), right = Math.max(rect.right, caption?.right ?? rect.right)
+    return { x: (left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: (right - left) / scale, height: rect.height / scale }
   }
   // Starts the assistant from the current selection: a single object, a gutter
   // segment, selected paragraphs, or the paragraph at the caret.
@@ -568,7 +573,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 </div>
                 <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
               </div> : <>
-                {selectedObject ? <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
+                {selectedObject ? <FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
+                  captionMaxWidth={doc.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
                   onDecoration={kind => {
                     history.boundary()
                     setDoc(current => {
@@ -600,7 +606,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
             </div>}
       </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
-        onInteraction={showContext}
+        onInteraction={showContext} onCaptionSelection={setSelectedCaptionId}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}
         aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,

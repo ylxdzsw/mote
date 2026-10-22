@@ -19,6 +19,10 @@ interface Props {
   onPlacement: (placement: 'flow' | 'float') => void
   onAction: (action: 'remove' | 'duplicate') => void
   onCaption: () => void
+  captionSelected?: boolean
+  onCaptionWidth: (width: number | null) => void
+  captionMaxWidth: number
+  onSelectOwner: () => void
   onFront: () => void
   onBack: () => void
   onHistoryBegin: (name: string) => void
@@ -38,13 +42,37 @@ interface Props {
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onDecoration, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onDecoration, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
   const placementId = useId()
   const decorationId = useId()
   const name = kindName(object)
+  if (captionSelected && supportsCaption(object) && object.caption) {
+    const ownerSelectionLabel = object.kind === 'image' ? 'Select image' : object.kind === 'table' ? 'Select table' : 'Select widget'
+    return <div className="context-inspector floating-inspector">
+      <ContextHeading title="Caption" subtitle={`Owned by ${name}`} />
+      <InspectorGroup title="Content">
+        <InspectorRow><button onClick={onCaption}>Edit caption</button><button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
+        <InspectorField label="Width">
+          <NumberField label="Caption width" value={object.caption.width ?? object.width} min={16} max={captionMaxWidth} onChange={onCaptionWidth} />
+          <p className="hint">Follows the owner unless overridden; wider captions stay centered within the page.</p>
+          <button onClick={() => onCaptionWidth(null)}>Match object width</button>
+        </InspectorField>
+        <button className="delete-action" onClick={() => onChange({ caption: null })}>Remove caption</button>
+      </InspectorGroup>
+      <InspectorGroup title="Typography">
+        <TypographyPreview theme={theme} semantic="caption" />
+        <button onClick={() => onTheme('caption')}>Caption style… <PanelIcon name="sliders" /></button>
+        <button className="quiet-action" onClick={() => onTheme('palette')}>Document palette <PanelIcon name="arrow" /></button>
+      </InspectorGroup>
+      <InspectorHelp>
+        <p>Click once to select the caption, then click inside it to edit. Drag the caption box or its borders to move its owner; the right border resizes the caption while keeping it centered.</p>
+        <p>Delete removes the caption. Captions cannot be detached from their owners.</p>
+      </InspectorHelp>
+    </div>
+  }
   return <div className="context-inspector floating-inspector">
     <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : object.placement === 'flow' ? 'Flow object' : 'Float object'} />
     {count === 1 && <>
@@ -221,7 +249,7 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
     case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; use the right border to resize proportionally or corners to change the bounds. Pen widths stay in document pixels. Revise with AI can turn the sketch into a figure.</p></>
     case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. The selected light or dark syntax scheme supplies its own colors independently of the document palette.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
-    case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click to edit or add a caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
+    case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click the image to add or edit its caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
     case 'katex': return <p>Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
     default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents.</p></>

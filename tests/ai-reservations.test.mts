@@ -7,7 +7,7 @@ import type { MoteDocument, FloatingDrawing, FloatingHTMLWidget, FloatingObject 
 import type { AITask } from '../src/ai/types.ts'
 
 const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
-const captionContent = { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }
+const captionContent = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }, width: 240 }
 const object: FloatingHTMLWidget = { id: 'box', kind: 'html', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, placement: 'float', html: 'before', screenshot: 'png', alt: 'Figure', caption: captionContent }
 const doc = { id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, floating: [object] } as MoteDocument
 const textTask = { target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
@@ -145,10 +145,13 @@ test('concurrent tasks reject overlap and accepted object preserves current geom
 
 test('object reservations protect embedded captions and candidates preserve or explicitly remove them', () => {
   const changedCaption = { ...object, caption: structuredClone(captionContent) }
-  changedCaption.caption!.content![0].content![0].text = 'Changed'
+  changedCaption.caption!.content.content![0].content![0].text = 'Changed'
   assert.equal(permits([objectTask], doc, { ...doc, floating: [changedCaption] }), false)
-  assert.equal(permitsEditor([objectTask], 'box:caption:caption-text', captionContent, changedCaption.caption), false)
-  assert.equal(permitsEditor([objectTask], 'box:caption:caption-text', captionContent, captionContent), true)
+  assert.equal(permits([objectTask], doc, { ...doc, floating: [{ ...object, caption: { ...object.caption!, width: 420 } }] }), true)
+  const { caption: _removedCaption, ...withoutCaption } = object
+  assert.equal(permits([objectTask], doc, { ...doc, floating: [withoutCaption] as FloatingObject[] }), false)
+  assert.equal(permitsEditor([objectTask], 'box:caption:caption-text', captionContent.content, changedCaption.caption?.content), false)
+  assert.equal(permitsEditor([objectTask], 'box:caption:caption-text', captionContent.content, captionContent.content), true)
 
   const moved = { ...object, x: 50, y: 80, anchorId: 'd' }
   const { caption: _omitted, ...candidateWithoutCaption } = object
@@ -157,7 +160,17 @@ test('object reservations protect embedded captions and candidates preserve or e
   assert.equal(applied.x, 50); assert.equal(applied.y, 80)
   assert.deepEqual('caption' in applied && applied.caption, moved.caption)
 
-  const emptyCaption = { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'candidate-empty' } }] }
+  const candidateWithResizedCaption = { ...object, html: 'after', caption: { ...object.caption!, width: 600 } }
+  const sizedOriginal = { ...object, caption: { ...object.caption!, width: 310 } }
+  const restoredWidth = currentPlacement(candidateWithResizedCaption, sizedOriginal)
+  assert.equal('caption' in restoredWidth && restoredWidth.caption?.width, 310)
+  const originalWithoutWidth = { ...object, caption: { content: object.caption!.content } }
+  const clearedCandidateWidth = currentPlacement(candidateWithResizedCaption, originalWithoutWidth)
+  assert.equal('caption' in clearedCandidateWidth && clearedCandidateWidth.caption?.width, undefined)
+  const converted = currentPlacement({ ...object, caption: { ...object.caption!, width: 330 } }, drawing)
+  assert.equal('caption' in converted && converted.caption?.width, 330)
+
+  const emptyCaption = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'candidate-empty' } }] }, width: 600 }
   const removed = currentPlacement({ ...object, caption: emptyCaption }, moved)
   assert.equal('caption' in removed, false)
 })
@@ -251,9 +264,12 @@ test('segment ownership and reservation include the object caption automatically
   const source = { ...doc, floating }
   assert.equal(segmentReservationIntact(task, source), true)
   const changed = structuredClone(floating[0])
-  changed.caption!.content![0].content![0].text = 'Changed'
+  changed.caption!.content.content![0].content![0].text = 'Changed'
   assert.equal(segmentReservationIntact(task, { ...source, floating: [changed] }), false)
-  assert.equal(permitsEditor([task], 'box:caption:caption-text', captionContent, changed.caption), false)
+  const resizedCaption = { ...source, floating: [{ ...floating[0], caption: { ...floating[0].caption!, width: 400 } }] }
+  assert.equal(segmentReservationIntact(task, resizedCaption), false)
+  assert.equal(permits([task], source, resizedCaption), false)
+  assert.equal(permitsEditor([task], 'box:caption:caption-text', captionContent.content, changed.caption?.content), false)
 })
 
 test('a Flow segment reserves its block, object, anchored Floats, and captions together', () => {
@@ -266,7 +282,7 @@ test('a Flow segment reserves its block, object, anchored Floats, and captions t
   assert.equal(segmentReservationIntact(task, source), true)
   assert.equal(overlaps(target, objectTask.target, source), true)
   const changedOwner = structuredClone(floating[0])
-  if ('caption' in changedOwner && changedOwner.caption) changedOwner.caption.content![0].content![0].text = 'Changed'
+  if ('caption' in changedOwner && changedOwner.caption) changedOwner.caption.content.content![0].content![0].text = 'Changed'
   assert.equal(permits([task], source, { ...source, floating: [changedOwner, floating[1]] }), false)
   assert.equal(permits([task], source, { ...source, floating: floating.map(item => item.id === 'box' ? { ...item, centered: false } : item) }), false)
   assert.equal(permits([task], source, { ...source, floating: floating.map(item => item.id === 'detail' ? { ...item, anchorId: 'd' } : item) }), false)

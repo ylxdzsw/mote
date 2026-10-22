@@ -13,10 +13,11 @@ const { initializeDocument } = await server.ssrLoadModule('/src/document/initial
 const { paletteEntryUsed, replacePaletteEntry } = await server.ssrLoadModule('/src/theme/palette.ts')
 const { copySegment, serializeSegment, parseSegment, replaceSegment, moveSegment, segmentObjectIds } = await server.ssrLoadModule('/src/document/segment.ts')
 const { copyFloating, parseFloating, importFloating, pasteFloating, floatingCopyIds } = await server.ssrLoadModule('/src/document/floatingClipboard.ts')
+const { resolveGeometry, horizontalBounds, boundedTranslation, constrainCaptionResize, intersects } = await server.ssrLoadModule('/src/canvas/floatingGeometry.ts')
 
 const p = id => ({ ...paragraph(id), attrs: { id, semantic: 'body' } })
 const figure = { id: 'figure', kind: 'image', placement: 'flow', anchorId: 'flow-block', x: 30, y: 0, width: 200,
-  src: 'data:image/png;base64,AA==', alt: 'Figure', caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Figure caption' }] }] } }
+  src: 'data:image/png;base64,AA==', alt: 'Figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Figure caption' }] }] }, width: 230 } }
 const annotation = { id: 'annotation', kind: 'code', placement: 'float', anchorId: 'flow-block', x: -20, y: -10, width: 40, source: 'x', language: 'text', scheme: 'light' }
 const doc = () => ({ version: 'V0', id: 'document', width: 800, margins: { top: 20, left: 40, right: 40, bottom: 20 }, theme: structuredClone(defaultTheme),
   content: { type: 'doc', content: [p('before'), flowBlock('figure', 'flow-block'), p('after')] }, floating: structuredClone([figure, annotation]) })
@@ -24,6 +25,21 @@ const anchors = [{ id: 'before', top: 20, bottom: 50 }, { id: 'flow-block', top:
 const geometry = { figure: { x: 70, y: 80, width: 200, height: 100 }, annotation: { x: 50, y: 70, width: 40, height: 30 } }
 const options = { anchors, geometry, textLeft: 40, textWidth: 720 }
 const range = { start: { index: 1, offset: 0 }, end: { index: 2, offset: 0 } }
+
+test('centered captions contribute their overhang to movement and selection bounds', () => {
+  const object = { ...figure, placement: 'float', x: 100, caption: { ...figure.caption, width: 360 } }
+  const boxes = resolveGeometry([object], { figure: { width: 200, height: 150 } }, { figure: 80 })
+  assert.deepEqual(horizontalBounds(boxes.figure), { left: 20, right: 380 })
+  assert.equal(boxes.figure.x, 100)
+  assert.deepEqual(boundedTranslation([object], boxes, ['figure'], { x: -100, y: 0 }, 800), { x: -20, y: 0 })
+  assert.equal(intersects(boxes.figure, { x: 25, y: 200, width: 10, height: 10 }), true)
+  const resized = { ...object, width: 100, x: 400, caption: { ...object.caption, width: 600 } }
+  const box = { x: 400, y: 80, width: 100, height: 150 }
+  assert.equal(constrainCaptionResize(resized, { width: 560 }, box, 960).width, 520)
+  assert.equal(constrainCaptionResize(resized, { x: 480, width: 20 }, box, 960).x, 480)
+  const west = constrainCaptionResize(resized, { x: 0, width: 500 }, box, 960)
+  assert.deepEqual(west, { x: 100, width: 400 })
+})
 
 test('Flow validation enforces the block/object bijection and actual schema retains atoms', () => {
   const source = doc()
@@ -38,10 +54,15 @@ test('Flow validation enforces the block/object bijection and actual schema reta
     d => { d.floating[0].attachment = null },
     d => { d.floating[0].caption = null },
     d => { d.floating[1].caption = captionContent('Not supported') },
-    d => { d.floating[0].caption.content[0].attrs.semantic = 'caption' },
-    d => { d.floating[0].caption.content[0].attrs.listLevel = 0 },
-    d => { d.floating[0].caption.content.push(p('extra')) },
-    d => { d.floating[0].caption.content[0].content.push(p('nested')) },
+    d => { d.floating[0].caption = captionContent('Legacy bare caption') },
+    d => { d.floating[0].caption.width = 0 },
+    d => { d.floating[0].caption.width = -1 },
+    d => { d.floating[0].caption.width = Infinity },
+    d => { d.floating[0].caption.width = '230px' },
+    d => { d.floating[0].caption.content.content[0].attrs.semantic = 'caption' },
+    d => { d.floating[0].caption.content.content[0].attrs.listLevel = 0 },
+    d => { d.floating[0].caption.content.content.push(p('extra')) },
+    d => { d.floating[0].caption.content.content[0].content.push(p('nested')) },
     d => { d.content.content[1].attrs.objectId = 'missing' },
     d => { d.content.content.push(flowBlock('figure', 'second-flow')) },
     d => { d.content.content.push(p('before')) },
@@ -57,10 +78,12 @@ test('captions use one id-only paragraph and participate in palette replacement'
   assert.equal(empty.content.length, 1)
   assert.deepEqual(Object.keys(empty.content[0].attrs), ['id'])
   const source = doc()
-  source.floating[0].caption.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'detail' } }]
+  assert.equal(source.floating[0].caption.width, 230)
+  source.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'detail' } }]
   assert.equal(paletteEntryUsed(source, 'detail'), true)
   const replaced = replacePaletteEntry(source, 'detail', 'muted')
-  assert.equal(replaced.floating[0].caption.content[0].content[0].marks[0].attrs.color, 'muted')
+  assert.equal(replaced.floating[0].caption.content.content[0].content[0].marks[0].attrs.color, 'muted')
+  assert.equal(replaced.floating[0].caption.width, 230)
   initializeDocument(replaced)
 })
 
@@ -108,7 +131,7 @@ test('structural insertion and conversion preserve bindings and measured annotat
   assert.equal(restored.floating[0].y, 0)
   assert.equal(restored.floating[0].centered, true)
   assert.deepEqual(objectPagePosition(restored, restored.floating[0], { anchors: [{ id: restored.floating[0].anchorId, top: 80 }] }), { x: 300, y: 80 })
-  const inserted = insertFlowObject(source, { ...figure, id: 'another', caption: captionContent('Another figure'), placement: 'float', anchorId: null, y: 100 }, 2)
+  const inserted = insertFlowObject(source, { ...figure, id: 'another', caption: { content: captionContent('Another figure'), width: 180 }, placement: 'float', anchorId: null, y: 100 }, 2)
   validateDocument(inserted)
   assert.equal(inserted.content.content[2].attrs.objectId, 'another')
 })
@@ -140,8 +163,9 @@ test('Flow segments include owner captions and annotations, paste remaps paragra
   assert.equal(added[0].anchorId, block.attrs.id)
   assert.equal(added[1].anchorId, block.attrs.id)
   assert.deepEqual([added[1].x, added[1].y], [-20, -10])
-  assert.equal(added[0].caption.content[0].content[0].text, 'Figure caption')
-  assert.notEqual(added[0].caption.content[0].attrs.id, 'caption-text')
+  assert.equal(added[0].caption.content.content[0].content[0].text, 'Figure caption')
+  assert.notEqual(added[0].caption.content.content[0].attrs.id, 'caption-text')
+  assert.equal(added[0].caption.width, 230)
   const moved = moveSegment(source, range, { index: 3, offset: 0 }, anchors, geometry).doc
   validateDocument(moved)
   assert.deepEqual(moved.content.content.map(block => block.attrs.id), ['before', 'after', 'flow-block'])
@@ -177,7 +201,7 @@ test('imported groups recreate missing Flow blocks and deletion can reanchor to 
   assert.equal(inserted.floating[0].anchorId, inserted.floating[1].anchorId)
   assert.notEqual(inserted.floating[0].anchorId, figure.anchorId)
   source.content.content.splice(1, 0, flowBlock('previous', 'previous-flow'))
-  source.floating.push({ ...figure, id: 'previous', caption: captionContent('Previous figure'), anchorId: 'previous-flow', x: 260 })
+  source.floating.push({ ...figure, id: 'previous', caption: { content: captionContent('Previous figure'), width: 245 }, anchorId: 'previous-flow', x: 260 })
   const measured = { ...options, anchors: [{ id: 'before', top: 20 }, { id: 'previous-flow', top: 45 }, ...anchors.slice(1)],
     geometry: { ...geometry, previous: { x: 300, y: 45, width: 200, height: 20 } } }
   const removed = reconcileObjectDeletions(source, source.floating.filter(object => object.id !== 'figure'), measured)
@@ -196,9 +220,10 @@ test('object copying owns captions and gives their paragraph IDs fresh values', 
   const payload = parseFloating(JSON.stringify(copyFloating(source, new Set(['figure']), geometry)))
   const imported = importFloating(source, payload, anchors)
   const copied = imported.floating.find(object => object.kind === 'image')
-  assert.equal(copied.caption.content[0].content[0].text, 'Figure caption')
-  assert.notEqual(copied.caption.content[0].attrs.id, source.floating[0].caption.content[0].attrs.id)
-  assert.equal(source.floating[0].caption.content[0].attrs.id, 'caption-text')
+  assert.equal(copied.caption.content.content[0].content[0].text, 'Figure caption')
+  assert.notEqual(copied.caption.content.content[0].attrs.id, source.floating[0].caption.content.content[0].attrs.id)
+  assert.equal(source.floating[0].caption.content.content[0].attrs.id, 'caption-text')
+  assert.equal(copied.caption.width, 230)
 })
 
 test('floating clipboard remaps palette references from embedded captions', () => {
@@ -206,14 +231,15 @@ test('floating clipboard remaps palette references from embedded captions', () =
   const entry = { id: 'caption-shade', name: 'Caption shade', strong: '#123456', soft: '#abcdef' }
   source.theme.palette.push(entry)
   destination.theme.palette.push({ ...entry, name: 'Different shade', strong: '#654321', soft: '#fedcba' })
-  source.floating[0].caption.content[0].content[0].marks = [{ type: 'color', attrs: { color: entry.id } }]
+  source.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: entry.id } }]
   const payload = parseFloating(JSON.stringify(copyFloating(source, new Set(['figure']), geometry)))
   const pasted = pasteFloating(destination, payload, anchors)
   validateDocument(pasted)
   const copied = pasted.floating.at(-2)
-  const reference = copied.caption.content[0].content[0].marks[0].attrs.color
+  const reference = copied.caption.content.content[0].content[0].marks[0].attrs.color
   assert.notEqual(reference, entry.id)
   assert.ok(pasted.theme.palette.some(value => value.id === reference))
+  assert.equal(copied.caption.width, 230)
 })
 
 test('the example embeds image, table, and widget captions but no drawing caption', () => {
@@ -222,6 +248,7 @@ test('the example embeds image, table, and widget captions but no drawing captio
   assert.equal(objects.filter(object => object.kind === 'image').every(object => !!object.caption), true)
   assert.equal(objects.filter(object => object.kind === 'table').every(object => !!object.caption), true)
   assert.equal(objects.filter(object => object.kind === 'html').every(object => !!object.caption), true)
+  assert.equal(objects.filter(object => object.caption).every(object => object.caption.content.type === 'doc'), true)
   assert.equal(objects.filter(object => object.kind === 'drawing').every(object => !object.caption), true)
   initializeDocument(example)
 })

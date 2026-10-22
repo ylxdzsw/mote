@@ -5,6 +5,7 @@ import { captionContent, supportsCaption, isText, paragraph, type FloatingObject
 import { useHistory } from '../document/history'
 import { convertObjectPlacement, insertDocumentObjects, reconcileObjectDeletions } from '../document/flow'
 import { copyFloating, floatingClipboardJSON, floatingCopyIds, floatingText, importFloating, parseFloating, FLOATING_MIME } from '../document/floatingClipboard'
+import { copyParagraphs, PARAGRAPH_MIME } from '../document/paragraphClipboard'
 import { TextEditor } from '../editor/TextEditor'
 import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
@@ -20,7 +21,7 @@ import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../edit
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
 import { patchFloating } from './patchFloating'
-import { anchorPoint, boundedTranslation, contains, distance, fullyOverlaps, gridSize, horizontalBounds, insertionPosition, intersects, type Box, type Geometries, type Point } from './floatingGeometry'
+import { anchorPoint, boundedTranslation, constrainCaptionResize, contains, distance, fullyOverlaps, gridSize, horizontalBounds, insertionPosition, intersects, type Box, type Geometries, type Point } from './floatingGeometry'
 import type { ViewSettings } from '../app/GlobalSettings'
 import { PanelIcon } from '../app/PanelIcon'
 import './floating.css'
@@ -38,6 +39,7 @@ export interface CanvasActions {
   clearSelection: () => void
   remove: () => void; duplicate: () => void; caption: (id?: string) => void
   insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[]
+  selectOwner: () => void; captionWidth: (width: number | null) => void
   placement: (placement: 'flow' | 'float') => void
   segmentSelection: () => { range: SegmentRange; area: Area } | null
   segmentContext: () => SegmentContext | undefined; locateSegment: (id: string) => void
@@ -46,6 +48,7 @@ const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
   selectedIds: string[]; onSelect: (ids: string[]) => void
+  onCaptionSelection?: (id: string | null) => void
   onInteraction?: (event: React.SyntheticEvent) => void
   tool: CreationTool; onToolChange: (tool: CreationTool) => void
   onMainChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
@@ -72,12 +75,13 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'katex' && !object.latex.trim())
   || (object.kind === 'code' && !object.source.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
   const footprint = useRef<HTMLDivElement>(null)
   const scrollFloor = useScrollFloor(stage, footprint, editable)
+  const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const { scale, automatic, zoomTo, reset, fit } = useDocumentZoom(stage, sheet, doc.width, editable, initialScale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
@@ -218,7 +222,25 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (empty.length) history.edit({ normalize: true }, () => onFloatingChange(withoutObjects(empty)))
   }, [selectedIds, editable, history.revision])
 
-  function select(ids: string[]) {
+  const previousCaption = useRef<{ id: string | null; revision: number }>({ id: null, revision: history.revision })
+  useLayoutEffect(() => {
+    const previous = previousCaption.current
+    previousCaption.current = { id: editable ? selectedCaptionId : null, revision: history.revision }
+    if (previous.revision !== history.revision || !previous.id || editable && previous.id === selectedCaptionId) return
+    const object = doc.floating.find(object => object.id === previous.id)
+    if (object && supportsCaption(object) && object.caption && !lockedIds.has(object.id) && !contentText(object.caption.content).replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, '')) {
+      history.edit({ normalize: true }, () => onNoteChange(object.id, { caption: null }))
+    }
+  }, [selectedCaptionId, editable, history.revision])
+  useLayoutEffect(() => {
+    const object = doc.floating.find(object => object.id === selectedCaptionId)
+    if (selectedCaptionId && (selectedIds.length !== 1 || selectedIds[0] !== selectedCaptionId || !object || !supportsCaption(object) || !object.caption)) {
+      setSelectedCaptionId(null); onCaptionSelection?.(null)
+    }
+  }, [selectedIds, selectedCaptionId, doc.floating])
+
+  function select(ids: string[], captionId: string | null = null) {
+    setSelectedCaptionId(captionId); onCaptionSelection?.(captionId)
     onSelect(ids)
     setClipboardNotice('')
   }
@@ -248,6 +270,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const next = convertObjectPlacement(doc, object.id, mode, { anchors, geometry, index: target.point.index,
       textLeft: doc.margins.left, textWidth: pageWidth() - doc.margins.left - doc.margins.right })
     if (commitDocument(next)) segments.clear()
+  }
+  function focusCaption(id: string, text = false) {
+    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"] .object-caption${text ? ' .tiptap' : ''}`)?.focus({ preventScroll: true }))
   }
   function focusObject(id: string, text = false) {
     requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' :is(.tiptap, [data-code-source])' : ''}`)?.focus({ preventScroll: true }))
@@ -304,18 +329,18 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     captured.current = { element: event.currentTarget, pointerId: event.pointerId }
     setManipulating(true)
   }
-  function begin(id: string, part: DragPart, event: PointerEvent) {
+  function begin(id: string, part: DragPart, event: PointerEvent, caption = false) {
     if (event.button !== 0) return
     const task = segmentTask(id)
     if (task) { event.preventDefault(); event.stopPropagation(); selectAISegment(task.id); return }
     const object = doc.floating.find(object => object.id === id)!
-    if (sizeLocked(id) && part !== 'move') { event.preventDefault(); event.stopPropagation(); return }
+    if (sizeLocked(id) && part !== 'move' && part !== 'caption-width') { event.preventDefault(); event.stopPropagation(); return }
     capture(event)
     if (event.shiftKey && part === 'move') { const ids = selectedIds.includes(id) ? selectedIds.filter(value => value !== id) : [...selectedIds, id]; select(ids); onActive(null); if (ids.length) focusObject(ids.at(-1)!); return }
-    const ids = object.placement === 'flow' || selectedIds.some(id => doc.floating.find(object => object.id === id)?.placement === 'flow') ? [id]
+    const ids = caption || object.placement === 'flow' || selectedIds.some(id => doc.floating.find(object => object.id === id)?.placement === 'flow') ? [id]
       : selectedIds.includes(id) && part === 'move' ? selectedIds : [id]
-    select(ids); onActive(null)
-    focusObject(id)
+    select(ids, caption ? id : null); onActive(null)
+    if (caption) focusCaption(id); else focusObject(id)
     history.boundary()
     drag.current = { part, id, ids, start: point(event), objects: doc.floating, geometry, patches: {}, moved: false, additive: [] }
   }
@@ -333,7 +358,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const inside = !!target.closest('.sheet')
     if (inside && spaces.begin(event)) return
     if (tool && inside) {
-      if (target.closest('.object-handle, .floating-border-right, .table-column-divider')) return
+      if (target.closest('.object-handle, .floating-border-right, .caption-border-right, .table-column-divider')) return
       capture(event); select([]); onActive(null); history.boundary()
       const start = boundedPoint(snap(point(event), event.altKey), 16, .5)
       const base = { id: crypto.randomUUID(), ...anchorPoint(start, anchors), width: boundedWidth(start.x, 128, 16, .5), placement: 'float' as const }
@@ -408,6 +433,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         const left = doc.margins.left, available = pageWidth() - left - doc.margins.right
         const center = left + (available - box.width) / 2
         let x = Math.max(left, Math.min(left + Math.max(0, available - box.width), box.x + p.x - d.start.x))
+        x = box.x + boundedTranslation(d.objects, d.geometry, [object.id], { x: x - box.x, y: 0 }, pageWidth()).x
         const centered = !event.altKey && Math.abs(x - center) * scale <= 8
         if (centered) x = center
         const target = segments.target(p.y, event.altKey)
@@ -420,6 +446,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const dy = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].y)), placement.y - box.y)
       d.patches = shifted(d.objects, d.geometry, d.ids, dx, dy)
       setPreviews(d.patches); return
+    } else if (d.part === 'caption-width' && supportsCaption(object) && object.caption) {
+      const width = object.caption.width ?? object.width
+      const edge = snap({ x: box.x + box.width / 2 + width / 2 + p.x - d.start.x, y: box.y }, event.altKey || object.placement === 'flow')
+      patch = { caption: { ...object.caption, width: boundedCaptionWidth(object, box, 2 * (edge.x - box.x - box.width / 2)) } }
     } else if (d.part === 'width') {
       const edge = snap({ x: box.x + box.width + p.x - d.start.x, y: box.y }, event.altKey || object.placement === 'flow')
       patch = { width: object.placement === 'flow' ? Math.min(pageWidth() - doc.margins.left - doc.margins.right - (object.centered ? 0 : Math.max(0, object.x)), Math.max(16, edge.x - box.x))
@@ -438,6 +468,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       patch = { x: west ? fixed.x - width : fixed.x, top: Math.max(0, north ? fixed.y - height : fixed.y), width, height }
       if (object.placement === 'flow') { delete patch.top; if (object.centered) delete patch.x }
     }
+    patch = constrainCaptionResize(object, patch, box, pageWidth())
     d.patches = { [object.id]: patch }; setPreviews(d.patches)
   }
   function applyPatches(objects: FloatingObject[], patches: FloatingPreviews) {
@@ -518,6 +549,21 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (!selectedIds.length || !ownsClipboard() || (document.activeElement as HTMLElement).isContentEditable || !event.clipboardData) return
       event.preventDefault(); event.stopImmediatePropagation(); setClipboardNotice('')
       try {
+        if (selectedCaptionId) {
+          const object = doc.floating.find(object => object.id === selectedCaptionId)!
+          if (lockedIds.has(object.id)) throw new Error('Accept or discard the AI task before copying this caption.')
+          if (!supportsCaption(object) || !object.caption) return
+          const node = object.caption.content.content![0]
+          const payload = copyParagraphs(doc, [{ ...node, attrs: { ...node.attrs, semantic: 'caption' } }])
+          const carrier = document.createElement('div')
+          carrier.dataset.moteParagraphs = JSON.stringify(payload)
+          carrier.innerHTML = sheet.current!.querySelector(`[data-note-id="${object.id}"] .object-caption .tiptap`)!.innerHTML
+          event.clipboardData.setData(PARAGRAPH_MIME, JSON.stringify(payload))
+          event.clipboardData.setData('text/html', carrier.outerHTML)
+          event.clipboardData.setData('text/plain', (node.content ?? []).map(node => node.type === 'hardBreak' ? '\n' : node.text ?? '').join(''))
+          if (event.type === 'cut') removeCaption(object.id)
+          return
+        }
         const ids = floatingCopyIds(doc.floating, selectedIds)
         if ([...ids].some(id => lockedIds.has(id))) throw new Error('Accept or discard the selected AI task before copying or cutting these elements.')
         const payload = copyFloating(doc, ids, geometry), json = JSON.stringify(payload)
@@ -589,19 +635,36 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const copies = applyPatches(originals, patches).map(original => {
       const object = structuredClone(original)
       object.id = mapping.get(original.id)!
-      if (supportsCaption(object) && object.caption) object.caption = freshNode(object.caption, new Set())
+      if (supportsCaption(object) && object.caption) object.caption.content = freshNode(object.caption.content, new Set())
       return object
     })
     history.boundary(); onFloatingChange([...doc.floating, ...copies]); select(copies.map(object => object.id)); onActive(null)
   }
+  function boundedCaptionWidth(object: FloatingObject, box: Box, width: number) {
+    const center = box.x + object.width / 2
+    return Math.max(1, Math.min(Math.max(16, width), 2 * Math.max(0, Math.min(center, pageWidth() - center))))
+  }
+  function captionWidth(width: number | null) {
+    const object = doc.floating.find(object => object.id === selectedIds[0])
+    if (!editable || !object || !supportsCaption(object) || !object.caption || segmentTask(object.id)) return
+    const caption = { ...object.caption }
+    if (width === null) delete caption.width
+    else caption.width = boundedCaptionWidth(object, geometry[object.id], width)
+    onNoteChange(object.id, { caption })
+  }
+  function removeCaption(id: string) {
+    if (lockedIds.has(id)) return
+    history.boundary(); onNoteChange(id, { caption: null }); history.boundary()
+    select([id]); onActive(null); focusObject(id)
+  }
   function caption(id = selectedIds[0]) {
     const target = doc.floating.find(object => object.id === id)
     if (!editable || !target || !supportsCaption(target) || lockedIds.has(id)) return
-    if (!target.caption) { history.boundary(); onNoteChange(id, { caption: captionContent() }); history.boundary() }
-    select([id]); onActive(null)
-    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"] .object-caption .tiptap`)?.focus())
+    if (!target.caption) { history.boundary(); onNoteChange(id, { caption: { content: captionContent() } }); history.boundary() }
+    select([id], id); onActive(null)
+    focusCaption(id, true)
   }
-  useLayoutEffect(() => { onActions({ remove, duplicate, caption, placement, without: withoutObjects, insert: insertObjects,
+  useLayoutEffect(() => { onActions({ remove, duplicate, caption, captionWidth, selectOwner: () => { const id = selectedIds[0]; select(selectedIds); onActive(null); if (id) focusObject(id) }, placement, without: withoutObjects, insert: insertObjects,
     clearSelection: () => {
       cancel(); segments.clear(); setActiveSegmentId(null); select([])
       const focused = document.activeElement
@@ -620,16 +683,18 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       })
     },
   }) })
-  function key(id: string, event: React.KeyboardEvent) {
+  function key(id: string, event: React.KeyboardEvent, captionSelected = false) {
     if (!editable || isComposingKey(event.nativeEvent)) return
     const task = segmentTask(id)
     if (task) {
+      if (captionSelected) return
       if (['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); aiReview?.deleteTarget?.(task.id) }
       return
     }
-    if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); remove(); return }
+    if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); if (captionSelected) removeCaption(id); else remove(); return }
     if (event.key === 'Enter') {
       event.preventDefault()
+      if (captionSelected) { if (!lockedIds.has(id)) focusCaption(id, true); return }
       if (doc.floating.find(object => object.id === id)?.kind === 'drawing' && !lockedIds.has(id)) { onDrawingEdit?.(id); return }
       if ((isText(doc.floating.find(object => object.id === id)!) || doc.floating.find(object => object.id === id)?.kind === 'code') && !lockedIds.has(id)) { select([id]); focusObject(id, true) }
       else caption(id)
@@ -642,6 +707,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     event.preventDefault()
     const step = event.shiftKey ? 1 : event.altKey ? 8 : gridSize
     const part = (event.target as HTMLElement).dataset.floatingControl
+    if ((event.target as HTMLElement).hasAttribute('data-caption-control')) {
+      if (direction.x && !segmentTask(id)) {
+        const object = doc.floating.find(object => object.id === id)!
+        if (supportsCaption(object) && object.caption) onNoteChange(id, { caption: { ...object.caption, width: boundedCaptionWidth(object, geometry[id], (object.caption.width ?? object.width) + direction.x * step * 2) } })
+      }
+      return
+    }
     if (sizeLocked(id) && part) return
     const object = doc.floating.find(object => object.id === id)!
     const width = (next: number) => object.placement === 'flow'
@@ -654,7 +726,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (object.placement === 'flow') {
       if (direction.x) {
         const available = pageWidth() - doc.margins.left - doc.margins.right
-        onNoteChange(id, { x: Math.max(0, Math.min(Math.max(0, available - object.width), geometry[id].x - doc.margins.left + direction.x * (event.shiftKey ? 10 : 1))), centered: false })
+        const box = geometry[id]
+        const desired = Math.max(0, Math.min(Math.max(0, available - object.width), box.x - doc.margins.left + direction.x * (event.shiftKey ? 10 : 1))) + doc.margins.left
+        onNoteChange(id, { x: box.x - doc.margins.left + boundedTranslation(doc.floating, geometry, [id], { x: desired - box.x, y: 0 }, pageWidth()).x, centered: false })
       } else {
         const index = doc.content.content!.findIndex(node => node.attrs?.objectId === id)
         const destination = Math.max(0, Math.min(doc.content.content!.length, index + (direction.y < 0 ? -1 : 2)))
@@ -703,12 +777,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
           const segment = segmentTask(note.id)
           return <FloatingObjectView key={note.id} note={note} inFlow={inFlow} geometry={inFlow ? { ...box, x: box.x - doc.margins.left } : box} editable={editable} locked={lockedIds.has(note.id) || !!segment} sizeLocked={sizeLocked(note.id) || !!segment} selected={segment ? activeSegmentId === segment.id : selectedIds.includes(note.id) || creating?.id === note.id}
+            captionSelected={selectedIds.length === 1 && selectedCaptionId === note.id} captionResizable={!segment}
             contentActive={segment ? activeSegmentId === segment.id && note.kind === 'html' : selectedIds.length === 1 && selectedIds[0] === note.id && !manipulating}
             aiReview={canvasReview} aiTask={editable ? segment ?? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
-            onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (segment) { selectAISegment(segment.id); return }; if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
-            onChange={patch => onNoteChange(note.id, patch)} onCaption={() => caption(note.id)} onDrawingEdit={() => onDrawingEdit?.(note.id)} onKey={event => key(note.id, event)} />
+            onBegin={(part, event, caption) => begin(note.id, part, event, caption)} onActive={(editor, caption = false) => { if (segment) { selectAISegment(segment.id); return }; if (!drag.current) { select([note.id], caption ? note.id : null); onActive(editor) } }}
+            onChange={patch => onNoteChange(note.id, patch)} onCaption={() => caption(note.id)} onDrawingEdit={() => onDrawingEdit?.(note.id)} onKey={(event, caption) => key(note.id, event, caption)} />
   }
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}

@@ -96,28 +96,31 @@ function content(value, label = 'content', state = { count: 0, depth: 0 }, flowD
 }
 
 function validateCaption(value, label) {
-  const doc = record(value, label)
-  if (doc.type !== 'doc' || Object.keys(doc).some(key => !['type', 'content'].includes(key)) || !Array.isArray(doc.content) || doc.content.length !== 1) throw new HttpError(400, `${label} must contain exactly one paragraph`)
-  const paragraph = record(doc.content[0], `${label}.content[0]`)
+  const caption = record(value, label)
+  if (!Object.hasOwn(caption, 'content') || Object.keys(caption).some(key => !['content', 'width'].includes(key))) throw new HttpError(400, `${label} must contain content and optional width`)
+  if (Object.hasOwn(caption, 'width')) finite(caption.width, `${label}.width`, Number.MIN_VALUE)
+  const doc = record(caption.content, `${label}.content`)
+  if (doc.type !== 'doc' || Object.keys(doc).some(key => !['type', 'content'].includes(key)) || !Array.isArray(doc.content) || doc.content.length !== 1) throw new HttpError(400, `${label}.content must contain exactly one paragraph`)
+  const paragraph = record(doc.content[0], `${label}.content.content[0]`)
   if (paragraph.type !== 'paragraph' || Object.keys(paragraph).some(key => !['type', 'attrs', 'content'].includes(key))) throw new HttpError(400, `${label} must contain exactly one paragraph`)
-  const attrs = record(paragraph.attrs, `${label}.content[0].attrs`)
+  const attrs = record(paragraph.attrs, `${label}.content.content[0].attrs`)
   if (Object.keys(attrs).length !== 1 || !Object.hasOwn(attrs, 'id')) throw new HttpError(400, `${label} paragraph attrs must contain only id`)
-  safeId(attrs.id, `${label}.content[0].attrs.id`)
-  if (paragraph.content !== undefined && !Array.isArray(paragraph.content)) throw new HttpError(400, `${label}.content[0].content must be an array`)
-  content(doc, label)
+  safeId(attrs.id, `${label}.content.content[0].attrs.id`)
+  if (paragraph.content !== undefined && !Array.isArray(paragraph.content)) throw new HttpError(400, `${label}.content.content[0].content must be an array`)
+  content(doc, `${label}.content`)
   for (const [index, value] of (paragraph.content ?? []).entries()) {
-    const node = record(value, `${label}.content[0].content[${index}]`)
+    const node = record(value, `${label}.content.content[0].content[${index}]`)
     if (node.type === 'text') {
       if (!Object.hasOwn(node, 'text') || Object.keys(node).some(key => !['type', 'text', 'marks'].includes(key))) throw new HttpError(400, `${label} supports only inline text and hard breaks`)
     } else if (node.type === 'hardBreak') {
       if (Object.keys(node).some(key => !['type', 'marks'].includes(key))) throw new HttpError(400, `${label} supports only inline text and hard breaks`)
     } else throw new HttpError(400, `${label} supports only inline text and hard breaks`)
     for (const [markIndex, markValue] of (node.marks ?? []).entries()) {
-      const mark = record(markValue, `${label}.content[0].content[${index}].marks[${markIndex}]`)
+      const mark = record(markValue, `${label}.content.content[0].content[${index}].marks[${markIndex}]`)
       const allowed = mark.type === 'bold' ? ['type'] : ['type', 'attrs']
       if (Object.keys(mark).some(key => !allowed.includes(key))) throw new HttpError(400, `${label} uses an unsupported mark shape`)
       if (mark.type !== 'bold') {
-        const markAttrs = record(mark.attrs, `${label}.content[0].content[${index}].marks[${markIndex}].attrs`)
+        const markAttrs = record(mark.attrs, `${label}.content.content[0].content[${index}].marks[${markIndex}].attrs`)
         const attr = mark.type === 'color' ? 'color' : 'decoration'
         if (Object.keys(markAttrs).length !== 1 || !Object.hasOwn(markAttrs, attr)) throw new HttpError(400, `${label} uses an unsupported mark shape`)
       }
@@ -172,7 +175,7 @@ function palette(document) {
   for (const object of document.floating) {
     if (object.decoration) ref(object.decoration.color, 'decoration color')
     if (object.content) visit(object.content)
-    if (object.caption) visit(object.caption)
+    if (object.caption) visit(object.caption.content)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
     for (const key of ['background', 'borderColor']) if (object[key] != null) ref(object[key], `${key} color`)
   }
@@ -264,7 +267,7 @@ export function validateFloating(value, label = 'floating object', options = {})
 function validateCaptionIds(blocks, objects, scope) {
   const ids = new Set([...blocks.map(block => block.attrs?.id), ...objects.map(object => object.id)])
   for (const object of objects) if (object.caption) {
-    const id = object.caption.content[0].attrs.id
+    const id = object.caption.content.content[0].attrs.id
     if (ids.has(id)) throw new HttpError(400, `${scope} caption paragraph IDs must be unique and distinct from object and main block IDs`)
     ids.add(id)
   }
@@ -348,7 +351,7 @@ function segmentObjectPaletteReferences(object, result = new Set()) {
   if (object.decoration) result.add(object.decoration.color)
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) segmentPaletteReferences(object.content, result)
-  if ('caption' in object) segmentPaletteReferences(object.caption, result)
+  if ('caption' in object) segmentPaletteReferences(object.caption.content, result)
   for (const key of ['background', 'borderColor']) {
     const value = object[key]
     if (typeof value === 'string') result.add(value)
@@ -599,7 +602,18 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     const hasScreenshotPath = candidate.screenshotPath !== undefined
     let candidateObject = hasScreenshotPath && (candidate.object.kind ?? 'text') === 'html' ? { ...candidate.object } : candidate.object
     if (hasScreenshotPath) delete candidateObject.screenshot
-    if (!selectedTarget.isNew && ['image', 'html', 'table'].includes(original.kind) && original.caption !== undefined && !Object.hasOwn(candidateObject, 'caption') && (candidateObject.kind ?? 'text') === original.kind) candidateObject = { ...candidateObject, caption: structuredClone(original.caption) }
+    if (!selectedTarget.isNew && ['image', 'html', 'table'].includes(candidateObject.kind)) {
+      const sameKind = candidateObject.kind === original.kind
+      if (sameKind && original.caption !== undefined && !Object.hasOwn(candidateObject, 'caption')) candidateObject = { ...candidateObject, caption: structuredClone(original.caption) }
+      if (Object.hasOwn(candidateObject, 'caption')) {
+        validateCaption(candidateObject.caption, 'candidate.object.caption')
+        const caption = { ...candidateObject.caption }
+        const width = sameKind ? original.caption?.width : undefined
+        if (width === undefined) delete caption.width
+        else caption.width = width
+        candidateObject = { ...candidateObject, caption }
+      }
+    }
     validateFloating(candidateObject, 'candidate.object', { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
     validateCaptionIds(document.content.content ?? [], document.floating.map(object => object.id === candidateObject.id ? candidateObject : object), 'candidate.object')
     output.object = candidateObject

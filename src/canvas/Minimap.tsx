@@ -54,7 +54,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         const miniature = source.cloneNode(true) as HTMLDivElement
         miniature.className = 'sheet is-reading minimap-sheet'
         miniature.style.height = getComputedStyle(source).height
-        miniature.querySelectorAll('[data-widget-live], [data-ai-controls], [data-code-copy], .drawing-edit-button, .code-editor, .floating-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .marquee-selection, .image-placement').forEach(node => node.remove())
+        miniature.querySelectorAll('[data-widget-live], [data-ai-controls], [data-code-copy], .drawing-edit-button, .code-editor, .floating-border-right, .caption-border-right, .space-hint, .table-column-controls, .object-handle, .vector-hit, .marquee-selection, .image-placement').forEach(node => node.remove())
         miniature.querySelectorAll<HTMLElement>('*').forEach(node => {
           for (const name of node.getAttributeNames()) {
             if (name === 'id' || name === 'tabindex' || name === 'contenteditable' || name === 'role' || name.startsWith('aria-')) node.removeAttribute(name)

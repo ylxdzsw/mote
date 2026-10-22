@@ -211,7 +211,7 @@ export function objectPaletteReferences(object: FloatingObject, result = new Set
   if (isText(object) && object.decoration) result.add(object.decoration.color)
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) paletteReferences(object.content, result)
-  if (supportsCaption(object) && object.caption) paletteReferences(object.caption, result)
+  if (supportsCaption(object) && object.caption) paletteReferences(object.caption.content, result)
   for (const key of ['background', 'borderColor'] as const) {
     const value = (object as unknown as Record<string, unknown>)[key]
     if (typeof value === 'string') result.add(value)
@@ -306,7 +306,7 @@ export function remapObjectPalette(object: FloatingObject, remap: Map<string, st
     object.strokes = object.strokes.map(stroke => ({ ...stroke, color: reference(stroke.color) }))
     object.labels = object.labels.map(label => ({ ...label, color: reference(label.color) }))
   }
-  if (supportsCaption(object) && object.caption) object.caption = remapPaletteContent(object.caption, remap)
+  if (supportsCaption(object) && object.caption) object.caption = { ...object.caption, content: remapPaletteContent(object.caption.content, remap) }
 }
 
 export function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
@@ -328,7 +328,7 @@ export function collectNodeIds(node: JSONContent, used: Set<string>) {
 
 export function collectObjectNodeIds(object: FloatingObject, used: Set<string>) {
   if ('content' in object) collectNodeIds(object.content, used)
-  if (supportsCaption(object) && object.caption) collectNodeIds(object.caption, used)
+  if (supportsCaption(object) && object.caption) collectNodeIds(object.caption.content, used)
 }
 
 function normalizeSpacers(blocks: JSONContent[]) {
@@ -628,7 +628,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
       next.y = mapped.y
       if ('x' in mapped) next.x = mapped.x as number
       if ('content' in next) next.content = remapPaletteContent(freshNode(next.content, used), paletteMap)
-      if (supportsCaption(next) && next.caption) next.caption = freshNode(next.caption, used)
+      if (supportsCaption(next) && next.caption) next.caption = { ...next.caption, content: freshNode(next.caption.content, used) }
       remapObjectPalette(next, paletteMap)
       retained.push(next)
     }

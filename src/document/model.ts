@@ -81,6 +81,11 @@ interface FloatingGeometry {
   centered?: boolean
 }
 
+export interface Caption {
+  content: JSONContent
+  width?: number // Native document pixels.
+}
+
 export interface FloatingText extends FloatingGeometry {
   kind?: 'text'
   content: JSONContent
@@ -93,14 +98,14 @@ export interface FloatingText extends FloatingGeometry {
 export interface FloatingTable extends FloatingGeometry {
   kind: 'table'
   content: JSONContent
-  caption?: JSONContent
+  caption?: Caption
 }
 
 export interface FloatingImage extends FloatingGeometry {
   kind: 'image'
   src: string
   alt: string
-  caption?: JSONContent
+  caption?: Caption
 }
 
 export interface FloatingDrawing extends FloatingGeometry {
@@ -129,7 +134,7 @@ export interface FloatingHTMLWidget extends FloatingGeometry {
   screenshot: string
   alt: string
   height: number
-  caption?: JSONContent
+  caption?: Caption
 }
 export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
 export type FloatingKind = NonNullable<FloatingObject['kind']>
@@ -138,7 +143,7 @@ export const supportsCaption = (object: FloatingObject): object is FloatingImage
   object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
 export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
   content?: JSONContent; src?: string; alt?: string; height?: number
-  caption?: JSONContent | null
+  caption?: Caption | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string; scheme?: 'light' | 'dark'
   strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
@@ -191,7 +196,7 @@ export function createDocument(): MoteDocument {
   const base = (width: number) => ({ id: crypto.randomUUID(), anchorId: null, x: 0, y: 0, width, placement: 'flow' as const, centered: true })
   const image = flow({ ...base(600), kind: 'image', src: landscape, alt: 'A winding path between green hills beneath a golden sun.' })
   const imageObject = floating.find(object => object.id === image.attrs!.objectId)!
-  if (supportsCaption(imageObject)) imageObject.caption = captionContent('A path worth following. This caption stays with the image, and the next paragraph follows both.')
+  if (supportsCaption(imageObject)) imageObject.caption = { content: captionContent('A path worth following. This caption stays with the image, and the next paragraph follows both.') }
   floating.push({ ...base(210), placement: 'float', kind: 'text', anchorId: image.attrs!.id, x: 400, y: 36,
     padding: '0.75em', background: 'paper', borderColor: 'primary',
     content: { type: 'doc', content: [paragraph('A thought on the landscape', 'caption'), paragraph('Move the image: this note follows in both directions.', 'caption')] } })
@@ -204,7 +209,7 @@ export function createDocument(): MoteDocument {
     ['Figure, table, code, widget', 'Flow — its own vertical space', 'Owner caption (when supported) and anchored notes'],
     ['Side note or annotation', 'Float — positioned on the page', 'Its own text content'],
     ['A composed section', 'Select it in the left gutter', 'Text, spaces, and owned objects'],
-  ]), caption: captionContent('A compact comparison of Flow, Float, and the objects that travel together.') })
+  ]), caption: { content: captionContent('A compact comparison of Flow, Float, and the objects that travel together.') } })
   const drawing = flow({ ...base(640), kind: 'drawing', height: 220, background: null,
     strokes: [
       { color: 'primary', width: 3, points: [[44, 155], [63, 126], [89, 145], [119, 98], [147, 116], [177, 65], [207, 92], [242, 48], [270, 74]] },
@@ -216,10 +221,10 @@ export function createDocument(): MoteDocument {
     source: '// Give each thought a place.\nconst workspace = {\n  write: "Follow the thread",\n  flow: "Make room for a figure",\n  float: "Keep a question nearby",\n}\nconsole.log(workspace.flow)' })
   const attention = flow({ ...base(780), kind: 'html', height: 400, html: attentionHTML, screenshot: attentionScreenshot,
     alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.',
-    caption: captionContent('A week of attention, with a measure selector for exploring the chart.') })
+    caption: { content: captionContent('A week of attention, with a measure selector for exploring the chart.') } })
   const motion = flow({ ...base(780), kind: 'html', height: 400, html: motionHTML, screenshot: motionScreenshot,
     alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.',
-    caption: captionContent('Five ideas trade places as votes arrive.') })
+    caption: { content: captionContent('Five ideas trade places as votes arrive.') } })
   return {
     version: 'V0', id: crypto.randomUUID(), width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 }, theme: structuredClone(defaultTheme),
