@@ -20,7 +20,7 @@ const { resolveGeometry, horizontalBounds, boundedTranslation, constrainCaptionR
 const p = id => ({ ...paragraph(id), attrs: { id, semantic: 'body' } })
 const figure = { id: 'figure', kind: 'image', placement: 'flow', anchorId: 'flow-block', x: 30, y: 0, width: 200,
   src: 'data:image/png;base64,AA==', alt: 'Figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Figure caption' }] }] }, width: 230 } }
-const annotation = { id: 'annotation', kind: 'code', placement: 'float', anchorId: 'flow-block', x: -20, y: -10, width: 40, source: 'x', language: 'text', scheme: 'light' }
+const annotation = { id: 'annotation', kind: 'code', placement: 'float', anchorId: 'flow-block', x: -20, y: -10, width: 40, source: 'x', language: 'text' }
 const doc = () => ({ version: 'V0', id: 'document', width: 800, margins: { top: 20, left: 40, right: 40, bottom: 20 }, theme: structuredClone(defaultTheme),
   content: { type: 'doc', content: [p('before'), flowBlock('figure', 'flow-block'), p('after')] }, floating: structuredClone([figure, annotation]) })
 const anchors = [{ id: 'before', top: 20, bottom: 50 }, { id: 'flow-block', top: 80, bottom: 200 }, { id: 'after', top: 240, bottom: 270 }]

@@ -113,7 +113,6 @@ export interface FloatingCode extends FloatingGeometry {
   kind: 'code'
   source: string
   language: string
-  scheme: 'light' | 'dark'
 }
 
 export interface FloatingHTMLWidget extends FloatingGeometry {
@@ -133,7 +132,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
   content?: JSONContent; src?: string; alt?: string; height?: number
   caption?: Caption | null
   latex?: string; html?: string; screenshot?: string
-  source?: string; language?: string; scheme?: 'light' | 'dark'
+  source?: string; language?: string
   style?: TableStyle; headerRow?: boolean
   strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
   background?: string | null; padding?: ThemeLength; decoration?: BoxDecoration | null
@@ -224,7 +223,7 @@ export function createDocument(): MoteDocument {
       { color: 'gray3', width: 2, points: [[295, 102], [324, 102], [316, 94], [324, 102], [316, 110]] },
     ], labels: [{ x: 48, y: 190, text: 'Sketch the thought', color: 'gray2', size: 18 }, { x: 356, y: 190, text: 'Refine it with Assistant', color: 'gray2', size: 18 }] })
   const formula = flow({ ...base(800), kind: 'katex', latex: exampleMath.trim() })
-  const code = flow({ ...base(760), kind: 'code', language: 'javascript', scheme: 'light',
+  const code = flow({ ...base(760), kind: 'code', language: 'javascript',
     source: '// Give each thought a place.\nconst workspace = {\n  write: "Follow the thread",\n  flow: "Make room for a figure",\n  float: "Keep a question nearby",\n}\nconsole.log(workspace.flow)' })
   const attention = flow({ ...base(780), kind: 'html', height: 400, html: attentionHTML, screenshot: attentionScreenshot,
     alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.',

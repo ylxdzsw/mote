@@ -285,7 +285,6 @@ function checkFloating(value: unknown, index: number, ids: Set<string>, captionI
   if (kind === 'code') {
     text(object.source, `${path}.source`)
     if (!/^[A-Za-z0-9][A-Za-z0-9_+.-]{0,63}$/.test(text(object.language, `${path}.language`))) invalid(`${path}.language is unsupported`)
-    if (!['light', 'dark'].includes(object.scheme as string)) invalid(`${path}.scheme is unsupported`)
     return
   }
   if (kind === 'html') {

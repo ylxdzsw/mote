@@ -141,7 +141,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
     </nav>
     {palette ? <PaletteEditor theme={theme} onChange={onChange} /> : <section className="panel-section class-properties" key={selected}>
       <h2>{classLabel(selected)}</h2>
-      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isCode ? 'Every code object uses monospace typography. Its own light or dark syntax scheme controls colors.' : isMath ? 'Math follows Defaults except for size and color overrides.' : 'Every paragraph with this meaning follows this style.'}</p>
+      <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isCode ? 'Every code object uses monospace typography. Syntax colors follow the document appearance.' : isMath ? 'Math follows Defaults except for size and color overrides.' : 'Every paragraph with this meaning follows this style.'}</p>
       {(defaults || isParagraphBlock || isMath || isCode) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px){isMath ? '.' : ', including spacing and line height. × line height follows the local font size.'}</p>}
       {(defaults || isParagraphBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
@@ -162,9 +162,9 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         {length('letterSpacing', 'Letter spacing', -64, 64, .1)}
         {!isCode && <div className="paired-fields">{length('spaceBefore', 'Space before', 0, 2000)}{length('spaceAfter', 'Space after', 0, 2000)}</div>}
       </>}
-      <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: pageColor(theme) }} aria-label="Style sample">
+      <div className="theme-sample text-content" lang={language} data-mode={theme.mode} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: pageColor(theme) }} aria-label="Style sample">
         {selected === 'math' ? <MathView latex="E=mc^2" />
-          : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', anchorId: null, x: 0, y: 0, width: 300, placement: 'float', language: 'javascript', scheme: theme.mode, source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
+          : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', anchorId: null, x: 0, y: 0, width: 300, placement: 'float', language: 'javascript', source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
           : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，保留V0草稿。</span></p>}
       </div>

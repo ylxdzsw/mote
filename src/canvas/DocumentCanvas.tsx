@@ -95,7 +95,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const base = { id: crypto.randomUUID(), anchorId: null, x: 0, y: 0, width: 340, placement: 'float' as const }
     return tool === 'ai' ? aiPlaceholder(base)
       : tool === 'text' ? { ...base, kind: 'text', content: { type: 'doc', content: [paragraph('')] } }
-      : tool === 'code' ? { ...base, kind: 'code', width: 420, source: '', language: 'plaintext', scheme: 'light' }
+      : tool === 'code' ? { ...base, kind: 'code', width: 420, source: '', language: 'plaintext' }
       : { ...base, kind: 'drawing', width: 480, height: 320, strokes: [], labels: [], background: null }
   }, [tool])
   const [inserting, setInserting] = useState<FloatingObject[]>([])
@@ -869,7 +869,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         height: `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((tool && tool !== 'paragraph') || imagePlacement.active || creating || Object.keys(previews).some(id => doc.floating.find(object => object.id === id)?.placement !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${imagePlacement.active ? 'has-image-placement' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
-        ref={sheet} lang={doc.language ?? 'en'} data-floating-preview={active ? '' : undefined}
+        ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.mode} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
         onDropCapture={event => {
@@ -900,7 +900,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>
       {/* Outside the sheet so layout measurement, minimaps, and exports never see it. */}
-      {editable && creationObject && insertionHint && !creating && !(tool === 'ai' && insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert
+      {editable && creationObject && insertionHint && !creating && !(tool === 'ai' && insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert data-mode={doc.theme.mode}
         style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), width: doc.width, transform: `scale(${scale})` } as React.CSSProperties}>
         {(() => {
           const flow = !!insertionHint.boundary, object = objectAt(insertionHint.position, flow)

@@ -55,7 +55,7 @@ export function CodeView({ note, editable, staticOnly = false, onChange, onActiv
     copyTimer.current = window.setTimeout(() => setCopyState('idle'), 1500)
   }
 
-  return <div className={`code-view${note.scheme === 'dark' ? ' code-dark' : ' code-light'}${canEdit ? ' code-can-drag' : ''}${staticOnly ? ' code-static' : ''}`} data-scheme={note.scheme}>
+  return <div className={`code-view${canEdit ? ' code-can-drag' : ''}${staticOnly ? ' code-static' : ''}`}>
     <div className="code-header" onPointerDown={event => {
       if (event.target instanceof Element && event.target.closest('[data-code-copy]')) { event.stopPropagation(); return }
       if (event.button === 0 && canEdit) { event.stopPropagation(); onBegin?.(event) }

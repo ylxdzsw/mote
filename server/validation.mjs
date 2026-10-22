@@ -220,7 +220,6 @@ export function validateFloating(value, label = 'floating object', options = {})
     text(object.source, `${label}.source`)
     const language = text(object.language, `${label}.language`, 64, true)
     if (!SAFE_LANGUAGE.test(language)) throw new HttpError(400, `${label}.language must be a safe identifier`)
-    if (!['light', 'dark'].includes(object.scheme)) throw new HttpError(400, `${label}.scheme must be light or dark`)
   }
   else if (kind === 'drawing') {
     finite(object.width, `${label}.width`, Number.MIN_VALUE)

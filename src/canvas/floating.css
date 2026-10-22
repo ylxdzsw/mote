@@ -22,7 +22,7 @@
 .sheet.is-editing .floating-text:hover { outline: 1px solid var(--ui-border); }
 .sheet.is-editing .floating-text.is-selected { outline: 1px solid var(--ui-accent-border); }
 .is-editing .floating-note:not(.is-content-active) .text-content { pointer-events: none; }
-.is-editing .floating-note:not(.is-content-active) [data-scheme] { pointer-events: none; }
+.is-editing .floating-note:not(.is-content-active) .code-view { pointer-events: none; }
 .is-editing .floating-note:not(.is-content-active) .table-column-controls { display: none; }
 .sheet.is-editing .floating-image img { cursor: move; }
 .floating-note.has-caption-support { padding: 0; background: transparent; border: 0; border-radius: 0; }

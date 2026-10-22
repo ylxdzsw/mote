@@ -159,7 +159,7 @@ test('new floating reservations accept supported kinds and reject removed kinds'
   const paragraph = { type: 'paragraph', attrs: { semantic: 'body' }, content: [{ type: 'text', text: 'Native text' }] }
   const objects = [
     { ...base, kind: 'drawing', height: 100, background: null, strokes: [{ points: [[5, 8]], color: 'gray1', width: 2.5 }], labels: [] },
-    { ...base, kind: 'code', source: 'const answer = 42\n', language: 'javascript', scheme: 'dark' },
+    { ...base, kind: 'code', source: 'const answer = 42\n', language: 'javascript' },
     { ...base, kind: 'katex', latex: String.raw`\int_0^1 x^2\,dx = \frac{1}{3}` },
     { ...base, kind: 'text', content: { type: 'doc', content: [paragraph] } },
     { ...base, kind: 'table', content: { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [paragraph] }] }] }] } },

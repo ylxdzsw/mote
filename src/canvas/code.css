@@ -34,7 +34,7 @@
   text-align: left;
   direction: ltr;
 }
-.code-view.code-dark {
+[data-mode="dark"] .code-view {
   --code-surface: #171b18;
   --code-ui: #202722;
   --code-gutter: #1b211d;

@@ -64,7 +64,8 @@ Document validation rejects `theme.palette` and `theme.defaults.background`.
 Segment/clipboard payloads reject any `palette` field, including `[]`; fixed
 references adopt the destination theme without importing color definitions.
 Legacy fields and color references are rejected without migration. Code syntax
-schemes, embedded images, and widget source retain their independent colors.
+colors follow the document mode; embedded images and widget source retain
+their independent colors.
 
 ## Private task API
 
