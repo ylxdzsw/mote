@@ -82,9 +82,14 @@ export interface FloatingText extends FloatingGeometry {
   borderColor?: string | null
 }
 
+export const tableStyles = ['simple', 'academic', 'business'] as const
+export type TableStyle = typeof tableStyles[number]
+
 export interface FloatingTable extends FloatingGeometry {
   kind: 'table'
   content: JSONContent
+  style?: TableStyle // Omitted means simple.
+  headerRow?: boolean
   caption?: Caption
 }
 
@@ -133,6 +138,7 @@ export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
   caption?: Caption | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string; scheme?: 'light' | 'dark'
+  style?: TableStyle; headerRow?: boolean
   strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
   background?: string | null; borderColor?: string | null; padding?: ThemeLength; decoration?: BoxDecoration | null
 }
@@ -209,7 +215,7 @@ export function createDocument(): MoteDocument {
   floating.push({ ...base(260), placement: 'float', centered: false, anchorId: alongside.attrs!.id, x: 628, y: 8,
     padding: '1em', background: 'primary:soft', borderColor: null,
     content: { type: 'doc', content: [paragraph('A different angle', 'heading'), paragraph('Keep a question close to the passage that inspired it. 灵感随行。', 'caption')] } })
-  const table = flow({ ...base(894), kind: 'table', content: tableContent([
+  const table = flow({ ...base(894), kind: 'table', style: 'academic', headerRow: true, content: tableContent([
     ['Content', 'Placement', 'What moves with it'],
     ['Figure, table, code, widget', 'Flow — its own vertical space', 'Owner caption (when supported) and anchored notes'],
     ['Side note or annotation', 'Float — positioned on the page', 'Its own text content'],

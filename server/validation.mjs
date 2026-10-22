@@ -209,6 +209,9 @@ export function validateFloating(value, label = 'floating object', options = {})
     if (!['image', 'html', 'table'].includes(kind)) throw new HttpError(400, `${label}.caption is only supported on image, html, and table objects`)
     validateCaption(object.caption, `${label}.caption`)
   }
+  for (const key of ['style', 'headerRow']) if (key in object && kind !== 'table') throw new HttpError(400, `${label}.${key} is only supported on tables`)
+  if ('style' in object && !['simple', 'academic', 'business'].includes(object.style)) throw new HttpError(400, `${label}.style must be simple, academic, or business`)
+  if ('headerRow' in object && typeof object.headerRow !== 'boolean') throw new HttpError(400, `${label}.headerRow must be a boolean`)
   if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`)
   if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object && object[key] !== null) text(object[key], `${label}.${key}`, 128) }
   if (kind === 'image') { embeddedImage(object.src, `${label}.src`); text(object.alt, `${label}.alt`, 4096) }

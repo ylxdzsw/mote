@@ -245,6 +245,23 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .is-reading .table-column-controls { display: none; }
 .floating-table td { position: relative; border: 1px solid var(--palette-gray4); padding: 9px 11px; vertical-align: top; min-width: 0; }
 .floating-table td p:last-child { margin-bottom: 0; }
+/* Table styles: simple grid, academic booktabs rules, business stripes. Header styling applies to the first row.
+   Fills overlap the next cell by 1px so scaled views show no anti-aliased seams. */
+.floating-table td { background: var(--table-fill, none); box-shadow: var(--table-fill) 1px 0, var(--table-fill) -1px 0; }
+.floating-table td:first-child { box-shadow: var(--table-fill) 1px 0; }
+.floating-table td:last-child { box-shadow: var(--table-fill) -1px 0; }
+.floating-table[data-table-header] tr:first-child td { --table-weight: 600; }
+.floating-table[data-table-style='simple'][data-table-header] tr:first-child { --table-fill: var(--palette-gray5); }
+.floating-table[data-table-style='academic'] td { border: 0; padding: 6px 11px; }
+.floating-table[data-table-style='academic'] tr:first-child td { border-top: 1.5px solid var(--palette-gray1); }
+.floating-table[data-table-style='academic'] tr:last-child td { border-bottom: 1.5px solid var(--palette-gray1); }
+.floating-table[data-table-style='academic'][data-table-header] tr:first-child td { border-bottom: 1px solid var(--palette-gray1); }
+.floating-table[data-table-style='business'] td { border: 0; border-bottom: 1px solid var(--palette-gray4); }
+.floating-table[data-table-style='business'] tr:nth-child(even) { --table-fill: var(--palette-secondary-soft); }
+.floating-table[data-table-style='business'][data-table-header] tr:nth-child(even) { --table-fill: initial; }
+.floating-table[data-table-style='business'][data-table-header] tr:nth-child(odd):not(:first-child) { --table-fill: var(--palette-secondary-soft); }
+.floating-table[data-table-style='business'][data-table-header] tr:first-child { --table-fill: var(--palette-secondary); --table-color: var(--page-background); }
+.floating-table[data-table-style='business'][data-table-header] tr:first-child td { border-bottom-color: var(--palette-secondary); }
 .floating-table .selectedCell::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: var(--ui-accent-tint-strong); }
 .column-alignment { display: flex; gap: 6px; }
 .column-alignment button { flex: 1; padding-inline: 5px; }

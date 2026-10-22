@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { boxDecorations, isText, supportsCaption, type BoxDecoration, type FloatingObject, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
+import { boxDecorations, isText, supportsCaption, tableStyles, type BoxDecoration, type FloatingObject, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
@@ -48,6 +48,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   const text = isText(object)
   const placementId = useId()
   const decorationId = useId()
+  const tableStyleId = useId()
   const name = kindName(object)
   if (captionSelected && supportsCaption(object) && object.caption) {
     const ownerSelectionLabel = object.kind === 'image' ? 'Select image' : object.kind === 'table' ? 'Select table' : 'Select widget'
@@ -112,6 +113,20 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         <button disabled={imageLoading} onClick={onReplaceImage}>{imageLoading ? 'Opening image…' : 'Replace image…'}</button>
       </InspectorGroup>}
       {object.kind === 'table' && tableControls}
+      {object.kind === 'table' && <InspectorGroup title="Appearance">
+        <InspectorField label="Style">
+          <div className="placement-options decoration-options" role="radiogroup" aria-label="Table style">
+            {tableStyles.map(style => <label key={style}>
+              <input type="radio" name={tableStyleId} value={style} checked={(object.style ?? 'simple') === style} onChange={() => onChange({ style })} />
+              <span>{classLabel(style)}</span>
+            </label>)}
+          </div>
+        </InspectorField>
+        <label className="inspector-check">
+          <input type="checkbox" checked={!!object.headerRow} onChange={event => onChange({ headerRow: event.target.checked })} />
+          <span>Header row</span>
+        </label>
+      </InspectorGroup>}
       {text && <InspectorGroup title="Appearance">
         <InspectorField label="Decoration">
           <div className="placement-options decoration-options" role="radiogroup" aria-label="Text box decoration">
@@ -250,7 +265,7 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
     case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. The selected light or dark syntax scheme supplies its own colors independently of the document palette.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click the image to add or edit its caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
-    case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
+    case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Appearance → Style chooses Simple grid lines, Academic horizontal rules, or Business striped rows. Header row emphasizes the first row.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
     case 'katex': return <p>Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
     default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents.</p></>
   }

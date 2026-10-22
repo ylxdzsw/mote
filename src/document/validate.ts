@@ -1,4 +1,4 @@
-import { supportsCaption, themeBlockClasses, type FloatingObject, type MoteDocument } from './model'
+import { supportsCaption, tableStyles, themeBlockClasses, type FloatingObject, type MoteDocument, type TableStyle } from './model'
 
 export class MoteFileError extends Error {
   constructor(message: string) {
@@ -235,6 +235,9 @@ function checkFloating(value: unknown, index: number, ids: Set<string>, captionI
       finite(typeof object.padding === 'number' ? object.padding : parseFloat(object.padding as string), `${path}.padding`, 0)
     }
   }
+  for (const property of ['style', 'headerRow']) if (property in object && kind !== 'table') invalid(`${path}.${property} is only supported on tables`)
+  if ('style' in object && !tableStyles.includes(object.style as TableStyle)) invalid(`${path}.style is unsupported`)
+  if ('headerRow' in object && typeof object.headerRow !== 'boolean') invalid(`${path}.headerRow must be a boolean`)
   if (kind === undefined || kind === 'text' || kind === 'table') {
     if (!('content' in object)) invalid(`${path}.content is missing`)
     inspectContent(object.content, `${path}.content`)
