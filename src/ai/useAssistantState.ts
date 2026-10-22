@@ -6,6 +6,8 @@ import type { AITask, AssistantCloud } from './types'
 import { connectionSnapshot, useConnection } from '../cloud/connection'
 
 export function useAssistantState(cloud: AssistantCloud | undefined, writable: boolean) {
+  const latestCloud = useRef(cloud)
+  latestCloud.current = cloud
   const connection = useConnection()
   const [tasks, setTasks] = useState<AITask[]>([]), state = useRef(tasks)
   const [loaded, setLoaded] = useState(false), [error, setError] = useState('')
@@ -22,16 +24,22 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
       const saved = await loadAssistantRecovery(workingCopyId, documentId)
       const legacy = saved ? [] : await loadTasks()
       if (!active) return
-      const current = new AssistantState(saved ?? { workingCopyId, documentId, revision: null, tasks: [], dirty: false,
+      const current = new AssistantState(saved ?? { workingCopyId, documentId, revision: cloud.draft ? '0' : null, tasks: [], dirty: false,
         archives: legacy.length ? [{ id: crypto.randomUUID(), label: 'Earlier browser task recovery', tasks: legacy }] : [] }, {
-        get: () => assistantRequest(documentId), put: body => assistantRequest(documentId, body), save: saveAssistantRecovery,
+        get: () => assistantRequest(documentId), put: async body => {
+          if (latestCloud.current?.draft && !await latestCloud.current.sync()) throw new Error('Add content or change document settings before saving this draft’s AI tasks.')
+          return assistantRequest(documentId, body)
+        }, save: saveAssistantRecovery,
         changed: () => {
           if (!active) return
           state.current = current.record.tasks; setTasks(state.current); render(tick => tick + 1)
         },
       })
       engine.current = current; state.current = current.record.tasks; setTasks(state.current)
-      await current.initialize()
+      // New cloud documents start at assistant revision 0. Keep reservations on
+      // this device until content/settings or a submitted request create the document.
+      if (cloud.draft) current.ready = true
+      else await current.initialize()
       if (!active) return
       // A preparing token is process-local, but its input/request ID is durable.
       current.replace(current.record.tasks.map(task => task.status === 'preparing' && task.preparingCopyId === workingCopyId ? { ...task,
@@ -44,23 +52,23 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
   }, [cloud?.workingCopyId, cloud?.documentId, writable, retry])
 
   useEffect(() => {
-    if (!loaded || !writable || connection.offline) return
+    if (!loaded || !writable || cloud?.draft || connection.offline) return
     const current = engine.current
     if (!current?.ready || current.busy || current.conflict || current.warning || current.localWarning || !current.record.dirty && !current.record.pending) return
     const timer = window.setTimeout(() => { void current.flush() }, 650)
     return () => window.clearTimeout(timer)
-  }, [tasks, loaded, writable, tick, connection.offline])
+  }, [tasks, loaded, writable, tick, connection.offline, cloud?.draft])
   useEffect(() => {
-    if (!loaded || !writable || connection.offline || connection.revision === recoveredConnection.current) return
+    if (!loaded || !writable || cloud?.draft || connection.offline || connection.revision === recoveredConnection.current) return
     const current = engine.current
     if (!current || current.busy || current.conflict || current.localWarning) return
     recoveredConnection.current = connection.revision
     if (!current.ready) void current.initialize()
     else if (current.record.dirty || current.record.pending) void current.flush()
     else void current.refresh()
-  }, [loaded, writable, connection.offline, connection.revision, tick])
+  }, [loaded, writable, connection.offline, connection.revision, tick, cloud?.draft])
   useEffect(() => {
-    if (!loaded || !writable) return
+    if (!loaded || !writable || cloud?.draft) return
     let active = true, timer = 0
     async function refreshWhenReady() {
       const current = engine.current
@@ -76,7 +84,7 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
     }
     timer = window.setTimeout(() => { void refreshWhenReady() }, 5000)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [loaded, writable])
+  }, [loaded, writable, cloud?.draft])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       const current = engine.current
@@ -93,6 +101,7 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
     retry: () => {
       const current = engine.current
       if (!current) setRetry(value => value + 1)
+      else if (latestCloud.current?.draft) { if (current.record.tasks.length) void latestCloud.current.sync() }
       else if (!current.ready) void current.initialize()
       else if (current.record.dirty || current.record.pending) void current.flush()
       else void current.refresh()

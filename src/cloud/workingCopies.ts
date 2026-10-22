@@ -14,6 +14,8 @@ export interface WorkingRecord {
   dirty: boolean
   updatedAt: number
   pending?: PendingSave
+  draft?: boolean
+  pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument }
   pendingPrivacy?: { private: boolean; basePrivacyRevision: number; operationId: string }
 }
 

@@ -1,4 +1,4 @@
-import type { MoteDocument } from '../document/model'
+import { isPristineBlankDocument, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type Share } from './api'
 import { saveWorkingCopy, type WorkingRecord } from './workingCopies'
@@ -63,7 +63,9 @@ export class WorkingCopy {
   update(document: MoteDocument) {
     if (document === this.state.record.document) return
     this.generation++
-    this.publish({ record: { ...this.state.record, document, dirty: true, updatedAt: Date.now() } })
+    const record = this.state.record
+    const dirty = !record.draft || !!record.pendingCreate || !!record.pendingPrivacy || !isPristineBlankDocument(document)
+    this.publish({ record: { ...record, document, dirty, updatedAt: Date.now() } })
     void this.persist().catch(() => {})
   }
   replaceLocal(document: MoteDocument) {
@@ -93,9 +95,12 @@ export class WorkingCopy {
       ...(error instanceof CloudError && (error.status === 410 || error.status === 404) ? { deleted: true } : {}),
     })
   }
-  sync = async (): Promise<CloudDocument | null> => {
+  sync = async (retainDraft = false): Promise<CloudDocument | null> => {
     if (this.flight) return this.flight
     if (this.state.conflict || this.state.deleted) return null
+    const record = this.state.record
+    // An explicit AI request retains its input, even when that input is blank.
+    if (record.draft && !retainDraft && !record.pendingCreate && !record.pendingPrivacy && isPristineBlankDocument(record.document)) return null
     this.flight = this.performSync().finally(() => { this.flight = undefined; this.publish({ syncing: false }) })
     return this.flight
   }
@@ -103,6 +108,17 @@ export class WorkingCopy {
     this.publish({ syncing: true, error: '', auth: false })
     try {
       if (connectionSnapshot().offline && !await retryConnection()) return null
+      if (this.state.record.draft) {
+        const record = this.state.record
+        const pendingCreate = record.pendingCreate ?? { id: record.meta.id, operationId: crypto.randomUUID(), name: record.meta.name, document: record.document }
+        if (!record.pendingCreate) this.publish({ record: { ...record, pendingCreate, dirty: true } })
+        await this.persist()
+        const result = await cloudRequest<CloudDocument>('/api/documents', 'POST', pendingCreate)
+        const current = this.state.record, { document: _document, ...meta } = result
+        this.publish({ record: { ...current, meta: mergeDocumentMeta(current.meta, meta), draft: undefined, pendingCreate: undefined,
+          dirty: current.document !== pendingCreate.document } })
+        await this.persist()
+      }
       if (!this.state.record.dirty && !this.state.record.pending) {
         const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
         if (!this.state.record.dirty && !this.state.record.pending) {
@@ -157,7 +173,7 @@ export class WorkingCopy {
     await this.persist()
   }
   async checkRemote() {
-    if (this.checkingRemote || this.flight || this.state.record.dirty || this.state.conflict || this.state.deleted) return
+    if (this.state.record.draft || this.checkingRemote || this.flight || this.state.record.dirty || this.state.conflict || this.state.deleted) return
     this.checkingRemote = true
     const generation = this.generation
     try {
@@ -206,7 +222,7 @@ export class WorkingCopy {
   }
 
   refreshPrivacy = async () => {
-    if (this.checkingPrivacy) return
+    if (this.state.record.draft || this.checkingPrivacy) return
     this.checkingPrivacy = true
     try {
       const metadata = await cloudRequest<DocumentMeta>(`/api/documents/${this.state.record.meta.id}/privacy`)
@@ -231,6 +247,10 @@ export class WorkingCopy {
   }
 
   private async sendPrivacy(change: PrivacyChange) {
+    if (this.state.record.draft && !await this.sync()) {
+      this.publish({ privacy: { ...this.state.privacy, busy: false, error: 'Save this draft to the cloud before confirming Private. Retry to try again.', message: '' } })
+      return
+    }
     const path = `/api/documents/${this.state.record.meta.id}/privacy`
     try {
       const metadata = await cloudRequest<DocumentMeta>(path, 'PUT', change)
@@ -253,7 +273,7 @@ export class WorkingCopy {
   setPrivate = async (value: boolean, confirmRevoke: (count: number) => boolean) => {
     const meta = this.state.record.meta
     if (this.state.privacy.busy || this.state.privacy.pending || meta.private === value) return
-    if (value) {
+    if (value && !this.state.record.draft) {
       this.publish({ privacy: { busy: true, error: '', message: 'Checking active share links…' } })
       try {
         const { shares } = await cloudRequest<{ shares: Share[] }>(`/api/documents/${meta.id}/shares`)

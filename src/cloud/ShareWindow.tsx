@@ -12,6 +12,7 @@ interface Props {
   name: string
   dirty: boolean
   privateDocument: boolean
+  draft?: boolean
   sync: () => Promise<{ revision: string } | null>
   doc: MoteDocument
 }
@@ -26,14 +27,14 @@ export function ShareWindow({ open, ...props }: Props) {
   return open ? <ShareDialog key={props.documentId} {...props} /> : null
 }
 
-function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, doc }: Omit<Props, 'open'>) {
+function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft, sync, doc }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const tabButtons = useRef<Record<Tab, HTMLButtonElement | null>>({ link: null, file: null })
   const active = useRef(true)
   const locked = useRef(false)
   const connection = useConnection()
-  const [tab, setTab] = useState<Tab>(() => privateDocument || connection.offline ? 'file' : 'link')
+  const [tab, setTab] = useState<Tab>(() => privateDocument || draft || connection.offline ? 'file' : 'link')
   const [busy, setBusy] = useState('')
   const [fileBusy, setFileBusy] = useState(false)
   const [shareLoading, setShareLoading] = useState(false)
@@ -44,7 +45,7 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, 
   const [mode, setMode] = useState<Share['mode']>('snapshot')
   const [revoke, setRevoke] = useState<string | null>(null)
   const path = `/api/documents/${encodeURIComponent(documentId)}/shares`
-  const linkBusy = !!busy || shareLoading || connection.offline
+  const linkBusy = !!busy || shareLoading || connection.offline || !!draft
 
   useEffect(() => {
     const element = dialog.current
@@ -63,7 +64,7 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, 
   }, [privateDocument, connection.offline])
 
   useEffect(() => {
-    if (tab !== 'link' || privateDocument || connection.offline) {
+    if (tab !== 'link' || privateDocument || draft || connection.offline) {
       setShareLoading(false)
       return
     }
@@ -75,7 +76,7 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, 
       .catch(error => { if (!canceled) setError(message(error)) })
       .finally(() => { if (!canceled) setShareLoading(false) })
     return () => { canceled = true; setShareLoading(false) }
-  }, [path, tab, privateDocument, connection.offline, refresh])
+  }, [path, tab, privateDocument, draft, connection.offline, refresh])
 
   async function run(label: string, task: () => Promise<void>) {
     if (privateDocument) { setError('Private documents cannot be shared. Turn off Private in Document settings first.'); return }
@@ -156,7 +157,8 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, sync, 
           aria-controls={`${titleId}-file-panel`} aria-selected={tab === 'file'} tabIndex={tab === 'file' ? 0 : -1}
           disabled={!!busy || fileBusy} onClick={() => selectTab('file')}>Export</button>
       </div>
-      {tab === 'link' && <p id={`${titleId}-hint`} className="cloud-hint">{connection.offline
+      {tab === 'link' && <p id={`${titleId}-hint`} className="cloud-hint">{draft
+        ? 'This draft is not saved to the cloud. Add content or change document settings, then sync before creating a link. Local export is available now.' : connection.offline
         ? 'You’re offline. Reconnect to manage links, or use Export to download a copy.'
         : 'Anyone with a link can read this document without signing in. Internal notes are excluded. Revoke a link to stop future access.'}</p>}
       <section id={`${titleId}-link-panel`} role="tabpanel" aria-labelledby={`${titleId}-link-tab`} hidden={tab !== 'link'}>

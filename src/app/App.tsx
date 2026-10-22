@@ -101,7 +101,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
-    { documentId: cloud.record.meta.id, sync: copy.sync, workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked })
+    { documentId: cloud.record.meta.id, sync: () => copy.sync(true), workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')
@@ -430,7 +430,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     : connection.checking ? 'Reconnecting…' : connection.offline ? cloud.local === 'saving' ? 'Offline · saving locally…' : 'Offline · saved locally'
     : cloud.conflict ? 'Conflict · action required' : cloud.deleted ? 'Deleted on server' : cloud.auth ? 'Sign in to sync' : cloud.syncing ? 'Syncing…'
     : cloud.error ? 'Sync needs attention' : cloud.local === 'saving' ? 'Saving locally…'
-    : cloud.record.dirty ? 'Saved locally · changes pending' : 'Synced'
+    : cloud.record.dirty ? 'Saved locally · changes pending' : cloud.record.draft ? 'Empty draft · not saved to cloud' : 'Synced'
 
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
     <header className={`app-header cloud-header ${editable ? '' : 'floating-header'}`}>
@@ -478,7 +478,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>
     </header>
 
-    <ShareWindow open={editable && shareOpen} onClose={() => setShareOpen(false)} doc={doc} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} />
+    <ShareWindow open={editable && shareOpen} onClose={() => setShareOpen(false)} doc={doc} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} draft={cloud.record.draft} />
     {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
       <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
         : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`

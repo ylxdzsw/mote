@@ -6,7 +6,7 @@ import { validateDocument as validateServerDocument } from '../server/validation
 // Vite loads the model's embedded example assets and the actual editor schema.
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
-const { defaultTheme, paragraph, captionContent, createDocument, replaceMainContent, shiftSpaceObjects } = await server.ssrLoadModule('/src/document/model.ts')
+const { defaultTheme, paragraph, captionContent, createBlankDocument, isPristineBlankDocument, createDocument, replaceMainContent, shiftSpaceObjects } = await server.ssrLoadModule('/src/document/model.ts')
 const { flowBlock, insertFlowObject, insertDocumentObjects, convertObjectPlacement, reconcileObjectDeletions, objectPagePosition } = await server.ssrLoadModule('/src/document/flow.ts')
 const { validateDocument } = await server.ssrLoadModule('/src/document/validate.ts')
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
@@ -25,6 +25,32 @@ const anchors = [{ id: 'before', top: 20, bottom: 50 }, { id: 'flow-block', top:
 const geometry = { figure: { x: 70, y: 80, width: 200, height: 100 }, annotation: { x: 50, y: 70, width: 40, height: 30 } }
 const options = { anchors, geometry, textLeft: 40, textWidth: 720 }
 const range = { start: { index: 1, offset: 0 }, end: { index: 2, offset: 0 } }
+
+test('only a default single empty body paragraph is a pristine blank document', () => {
+  const blank = initializeDocument(createBlankDocument())
+  assert.equal(isPristineBlankDocument(blank), true)
+  assert.equal(isPristineBlankDocument({ ...blank, language: 'en', aiModel: ' ', notes: ['', ''], theme: { ...blank.theme, autospace: true } }), true)
+  for (const change of [
+    d => { d.content.content[0].content = [{ type: 'text', text: ' ' }] },
+    d => { d.content.content.push(paragraph('')) },
+    d => { d.content.content[0].attrs.semantic = 'heading' },
+    d => { d.content.content[0].attrs.listLevel = 1 },
+    d => { d.content.content = [{ type: 'spacer', attrs: { id: crypto.randomUUID(), height: 20 } }] },
+    d => { d.floating.push({ ...annotation }) },
+    d => { d.notes = ['An internal thought'] },
+    d => { d.width++ },
+    d => { d.margins.left++ },
+    d => { d.theme.hue++ },
+    d => { d.theme.autospace = false },
+    d => { d.language = 'zh-Hans' },
+    d => { d.aiModel = 'custom-model' },
+  ]) {
+    const document = structuredClone(blank)
+    change(document)
+    assert.equal(isPristineBlankDocument(document), false)
+  }
+  assert.equal(isPristineBlankDocument(createDocument()), false)
+})
 
 test('centered captions contribute their overhang to movement and selection bounds', () => {
   const object = { ...figure, placement: 'float', x: 100, caption: { ...figure.caption, width: 360 } }

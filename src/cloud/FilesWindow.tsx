@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PanelIcon } from '../app/PanelIcon'
-import { createDocument, paragraph, type MoteDocument } from '../document/model'
+import { createDocument, type MoteDocument } from '../document/model'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
 import './cloud.css'
 import './files.css'
@@ -10,6 +10,7 @@ interface Props {
   onClose: () => void
   onOpen: (id: string) => void
   currentId?: string
+  onNew: () => Promise<void>
   pending?: Record<string, string>
   onImportLocal?: () => Promise<void>
   hasLocalDraft?: boolean
@@ -39,7 +40,7 @@ export function FilesWindow({ open, ...props }: Props) {
   return open ? <FilesDialog {...props} /> : null
 }
 
-function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, hasLocalDraft, onLocalRecovery }: Omit<Props, 'open'>) {
+function FilesDialog({ onClose, onOpen, onNew, currentId, pending = {}, onImportLocal, hasLocalDraft, onLocalRecovery }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -159,9 +160,8 @@ function FilesDialog({ onClose, onOpen, currentId, pending = {}, onImportLocal, 
 
   function newDocument(example = false) {
     void run('Creating document…', async () => {
-      const document = createDocument()
-      if (!example) { document.content = { type: 'doc', content: [paragraph('')] }; document.floating = [] }
-      await create(document, example ? 'Example' : 'Untitled')
+      if (example) await create(createDocument(), 'Example')
+      else await onNew()
     })
   }
 

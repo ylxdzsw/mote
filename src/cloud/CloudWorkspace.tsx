@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ReadDocument } from '../canvas/ReadDocument'
 import { initializeDocument } from '../document/initialize'
-import { createDocument, type MoteDocument } from '../document/model'
+import { createBlankDocument, createDocument, type MoteDocument } from '../document/model'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
@@ -94,14 +94,18 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       try {
         const session = await workingSession(), key = `${session}:${id}`
         let local = await loadWorkingCopy(key)
+        if (!local) {
+          const draft = (await listWorkingCopies()).find(record => record.meta.id === id && record.draft)
+          if (draft) local = { ...draft, key, session }
+        }
         if (!active) return
-        const [cloudResult, privacyResult] = await Promise.allSettled([
+        const [cloudResult, privacyResult] = local?.draft ? [] : await Promise.allSettled([
           cloudRequest<CloudDocument>(`/api/documents/${id}`),
           cloudRequest<DocumentMeta>(`/api/documents/${id}/privacy`),
         ])
-        const cloud = cloudResult.status === 'fulfilled' ? cloudResult.value : undefined
-        const privacy = privacyResult.status === 'fulfilled' ? privacyResult.value : undefined
-        const networkError = cloudResult.status === 'rejected' ? cloudResult.reason : undefined
+        const cloud = cloudResult?.status === 'fulfilled' ? cloudResult.value : undefined
+        const privacy = privacyResult?.status === 'fulfilled' ? privacyResult.value : undefined
+        const networkError = cloudResult?.status === 'rejected' ? cloudResult.reason : undefined
         if (!active) return
         if (!local && !cloud) throw networkError
         // A dirty local copy is never replaced merely because the cloud has moved on.
@@ -144,7 +148,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     return () => { active = false }
   }, [id, retry])
 
-  async function navigate(next: string, reload = false) {
+  async function navigate(next: string, reload = false, draft?: WorkingRecord) {
     if (next === id && copy && !reload) { setFilesOpen(false); return }
     const request = ++navigation.current
     if (copy) {
@@ -154,10 +158,16 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       if (copy.getSnapshot().record.dirty) setNotice('Changes to the previous document remain on this device. Open Local recovery to find them.')
     }
     if (request !== navigation.current) return
+    if (draft) await saveWorkingCopy(draft)
     const path = next ? `/d/${next}` : '/'
     history.pushState(null, '', path); onPath(path)
     if (next === id) setRetry(value => value + 1)
     await refreshRecovery()
+  }
+  async function newDocument() {
+    const document = initializeDocument(createBlankDocument()), session = await workingSession(), now = Date.now()
+    await navigate(document.id, false, { key: `${session}:${document.id}`, session, document, dirty: false, draft: true, updatedAt: now,
+      meta: { id: document.id, name: 'Untitled', revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } })
   }
   async function importLegacy() {
     if (!legacy) return
@@ -188,7 +198,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       <button onClick={() => setFilesOpen(true)}>Files</button>
     </main>}
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
-    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} onOpen={next => void navigate(next)}
+    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} onOpen={next => void navigate(next)} onNew={newDocument}
       onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
       hasLocalDraft={!!legacy} onImportLocal={importLegacy} pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
     {recoveryOpen && <LocalRecovery onClose={() => setRecoveryOpen(false)}>

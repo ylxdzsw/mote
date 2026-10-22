@@ -186,6 +186,24 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 
 const landscape = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360"><rect width="600" height="360" fill="#e8ecdf"/><circle cx="450" cy="86" r="40" fill="#d9b678"/><path d="M0 238Q145 76 320 224T600 164V360H0Z" fill="#9aaa89"/><path d="M0 292Q156 196 340 278T600 228V360H0Z" fill="#54725b"/><path d="M240 360Q410 290 330 238" fill="none" stroke="#eee5c9" stroke-width="20"/><path d="M95 285V150m0 70q-65-8-53-54 53 7 53 54m0-26q59-4 49-49-49 6-49 49" fill="#35543e" stroke="#35543e" stroke-width="5"/></svg>')}`
 
+export function createBlankDocument(): MoteDocument {
+  return { version: 'V0', id: crypto.randomUUID(), width: 960,
+    margins: { top: 48, right: 32, bottom: 48, left: 32 }, theme: structuredClone(defaultTheme),
+    content: { type: 'doc', content: [paragraph('')] }, floating: [] }
+}
+
+export function isPristineBlankDocument(document: MoteDocument) {
+  const block = document.content.content?.[0]
+  return document.floating.length === 0 && document.content.content?.length === 1 && block?.type === 'paragraph'
+    && !block.content?.length && (!block.attrs?.semantic || block.attrs.semantic === 'body') && !block.attrs?.listLevel
+    && !(typeof document.notes === 'string' ? document.notes.length : document.notes?.some(note => note.length))
+    && (!document.language || document.language === 'en') && !document.aiModel?.trim()
+    && document.width === 960 && document.margins.top === 48 && document.margins.bottom === 48
+    && document.margins.left === 32 && document.margins.right === 32
+    && document.theme.autospace !== false
+    && JSON.stringify(document.theme, (key, value) => key === 'autospace' ? undefined : value) === JSON.stringify(defaultTheme)
+}
+
 export function createDocument(): MoteDocument {
   const floating: FloatingObject[] = []
   const flow = (object: FloatingObject): JSONContent => {
@@ -226,8 +244,7 @@ export function createDocument(): MoteDocument {
     alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.',
     caption: { content: captionContent('Five ideas trade places as votes arrive.') } })
   return {
-    version: 'V0', id: crypto.randomUUID(), width: 960,
-    margins: { top: 48, right: 32, bottom: 48, left: 32 }, theme: structuredClone(defaultTheme),
+    ...createBlankDocument(),
     content: { type: 'doc', content: [
       paragraph('A little room to think.', 'title'),
       paragraph('One continuous page, two ways to place an idea.', 'caption'),

@@ -53,6 +53,7 @@ export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
   segmentOriginalObjects?: FloatingObject[]
 }
 export interface AssistantCloud {
+  draft?: boolean
   documentId: string
   workingCopyId: string
   privateDocument: boolean
