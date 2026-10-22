@@ -94,7 +94,7 @@ async function takeEvents(response, count) {
 }
 
 test('fixed palette slots validate across documents, text candidates, and segments', () => {
-  const references = ['primary', 'secondary', 'red', 'amber', 'green', 'cyan', 'blue', 'violet'].flatMap(id => [id, `${id}:soft`])
+  const references = ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink'].flatMap(id => [id, `${id}:soft`])
   references.push('gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6')
   const paragraph = color => ({ type: 'paragraph', attrs: { id: 'color-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color } }] }] })
   for (const mode of ['light', 'dark']) for (const color of references) {

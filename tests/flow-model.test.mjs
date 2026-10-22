@@ -291,7 +291,7 @@ test('object copying owns captions and gives their paragraph IDs fresh values', 
   assert.equal(copied.caption.width, 230)
 })
 
-const fixedReferences = ['primary', 'secondary', 'red', 'amber', 'green', 'cyan', 'blue', 'violet']
+const fixedReferences = ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink']
   .flatMap(id => [id, `${id}:soft`]).concat(['gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6'])
 const coloredText = () => fixedReferences.map(color => ({ type: 'text', text: color, marks: [{ type: 'color', attrs: { color } }] }))
 const references = paragraph => paragraph.content.map(node => node.marks[0].attrs.color)

@@ -54,7 +54,7 @@ HTML/PNG exports omit them; native `.mote` exports preserve them.
 V0 requires `theme.mode` (`light` or `dark`), `theme.hue` (Primary), and
 `theme.secondaryHue` (Secondary). Each hue must be finite and in `[0, 360)`.
 The fixed color references are `primary`, `secondary`, `red`, `amber`, `green`,
-`cyan`, `blue`, and `violet`, each also supporting `:soft`, plus the single-tone
+`blue`, `violet`, and `pink`, each also supporting `:soft`, plus the single-tone
 `gray1` through `gray6`. Every slot adapts to the document mode; Primary and
 Secondary also follow their theme hues. The page background follows the mode.
 Drawing `background` is `"gray6"` or `null`.

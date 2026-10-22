@@ -1,4 +1,5 @@
-export const defaultHue = 145
+// Huawei Red (#C7000B) in Light; the same hue reads as a lighter red in Dark.
+export const defaultHue = 28
 
 function channels(hex) {
   return [1, 3, 5].map(index => parseInt(hex.slice(index, index + 2), 16))
@@ -49,7 +50,7 @@ export function oklchHex(lightness, chroma, hue) {
 
 export const defaultSecondaryHue = 265
 export const neutralIds = ['gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6']
-const fixedHues = { red: 25, amber: 80, green: 145, cyan: 205, blue: 255, violet: 305 }
+const fixedHues = { red: 25, amber: 80, green: 145, blue: 255, violet: 305, pink: 350 }
 const pairIds = ['primary', 'secondary', ...Object.keys(fixedHues)]
 const lightGrays = ['#000000', '#303030', '#666666', '#aaaaaa', '#eeeeee', '#ffffff']
 const darkGrays = ['#ffffff', '#e0e0e0', '#aaaaaa', '#666666', '#303030', '#000000']
@@ -68,7 +69,7 @@ export function paletteEntries(theme) {
   const hues = { primary: theme.hue, secondary: theme.secondaryHue, ...fixedHues }
   return [
     ...Object.entries(hues).map(([id, hue]) => ({ id, name: id[0].toUpperCase() + id.slice(1),
-      strong: oklchHex(dark ? .8 : .45, .13, hue),
+      strong: oklchHex(dark ? .72 : .52, dark ? .19 : .21, hue),
       soft: oklchHex(dark ? .27 : .96, dark ? .035 : .025, hue),
     })),
     ...neutralIds.map((id, index) => ({ id, name: `Gray ${index + 1}${index === 0 ? dark ? ' · White' : ' · Black' : index === 5 ? dark ? ' · Black' : ' · White' : ''}`, strong: (dark ? darkGrays : lightGrays)[index] })),
