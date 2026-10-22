@@ -1484,3 +1484,8 @@ Deployment verification also exposed a permission trap: `public/favicon.svg` was
 Added the project-local `mote-ui` skill for UI design, implementation, and review. It explains the reusable principles behind the current interface: document-led presentation, clear action scope, stable geometry/focus, restrained hierarchy, theme-derived UI roles, progressive disclosure, truthful feedback, and keyboard/responsive usability. Existing controls and layouts are examples to build on, not a frozen pixel specification. Deliberate new patterns remain welcome when they make the task clearer and fit neighboring behavior.
 
 AGENTS links to the skill for UI work while retaining current product boundaries. The skill points to implementation references and scoped review steps; exact measurements, format/access invariants, and feature inventories stay in their existing sources. Future updates should record changed design rationale rather than accumulate one-off styling exceptions or turn preferences into runtime validation.
+
+
+## 2026-10-22 — Flow drag axis and insertion feedback
+
+Flow object drags now choose the axis from the structural drop target. A target outside the original Flow block and its two boundaries reorders vertically while preserving the original x and centering; targets within that slot preview only horizontal placement and center snapping. Returning to the original slot restores horizontal preview. The vertical insertion line appears only for an actual reorder, so preview feedback matches the drop and diagonal gestures cannot accidentally change both axes. This reuses the existing document-boundary targeting, including Alt positions inside spaces, rather than adding a separate distance threshold.

@@ -91,7 +91,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const [clipboardNotice, setClipboardNotice] = useState('')
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [manipulating, setManipulating] = useState(false)
-  const [flowDrop, setFlowDrop] = useState<{ top: number; centered: boolean } | null>(null)
+  const [flowDrop, setFlowDrop] = useState<{ top?: number; centered: boolean } | null>(null)
   const dragPointer = useRef<{ clientX: number; clientY: number; altKey: boolean; pointerId: number } | null>(null)
   const drag = useRef<Drag | null>(null)
   const captured = useRef<{ element: Element; pointerId: number } | null>(null)
@@ -430,16 +430,23 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       }
     } else if (d.part === 'move') {
       if (object.placement === 'flow') {
+        const target = segments.target(p.y, event.altKey)
+        const index = doc.content.content!.findIndex(node => node.attrs?.objectId === object.id)
+        const reordering = target.point.index < index || target.point.index > index + 1
+          || target.point.index === index + 1 && target.point.offset > 0
+        d.destination = reordering ? target.point : undefined
+        if (reordering) {
+          d.patches = {}
+          setPreviews(d.patches); setFlowDrop({ top: target.top, centered: false }); return
+        }
         const left = doc.margins.left, available = pageWidth() - left - doc.margins.right
         const center = left + (available - box.width) / 2
         let x = Math.max(left, Math.min(left + Math.max(0, available - box.width), box.x + p.x - d.start.x))
         x = box.x + boundedTranslation(d.objects, d.geometry, [object.id], { x: x - box.x, y: 0 }, pageWidth()).x
         const centered = !event.altKey && Math.abs(x - center) * scale <= 8
         if (centered) x = center
-        const target = segments.target(p.y, event.altKey)
-        d.destination = target.point
         d.patches = { [object.id]: { x, centered } }
-        setPreviews(d.patches); setFlowDrop({ top: target.top, centered }); return
+        setPreviews(d.patches); setFlowDrop({ centered }); return
       }
       let placement = snap({ x: box.x + p.x - d.start.x, y: box.y + p.y - d.start.y }, event.altKey)
       const dx = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].x)), placement.x - box.x)
@@ -830,7 +837,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       </div>
       {segments.overlay}
       {flowDrop && <div className="segment-layer flow-drag-guides" aria-hidden="true">
-        <div className="segment-drop" style={{ top: (flowDrop.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Move Flow here</span></div>
+        {flowDrop.top !== undefined && <div className="segment-drop" style={{ top: (flowDrop.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Move Flow here</span></div>}
         {flowDrop.centered && <div className="flow-center-guide" style={{ left: (doc.margins.left + (pageWidth() - doc.margins.left - doc.margins.right) / 2 + 1) * scale }} />}
       </div>}
       {paragraphs.hint && <div className="segment-layer" aria-hidden="true"><div className="segment-drop" style={{ top: (paragraphs.hint.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Insert paragraph</span></div></div>}
