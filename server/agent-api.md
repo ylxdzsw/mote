@@ -24,7 +24,8 @@ follows the owner's width; an explicit width is a finite positive document-pixel
 value that remains fixed when the owner is resized. Captions have no separate
 floating-object ID, x/y, or placement and cannot be detached. Previous V0
 bare-document captions and legacy `attachment` keys are rejected without
-migration. Floats repel main paragraphs only.
+migration. Intersecting Floats leave one main-text interval to their left; text
+does not continue to their right. They do not displace Flow blocks or objects.
 
 Segment scope includes Flow blocks, their objects and built-in captions, and
 anchored Floats. A segment delivery may generate or replace these complete
@@ -41,6 +42,12 @@ caption added to an existing object follows the owner. It does not replace main
 nodes. A new single-object placeholder may remain Float. Indexing
 reads both placements and built-in captions from the same full native document
 and remains subject to the source’s current Private policy.
+
+Authorized task snapshots and workspace source reads may include internal
+`notes` (an ordered array of plain-text notes, or a string for one note). They
+are tentative user context, not published page content or automatic task
+instructions. Candidate writes cannot target or edit Notes. Public shares and
+HTML/PNG exports omit them; native `.mote` exports preserve them.
 
 ## Private task API
 
@@ -204,6 +211,11 @@ Essential offline checks, without real model calls:
 
 ```sh
 npm run test:ai
+```
+
+For just the task lifecycle and cloud-store subset:
+
+```sh
 node --experimental-sqlite --test server/moted.test.mjs server/cloud.test.mjs
 ```
 

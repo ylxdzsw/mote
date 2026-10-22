@@ -1,5 +1,16 @@
 # Development notes
 
+This is a chronological design history, not the current product specification. Start with [AGENTS.md](AGENTS.md) for durable invariants and the documentation map, [README.md](../README.md) for current behavior, and [CLOUD.md](../CLOUD.md) for privacy and operations. Search by topic and read later entries before applying an older decision. Historical checks, test counts, temporary artifacts, and deployment state describe only that task.
+
+Key supersessions to watch when searching:
+
+- Local-only storage and exclusive-tab ownership → October 8 cloud workspace with independent working copies and revision-checked sync.
+- Left inspector/right minimap, overview fallback, header More, separate settings/export → October 15–17 right Context/Assistant lane, left minimap, always-flat header, unified Settings and Share.
+- Single scratchpad → October 16 multiple internal Notes; they remain private working material excluded from public/HTML/PNG output.
+- Label/shape/attachment designs and Overlap/Repel → October 21–22 supported native objects with first-class Flow/Float placement and object-owned captions.
+- Above-table captions, owner-only caption selection, or bare-doc caption data → October 22 **Captions as permanently owned selectable subobjects**: all below, centered optional width, `caption: { content, width? }`, no detachment.
+- Assistant opening clears selection or scrolling restores Context → October 22 compact Assistant/reservation selection and scroll preservation.
+
 ## 2026-09-07 — First demo and scaffold
 
 User confirmed that spatial objects are relative to anchors, and that the draft should be cached in browser-local datastores. The proposed stack was React + TypeScript + Vite with Tiptap/ProseMirror for rich text; implemented as a single-document browser application, without a backend.
@@ -1457,3 +1468,19 @@ Geometry includes caption overhang in movement bounds, insertion overlap, sectio
 Production build/type/whitespace checks pass; all 95 essential invariants pass, including centered-caption bounds/owner-resize and client/server schema, palette/clipboard, and reservation rules. Isolated fake-backed Chromium checked initial non-editable caption state, first/second click, rich editing, caption-only Delete/undo, centered numeric/pointer resizing and Escape cancellation, Float and Flow dragging, caption copy/cut/undo, empty-caption cleanup, image-only double-click, owner resize limits, cloud saving, native/HTML roundtrips, and final production-bundle exports. Final example exports retain image width 850 and table width 540; 2× PNG is 1920×8304. Fresh 390px standalone HTML shows four centered captions below their owners, no editable text or caption controls, and no horizontal shell overflow. Screenshots reviewed; final browser checks have no application errors. No dependencies or real model calls; existing bundle advisories remain.
 
 Deployed assets before HTML and restarted moted after confirming no active production workers/tasks. Nginx validation/reload passed; services active. Public HTML/all JS/CSS match final build byte-for-byte with no-store, private API remains 401 without login, and read-only production document/revision/asset/share fingerprints are unchanged. No backups or cloud-data writes. Artifacts: /tmp/mote-subcaption-* and /tmp/mote-subcaption.A8ycrN.
+
+## 2026-10-22 — Documentation sweep and current design guidance
+
+Reviewed the project guides against the current model, UI, cloud/agent contracts, CI, and recent decisions. Current guidance now explicitly records the normal-flow atom/object relationship, signed Flow-relative Float anchors, permanently owned selectable captions, palette-backed Info/Warning text boxes, native Drawing conversion, internal Notes boundaries, search-first Files, and Assistant selection/scroll behavior. These consolidate already implemented designs rather than introducing new product behavior.
+
+Removed superseded README claims about exclusive document locks, removed Label controls, 48px default side margins, clearing selection on Assistant open, and explicit-only transcript reconnection. Replaced historical verification inventories with current commands and scoped-check guidance; chronology remains here. Development examples bind the frontend to loopback and allocate fresh temporary fake-backend data. Deployment guidance distinguishes initial provisioning, static publication, backend restarts, and guides pinned at task creation.
+
+`.mu/AGENTS.md` now separates durable product/data/access invariants from the workflow and links to the detailed guides. Keep current behavior in those guides, design rationale in this history, and avoid duplicating routine deployment/test logs. Later entries supersede earlier choices; old check results are not permanent acceptance criteria.
+
+Deployment verification also exposed a permission trap: `public/favicon.svg` was mode 0600, and preserving that mode into the public root made Nginx serve the 403 login fallback. The deployed file was made readable; deployment guidance now calls for explicit Nginx-readable static file permissions instead of preserving source modes.
+
+## 2026-10-22 — Mote UI design skill
+
+Added the project-local `mote-ui` skill for UI design, implementation, and review. It explains the reusable principles behind the current interface: document-led presentation, clear action scope, stable geometry/focus, restrained hierarchy, theme-derived UI roles, progressive disclosure, truthful feedback, and keyboard/responsive usability. Existing controls and layouts are examples to build on, not a frozen pixel specification. Deliberate new patterns remain welcome when they make the task clearer and fit neighboring behavior.
+
+AGENTS links to the skill for UI work while retaining current product boundaries. The skill points to implementation references and scoped review steps; exact measurements, format/access invariants, and feature inventories stay in their existing sources. Future updates should record changed design rationale rather than accumulate one-off styling exceptions or turn preferences into runtime validation.
