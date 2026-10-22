@@ -37,6 +37,15 @@ export function safeId(value, label) {
   return value
 }
 
+function rejectLegacyAttachments(value, label, seen = new WeakSet()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return
+  seen.add(value)
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'attachment') throw new HttpError(400, `${label} contains an unsupported legacy attachment field`)
+    rejectLegacyAttachments(child, label, seen)
+  }
+}
+
 function themeLength(value, label, nonnegative = true) {
   if (typeof value === 'number') return finite(value, label, nonnegative ? 0 : undefined)
   if (typeof value !== 'string' || !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px|em)$/.test(value)) throw new HttpError(400, `${label} must be a theme length`)
@@ -86,6 +95,36 @@ function content(value, label = 'content', state = { count: 0, depth: 0 }, flowD
   }
 }
 
+function validateCaption(value, label) {
+  const doc = record(value, label)
+  if (doc.type !== 'doc' || Object.keys(doc).some(key => !['type', 'content'].includes(key)) || !Array.isArray(doc.content) || doc.content.length !== 1) throw new HttpError(400, `${label} must contain exactly one paragraph`)
+  const paragraph = record(doc.content[0], `${label}.content[0]`)
+  if (paragraph.type !== 'paragraph' || Object.keys(paragraph).some(key => !['type', 'attrs', 'content'].includes(key))) throw new HttpError(400, `${label} must contain exactly one paragraph`)
+  const attrs = record(paragraph.attrs, `${label}.content[0].attrs`)
+  if (Object.keys(attrs).length !== 1 || !Object.hasOwn(attrs, 'id')) throw new HttpError(400, `${label} paragraph attrs must contain only id`)
+  safeId(attrs.id, `${label}.content[0].attrs.id`)
+  if (paragraph.content !== undefined && !Array.isArray(paragraph.content)) throw new HttpError(400, `${label}.content[0].content must be an array`)
+  content(doc, label)
+  for (const [index, value] of (paragraph.content ?? []).entries()) {
+    const node = record(value, `${label}.content[0].content[${index}]`)
+    if (node.type === 'text') {
+      if (!Object.hasOwn(node, 'text') || Object.keys(node).some(key => !['type', 'text', 'marks'].includes(key))) throw new HttpError(400, `${label} supports only inline text and hard breaks`)
+    } else if (node.type === 'hardBreak') {
+      if (Object.keys(node).some(key => !['type', 'marks'].includes(key))) throw new HttpError(400, `${label} supports only inline text and hard breaks`)
+    } else throw new HttpError(400, `${label} supports only inline text and hard breaks`)
+    for (const [markIndex, markValue] of (node.marks ?? []).entries()) {
+      const mark = record(markValue, `${label}.content[0].content[${index}].marks[${markIndex}]`)
+      const allowed = mark.type === 'bold' ? ['type'] : ['type', 'attrs']
+      if (Object.keys(mark).some(key => !allowed.includes(key))) throw new HttpError(400, `${label} uses an unsupported mark shape`)
+      if (mark.type !== 'bold') {
+        const markAttrs = record(mark.attrs, `${label}.content[0].content[${index}].marks[${markIndex}].attrs`)
+        const attr = mark.type === 'color' ? 'color' : 'decoration'
+        if (Object.keys(markAttrs).length !== 1 || !Object.hasOwn(markAttrs, attr)) throw new HttpError(400, `${label} uses an unsupported mark shape`)
+      }
+    }
+  }
+}
+
 function embeddedImage(value, label) {
   text(value, label, Math.ceil(MAX_SCREENSHOT * 4 / 3) + 1024, true)
   const comma = value.indexOf(',')
@@ -132,6 +171,7 @@ function palette(document) {
   visit(document.content)
   for (const object of document.floating) {
     if (object.content) visit(object.content)
+    if (object.caption) visit(object.caption)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
     for (const key of ['background', 'borderColor']) if (object[key] != null) ref(object[key], `${key} color`)
   }
@@ -159,6 +199,7 @@ function theme(value) {
 }
 
 export function validateFloating(value, label = 'floating object', options = {}) {
+  rejectLegacyAttachments(value, label)
   const object = record(value, label)
   safeId(object.id, `${label}.id`)
   if (object.anchorId !== null) safeId(object.anchorId, `${label}.anchorId`)
@@ -167,13 +208,9 @@ export function validateFloating(value, label = 'floating object', options = {})
   if (object.centered !== undefined && typeof object.centered !== 'boolean') throw new HttpError(400, 'centered must be a boolean')
   if (object.placement === 'flow' && (object.anchorId === null || object.y !== 0)) throw new HttpError(400, 'Flow objects require their block anchor and y=0')
   const kind = object.kind ?? 'text'
-  if ('attachment' in object && kind !== 'text') throw new HttpError(400, `${label}.attachment is only supported on text objects`)
-  if (object.attachment !== undefined && object.attachment !== null) {
-    if (object.placement !== 'float') throw new HttpError(400, 'attached captions require Float placement')
-    const attachment = record(object.attachment, `${label}.attachment`)
-    safeId(attachment.targetId, `${label}.attachment.targetId`)
-    if (attachment.targetId === object.id) throw new HttpError(400, `${label}.attachment cannot target itself`)
-    if (!['above', 'below'].includes(attachment.position)) throw new HttpError(400, `${label}.attachment.position is unsupported`)
+  if ('caption' in object) {
+    if (!['image', 'html', 'table'].includes(kind)) throw new HttpError(400, `${label}.caption is only supported on image, html, and table objects`)
+    validateCaption(object.caption, `${label}.caption`)
   }
   if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`)
   if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object && object[key] !== null) text(object[key], `${label}.${key}`, 128) }
@@ -215,23 +252,17 @@ export function validateFloating(value, label = 'floating object', options = {})
   return object
 }
 
-function validateAttachmentReferences(objects, scope) {
-  const byId = new Map(objects.map(object => [object.id, object]))
-  const captions = objects.filter(object => object.attachment).map(object => object.id)
-  const captionIds = new Set(captions)
-  const targets = new Set()
-  for (const object of objects) {
-    if (!object.attachment) continue
-    const targetId = object.attachment.targetId
-    if (!byId.has(targetId)) throw new HttpError(400, `${scope} attachment is outside its floating objects`)
-    if (captionIds.has(targetId)) throw new HttpError(400, `${scope} attachment cannot target a caption`)
-    if (targets.has(targetId)) throw new HttpError(400, `${scope} allows at most one caption per target`)
-    targets.add(targetId)
+function validateCaptionIds(blocks, objects, scope) {
+  const ids = new Set([...blocks.map(block => block.attrs?.id), ...objects.map(object => object.id)])
+  for (const object of objects) if (object.caption) {
+    const id = object.caption.content[0].attrs.id
+    if (ids.has(id)) throw new HttpError(400, `${scope} caption paragraph IDs must be unique and distinct from object and main block IDs`)
+    ids.add(id)
   }
-
 }
 
 function validateFlowReferences(blocks, objects, scope) {
+  validateCaptionIds(blocks, objects, scope)
   const byId = new Map(objects.map(object => [object.id, object]))
   const blockIds = new Set(), flowAnchors = new Set(), flows = new Set()
   for (const block of blocks) {
@@ -241,7 +272,7 @@ function validateFlowReferences(blocks, objects, scope) {
     blockIds.add(id)
     if (block.type !== 'flow') continue
     const objectId = block.attrs.objectId, object = byId.get(objectId)
-    if (!object || object.placement !== 'flow' || object.attachment || object.anchorId !== id || object.y !== 0 || flows.has(objectId)) throw new HttpError(400, `${scope} Flow block must reference exactly one matching Flow object`)
+    if (!object || object.placement !== 'flow' || object.anchorId !== id || object.y !== 0 || flows.has(objectId)) throw new HttpError(400, `${scope} Flow block must reference exactly one matching Flow object`)
     flows.add(objectId)
     flowAnchors.add(id)
   }
@@ -253,6 +284,7 @@ function validateFlowReferences(blocks, objects, scope) {
 }
 
 export function validateDocument(value) {
+  rejectLegacyAttachments(value, 'document')
   const document = record(value, 'document')
   if (document.version !== 'V0') throw new HttpError(400, 'document.version must be V0')
   safeId(document.id, 'document.id')
@@ -265,7 +297,6 @@ export function validateDocument(value) {
   theme(document.theme); content(document.content, 'content', { count: 0, depth: 0 }, 1); if (document.content.type !== 'doc') throw new HttpError(400, 'document.content must be a doc node')
   if (!Array.isArray(document.floating)) throw new HttpError(400, 'document.floating must be an array')
   const ids = new Set(); for (const [i, object] of document.floating.entries()) { if (ids.has(object?.id)) throw new HttpError(400, 'duplicate floating object ID'); validateFloating(object, `document.floating[${i}]`); ids.add(object.id) }
-  validateAttachmentReferences(document.floating, 'document')
   validateFlowReferences(document.content.content ?? [], document.floating, 'document')
   palette(document)
   return document
@@ -307,6 +338,7 @@ function segmentPaletteReferences(node, result = new Set()) {
 function segmentObjectPaletteReferences(object, result = new Set()) {
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) segmentPaletteReferences(object.content, result)
+  if ('caption' in object) segmentPaletteReferences(object.caption, result)
   for (const key of ['background', 'borderColor']) {
     const value = object[key]
     if (typeof value === 'string') result.add(value)
@@ -370,7 +402,6 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     objects.set(object.id, object)
   }
   const objectIds = new Set(objects.keys())
-  validateAttachmentReferences([...objects.values()], 'candidate.segment')
   validateFlowReferences(payload.content, [...objects.values()], 'candidate.segment')
   const geometry = validateSegmentGeometry(payload.geometry, objectIds)
   const anchorTops = record(payload.anchorTops, 'candidate.segment.anchorTops')
@@ -467,21 +498,7 @@ function segmentPointSelected(anchorId, y, blocks, selected, range) {
 }
 
 function segmentOwnedObjects(document, blocks, range, selected) {
-  const owned = new Set()
-  const baseIncluded = object => {
-    if ((object.kind ?? 'text') === 'text' && object.attachment) return false
-    return segmentPointSelected(object.anchorId, object.y, blocks, selected, range)
-  }
-  for (const object of document.floating) if (baseIncluded(object)) owned.add(object.id)
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const object of document.floating) {
-      if ((object.kind ?? 'text') !== 'text' || !object.attachment || owned.has(object.id)) continue
-      if (owned.has(object.attachment.targetId)) { owned.add(object.id); changed = true }
-    }
-  }
-  return owned
+  return new Set(document.floating.filter(object => segmentPointSelected(object.anchorId, object.y, blocks, selected, range)).map(object => object.id))
 }
 
 function segmentScope(document, value) {
@@ -536,6 +553,7 @@ export function validatePngDataUrl(value, label = 'snapshot') {
 }
 
 export function validateRequest(value) {
+  rejectLegacyAttachments(value, 'request')
   const body = record(value, 'request')
   if (!UUID.test(body.id ?? '')) throw new HttpError(400, 'id must be a client-generated UUID')
   const document = validateDocument(body.document)
@@ -551,6 +569,9 @@ export function validateRequest(value) {
 }
 
 export function validateCandidate(value, document, selectedTarget, options = {}) {
+  rejectLegacyAttachments(document, 'document')
+  rejectLegacyAttachments(selectedTarget, 'target')
+  rejectLegacyAttachments(value, 'candidate')
   const result = record(value, 'result')
   const candidate = result.candidate === undefined ? result : record(result.candidate, 'result.candidate')
   const output = { summary: text(candidate.summary, 'candidate.summary', 4096, true) }
@@ -566,9 +587,12 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     const original = document.floating.find(item => item.id === selectedTarget.objectId)
     if (!selectedTarget.isNew && original.kind !== 'drawing' && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new HttpError(400, 'candidate.object must retain target kind')
     const hasScreenshotPath = candidate.screenshotPath !== undefined
-    const candidateObject = hasScreenshotPath && (candidate.object.kind ?? 'text') === 'html' ? { ...candidate.object } : candidate.object
+    let candidateObject = hasScreenshotPath && (candidate.object.kind ?? 'text') === 'html' ? { ...candidate.object } : candidate.object
     if (hasScreenshotPath) delete candidateObject.screenshot
-    validateFloating(candidateObject, 'candidate.object', { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath }); output.object = candidateObject
+    if (!selectedTarget.isNew && ['image', 'html', 'table'].includes(original.kind) && original.caption !== undefined && !Object.hasOwn(candidateObject, 'caption') && (candidateObject.kind ?? 'text') === original.kind) candidateObject = { ...candidateObject, caption: structuredClone(original.caption) }
+    validateFloating(candidateObject, 'candidate.object', { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
+    validateCaptionIds(document.content.content ?? [], document.floating.map(object => object.id === candidateObject.id ? candidateObject : object), 'candidate.object')
+    output.object = candidateObject
     palette({ ...document, content: { type: 'doc' }, floating: [candidateObject] })
   } else if (selectedTarget.kind === 'text') {
     if (!Array.isArray(candidate.content) || !candidate.content.length || candidate.content.length > 128) throw new HttpError(400, 'candidate.content is required')

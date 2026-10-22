@@ -177,11 +177,12 @@ test('indexing debounces from the latest saved revision and passes the complete 
   const created = await addDocument(store, 'Debounced private source', 'initial content', true, 'Unverified outline for later work')
   assert.equal(store.settings().indexingEnabled, false)
   const seen = []
-  let inputMode, nativeFileMode
+  let inputMode, nativeFileMode, indexPrompt
   const runner = fakeRunner(async (context, source) => {
     seen.push(source)
     inputMode = (await fsStat(context.inputDir)).mode & 0o777
     nativeFileMode = (await fsStat(path.join(context.inputDir, 'document.json'))).mode & 0o777
+    indexPrompt = await readFile(context.promptPath, 'utf8')
     await writeFile(path.join(context.outputDir, 'index.json'), JSON.stringify({ description: 'A concise reusable discovery.' }))
   })
   const manager = managerFor(root, store)
@@ -196,6 +197,8 @@ test('indexing debounces from the latest saved revision and passes the complete 
   latest.content.content.push({ type: 'flow', attrs: { id: 'flow-block', objectId: 'flow-text' } })
   latest.floating.push({ id: 'flow-text', kind: 'text', placement: 'flow', centered: true, anchorId: 'flow-block', x: 0, y: 0, width: 240,
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'flow-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Flow content belongs in the index input' }] }] } })
+  latest.floating.push({ id: 'indexed-image', kind: 'image', placement: 'flow', anchorId: 'image-block', x: 0, y: 0, width: 180, src: 'data:image/png;base64,iVBORw0KGgo=', alt: 'Index figure', caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'indexed-image-caption' }, content: [{ type: 'text', text: 'Caption belongs in the index input' }] }] } })
+  latest.content.content.push({ type: 'flow', attrs: { id: 'image-block', objectId: 'indexed-image' } })
   const saved = store.put(created.id, { baseRevision: created.revision, operationId: randomUUID(), document: latest })
   indexer.wake()
   await new Promise(resolve => setTimeout(resolve, 120))
@@ -203,6 +206,8 @@ test('indexing debounces from the latest saved revision and passes the complete 
   await waitFor(() => indexer.status().ready === 1, 'debounced index completion')
   assert.equal(seen.length, 1)
   assert.deepEqual(seen[0], saved.document)
+  assert.equal(seen[0].floating.find(object => object.id === 'indexed-image').caption.content[0].content[0].text, 'Caption belongs in the index input')
+  assert.match(indexPrompt, /Read each object\.caption as part of its owning table, image, or HTML widget/)
   assert.equal(inputMode, 0o755)
   assert.equal(nativeFileMode, 0o444)
   assert.deepEqual(models, ['workspace/indexer'])

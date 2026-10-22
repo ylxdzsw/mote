@@ -1,7 +1,7 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { captionContent, isText, paragraph, type FloatingObject, type FloatingPatch, type CaptionPosition, type MoteDocument } from '../document/model'
+import { captionContent, supportsCaption, isText, paragraph, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { convertObjectPlacement, insertDocumentObjects, reconcileObjectDeletions } from '../document/flow'
 import { copyFloating, floatingClipboardJSON, floatingCopyIds, floatingText, importFloating, parseFloating, FLOATING_MIME } from '../document/floatingClipboard'
@@ -26,7 +26,7 @@ import { PanelIcon } from '../app/PanelIcon'
 import './floating.css'
 import { aiPlaceholder } from '../ai/placeholder'
 import type { Area } from '../ai/types'
-import { moveSegment, type SegmentPoint, type SegmentRange } from '../document/segment'
+import { freshNode, moveSegment, type SegmentPoint, type SegmentRange } from '../document/segment'
 import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
 import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
@@ -36,7 +36,7 @@ import type { AIReview } from '../ai/ReviewControls'
 export type CreationTool = 'paragraph' | 'text' | 'code' | 'drawing' | 'ai' | null
 export interface CanvasActions {
   clearSelection: () => void
-  remove: () => void; duplicate: () => void; caption: (position?: CaptionPosition, id?: string) => void; attachCaption: (targetId: string, position: CaptionPosition) => void; detach: () => void
+  remove: () => void; duplicate: () => void; caption: (id?: string) => void
   insert: (objects: FloatingObject[]) => void; without: (ids: string[]) => FloatingObject[]
   placement: (placement: 'flow' | 'float') => void
   segmentSelection: () => { range: SegmentRange; area: Area } | null
@@ -175,7 +175,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const measured = reflow()
     if (group) {
       const ids = inserting.map(object => object.id), boxes = measured.geometry
-      const roots = inserting.filter(object => !(isText(object) && object.attachment))
+      const roots = inserting
       const top = Math.min(...inserting.map(object => boxes[object.id].y))
       const right = Math.max(...inserting.map(object => horizontalBounds(boxes[object.id]).right))
       let delta = boundedTranslation(inserting, boxes, ids, { x: Math.min(0, pageWidth() - right), y: group.top === undefined ? 0 : group.top - top }, pageWidth())
@@ -308,7 +308,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const task = segmentTask(id)
     if (task) { event.preventDefault(); event.stopPropagation(); selectAISegment(task.id); return }
     const object = doc.floating.find(object => object.id === id)!
-    if (isText(object) && object.attachment) { event.preventDefault(); event.stopPropagation(); select([id]); onActive(null); focusObject(id); return }
     if (sizeLocked(id) && part !== 'move') { event.preventDefault(); event.stopPropagation(); return }
     capture(event)
     if (event.shiftKey && part === 'move') { const ids = selectedIds.includes(id) ? selectedIds.filter(value => value !== id) : [...selectedIds, id]; select(ids); onActive(null); if (ids.length) focusObject(ids.at(-1)!); return }
@@ -371,7 +370,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     for (const object of objects) {
       if (!ids.includes(object.id)) continue
       const box = boxes[object.id]
-      if (isText(object) && object.attachment) continue
       patches[object.id] = { x: box.x + dx, top: box.y + dy }
     }
     return patches
@@ -428,7 +426,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (object.kind === 'drawing') patch.height = object.height * patch.width! / object.width
     } else {
       const west = d.part.includes('w'), north = d.part.includes('n')
-      const fixed = { x: west ? box.x + box.width : box.x, y: north ? box.y + box.height : box.y }
+      const fixed = { x: west ? box.x + box.width : box.x, y: north ? box.y + ('height' in object ? object.height : box.height) : box.y }
       const end = boundedPoint(snap(p, event.altKey || object.placement === 'flow'))
       let width = Math.max(16, west ? fixed.x - end.x : end.x - fixed.x), height = Math.max(16, north ? fixed.y - end.y : end.y - fixed.y)
       if (event.shiftKey) width = height = Math.max(width, height)
@@ -579,59 +577,30 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (commitDocument(next)) { select(imported.floating.map(object => object.id)); onActive(null); focusObject(imported.floating[0].id) }
       return
     }
-    const originals = doc.floating.filter(object => !emptyContent(object) && (selectedIds.includes(object.id) || (isText(object) && object.attachment && selectedIds.includes(object.attachment.targetId))))
+    const originals = doc.floating.filter(object => !emptyContent(object) && selectedIds.includes(object.id))
     if (!originals.length) return
     const mapping = new Map(originals.map(object => [object.id, crypto.randomUUID()]))
     const ids = originals.map(object => object.id)
     let delta = boundedTranslation(doc.floating, geometry, ids, { x: 16, y: 16 }, pageWidth())
-    const roots = originals.filter(object => !(isText(object) && object.attachment && ids.includes(object.attachment.targetId)))
+    const roots = originals
     while (roots.some(object => doc.floating.some(other => fullyOverlaps({ ...geometry[object.id], x: geometry[object.id].x + delta.x, y: geometry[object.id].y + delta.y }, geometry[other.id])))) delta = { ...delta, y: delta.y + 24 }
     const patches = shifted(doc.floating, geometry, ids, delta.x, delta.y)
     const copies = applyPatches(originals, patches).map(original => {
       const object = structuredClone(original)
       object.id = mapping.get(original.id)!
-      if (isText(object) && object.attachment) {
-        const targetId = mapping.get(object.attachment.targetId)
-        if (targetId) object.attachment.targetId = targetId
-        else { const box = geometry[original.id]; Object.assign(object, anchorPoint({ x: box.x + delta.x, y: box.y + delta.y }, anchors), { width: box.width }); object.attachment = null }
-      }
+      if (supportsCaption(object) && object.caption) object.caption = freshNode(object.caption, new Set())
       return object
     })
     history.boundary(); onFloatingChange([...doc.floating, ...copies]); select(copies.map(object => object.id)); onActive(null)
   }
-  function caption(position: CaptionPosition = 'below', id = selectedIds[0]) {
+  function caption(id = selectedIds[0]) {
     const target = doc.floating.find(object => object.id === id)
-    if (!editable || !target || lockedIds.has(id) || isText(target) && target.attachment) return
-    const existing = doc.floating.find(object => isText(object) && object.attachment?.targetId === id)
-    if (existing) { select([existing.id]); onActive(null); focusObject(existing.id, true); return }
-    const box = geometry[id]
-    const next: FloatingObject = { id: crypto.randomUUID(), kind: 'text', ...anchorPoint(box, anchors), width: box.width,
-      placement: 'float', content: captionContent(), attachment: { targetId: id, position } }
-    history.boundary(); onFloatingChange([...doc.floating, next]); select([next.id]); onActive(null); focusObject(next.id, true)
+    if (!editable || !target || !supportsCaption(target) || lockedIds.has(id)) return
+    if (!target.caption) { history.boundary(); onNoteChange(id, { caption: captionContent() }); history.boundary() }
+    select([id]); onActive(null)
+    requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"] .object-caption .tiptap`)?.focus())
   }
-  function attachCaption(targetId: string, position: CaptionPosition) {
-    const object = doc.floating.find(object => object.id === selectedIds[0])
-    const target = doc.floating.find(object => object.id === targetId)
-    if (!editable || !object || !isText(object) || !target || object === target || lockedIds.has(object.id) || lockedIds.has(targetId)) return
-    if (isText(target) && target.attachment || doc.floating.some(other => isText(other) && other.attachment?.targetId === targetId && other.id !== object.id)) return
-    if (doc.floating.some(other => isText(other) && other.attachment?.targetId === object.id)) return
-    if (object.placement === 'flow') {
-      const next = convertObjectPlacement(doc, object.id, 'float', { anchors, geometry })
-      commitDocument({ ...next, floating: next.floating.map(other => other.id === object.id ? { ...other, attachment: { targetId, position } } as FloatingObject : other) })
-      return
-    }
-    history.boundary()
-    onNoteChange(object.id, { attachment: { targetId, position } })
-    history.boundary()
-  }
-  function detach() {
-    const object = doc.floating.find(object => object.id === selectedIds[0])
-    if (!object || !isText(object) || !object.attachment) return
-    history.boundary()
-    onNoteChange(object.id, { ...anchorPoint(geometry[object.id], anchors), width: geometry[object.id].width, attachment: null })
-    history.boundary()
-  }
-  useLayoutEffect(() => { onActions({ remove, duplicate, caption, attachCaption, detach, placement, without: withoutObjects, insert: insertObjects,
+  useLayoutEffect(() => { onActions({ remove, duplicate, caption, placement, without: withoutObjects, insert: insertObjects,
     clearSelection: () => {
       cancel(); segments.clear(); setActiveSegmentId(null); select([])
       const focused = document.activeElement
@@ -662,7 +631,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       event.preventDefault()
       if (doc.floating.find(object => object.id === id)?.kind === 'drawing' && !lockedIds.has(id)) { onDrawingEdit?.(id); return }
       if ((isText(doc.floating.find(object => object.id === id)!) || doc.floating.find(object => object.id === id)?.kind === 'code') && !lockedIds.has(id)) { select([id]); focusObject(id, true) }
-      else caption('below', id)
+      else caption(id)
       return
     }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicate(); return }
@@ -731,7 +700,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event) => begin(note.id, part, event)} onActive={editor => { if (segment) { selectAISegment(segment.id); return }; if (!drag.current) { if (!selectedIds.includes(note.id) || editor) select([note.id]); onActive(editor) } }}
-            onChange={patch => onNoteChange(note.id, patch)} onCaption={() => caption('below', note.id)} onDrawingEdit={() => onDrawingEdit?.(note.id)} onKey={event => key(note.id, event)} />
+            onChange={patch => onNoteChange(note.id, patch)} onCaption={() => caption(note.id)} onDrawingEdit={() => onDrawingEdit?.(note.id)} onKey={event => key(note.id, event)} />
   }
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
@@ -769,11 +738,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           if (original.placement === 'flow') {
             const mount = flowMounts[original.id]
             if (!mount) return null
-            const caption = layoutDoc.floating.find(object => isText(object) && object.attachment?.targetId === original.id)
-            const above = caption && isText(caption) && caption.attachment?.position === 'above'
-            return createPortal(<>{above && renderObject(caption, true)}{renderObject(original, true)}{caption && !above && renderObject(caption, true)}</>, mount, original.id)
+            return createPortal(renderObject(original, true), mount, original.id)
           }
-          if (isText(original) && original.attachment && layoutDoc.floating.find(object => object.id === original.attachment!.targetId)?.placement === 'flow') return null
           return renderObject(original)
         })}
         {imagePlacement.preview}

@@ -18,15 +18,16 @@ interface Props {
   editable: boolean
   spatial?: boolean
   table?: boolean
+  caption?: boolean
   label: string
   historyId: string
   onChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void
-  onActive: (editor: Editor) => void
+  onActive: (editor: Editor | null) => void
   onReady?: (editor: Editor) => void
   aiReview?: AIReview
 }
 
-export function TextEditor({ content, editable, spatial = false, table = false, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
+export function TextEditor({ content, editable, spatial = false, table = false, caption = false, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
   const history = useHistory()
   const clipboardHistory = useRef(history)
   clipboardHistory.current = history
@@ -37,7 +38,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const syncedRevision = useRef(-1)
   const review = useRef(aiReview)
   review.current = editable ? aiReview : undefined
-  const schema = useMemo(() => [...extensions(spatial, table), paragraphClipboard(clipboardHistory, historyId, !table), reservationExtension(history, historyId, review)], [spatial, table, historyId])
+  const schema = useMemo(() => [...extensions(spatial, table, caption), paragraphClipboard(clipboardHistory, historyId, !table && !caption), reservationExtension(history, historyId, review)], [spatial, table, caption, historyId])
   const editor = useEditor({
     extensions: schema,
     content,
@@ -45,6 +46,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
     onCreate: ({ editor }) => {
       if (spatial) editor.view.dispatch(editor.state.tr.setMeta('normalizeSpaces', true).setMeta('addToHistory', false))
     },
+    onDestroy: () => { if (caption) onActive(null) },
     editorProps: {
       transformPasted: slice => {
         const clean = (node: ProseMirrorNode): ProseMirrorNode => {
@@ -59,7 +61,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         slice.content.forEach(node => { if (node.type.name !== 'flow') nodes.push(clean(node)) })
         return new Slice(Fragment.from(nodes), slice.openStart, slice.openEnd)
       },
-      attributes: { 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
+      attributes: { 'aria-label': caption ? 'Caption' : label, role: 'textbox', 'aria-multiline': 'true' },
       handleDrop: (_view, event, slice) => {
         if (!slice.content.content.some(node => node.type.name === 'flow')) return false
         event.preventDefault()

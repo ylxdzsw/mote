@@ -2,6 +2,7 @@ import type { FloatingObject, FloatingPatch } from '../document/model'
 
 // Resizing changes the drawing's bounds and point positions, never its pen widths.
 export function patchFloating(object: FloatingObject, patch: FloatingPatch): FloatingObject {
+  if (patch.caption === null) { const next = { ...object, ...patch }; delete next.caption; return next as FloatingObject }
   if (object.kind !== 'drawing' || patch.width === undefined && patch.height === undefined) return { ...object, ...patch } as FloatingObject
   const width = patch.width ?? object.width
   const height = patch.height ?? object.height * width / object.width

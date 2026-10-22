@@ -1,4 +1,4 @@
-import { themeBlockClasses, type MoteDocument } from './model'
+import { supportsCaption, themeBlockClasses, type FloatingObject, type MoteDocument } from './model'
 
 export class MoteFileError extends Error {
   constructor(message: string) {
@@ -54,7 +54,10 @@ function finiteValues(value: unknown, path = 'document'): void {
     value.forEach((item, index) => finiteValues(item, `${path}[${index}]`))
     return
   }
-  if (isRecord(value)) for (const [key, child] of Object.entries(value)) finiteValues(child, `${path}.${key}`)
+  if (isRecord(value)) for (const [key, child] of Object.entries(value)) {
+    if (key === 'attachment') invalid(`${path}.attachment is unsupported`)
+    finiteValues(child, `${path}.${key}`)
+  }
 }
 
 function themeLength(value: unknown, path: string): void {
@@ -129,6 +132,42 @@ function inspectContent(value: unknown, path: string, allowFlow = false): void {
   }
 }
 
+function checkCaption(value: unknown, path: string): string {
+  const doc = record(value, path)
+  if (doc.type !== 'doc' || Object.keys(doc).some(key => !['type', 'content'].includes(key))
+    || !Array.isArray(doc.content) || doc.content.length !== 1) invalid(`${path} must be a document with exactly one paragraph`)
+  const paragraph = record(doc.content[0], `${path}.content[0]`)
+  if (paragraph.type !== 'paragraph' || Object.keys(paragraph).some(key => !['type', 'attrs', 'content'].includes(key))) invalid(`${path} must contain exactly one paragraph`)
+  const attrs = record(paragraph.attrs, `${path}.content[0].attrs`)
+  if (Object.keys(attrs).length !== 1 || !('id' in attrs)) invalid(`${path} paragraph attributes must contain only id`)
+  const id = identifier(attrs.id, `${path}.content[0].attrs.id`)
+  if ('content' in paragraph && !Array.isArray(paragraph.content)) invalid(`${path}.content[0].content must be an array`)
+  const inlineNodes = paragraph.content === undefined ? [] : paragraph.content as unknown[]
+  for (const [index, inlineValue] of inlineNodes.entries()) {
+    const inlinePath = `${path}.content[0].content[${index}]`
+    const inline = record(inlineValue, inlinePath)
+    const keys = inline.type === 'text' ? ['type', 'text', 'marks'] : inline.type === 'hardBreak' ? ['type', 'marks'] : []
+    if (!keys.length || Object.keys(inline).some(key => !keys.includes(key))) invalid(`${inlinePath} must be inline text or a hard break`)
+    if (inline.type === 'text' && typeof inline.text !== 'string') invalid(`${inlinePath}.text must be a string`)
+    if ('marks' in inline) {
+      if (!Array.isArray(inline.marks)) invalid(`${inlinePath}.marks must be an array`)
+      for (const [markIndex, markValue] of inline.marks.entries()) {
+        const markPath = `${inlinePath}.marks[${markIndex}]`, mark = record(markValue, markPath)
+        if (mark.type === 'bold') {
+          if (Object.keys(mark).some(key => key !== 'type')) invalid(`${markPath} is not a shared inline mark`)
+        } else if (mark.type === 'color' || mark.type === 'decoration') {
+          const markAttrs = record(mark.attrs, `${markPath}.attrs`)
+          const expected = mark.type === 'color' ? 'color' : 'decoration'
+          if (Object.keys(mark).some(key => !['type', 'attrs'].includes(key)) || Object.keys(markAttrs).length !== 1 || !(expected in markAttrs)) invalid(`${markPath} is not a shared inline mark`)
+          if (mark.type === 'color') text(markAttrs.color, `${markPath}.attrs.color`)
+          else if (!['box', 'underline'].includes(markAttrs.decoration as string)) invalid(`${markPath}.attrs.decoration is unsupported`)
+        } else invalid(`${markPath} is not a shared inline mark`)
+      }
+    }
+  }
+  return id
+}
+
 function embeddedImageSource(value: unknown, path: string): void {
   if (typeof value !== 'string') invalid(`${path} must be an embedded image data URL`)
   const match = /^data:(image\/(?:svg\+xml|png|jpeg|webp|gif|avif))(?:;[^,]*)?,/i.exec(value)
@@ -160,7 +199,7 @@ function color(value: unknown, path: string): void {
   if (value !== null) text(value, path)
 }
 
-function checkFloating(value: unknown, index: number, ids: Set<string>): void {
+function checkFloating(value: unknown, index: number, ids: Set<string>, captionIds: Set<string>): void {
   const path = `floating[${index}]`
   const object = record(value, path)
   const id = identifier(object.id, `${path}.id`)
@@ -170,6 +209,7 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   finite(object.x, `${path}.x`)
   finite(object.y, `${path}.y`)
   finite(object.width, `${path}.width`, 0)
+  if ('attachment' in object) invalid(`${path}.attachment is unsupported`)
   if ('textFlow' in object) invalid(`${path}.textFlow is unsupported`)
   if (!['flow', 'float'].includes(object.placement as string)) invalid(`${path}.placement is unsupported`)
   if ('centered' in object && typeof object.centered !== 'boolean') invalid(`${path}.centered must be a boolean`)
@@ -186,16 +226,12 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
     if (!('content' in object)) invalid(`${path}.content is missing`)
     inspectContent(object.content, `${path}.content`)
   }
-  if (kind === undefined || kind === 'text') {
-    if (object.attachment !== undefined && object.attachment !== null) {
-      const attachment = object.attachment
-      if (!isRecord(attachment)) invalid(`${path}.attachment must be an object`)
-      if (object.placement !== 'float') invalid(`${path}: captions must use Float placement`)
-      identifier(attachment.targetId, `${path}.attachment.targetId`)
-      if (!['above', 'below'].includes(attachment.position as string)) invalid(`${path}.attachment.position is unsupported`)
-    }
+  if ('caption' in object) {
+    if (!supportsCaption(object as unknown as FloatingObject)) invalid(`${path}.caption is unsupported for this kind`)
+    const id = checkCaption(object.caption, `${path}.caption`)
+    if (captionIds.has(id)) invalid('caption paragraph IDs must be unique')
+    captionIds.add(id)
   }
-  else if ('attachment' in object) invalid(`${path}.attachment is only supported on text boxes`)
   if (kind === 'table') return
   if (kind === 'drawing') {
     finite(object.width, `${path}.width`, Number.MIN_VALUE)
@@ -264,7 +300,8 @@ export function validateDocument(value: unknown): asserts value is MoteDocument 
   inspectContent(document.content, 'content')
   if (!Array.isArray(document.floating)) invalid('document.floating must be an array')
   const ids = new Set<string>()
-  document.floating.forEach((object, index) => checkFloating(object, index, ids))
+  const captionIds = new Set<string>()
+  document.floating.forEach((object, index) => checkFloating(object, index, ids, captionIds))
   const content = record(document.content, 'content')
   if (content.type !== 'doc' || !Array.isArray(content.content)) invalid('content must be a document with blocks')
   const blockIds = new Set<string>()
@@ -283,7 +320,7 @@ export function validateDocument(value: unknown): asserts value is MoteDocument 
     flows.set(objectId, id)
     flowAnchors.add(id)
   }
-  const captions = new Set<string>()
+  for (const id of captionIds) if (ids.has(id) || blockIds.has(id)) invalid('caption paragraph IDs must be distinct from object and main block IDs')
   const objects = document.floating as RecordValue[]
   objects.forEach((object, index) => {
     if (object.anchorId !== null && !blockIds.has(object.anchorId as string)) invalid(`floating[${index}].anchorId does not exist`)
@@ -293,14 +330,6 @@ export function validateDocument(value: unknown): asserts value is MoteDocument 
       if (flows.has(object.id as string)) invalid(`floating[${index}]: Float objects cannot own Flow blocks`)
       if (!flowAnchors.has(object.anchorId as string) && (object.y as number) < 0) invalid(`floating[${index}].y must be nonnegative outside a Flow anchor`)
     }
-    if (!isRecord(object.attachment)) return
-    const targetId = identifier(object.attachment.targetId, `floating[${index}].attachment.targetId`)
-    if (!ids.has(targetId)) invalid(`floating[${index}].attachment.targetId does not exist`)
-    if (captions.has(targetId)) invalid(`floating objects may have at most one caption per target`)
-    captions.add(targetId)
-    if (targetId === object.id) invalid(`floating[${index}].attachment cannot target itself`)
-    const target = objects.find(target => target.id === targetId)!
-    if (target.attachment) invalid(`floating[${index}].attachment cannot target a caption`)
   })
 }
 

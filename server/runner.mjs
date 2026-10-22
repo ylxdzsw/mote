@@ -122,19 +122,17 @@ export async function fakeRunner(context) {
     const prefix = `fake-segment-${context.taskId}`
     const paragraphId = `${prefix}-paragraph`
     const flowId = `${prefix}-flow`
-    const drawingId = `${prefix}-drawing`
-    const captionId = `${prefix}-caption`
+    const figureId = `${prefix}-figure`
     const drawingWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
     const x = document.margins.left
     const content = [
       { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
-      { type: 'flow', attrs: { id: flowId, objectId: drawingId } },
+      { type: 'flow', attrs: { id: flowId, objectId: figureId } },
     ]
-    const drawing = { id: drawingId, kind: 'drawing', anchorId: flowId, x: 0, y: 0, width: drawingWidth, height: 64, placement: 'flow', background: null, strokes: [{ points: [[12, 12], [drawingWidth - 12, 52]], color: 'ink', width: 2 }], labels: [] }
-    const caption = { id: captionId, anchorId: flowId, x: 0, y: 0, width: drawingWidth, placement: 'float', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'AI drawing' }] }] }, attachment: { targetId: drawingId, position: 'below' } }
-    candidate.segment = { version: 'V0', type: 'segment', content, floating: [drawing, caption], palette: [], geometry: {
-      [drawingId]: { x, y: 28, width: drawingWidth, height: 64 },
-      [captionId]: { x, y: 100, width: drawingWidth, height: 22 },
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${drawingWidth}" height="64" viewBox="0 0 480 320"><rect x="40" y="70" width="400" height="180" rx="18" fill="#e8eef7" stroke="#425f87" stroke-width="5"/><path d="M90 205l90-80 70 55 78-65 62 90" fill="none" stroke="#425f87" stroke-width="9"/></svg>`
+    const figure = { id: figureId, kind: 'image', anchorId: flowId, x: 0, y: 0, width: drawingWidth, placement: 'flow', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'AI figure', caption: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `${prefix}-caption` }, content: [{ type: 'text', text: 'AI figure' }] }] } }
+    candidate.segment = { version: 'V0', type: 'segment', content, floating: [figure], palette: [], geometry: {
+      [figureId]: { x, y: 28, width: drawingWidth, height: 64 },
     }, anchorTops: { [paragraphId]: 0, [flowId]: 28 }, originTop: 0 }
   } else {
     const blocks = []

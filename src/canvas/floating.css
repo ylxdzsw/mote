@@ -4,7 +4,7 @@
 .main-text [data-flow].ai-original-hidden { display: none; }
 .floating-note[data-in-flow] { display: flow-root; }
 .floating-note.floating-drawing { border: 0; border-radius: 0; }
-.floating-drawing > svg { display: block; width: 100%; height: 100%; pointer-events: none; }
+.floating-drawing .object-body > svg { display: block; width: 100%; height: 100%; pointer-events: none; }
 .sheet.is-editing .floating-drawing { outline: 1px dashed var(--ui-border); }
 .sheet.is-editing .floating-drawing.is-selected { outline: 1px solid var(--ui-accent-border); }
 .floating-drawing .drawing-edit-button { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 38px; height: 38px; padding: 0; margin: 0; border: 1px solid var(--ui-border); border-radius: 50%; color: var(--ui-ink); background: var(--ui-surface-raised); box-shadow: 0 2px 8px var(--ui-shadow); cursor: pointer; }
@@ -22,9 +22,15 @@
 .is-editing .floating-note:not(.is-content-active) [data-scheme] { pointer-events: none; }
 .is-editing .floating-note:not(.is-content-active) .table-column-controls { display: none; }
 .sheet.is-editing .floating-image img { cursor: move; }
-.floating-note.is-caption .tiptap { min-height: 0; }
-.sheet.is-editing .floating-note.is-caption:hover { outline: 1px solid var(--ui-border); }
-.sheet.is-editing .floating-note.is-caption.is-selected { outline: 1px dashed var(--ui-accent-border); }
+.floating-note.has-caption-support { padding: 0; background: transparent; }
+.floating-image > .object-body { padding: 8px; }
+.floating-table > .object-body { padding: 12px; background: var(--page-background); }
+.object-caption { margin-top: 8px; cursor: text; touch-action: auto; }
+.floating-table > .object-caption { margin-top: 0; margin-bottom: 8px; }
+.object-caption .tiptap { min-height: 0; text-align: left; }
+.is-editing .floating-note:not(.is-selected) .object-caption .text-content { pointer-events: auto; }
+.sheet.is-editing .object-caption:hover { outline: 1px dashed var(--ui-border); }
+.sheet.is-editing .object-caption:focus-within { outline: 1px dashed var(--ui-accent-border); }
 .object-handle { position: absolute; width: 9px; height: 9px; min-width: 0; padding: 0; margin: -4.5px 0 0 -4.5px; border: 1px solid var(--ui-accent); border-radius: 2px; background: var(--ui-surface-raised); pointer-events: auto; touch-action: none; cursor: crosshair; }
 .handle-nw { left: 0; top: 0; cursor: nwse-resize; }
 .handle-ne { left: 100%; top: 0; cursor: nesw-resize; }

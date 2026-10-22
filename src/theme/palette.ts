@@ -1,4 +1,4 @@
-import type { MoteDocument, Theme } from '../document/model'
+import { supportsCaption, type MoteDocument, type Theme } from '../document/model'
 import type { JSONContent } from '@tiptap/core'
 import { primaryEntry } from './colors'
 
@@ -32,6 +32,7 @@ export function paletteEntryUsed(doc: MoteDocument, id: string): boolean {
   return uses(doc.theme.defaults.color) || uses(doc.theme.defaults.background)
     || Object.values(doc.theme.blocks).some(style => uses(style.color)) || content(doc.content)
     || doc.floating.some(object => ('content' in object && content(object.content))
+      || (supportsCaption(object) && !!object.caption && content(object.caption))
       || (object.kind === 'drawing' && [...object.strokes, ...object.labels].some(item => uses(item.color)))
       || (['background', 'borderColor'] as const).some(key => key in object && uses((object as unknown as Record<string, string | null>)[key])))
 }
@@ -52,6 +53,7 @@ export function replacePaletteEntry(doc: MoteDocument, id: string, replacement: 
     ...('content' in object && { content: content(object.content) }),
     ...('background' in object && { background: replace(object.background) }),
     ...('borderColor' in object && { borderColor: replace(object.borderColor) }),
+    ...(supportsCaption(object) && object.caption && { caption: content(object.caption) }),
   })) as MoteDocument['floating'] }
 }
 
@@ -99,6 +101,7 @@ export function validatePaletteReferences(doc: MoteDocument) {
   for (const object of doc.floating) {
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) reference(item.color)
     if ('content' in object) content(object.content)
+    if (supportsCaption(object) && object.caption) content(object.caption)
     for (const key of ['background', 'borderColor'] as const) {
       if (key in object) {
         const value = (object as unknown as Record<string, unknown>)[key]

@@ -1,4 +1,4 @@
-import { Node, mergeAttributes } from '@tiptap/core'
+import { Extension, Node, mergeAttributes, type Editor } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import HardBreak from '@tiptap/extension-hard-break'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -6,7 +6,7 @@ import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor } from '@tiptap/extensions'
 import { blockClasses } from '../document/model'
-import { TableParagraph, tableExtensions } from './table'
+import { CaptionBehavior, TableParagraph, tableExtensions } from './table'
 import { Spaces } from './spaces'
 import { ParagraphBehavior } from './paragraphBehavior'
 import { inlineMarks } from './inline'
@@ -32,6 +32,10 @@ const SemanticParagraph = Paragraph.extend({
   },
   parseHTML: () => [{ tag: 'p' }],
   renderHTML: ({ HTMLAttributes }) => ['p', HTMLAttributes, 0],
+})
+
+const CaptionParagraph = Paragraph.extend({
+  renderHTML: ({ HTMLAttributes }) => ['p', mergeAttributes(HTMLAttributes, { 'data-semantic': 'caption' }), 0],
 })
 
 const MainParagraph = SemanticParagraph.extend({
@@ -129,12 +133,18 @@ export const Flow = Node.create({
   },
 })
 
-export function extensions(spatial: boolean, table = false) {
+const CaptionMode = Extension.create({ name: 'captionMode' })
+
+export function isCaptionEditor(editor: Editor | null | undefined) {
+  return !!editor && !editor.isDestroyed && editor.extensionManager.extensions.some(extension => extension.name === 'captionMode')
+}
+
+export function extensions(spatial: boolean, table = false, caption = false) {
   return [
-    table ? Document.extend({ content: 'table' }) : Document,
-    table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
-    UniqueID.configure({ types: spatial ? ['paragraph', 'spacer', 'flow'] : ['paragraph'] }),
-    ...(spatial ? [Spacer, Flow, Spaces] : []),
-    ...(table ? tableExtensions : [ParagraphBehavior]),
+    caption ? Document.extend({ content: 'paragraph' }) : table ? Document.extend({ content: 'table' }) : Document,
+    caption ? CaptionParagraph : table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
+    UniqueID.configure({ types: spatial && !caption ? ['paragraph', 'spacer', 'flow'] : ['paragraph'] }),
+    ...(spatial && !caption ? [Spacer, Flow, Spaces] : []),
+    ...(caption ? [CaptionMode, CaptionBehavior] : table ? tableExtensions : [ParagraphBehavior]),
   ]
 }

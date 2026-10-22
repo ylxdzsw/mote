@@ -1,8 +1,8 @@
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
-import { isText, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { captionGap, captionPlacement, horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 import { nativeSize } from './measurement'
 
 export interface Placement { x: number; top: number }
@@ -97,7 +97,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const flowMounts: Record<string, HTMLElement> = {}
       const obstacles: Obstacle[] = []
       const activate = (note: FloatingObject, anchorTop: number, anchorLeft = 0) => {
-        if (note.placement === 'flow' || isText(note) && note.attachment) return
+        if (note.placement === 'flow') return
         const moving = override[note.id]
         const top = moving?.top ?? anchorTop + note.y
         const left = moving?.x ?? anchorLeft + note.x
@@ -108,13 +108,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           left: left - gap, right: left + width + gap,
           top: Math.max(anchorTop, top - gap), bottom: top + height + gap,
         })
-        const caption = floating.find(object => isText(object) && object.attachment?.targetId === note.id)
-        if (caption && isText(caption) && caption.attachment) {
-          const captionHeight = heights.get(caption.id) ?? 0
-          const point = captionPlacement({ x: left, y: top, width, height }, captionHeight, caption.attachment.position)
-          obstacles.push({ left: point.x - gap, right: point.x + width + gap,
-            top: Math.max(anchorTop, point.y - gap), bottom: point.y + captionHeight + gap })
-        }
       }
       // A dragged object has a fixed document-space position until release.
       for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
@@ -170,8 +163,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           } else if (object) {
             const projected = previewObjects([object], override, anchors, column.left)
             left = resolveGeometry(projected, sizes, {}, anchors, column)[id].x
-            const caption = floating.find(note => isText(note) && note.attachment?.targetId === id && note.attachment.position === 'above')
-            if (caption) top += (heights.get(caption.id) ?? 24) + captionGap
           }
           tops[id] = top
         }

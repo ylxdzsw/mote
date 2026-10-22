@@ -1,4 +1,4 @@
-import { Node } from '@tiptap/core'
+import { Extension, Node } from '@tiptap/core'
 import { DOMParser, Fragment, Slice, type Node as ProseMirrorNode, type Schema } from '@tiptap/pm/model'
 import { Plugin, type Command, type EditorState } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -70,6 +70,57 @@ function textParagraph(text: string, schema: Schema) {
   ]))
 }
 
+function flattenedHTML(html: string) {
+  const container = document.createElement('div')
+  container.innerHTML = html
+  const paragraph = document.createElement('p')
+  paragraph.append(inlineDOM(container))
+  return paragraph.outerHTML
+}
+
+function flattenParagraphs(slice: Slice) {
+  if (slice.content.childCount < 2 || !slice.content.content.every(node => node.type.name === 'paragraph')) return slice
+  const schema = slice.content.firstChild!.type.schema
+  const content = slice.content.content.flatMap((paragraph, index) => [
+    ...(index ? [schema.nodes.hardBreak.create()] : []), ...paragraph.content.content,
+  ])
+  return new Slice(Fragment.from(schema.nodes.paragraph.create(null, content)), 1, 1)
+}
+
+export const CaptionBehavior = Extension.create({
+  name: 'captionBehavior',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    return {
+      'Mod-a': () => this.editor.commands.setTextSelection({ from: 1, to: this.editor.state.doc.content.size - 1 }),
+      Enter: () => this.editor.commands.setHardBreak(),
+      'Shift-Enter': () => this.editor.commands.setHardBreak(),
+      'Mod-Enter': () => this.editor.commands.setHardBreak(),
+    }
+  },
+  addProseMirrorPlugins() {
+    const editor = this.editor
+    return [new Plugin({
+      props: {
+        transformPastedHTML: flattenedHTML,
+        clipboardTextParser: (text, $context) => {
+          const schema = $context.doc.type.schema
+          return new Slice(Fragment.from(textParagraph(text.replace(/\r\n?/g, '\n'), schema)), 1, 1)
+        },
+        transformPasted: flattenParagraphs,
+        handleDOMEvents: {
+          beforeinput: (view, event) => {
+            if (!editor.isEditable || event.isComposing || view.composing || event.inputType !== 'insertParagraph') return false
+            event.preventDefault()
+            editor.commands.setHardBreak()
+            return true
+          },
+        },
+      },
+    })]
+  },
+})
+
 const Table = Node.create({
   name: 'table',
   priority: 1000,
@@ -91,9 +142,7 @@ const Table = Node.create({
           const container = document.createElement('div')
           container.innerHTML = html
           if (container.querySelector('table, tr, td, th')) return html
-          const paragraph = document.createElement('p')
-          paragraph.append(inlineDOM(container))
-          return paragraph.outerHTML
+          return flattenedHTML(html)
         },
         handleDOMEvents: {
           beforeinput: (view, event) => {
@@ -111,14 +160,7 @@ const Table = Node.create({
             row.split('\t').map(cell => schema.nodes.tableCell.create(null, textParagraph(cell, schema)))))
           return new Slice(Fragment.from(schema.nodes.table.create(null, rows)), 0, 0)
         },
-        transformPasted: slice => {
-          if (slice.content.childCount < 2 || !slice.content.content.every(node => node.type.name === 'paragraph')) return slice
-          const schema = slice.content.firstChild!.type.schema
-          const content = slice.content.content.flatMap((paragraph, index) => [
-            ...(index ? [schema.nodes.hardBreak.create()] : []), ...paragraph.content.content,
-          ])
-          return new Slice(Fragment.from(schema.nodes.paragraph.create(null, content)), 1, 1)
-        },
+        transformPasted: flattenParagraphs,
         decorations: state => {
           const table = state.doc.firstChild!
           const map = TableMap.get(table)

@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { isText, type FloatingObject, type FloatingText, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type CaptionPosition, type Theme, type ThemeLength } from '../document/model'
+import { isText, supportsCaption, type FloatingObject, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
@@ -15,11 +15,8 @@ interface Props {
   defaultFontSize: number
   onChange: (patch: FloatingPatch) => void
   onPlacement: (placement: 'flow' | 'float') => void
-  onAction: (action: 'remove' | 'duplicate' | 'detach') => void
-  onCaption: (position?: CaptionPosition) => void
-  onAttach: (targetId: string, position: CaptionPosition) => void
-  caption?: FloatingText
-  attachmentTargets: FloatingObject[]
+  onAction: (action: 'remove' | 'duplicate') => void
+  onCaption: () => void
   onFront: () => void
   onBack: () => void
   onHistoryBegin: (name: string) => void
@@ -39,29 +36,26 @@ interface Props {
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, caption, attachmentTargets, onCaption, onAttach, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
-  const attached = isText(object) ? object.attachment : null
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
   const placementId = useId()
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
-    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : object.placement === 'flow' ? 'Flow object' : 'Float object'} />
+    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : object.placement === 'flow' ? 'Flow object' : 'Float object'} />
     {count === 1 && <>
       <InspectorGroup title="Placement">
-        {attached ? <p className="hint">Placement follows the caption’s object. Detach to choose Flow or Float independently.</p> : <>
-          <div className="placement-options" role="radiogroup" aria-label="Object placement" aria-describedby={`${placementId}-hint`}>
-            {(['flow', 'float'] as const).map(placement => <label key={placement}>
-              <input type="radio" name={placementId} value={placement} checked={object.placement === placement}
-                onChange={() => onPlacement(placement)} />
-              <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
-            </label>)}
-          </div>
-          <p className="hint" id={`${placementId}-hint`}>{object.placement === 'flow'
-            ? 'In the document flow, between text blocks.'
-            : 'Position freely; main text stays to its left.'}</p>
-        </>}
+        <div className="placement-options" role="radiogroup" aria-label="Object placement" aria-describedby={`${placementId}-hint`}>
+          {(['flow', 'float'] as const).map(placement => <label key={placement}>
+            <input type="radio" name={placementId} value={placement} checked={object.placement === placement}
+              onChange={() => onPlacement(placement)} />
+            <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
+          </label>)}
+        </div>
+        <p className="hint" id={`${placementId}-hint`}>{object.placement === 'flow'
+          ? 'In the document flow, between text blocks.'
+          : 'Position freely; main text stays to its left.'}</p>
       </InspectorGroup>
       {object.kind === 'drawing' && <InspectorGroup title="Content">
         <button onClick={onDrawingEdit}>Edit drawing…</button>
@@ -95,15 +89,16 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         })}
         <TextPadding value={object.padding ?? 0} base={defaultFontSize} onChange={padding => onChange({ padding })} />
       </InspectorGroup>}
-      {text && <AttachmentControls object={object} targets={attachmentTargets} onAttach={onAttach} onDetach={() => onAction('detach')} onChange={onChange} />}
-      {!attached && <InspectorGroup title="Caption">
-        {caption ? <button onClick={() => onCaption()}>Edit caption</button> : <InspectorRow>
-          <button onClick={() => onCaption('above')}>Add caption above</button>
-          <button onClick={() => onCaption('below')}>Add caption below</button>
-        </InspectorRow>}
+      {supportsCaption(object) && <InspectorGroup title="Caption">
+        {object.caption ? <InspectorRow>
+          <button onClick={onCaption}>Edit caption</button>
+          <button onClick={() => onChange({ caption: null })}>Remove caption</button>
+        </InspectorRow> : <button onClick={onCaption}>Add caption</button>}
+        <TypographyPreview theme={theme} semantic="caption" />
+        <button onClick={() => onTheme('caption')}>Caption style… <PanelIcon name="sliders" /></button>
       </InspectorGroup>}
       {katex && <KaTeXControls value={katex} onChange={onChange} onTheme={onTheme} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
-      {!attached && (object.placement === 'flow' || ['drawing', 'code', 'html'].includes(object.kind ?? 'text')) && <InspectorGroup title="Layout">
+      {(object.placement === 'flow' || ['drawing', 'code', 'html'].includes(object.kind ?? 'text')) && <InspectorGroup title="Layout">
         {object.kind === 'drawing' && <InspectorRow>
           <InspectorField label="Width"><NumberField label="Drawing width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
           <InspectorField label="Height"><NumberField label="Drawing height" value={object.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
@@ -120,9 +115,9 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       </InspectorGroup>}
       {!widget && !katex && object.kind !== 'code' && <InspectorGroup title={text || object.kind === 'table' ? 'Typography' : 'Colors'}>
         {(text || object.kind === 'table') && <>
-          <TypographyPreview theme={theme} semantic={object.kind === 'table' ? 'table' : textStyle ?? (attached ? 'caption' : 'body')} />
-          <button onClick={() => onTheme(object.kind === 'table' ? 'table' : textStyle ?? (attached ? 'caption' : 'body'))}>
-            {object.kind === 'table' ? 'Table style' : textStyle ? `${classLabel(textStyle)} style` : attached ? 'Caption style' : 'Text styles'} <PanelIcon name="sliders" />
+          <TypographyPreview theme={theme} semantic={object.kind === 'table' ? 'table' : textStyle ?? 'body'} />
+          <button onClick={() => onTheme(object.kind === 'table' ? 'table' : textStyle ?? 'body')}>
+            {object.kind === 'table' ? 'Table style' : textStyle ? `${classLabel(textStyle)} style` : 'Text styles'} <PanelIcon name="sliders" />
           </button>
         </>}
         <button className="quiet-action" onClick={() => onTheme('palette')}>Document palette <PanelIcon name="arrow" /></button>
@@ -138,10 +133,10 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     </InspectorGroup>
     <InspectorHelp key={count > 1 ? 'group' : object.kind ?? 'text'}>
       <FloatingHelp object={object} count={count} />
-      {count === 1 && !attached && <p>{object.placement === 'flow'
+      {count === 1 && <p>{object.placement === 'flow'
         ? 'Drag sideways to position; snap to the center. Drag up or down to move between document blocks.'
         : 'Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.'}</p>}
-      <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Attached captions travel with their targets. While editing text, these shortcuts act on text instead.</p>
+      <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Captions stay with their objects. While editing text, these shortcuts act on text instead.</p>
       <p>Delete/Backspace removes a focused object. Undo restores it.</p>
     </InspectorHelp>
   </div>
@@ -203,41 +198,13 @@ function HTMLWidgetControls({ value, onChange, imageLoading, onReplaceScreenshot
   </>
 }
 
-function AttachmentControls({ object, targets, onAttach, onDetach, onChange }: {
-  object: FloatingText; targets: FloatingObject[]; onAttach: Props['onAttach']; onDetach: () => void; onChange: Props['onChange']
-}) {
-  const [targetId, setTargetId] = useState('')
-  const targetName = (target: FloatingObject, index: number) => {
-    const text = 'alt' in target ? target.alt : 'content' in target ? target.content.content?.flatMap(node => node.content?.map(child => child.text ?? '') ?? []).join('') : ''
-    return `${kindName(target)} ${index + 1}${text ? ` — ${text.slice(0, 48)}` : ''}`
-  }
-  return <InspectorGroup title="Attachment">
-    {object.attachment ? <>
-      <label className="inspector-field">Position<select aria-label="Caption position" value={object.attachment.position}
-        onChange={event => onChange({ attachment: { ...object.attachment!, position: event.target.value as CaptionPosition } })}>
-        <option value="above">Above</option><option value="below">Below</option>
-      </select></label>
-      <button onClick={onDetach}>Detach caption</button>
-      <p className="hint">Position and width follow the object. Detach to move or resize independently.</p>
-    </> : <>
-      <label className="inspector-field">Attach to object<select aria-label="Caption target" value={targetId} onChange={event => setTargetId(event.target.value)}>
-        <option value="">Choose an object</option>
-        {targets.map((target, index) => <option key={target.id} value={target.id}>{targetName(target, index)}</option>)}
-      </select></label>
-      <InspectorRow><button disabled={!targets.some(target => target.id === targetId)} onClick={() => onAttach(targetId, 'above')}>Attach above</button>
-        <button disabled={!targets.some(target => target.id === targetId)} onClick={() => onAttach(targetId, 'below')}>Attach below</button></InspectorRow>
-    </>}
-  </InspectorGroup>
-}
-
 function FloatingHelp({ object, count }: { object: FloatingObject; count: number }) {
   if (count > 1) return <p>Drag any selected object to move the group. Select one object alone to edit its contents. Shift-click adds or removes objects from the selection.</p>
-  if (isText(object) && object.attachment) return <p>Select the caption, then click its text to edit. Its width and position follow its object; use Attachment to switch above/below or detach.</p>
   switch (object.kind) {
     case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; use the right border to resize proportionally or corners to change the bounds. Pen widths stay in document pixels. Revise with AI can turn the sketch into a figure.</p></>
     case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. The selected light or dark syntax scheme supplies its own colors independently of the document palette.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
-    case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click to select or create a caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
+    case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click to edit or add a caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
     case 'katex': return <p>Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
     default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents.</p></>

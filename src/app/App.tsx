@@ -7,7 +7,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { isText, createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
@@ -28,6 +28,7 @@ import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
+import { isCaptionEditor } from '../editor/extensions'
 import { ContextHeading, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
@@ -218,12 +219,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     selector: () => {
       // Include focus-only editor changes, especially the null editor for images.
       const editor = activeEditor
-      const rect = editor && isInTable(editor.state) ? selectedRect(editor.state) : null
+      const caption = isCaptionEditor(editor)
+      const rect = editor && !caption && isInTable(editor.state) ? selectedRect(editor.state) : null
       return {
         paragraph: editor?.isActive('paragraph') ?? false,
-        semantic: editor?.schema.nodes.table ? 'table' : editor?.getAttributes('paragraph').semantic ?? 'body',
+        semantic: caption ? 'caption' : editor?.schema.nodes.table ? 'table' : editor?.getAttributes('paragraph').semantic ?? 'body',
         listLevel: editor?.getAttributes('paragraph').listLevel ?? 0,
-        table: !!editor?.schema.nodes.table,
+        table: !caption && !!editor?.schema.nodes.table,
         columnAlignment: rect && columnAlignment(editor!.state),
         tableRect: rect && { removeRow: rect.bottom - rect.top < rect.map.height, removeColumn: rect.right - rect.left < rect.map.width },
       }
@@ -363,8 +365,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   // segment, selected paragraphs, or the paragraph at the caret.
   function reserveSelection() {
     if (!doc) return
+    if (isCaptionEditor(activeEditor) && selectedIds.length !== 1) return
     if (selectedIds.length === 1 && selectedObject) {
-      const range = activeEditor && activeEditor !== mainEditor && !activeEditor.state.selection.empty ? activeEditor.state.selection : null
+      const range = activeEditor && !isCaptionEditor(activeEditor) && activeEditor !== mainEditor && !activeEditor.state.selection.empty ? activeEditor.state.selection : null
       assistant.reserve({ kind: 'object', objectId: selectedObject.id, isNew: false,
         ...(range ? { selection: { from: range.from, to: range.to }, selectedText: activeEditor!.state.doc.textBetween(range.from, range.to, '\n') } : {}),
         area: measuredArea(document.querySelector(`.workspace [data-note-id="${selectedObject.id}"]`)) })
@@ -554,7 +557,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         {assistant.open ? <div id="assistant-panel" className="side-panel-body" role="tabpanel" aria-labelledby="assistant-tab">
           <AssistantPanel assistant={assistant} onLocate={locateTask} />
         </div> : <div id="context-panel" className="side-panel-body" role="tabpanel" aria-labelledby="context-tab">
-              {!tool && <TextToolsRow editor={activeEditor} theme={doc.theme} onPalette={() => openThemeClass('palette')}
+              {!tool && <TextToolsRow editor={activeEditor} theme={doc.theme} caption={isCaptionEditor(activeEditor)} onPalette={() => openThemeClass('palette')}
                 recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
               <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
               {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <div className="context-inspector">
@@ -565,13 +568,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
               </div> : <>
                 {selectedObject ? <FloatingInspector object={selectedObject} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
-                  caption={doc.floating.find((object): object is import('../document/model').FloatingText => isText(object) && object.attachment?.targetId === selectedObject.id)}
-                  attachmentTargets={doc.floating.filter(target => target.id !== selectedObject.id && !assistant.lockedIds.has(target.id) && !(isText(target) && target.attachment)
-                    && !doc.floating.some(object => isText(object) && object.attachment?.targetId === target.id && object.id !== selectedObject.id)
-                    && !doc.floating.some(object => isText(object) && object.attachment?.targetId === selectedObject.id))}
-                  onCaption={position => actions.current?.caption(position)} onAttach={(targetId, position) => actions.current?.attachCaption(targetId, position)}
+                  onCaption={() => actions.current?.caption()}
                   textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
-                  tableControls={<TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
+                  tableControls={isCaptionEditor(activeEditor) ? null : <TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
                   onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
                   onPlacement={placement => actions.current?.placement(placement)}
                   onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}

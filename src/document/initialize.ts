@@ -3,6 +3,7 @@ import { extensions } from '../editor/extensions'
 import type { MoteDocument } from './model'
 import { validatePaletteReferences } from '../theme/palette'
 import { validateDocument } from './validate'
+import { supportsCaption } from './model'
 
 export function initializeDocument(draft: MoteDocument): MoteDocument {
   validateDocument(draft)
@@ -19,8 +20,9 @@ export function initializeDocument(draft: MoteDocument): MoteDocument {
   content.check()
   draft.content = content.toJSON()
   validateDocument(draft)
-  for (const object of draft.floating) if ('content' in object) {
-    getSchema(extensions(false, object.kind === 'table')).nodeFromJSON(object.content).check()
+  for (const object of draft.floating) {
+    if ('content' in object) getSchema(extensions(false, object.kind === 'table')).nodeFromJSON(object.content).check()
+    if (supportsCaption(object) && object.caption) getSchema(extensions(false, false, true)).nodeFromJSON(object.caption).check()
   }
   return draft
 }

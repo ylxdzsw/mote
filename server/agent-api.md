@@ -14,17 +14,27 @@ unsupported. Each Flow has exactly one top-level main node
 `anchorId` equal to that block ID and `y:0`. Its `x` offsets the left text margin,
 or `centered:true` centers it within the text width. A Float anchored to a Flow
 block uses `x,y` relative to that Flow object’s top-left; other Floats use page
-`x` and nonnegative anchor-relative `y`. Flow-relative Float offsets may be negative. Attached captions are Floats without their own Flow
-node; attachment placement takes precedence. Floats repel main paragraphs only.
+`x` and nonnegative anchor-relative `y`. Flow-relative Float offsets may be negative.
+Optional captions are rich-text fields on table, image, and HTML objects: they
+appear above tables and below images/widgets, use the document's Caption theme,
+and have no separate floating-object ID, geometry, or position. Legacy
+`attachment` keys are rejected anywhere in V0 data, even when null; no migration
+is performed. Each caption is a
+JSONContent doc with exactly one paragraph whose `attrs` contains only `id`;
+inline text and hard breaks use the shared bold, color, and decoration marks. A caption is part
+of its owning object's content and reservation. Floats repel main paragraphs only.
 
-Segment scope includes Flow blocks, their objects, anchored Floats, and attached
-captions. A segment delivery may generate or replace these complete compositions;
-its Flow node/object references must be internal and one-to-one. Main-text tasks
-accept paragraphs only and cannot cross Flow blocks. A single-object revision
-retains the current target placement, centered state, geometry, and attachment
-when projected or accepted; it does not replace main nodes. A new single-object
-placeholder may remain Float. Indexing reads both placements from the same full
-native document and remains subject to the source’s current Private policy.
+Segment scope includes Flow blocks, their objects and built-in captions, and
+anchored Floats. A segment delivery may generate or replace these complete
+compositions; its Flow node/object references must be internal and one-to-one.
+Captions remain within the owning object's fields and are not separate
+`objectIds` or geometry entries. Main-text tasks accept paragraphs only and
+cannot cross Flow blocks. A single-object revision retains the current target
+placement, centered state, geometry, and existing caption when the candidate
+omits `caption`; an explicit empty caption paragraph clears it. It does not
+replace main nodes. A new single-object placeholder may remain Float. Indexing
+reads both placements and built-in captions from the same full native document
+and remains subject to the source’s current Private policy.
 
 ## Private task API
 

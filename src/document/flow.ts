@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { Anchor, Geometries, Point } from '../canvas/floatingGeometry'
-import { isText, paragraph, type FloatingObject, type MoteDocument } from './model'
+import { paragraph, type FloatingObject, type MoteDocument } from './model'
 
 export interface FlowGeometryOptions {
   anchors?: readonly Anchor[]
@@ -45,14 +45,12 @@ function precedingAnchor(doc: MoteDocument, content: JSONContent, removed: strin
 }
 
 function reconcile(doc: MoteDocument, content: JSONContent, objects: FloatingObject[], options: FlowGeometryOptions): MoteDocument {
-  const ids = new Set(objects.map(object => object.id))
   const blockIds = new Set((content.content ?? []).map(block => block.attrs?.id))
   const oldFlowAnchors = new Set(doc.floating.filter(object => object.placement === 'flow').map(object => object.anchorId))
   const destination = { ...doc, content, floating: objects }
   const floating = objects.map(object => {
     const lostAnchor = object.anchorId !== null && oldFlowAnchors.has(object.anchorId) && !blockIds.has(object.anchorId)
-    const lostTarget = isText(object) && object.attachment && !ids.has(object.attachment.targetId)
-    if (!lostAnchor && !lostTarget) return object
+    if (!lostAnchor) return object
     const original = doc.floating.find(candidate => candidate.id === object.id) ?? object
     const point = objectPagePosition(doc, original, options)
     let anchorId = lostAnchor ? precedingAnchor(doc, content, object.anchorId) : object.anchorId
@@ -60,12 +58,7 @@ function reconcile(doc: MoteDocument, content: JSONContent, objects: FloatingObj
       const ordinaryIds = new Set((content.content ?? []).filter(block => block.type !== 'flow').map(block => block.attrs?.id))
       anchorId = options.anchors?.findLast(anchor => ordinaryIds.has(anchor.id) && anchor.top <= point.y)?.id ?? null
     }
-    const next = { ...object, ...placementAtPoint(destination, point, anchorId, options) }
-    if (lostTarget && isText(next)) {
-      next.attachment = null
-      next.width = options.geometry?.[object.id]?.width ?? next.width
-    }
-    return next
+    return { ...object, ...placementAtPoint(destination, point, anchorId, options) }
   })
   return { ...destination, floating }
 }
@@ -89,7 +82,6 @@ export function insertDocumentObjects(doc: MoteDocument, objects: FloatingObject
   const anchors = new Map<string, string>()
   for (const object of inserted) {
     if (object.placement !== 'flow') continue
-    if (isText(object) && object.attachment) throw new Error('A caption cannot be a Flow object')
     let block = content.find(block => block.type === 'flow' && block.attrs?.objectId === object.id)
     if (!block) { block = flowBlock(object.id); content.push(block) }
     if (object.anchorId !== null) anchors.set(object.anchorId, block.attrs!.id)
@@ -108,7 +100,6 @@ export function insertFlowObject(doc: MoteDocument, object: FloatingObject, inde
 export function convertObjectPlacement(doc: MoteDocument, id: string, placement: FloatingObject['placement'], options: FlowGeometryOptions & { index?: number; centered?: boolean } = {}): MoteDocument {
   const object = doc.floating.find(object => object.id === id)
   if (!object) return doc
-  if (placement === 'flow' && isText(object) && object.attachment) throw new Error('A caption cannot be a Flow object')
   if (object.placement === placement) {
     return options.centered === undefined ? doc : { ...doc, floating: doc.floating.map(item => item.id === id ? { ...item, centered: options.centered } : item) }
   }

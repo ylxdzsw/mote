@@ -1,11 +1,9 @@
 import type { JSONContent } from '@tiptap/core'
-import type { FloatingObject, FloatingText, MoteDocument } from '../document/model'
+import type { FloatingObject, MoteDocument } from '../document/model'
 import type { AITarget, AITask } from './types'
 import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
 import { patchFloating } from '../canvas/patchFloating.ts'
-
-const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
 
 export function paragraphSelection(doc: Node, from: number, to: number) {
   const blockIds: string[] = []
@@ -30,7 +28,6 @@ function sortedKeys(_key: string, value: unknown): unknown {
 export function objectContent(object: FloatingObject) {
   const { x, y, anchorId, placement, centered, ...content } = object
   void x; void y; void anchorId; void placement; void centered
-  if (isText(object)) return { ...content, attachment: undefined }
   return content
 }
 
@@ -114,15 +111,7 @@ function segmentObjectIds(doc: MoteDocument, range: SegmentRange) {
     return y >= start && (y < end || end === segmentBlockHeight(block) && y >= segmentBlockHeight(block))
   }
   for (const object of doc.floating) {
-    if (isText(object) && object.attachment) continue
     if (selectedAnchor(object.anchorId, object.y)) ids.add(object.id)
-  }
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const object of doc.floating) if (isText(object) && object.attachment && !ids.has(object.id) && ids.has(object.attachment.targetId)) {
-      ids.add(object.id); changed = true
-    }
   }
   return ids
 }
@@ -249,6 +238,7 @@ export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocume
 }
 
 export function permitsEditor(tasks: AITask[], historyId: string, before: JSONContent, after: JSONContent) {
+  if (historyId.includes(':caption:')) historyId = historyId.split(':caption:')[0]
   if (historyId !== 'main') return !tasks.some(task => (task.target.kind === 'object' && task.target.objectId === historyId)
     || (task.target.kind === 'segment' && task.target.objectIds.includes(historyId))) || sameContent(before, after)
   return tasks.every(task => {
@@ -262,9 +252,13 @@ export function permitsEditor(tasks: AITask[], historyId: string, before: JSONCo
 
 export function currentPlacement(candidate: FloatingObject, original: FloatingObject): FloatingObject {
   const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.width, ...('height' in original && { height: original.height }) }) : candidate
-  const result = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, placement: original.placement, centered: original.centered }
+  const result: FloatingObject = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, placement: original.placement, centered: original.centered }
   if (original.centered === undefined) delete result.centered
   if ('height' in original && 'height' in result) result.height = original.height
-  if (isText(result)) return { ...result, attachment: isText(original) ? original.attachment : undefined }
+  if (result.kind === 'image' || result.kind === 'html' || result.kind === 'table') {
+    if (result.caption === undefined && (original.kind === 'image' || original.kind === 'html' || original.kind === 'table') && original.caption) result.caption = original.caption
+    if (result.caption?.type === 'doc' && result.caption.content?.length === 1
+      && result.caption.content[0].type === 'paragraph' && !result.caption.content[0].content?.length) delete result.caption
+  }
   return result
 }

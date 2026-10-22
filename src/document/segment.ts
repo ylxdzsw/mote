@@ -1,6 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument, PaletteEntry } from './model'
-import { defaultTheme, isText } from './model'
+import { defaultTheme, supportsCaption } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { neutralIds, primaryVariables } from '../theme/palette'
@@ -174,7 +174,6 @@ function objectAnchorPlace(object: FloatingObject): AnchorPlace {
 }
 
 function objectBaseIncluded(object: FloatingObject, blocks: JSONContent[], selected: SelectedSegment, range: SegmentRange) {
-  if (isText(object) && object.attachment) return false
   return pointInSelectedRange(objectAnchorPlace(object), blocks, selected, range)
 }
 
@@ -183,17 +182,6 @@ function selectedObjectSet(doc: MoteDocument, range: SegmentRange): Set<string> 
   const selected = selectedSegment(blocks, range)
   const ids = new Set<string>()
   for (const object of doc.floating) if (objectBaseIncluded(object, blocks, selected, range)) ids.add(object.id)
-  // Attached captions follow their target, not their own saved rectangle or
-  // possibly stale anchor. Iterate so a caption is included even when its own
-  // anchor is elsewhere.
-  let changed = true
-  while (changed) {
-    changed = false
-    for (const object of doc.floating) {
-      if (!isText(object) || !object.attachment || ids.has(object.id)) continue
-      if (ids.has(object.attachment.targetId)) { ids.add(object.id); changed = true }
-    }
-  }
   return ids
 }
 
@@ -201,13 +189,7 @@ export function segmentObjectIds(doc: MoteDocument, range: SegmentRange): Set<st
   return selectedObjectSet(doc, canonicalRange(doc, range))
 }
 
-function sourceAnchorTop(id: string | null, anchors: readonly { id: string; top: number }[], slices: Map<string, SpacerSlice>, originTop: number) {
-  if (id === null) return originTop
-  const slice = slices.get(id)
-  return anchorTop(id, anchors) + (slice?.start ?? 0)
-}
-
-function transformCopiedObject(object: FloatingObject, selectedIds: Set<string>, blocks: JSONContent[], selected: SelectedSegment, anchors: readonly { id: string; top: number }[], geometry: Geometries, originTop: number): FloatingObject {
+function transformCopiedObject(object: FloatingObject, blocks: JSONContent[], selected: SelectedSegment): FloatingObject {
   const result = clone(object)
   const shiftAnchor = (id: string | null, y: number) => {
     if (id === null) return { anchorId: null, y }
@@ -216,15 +198,6 @@ function transformCopiedObject(object: FloatingObject, selectedIds: Set<string>,
     return slice ? { anchorId: id, y: Math.max(0, y - slice.start) } : { anchorId: id, y }
   }
   Object.assign(result, shiftAnchor(result.anchorId, result.y))
-  if (isText(result) && result.attachment && !selectedIds.has(result.attachment.targetId)) {
-    const box = geometry[result.id]
-    if (box) {
-      result.x = box.x
-      result.y = Math.max(0, box.y - sourceAnchorTop(result.anchorId, anchors, selected.spacers, originTop))
-      result.width = box.width
-    }
-    result.attachment = null
-  }
   return result
 }
 
@@ -237,6 +210,7 @@ function paletteReferences(content: JSONContent, result = new Set<string>()) {
 export function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
   if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
   if ('content' in object) paletteReferences(object.content, result)
+  if (supportsCaption(object) && object.caption) paletteReferences(object.caption, result)
   for (const key of ['background', 'borderColor'] as const) {
     const value = (object as unknown as Record<string, unknown>)[key]
     if (typeof value === 'string') result.add(value)
@@ -263,11 +237,7 @@ export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: rea
     content.push(block)
   }
   const selectedIds = selectedObjectSet(doc, canonical)
-  const floating = doc.floating.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, selectedIds, blocks, selected, anchors, geometry, originTop))
-  for (const object of floating) if (isText(object) && object.attachment && !selected.blockIds.has(object.anchorId ?? '')) {
-    object.anchorId = null
-    object.y = 0
-  }
+  const floating = doc.floating.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, blocks, selected))
   const refs = new Set<string>()
   for (const block of content) paletteReferences(block, refs)
   for (const object of floating) objectPaletteReferences(object, refs)
@@ -334,6 +304,7 @@ export function remapObjectPalette(object: FloatingObject, remap: Map<string, st
     object.strokes = object.strokes.map(stroke => ({ ...stroke, color: reference(stroke.color) }))
     object.labels = object.labels.map(label => ({ ...label, color: reference(label.color) }))
   }
+  if (supportsCaption(object) && object.caption) object.caption = remapPaletteContent(object.caption, remap)
 }
 
 export function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
@@ -351,6 +322,11 @@ export function collectNodeIds(node: JSONContent, used: Set<string>) {
   const id = blockId(node)
   if (id) used.add(id)
   for (const child of node.content ?? []) collectNodeIds(child, used)
+}
+
+export function collectObjectNodeIds(object: FloatingObject, used: Set<string>) {
+  if ('content' in object) collectNodeIds(object.content, used)
+  if (supportsCaption(object) && object.caption) collectNodeIds(object.caption, used)
 }
 
 function normalizeSpacers(blocks: JSONContent[]) {
@@ -387,7 +363,7 @@ function fallbackGeometry(object: FloatingObject, geometry: Geometries, anchors:
   return box ? { ...absoluteToAnchor({ x: box.x, y: box.y }, anchors), x: box.x } : { anchorId: null, y: 0 }
 }
 
-function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, selected: SelectedSegment, parts: Map<string, SpacerSlice>, aliases: Map<string, SpacerAlias>, geometry: Geometries, resultAnchors: readonly { id: string; top: number }[]): FloatingObject {
+function remapRetainedObject(object: FloatingObject, selected: SelectedSegment, parts: Map<string, SpacerSlice>, aliases: Map<string, SpacerAlias>, geometry: Geometries, resultAnchors: readonly { id: string; top: number }[]): FloatingObject {
   const result = clone(object)
   const mapExisting = (id: string | null, y: number): AnchorMapping | undefined => {
     if (id === null) return { anchorId: null, y }
@@ -404,11 +380,6 @@ function remapRetainedObject(object: FloatingObject, selectedIds: Set<string>, s
   if (mapped) Object.assign(result, mapped)
   else Object.assign(result, fallbackGeometry(result, geometry, resultAnchors))
 
-  if (isText(result) && result.attachment && selectedIds.has(result.attachment.targetId)) {
-    result.attachment = null
-    const box = geometry[result.id]
-    if (box) Object.assign(result, { x: box.x, width: box.width, ...absoluteToAnchor({ x: box.x, y: box.y }, resultAnchors) })
-  }
   return result
 }
 
@@ -516,7 +487,7 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
   const payload = copySegment(doc, canonical, anchors, geometry)
   const used = new Set<string>()
   collectNodeIds(doc.content, used)
-  for (const object of doc.floating) { used.add(object.id); if ('content' in object) collectNodeIds(object.content, used) }
+  for (const object of doc.floating) { used.add(object.id); collectObjectNodeIds(object, used) }
   let position = 0
   // Split only the source and destination spaces. Ordinary blocks keep their IDs.
   const pieces = blocks.flatMap(block => {
@@ -575,7 +546,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   for (const block of oldBlocks) collectNodeIds(block, used)
   for (const object of doc.floating) {
     used.add(object.id)
-    if ('content' in object) collectNodeIds(object.content, used)
+    collectObjectNodeIds(object, used)
   }
   const preBlocks: JSONContent[] = []
   const parts = new Map<string, SpacerSlice>()
@@ -634,7 +605,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
     return [{ id: alias?.anchorId ?? id, top }]
   }).filter((anchor, index, all) => all.findIndex(other => other.id === anchor.id) === index)
 
-  const retained = doc.floating.filter(object => !selectedIds.has(object.id)).map(object => remapRetainedObject(object, selectedIds, selected, parts, aliases, geometry, resultAnchors))
+  const retained = doc.floating.filter(object => !selectedIds.has(object.id)).map(object => remapRetainedObject(object, selected, parts, aliases, geometry, resultAnchors))
   if (payload) {
     for (const object of payload.floating) {
       const nextId = freshId(used)
@@ -651,19 +622,11 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
       const mapped = rawAnchor ? applyAlias({ anchorId: rawAnchor, y: object.y }, aliases)
         : translated(payload.geometry[object.id] ?? { x: object.x, y: object.y + sourcePayloadAnchorTop(payload, sourceAnchor) })
       const mappedAnchor = mapped.anchorId
-      const aliasOffset = mapped.y - object.y
       next.anchorId = mappedAnchor
       next.y = mapped.y
       if ('x' in mapped) next.x = mapped.x as number
-      if (isText(next)) {
-        if (next.attachment && payloadObjectMap.has(next.attachment.targetId)) next.attachment = { ...next.attachment, targetId: payloadObjectMap.get(next.attachment.targetId)! }
-        else if (next.attachment) {
-          const box = payload.geometry[object.id]
-          if (box) { next.x = box.x; next.y = Math.max(0, box.y - sourcePayloadAnchorTop(payload, sourceAnchor) + aliasOffset); next.width = box.width }
-          next.attachment = null
-        }
-      }
       if ('content' in next) next.content = remapPaletteContent(freshNode(next.content, used), paletteMap)
+      if (supportsCaption(next) && next.caption) next.caption = freshNode(next.caption, used)
       remapObjectPalette(next, paletteMap)
       retained.push(next)
     }

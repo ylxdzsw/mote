@@ -74,9 +74,10 @@ function ToolPopup({ label, children, items, disabled }: {
   </div>
 }
 
-function selectedClasses(editor: Editor | null) {
+function selectedClasses(editor: Editor | null, caption: boolean) {
   const paragraphs = new Set<string>()
-  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', text: false, list: false, fixed: '', ...selectedInlineMarks(null) }
+  const fixed = caption ? 'Caption' : editor?.schema.nodes.table ? 'Table' : ''
+  if (!editor || editor.state.selection instanceof NodeSelection) return { paragraph: '', text: caption, list: false, fixed, ...selectedInlineMarks(null) }
   const { selection, doc } = editor.state
   for (const { $from, $to } of selection.ranges) {
     doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
@@ -88,8 +89,8 @@ function selectedClasses(editor: Editor | null) {
   const inline = selectedInlineMarks(editor)
   return {
     paragraph: paragraphs.size === 1 ? [...paragraphs][0] : '',
-    text: paragraphs.size > 0, list: paragraphs.has('list'),
-    fixed: editor.schema.nodes.table ? 'Table' : '',
+    text: caption || paragraphs.size > 0, list: paragraphs.has('list'),
+    fixed,
     ...inline,
   }
 }
@@ -192,11 +193,12 @@ export interface TextToolsRowProps {
   onPalette?: () => void
   recentColors?: string[]
   onColorApplied?: (color: string) => void
+  caption?: boolean
 }
 
-export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied }: TextToolsRowProps) {
+export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied, caption = false }: TextToolsRowProps) {
   const tools = useRef<HTMLDivElement>(null)
-  const selection = useEditorState({ editor, selector: () => selectedClasses(editor) }) ?? selectedClasses(null)
+  const selection = useEditorState({ editor, selector: () => selectedClasses(editor, caption) }) ?? selectedClasses(null, caption)
   useEffect(() => {
     if (!selection.text) return
     function focusTools(event: KeyboardEvent) {
@@ -241,13 +243,13 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
       event.preventDefault()
       buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length]?.focus()
     }}>
-    <ToolPopup label="Paragraph class" disabled={paragraphDisabled} items={[
+    {caption ? <span className="tt-para-label">Caption</span> : <ToolPopup label="Paragraph class" disabled={paragraphDisabled} items={[
       ...blockClasses.map(name => ({ id: name, label: classLabel(name), icon: <TIcon name={name} />, checked: selection.paragraph === name, action: () => applyParagraph(name) })),
       ...([-1, 1] as const).map(delta => ({ id: String(delta), label: delta < 0 ? 'Decrease list level' : 'Increase list level', icon: <TIcon name="chevron" />,
         separator: delta < 0, disabled: !selection.list, action: () => { editor!.view.focus(); changeListLevel(editor!, delta) } })),
     ]}>
       <span className="tt-para-label">{selection.fixed || (selection.text ? selection.paragraph ? classLabel(selection.paragraph) : 'Mixed' : 'Paragraph')}</span>
-    </ToolPopup>
+    </ToolPopup>}
     <span className="tt-divider" aria-hidden="true" />
     <button className="tt-btn tt-bold" aria-label="Bold" title="Bold · Ctrl/⌘B"
       aria-pressed={inlineDisabled ? false : selection.bold} disabled={inlineDisabled}
