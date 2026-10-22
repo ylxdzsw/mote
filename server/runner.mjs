@@ -111,9 +111,9 @@ export async function fakeRunner(context) {
     } else if (candidate.object?.kind === 'code') {
       candidate.object.source = `AI draft\n${candidate.object.source}`
     } else if (candidate.object?.kind === 'drawing') {
-      const { id, anchorId, x, y, width, height, textFlow } = candidate.object
+      const { id, anchorId, x, y, width, height, placement, centered } = candidate.object
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 480 320"><rect x="40" y="100" width="140" height="100" rx="12" fill="#e8eef7" stroke="#425f87" stroke-width="2"/><path d="M180 150h100m-12-8 12 8-12 8" fill="none" stroke="#425f87" stroke-width="2"/><rect x="280" y="100" width="160" height="100" rx="12" fill="#f6edde" stroke="#875a35" stroke-width="2"/><text x="110" y="156" text-anchor="middle" font-family="sans-serif" font-size="18">Sketch</text><text x="360" y="156" text-anchor="middle" font-family="sans-serif" font-size="18">AI figure</text></svg>`
-      candidate.object = { id, anchorId, x, y, width, textFlow, kind: 'image', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'Fake sketch-to-figure candidate' }
+      candidate.object = { id, anchorId, x, y, width, placement, centered, kind: 'image', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'Fake sketch-to-figure candidate' }
     } else if ((candidate.object?.kind ?? 'text') === 'text' && candidate.object.content?.content?.[0]) {
       const first = candidate.object.content.content[0]
       candidate.object.content = { ...candidate.object.content, content: [{ ...first, content: [{ type: 'text', text: `AI draft: ${textOf(first) || 'generated note'}` }] }, ...candidate.object.content.content.slice(1)] }
@@ -121,21 +121,21 @@ export async function fakeRunner(context) {
   } else if (context.target.kind === 'segment') {
     const prefix = `fake-segment-${context.taskId}`
     const paragraphId = `${prefix}-paragraph`
-    const spacerId = `${prefix}-spacer`
+    const flowId = `${prefix}-flow`
     const drawingId = `${prefix}-drawing`
     const captionId = `${prefix}-caption`
     const drawingWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
     const x = document.margins.left
     const content = [
       { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
-      { type: 'spacer', attrs: { id: spacerId, height: 112 } },
+      { type: 'flow', attrs: { id: flowId, objectId: drawingId } },
     ]
-    const drawing = { id: drawingId, kind: 'drawing', anchorId: spacerId, x, y: 12, width: drawingWidth, height: 64, textFlow: 'overlap', background: null, strokes: [{ points: [[12, 12], [drawingWidth - 12, 52]], color: 'ink', width: 2 }], labels: [] }
-    const caption = { id: captionId, anchorId: spacerId, x, y: 12, width: drawingWidth, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'AI drawing' }] }] }, attachment: { targetId: drawingId, position: 'below' } }
+    const drawing = { id: drawingId, kind: 'drawing', anchorId: flowId, x: 0, y: 0, width: drawingWidth, height: 64, placement: 'flow', background: null, strokes: [{ points: [[12, 12], [drawingWidth - 12, 52]], color: 'ink', width: 2 }], labels: [] }
+    const caption = { id: captionId, anchorId: flowId, x: 0, y: 0, width: drawingWidth, placement: 'float', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'AI drawing' }] }] }, attachment: { targetId: drawingId, position: 'below' } }
     candidate.segment = { version: 'V0', type: 'segment', content, floating: [drawing, caption], palette: [], geometry: {
-      [drawingId]: { x, y: 40, width: drawingWidth, height: 64 },
-      [captionId]: { x, y: 112, width: drawingWidth, height: 22 },
-    }, anchorTops: { [paragraphId]: 0, [spacerId]: 28 }, originTop: 0 }
+      [drawingId]: { x, y: 28, width: drawingWidth, height: 64 },
+      [captionId]: { x, y: 100, width: drawingWidth, height: 22 },
+    }, anchorTops: { [paragraphId]: 0, [flowId]: 28 }, originTop: 0 }
   } else {
     const blocks = []
     const visit = node => { if (node?.attrs?.id && context.target.blockIds.includes(node.attrs.id)) blocks.push(structuredClone(node)); node.content?.forEach(visit) }

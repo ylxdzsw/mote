@@ -1,5 +1,6 @@
 import type { JSONContent } from '@tiptap/core'
 import type { SpaceMerge, SpaceShift } from '../editor/spaces'
+import { objectPagePosition, placementAtPoint, reconcileFlowContent, type FlowGeometryOptions } from './flow'
 import { defaultHue } from '../theme/colors'
 import exampleMath from './examples/math.tex?raw'
 import attentionHTML from './examples/attention.html?raw'
@@ -69,7 +70,8 @@ interface FloatingGeometry {
   x: number
   y: number
   width: number
-  textFlow: 'overlap' | 'repel'
+  placement: 'flow' | 'float'
+  centered?: boolean
 }
 
 export interface FloatingText extends FloatingGeometry {
@@ -170,131 +172,94 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 const landscape = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360"><rect width="600" height="360" fill="#e8ecdf"/><circle cx="450" cy="86" r="40" fill="#d9b678"/><path d="M0 238Q145 76 320 224T600 164V360H0Z" fill="#9aaa89"/><path d="M0 292Q156 196 340 278T600 228V360H0Z" fill="#54725b"/><path d="M240 360Q410 290 330 238" fill="none" stroke="#eee5c9" stroke-width="20"/><path d="M95 285V150m0 70q-65-8-53-54 53 7 53 54m0-26q59-4 49-49-49 6-49 49" fill="#35543e" stroke="#35543e" stroke-width="5"/></svg>')}`
 
 export function createDocument(): MoteDocument {
-  const spaceId = crypto.randomUUID()
-  const sketchSpaceId = crypto.randomUUID()
-  const reviewSpaceId = crypto.randomUUID()
-  const mathSpaceId = crypto.randomUUID()
-  const codeSpaceId = crypto.randomUUID()
-  const attentionSpaceId = crypto.randomUUID()
-  const motionSpaceId = crypto.randomUUID()
-  const imageId = crypto.randomUUID()
+  const floating: FloatingObject[] = []
+  const flow = (object: FloatingObject): JSONContent => {
+    const id = crypto.randomUUID()
+    floating.push({ ...object, placement: 'flow', anchorId: id, y: 0 })
+    return { type: 'flow', attrs: { id, objectId: object.id } }
+  }
+  const base = (width: number) => ({ id: crypto.randomUUID(), anchorId: null, x: 0, y: 0, width, placement: 'flow' as const, centered: true })
+  const image = flow({ ...base(600), kind: 'image', src: landscape, alt: 'A winding path between green hills beneath a golden sun.' })
+  floating.push({ ...base(600), placement: 'float', kind: 'text', anchorId: image.attrs!.id,
+    content: captionContent('A path worth following. This caption stays with the image, and the next paragraph follows both.'),
+    attachment: { targetId: image.attrs!.objectId, position: 'below' } })
+  floating.push({ ...base(210), placement: 'float', kind: 'text', anchorId: image.attrs!.id, x: 400, y: 36,
+    padding: '0.75em', background: 'paper', borderColor: 'primary',
+    content: { type: 'doc', content: [paragraph('A thought on the landscape', 'caption'), paragraph('Move the image: this note follows in both directions.', 'caption')] } })
+  const alongside = paragraph('Some thoughts belong beside the main thread. A Float can sit anywhere on the page while the main text uses the space to its left. It can also overlap a figure or another Float. The figure itself keeps its own place in the document.')
+  floating.push({ ...base(260), placement: 'float', centered: false, anchorId: alongside.attrs!.id, x: 628, y: 8,
+    padding: '1em', background: 'primary:soft', borderColor: null,
+    content: { type: 'doc', content: [paragraph('A different angle', 'heading'), paragraph('Keep a question close to the passage that inspired it. 灵感随行。', 'caption')] } })
+  const table = flow({ ...base(894), kind: 'table', content: tableContent([
+    ['Content', 'Placement', 'What moves with it'],
+    ['Figure, table, code, widget', 'Flow — its own vertical space', 'Caption and anchored notes'],
+    ['Side note or annotation', 'Float — positioned on the page', 'Its attached caption'],
+    ['A composed section', 'Select it in the left gutter', 'Text, spaces, and owned objects'],
+  ]) })
+  const drawing = flow({ ...base(640), kind: 'drawing', height: 220, background: null,
+    strokes: [
+      { color: 'primary', width: 3, points: [[44, 155], [63, 126], [89, 145], [119, 98], [147, 116], [177, 65], [207, 92], [242, 48], [270, 74]] },
+      { color: 'detail', width: 3, points: [[340, 125], [366, 102], [396, 108], [424, 72], [457, 86], [485, 52], [521, 63], [557, 36]] },
+      { color: 'muted', width: 2, points: [[295, 102], [324, 102], [316, 94], [324, 102], [316, 110]] },
+    ], labels: [{ x: 48, y: 190, text: 'Sketch the thought', color: 'ink', size: 18 }, { x: 356, y: 190, text: 'Refine it with Assistant', color: 'ink', size: 18 }] })
+  floating.push({ ...base(640), kind: 'text', placement: 'float', anchorId: drawing.attrs!.id,
+    content: captionContent('A native drawing: editable strokes and labels, with colors from the document palette.'),
+    attachment: { targetId: drawing.attrs!.objectId, position: 'below' } })
+  const formula = flow({ ...base(800), kind: 'katex', latex: exampleMath.trim() })
+  const code = flow({ ...base(760), kind: 'code', language: 'javascript', scheme: 'light',
+    source: '// Give each thought a place.\nconst workspace = {\n  write: "Follow the thread",\n  flow: "Make room for a figure",\n  float: "Keep a question nearby",\n}\nconsole.log(workspace.flow)' })
+  const attention = flow({ ...base(780), kind: 'html', height: 400, html: attentionHTML, screenshot: attentionScreenshot,
+    alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.' })
+  const motion = flow({ ...base(780), kind: 'html', height: 400, html: motionHTML, screenshot: motionScreenshot,
+    alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.' })
   return {
-    version: 'V0',
-    id: crypto.randomUUID(),
-    width: 960,
-    margins: { top: 48, right: 32, bottom: 48, left: 32 },
-    theme: structuredClone(defaultTheme),
-    content: {
-      type: 'doc',
-      content: [
-        paragraph('A little room to think.', 'title'),
-        paragraph('A note in text and space', 'caption'),
-        {
-          ...paragraph(''),
-          content: [
-            { type: 'text', text: 'Some thoughts want a line. Others need ' },
-            { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'primary' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
-            { type: 'text', text: '. Mote brings both into the same document.' },
-          ],
-        },
-        { type: 'spacer', attrs: { id: spaceId, height: 176 } },
-        paragraph('Meaning before appearance', 'heading'),
-        paragraph('Give paragraphs a role, then combine bold, color, and decoration within them. Text and drawings share one document palette; change a color once, and every use follows.'),
-        paragraph('Try it out', 'heading'),
-        paragraph('Write above the floating note and watch it follow its anchor. Select a phrase to highlight a key idea, or insert a spacer to leave room for something new.'),
-        paragraph('This draft lives in this browser. No account, no cloud.', 'caption'),
-        paragraph('Ideas need different shapes', 'heading'),
-        paragraph('A small field guide to arranging a note', 'caption'),
-        paragraph('Start with the thought, not the layout. A paragraph can carry an argument, while a nearby box holds a question that deserves to stay open. Both belong to the same page.'),
-        { type: 'spacer', attrs: { id: sketchSpaceId, height: 410 } },
-        paragraph('Keep the thread', 'heading'),
-        paragraph('Use the main text for the path you want to follow. Put a definition, a reminder, or an alternative in a floating box, close to the passage that gives it meaning.'),
-        paragraph('Leave room for later · 留白', 'heading'),
-        paragraph('An empty area can be an invitation rather than a gap to fill. Insert a space, place a thought inside it, and return when the connection becomes clearer. Nothing needs a final position yet.'),
-        paragraph('Space is part of the composition, just as a pause is part of a sentence.', 'caption'),
-        paragraph('Returning with fresh eyes', 'heading'),
-        paragraph('A second pass through the same landscape', 'caption'),
-        paragraph('A longer note should still feel easy to explore. Its headings are landmarks; its open spaces give the eye a rest. The minimap keeps the shape of the whole nearby as you move.'),
-        { type: 'spacer', attrs: { id: reviewSpaceId, height: 410 } },
-        paragraph('Read for the shape', 'heading'),
-        paragraph('Switch to reading mode and look at the page as a composition. Zoom out to see the relationships, then move closer to a passage. Text and floating thoughts keep their places together.'),
-        paragraph('A little mathematical language', 'heading'),
-        paragraph('One KaTeX object, many ways to express an idea: fractions and roots, Greek letters and sums, integrals and derivatives, matrices, cases, and vectors. Select the formula to explore its LaTeX source.'),
-        { type: 'spacer', attrs: { id: mathSpaceId, height: 360 } },
-        paragraph('Keep the source nearby', 'heading'),
-        paragraph('Code has its own small place: a language label, line numbers, and syntax colors. Select it to edit, or copy the source without its frame. Each snippet can use a light or dark scheme.'),
-        { type: 'spacer', attrs: { id: codeSpaceId, height: 200 } },
-        paragraph('Let the reader explore', 'heading'),
-        paragraph('This ECharts widget lives inside an <attention-chart> custom element with its own shadow DOM. Change the measure, filter a series with its legend, or click a bar: the chart and the detail below it respond together.'),
-        paragraph('In editing mode, select a chart to interact with it; deselect it to drag it elsewhere. In reading mode, use it directly. Both charts load ECharts from a CDN and need an internet connection.', 'caption'),
-        { type: 'spacer', attrs: { id: attentionSpaceId, height: 432 } },
-        paragraph('Make change visible', 'heading'),
-        paragraph('Watch five ideas trade places as new votes arrive. ECharts animates the bar lengths, rankings, and value labels between passes. Pause to look closer, or use Next pass to move at your own pace.'),
-        { type: 'spacer', attrs: { id: motionSpaceId, height: 432 } },
-        paragraph('The animation repeats with illustrative data; reduced-motion preferences start it paused. PNG exports and the minimap use saved chart screenshots, not live animation.', 'caption'),
-        paragraph('Make it your own', 'heading'),
-        paragraph('Replace a paragraph, rename a heading, or move a box to a better spot. Try a different theme and watch the whole note respond. The structure is a starting point, not a template to obey.'),
-        paragraph('Keep what helps you think. Leave a little room for what comes next.', 'caption'),
-      ],
-    },
-    floating: [{
-      id: crypto.randomUUID(),
-      anchorId: spaceId,
-      x: 441,
-      y: 22,
-      width: 300,
-      textFlow: 'overlap',
-      content: { type: 'doc', content: [paragraph('A thought in the margin', 'heading'), paragraph('I follow my anchor. 灵感随行。', 'caption')] },
-    }, {
-      id: crypto.randomUUID(),
-      anchorId: sketchSpaceId,
-      x: 495,
-      y: 72,
-      width: 300,
-      textFlow: 'overlap',
-      content: { type: 'doc', content: [paragraph('A question to keep', 'heading'), paragraph('What belongs in the main thread, and what deserves its own small place?', 'caption')] },
-    }, {
-      id: crypto.randomUUID(),
-      anchorId: reviewSpaceId,
-      x: 495,
-      y: 80,
-      width: 300,
-      textFlow: 'overlap',
-      content: { type: 'doc', content: [paragraph('A note for next time', 'heading'), paragraph('Leave one useful question for the person who returns to this page. That person may be you.', 'caption')] },
-    }, {
-      id: imageId, kind: 'image', anchorId: sketchSpaceId,
-      x: 135, y: 48, width: 340, textFlow: 'overlap', src: landscape,
-      alt: 'A winding path between green hills beneath a golden sun.',
-    }, {
-      id: crypto.randomUUID(), kind: 'table', anchorId: reviewSpaceId,
-      x: 135, y: 48, width: 340, textFlow: 'overlap',
-      content: tableContent([['Keep', 'Explore'], ['The main thread', 'A different angle'], ['Space · 留白', 'One useful question']]),
-    }, {
-      id: crypto.randomUUID(), anchorId: sketchSpaceId, x: 135, y: 270, width: 340, textFlow: 'overlap',
-      content: captionContent('A different path'), attachment: { targetId: imageId, position: 'below' },
-    }, {
-      id: crypto.randomUUID(), kind: 'katex', anchorId: mathSpaceId,
-      x: 135, y: 16, width: 690, textFlow: 'overlap', latex: exampleMath.trim(),
-    }, {
-      id: crypto.randomUUID(), kind: 'code', anchorId: codeSpaceId,
-      x: 135, y: 16, width: 690, textFlow: 'overlap', language: 'javascript', scheme: 'light',
-      source: '// Leave a little room for what comes next.\nconst note = {\n  title: "A little room to think",\n  thoughts: ["Write", "Explore", "Return"],\n}\nconsole.log(note.title)',
-    }, {
-      id: crypto.randomUUID(), kind: 'html', anchorId: attentionSpaceId,
-      x: 135, y: 16, width: 690, height: 400, textFlow: 'overlap',
-      html: attentionHTML, screenshot: attentionScreenshot,
-      alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.',
-    }, {
-      id: crypto.randomUUID(), kind: 'html', anchorId: motionSpaceId,
-      x: 135, y: 16, width: 690, height: 400, textFlow: 'overlap',
-      html: motionHTML, screenshot: motionScreenshot,
-      alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.',
-    }],
+    version: 'V0', id: crypto.randomUUID(), width: 960,
+    margins: { top: 48, right: 32, bottom: 48, left: 32 }, theme: structuredClone(defaultTheme),
+    content: { type: 'doc', content: [
+      paragraph('A little room to think.', 'title'),
+      paragraph('One continuous page, two ways to place an idea.', 'caption'),
+      { ...paragraph(''), content: [
+        { type: 'text', text: 'Write naturally. Give a figure its own place in the ' },
+        { type: 'text', text: 'Flow', marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'primary' } }] },
+        { type: 'text', text: ', or let a thought ' },
+        { type: 'text', text: 'Float', marks: [{ type: 'color', attrs: { color: 'detail' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] },
+        { type: 'text', text: ' beside it. Leave ' },
+        { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'primary' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
+        { type: 'text', text: ' for what comes next.' },
+      ] },
+      paragraph('A figure in the flow', 'heading'),
+      paragraph('This image takes its own vertical space. Add text above it and everything below follows. Drag it sideways to position it, snap it to the center, or drag it between paragraphs to change its place.'),
+      image,
+      paragraph('The small note overlaps the image and is anchored to it. The caption belongs to the figure; both travel with it when you move or copy its segment.'),
+      paragraph('A thought alongside the text', 'heading'), alongside,
+      paragraph('Placement is separate from content. Select an object and switch between Flow and Float in Context. Tables, drawings, formulas, code, and widgets share the same choice.'),
+      paragraph('Structure you can move', 'heading'),
+      paragraph('Drag in the left gutter to select a section, then move, copy, or cut it as a unit. A Flow object is a whole block; its caption and anchored notes come along.'), table,
+      paragraph('Start with a sketch', 'heading'),
+      paragraph('Open the drawing to add strokes, erase, or leave labels. Ask Assistant to turn a rough sketch into a finished figure, then review the candidate on the page.'), drawing,
+      paragraph('A little mathematical language', 'heading'),
+      paragraph('Formulas keep their LaTeX source and use the document’s Math style. Their measured height makes room for the next block.'), formula,
+      paragraph('Keep the source nearby', 'heading'),
+      paragraph('Code has line numbers, syntax colors, and an exact-source Copy action. Its height follows the source; long lines scroll horizontally.'), code,
+      paragraph('Let the reader explore', 'heading'),
+      paragraph('Change the measure, filter a series, or click a bar. This HTML widget combines an interactive chart with a small detail view.'), attention,
+      paragraph('Select a widget to interact in editing mode, or use it directly in reading mode. These charts load ECharts from a CDN. Saved screenshots appear in the minimap and PNG export.', 'caption'),
+      paragraph('Make change visible', 'heading'),
+      paragraph('Watch five ideas trade places as votes arrive. Pause to look closer, or use Next pass to move at your own pace.'), motion,
+      paragraph('Leave room for the next thought', 'heading'),
+      paragraph('This is explicit vertical space. Hold Alt near a boundary to add or resize a pause; Flow objects already make room for themselves.'),
+      { type: 'spacer', attrs: { id: crypto.randomUUID(), height: 96 } },
+      paragraph('Your workspace, your document', 'heading'),
+      paragraph('The title opens Files. Changes save locally and sync to the cloud; click the sync indicator or press Ctrl/⌘S to sync now. Settings brings document typography, workspace preferences, and browser settings together.'),
+      paragraph('Use Share to create a reading link or export .mote, standalone HTML, or a high-resolution PNG. A Private document still allows local export. Assistant is available in its own tab beside Context.'),
+      paragraph('Keep what helps you think. Leave a little room for what comes next.', 'caption'),
+    ] }, floating,
   }
 }
 
 export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift | null): FloatingObject[] {
   if (!shift) return objects
+  const flowAnchors = new Set(objects.filter(object => object.placement === 'flow').map(object => object.anchorId))
   // Later anchors already move with the text flow; only earlier anchors need offsets.
   function move<T extends { anchorId: string | null; y: number }>(point: T): T {
     const anchor = shift!.anchors.find(anchor => anchor.id === point.anchorId)
@@ -303,11 +268,11 @@ export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift 
     if (removed && point.anchorId === removed.id) return { ...point, anchorId: removed.anchorId, y: y + removed.offset }
     return y === point.y ? point : { ...point, y }
   }
-  return objects.map(move)
+  return objects.map(object => object.placement === 'flow' || flowAnchors.has(object.anchorId) ? object : move(object))
 }
 
 // Keep notes when their anchor is removed: prefer the nearest surviving predecessor.
-export function replaceMainContent(doc: MoteDocument, content: JSONContent, merges: SpaceMerge[] = [], shift?: SpaceShift): MoteDocument {
+export function replaceMainContent(doc: MoteDocument, content: JSONContent, merges: SpaceMerge[] = [], shift?: SpaceShift, geometry?: FlowGeometryOptions): MoteDocument {
   const oldIds = doc.content.content!.map(node => node.attrs!.id as string)
   const newIds = content.content!.map(node => node.attrs!.id as string)
   function survivingAnchor(anchorId: string | null) {
@@ -318,8 +283,14 @@ export function replaceMainContent(doc: MoteDocument, content: JSONContent, merg
     const merge = point.anchorId === null ? undefined : merges.find(merge => merge.id === point.anchorId)
     return { anchorId: merge?.anchorId ?? survivingAnchor(point.anchorId), y: Math.max(0, point.y + (merge?.offset ?? 0)) }
   }
-  const floating = shiftSpaceObjects(doc.floating, shift).map(note => {
+  const reconciled = reconcileFlowContent(doc, content, geometry)
+  const floating = shiftSpaceObjects(reconciled.floating, shift).map(note => {
+    if (note.placement === 'flow') return note
+    if (reconciled.floating.some(object => object.placement === 'flow' && object.anchorId === note.anchorId)) return note
     const { anchorId, y } = remap(note)
+    if (anchorId !== note.anchorId && reconciled.floating.some(object => object.placement === 'flow' && object.anchorId === anchorId)) {
+      return { ...note, ...placementAtPoint(reconciled, objectPagePosition(doc, note, geometry), anchorId, geometry) }
+    }
     return anchorId === note.anchorId && y === note.y ? note : { ...note, anchorId, y }
   })
   return { ...doc, content, floating }

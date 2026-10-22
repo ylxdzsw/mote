@@ -92,7 +92,7 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, sheet, ed
         if (generation.current !== token) return
         const width = Math.min(340, image.naturalWidth + 18, pageWidth())
         const point = bounded(origin, width)
-        update({ image: { id: crypto.randomUUID(), kind: 'image', src, alt: '', anchorId: null, x: point.x, y: point.y, width, textFlow: 'overlap' },
+        update({ image: { id: crypto.randomUUID(), kind: 'image', src, alt: '', anchorId: null, x: point.x, y: point.y, width, placement: 'float' },
           origin: point, point, ratio: image.naturalWidth / image.naturalHeight })
         setNotice('Click to place, or drag to size. Enter places at the insertion point. Escape cancels.')
         if (pointer.current && sheet.current!.contains(document.elementFromPoint(pointer.current.clientX, pointer.current.clientY))) follow(pointer.current)

@@ -28,8 +28,8 @@ function sortedKeys(_key: string, value: unknown): unknown {
 }
 // Placement belongs to the user; content and size belong to the reserved task.
 export function objectContent(object: FloatingObject) {
-  const { x, y, anchorId, ...content } = object
-  void x; void y; void anchorId
+  const { x, y, anchorId, placement, centered, ...content } = object
+  void x; void y; void anchorId; void placement; void centered
   if (isText(object)) return { ...content, attachment: undefined }
   return content
 }
@@ -254,13 +254,16 @@ export function permitsEditor(tasks: AITask[], historyId: string, before: JSONCo
   return tasks.every(task => {
     if (task.target.kind === 'text') return sameContent(reservedText(before, task.target.blockIds), reservedText(after, task.target.blockIds)) && reservedText(after, task.target.blockIds) !== null
     if (task.target.kind === 'segment') return segmentMainIntact(task, before) && segmentMainIntact(task, after)
-    return true
+    const objectId = task.target.objectId
+    const flows = (content: JSONContent) => (content.content ?? []).filter(node => node.type === 'flow' && node.attrs?.objectId === objectId)
+    return sameContent(flows(before), flows(after))
   })
 }
 
 export function currentPlacement(candidate: FloatingObject, original: FloatingObject): FloatingObject {
   const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.width, ...('height' in original && { height: original.height }) }) : candidate
-  const result = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, textFlow: original.textFlow }
+  const result = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, placement: original.placement, centered: original.centered }
+  if (original.centered === undefined) delete result.centered
   if ('height' in original && 'height' in result) result.height = original.height
   if (isText(result)) return { ...result, attachment: isText(original) ? original.attachment : undefined }
   return result

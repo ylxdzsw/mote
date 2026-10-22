@@ -7,8 +7,8 @@ import type { MoteDocument, FloatingDrawing, FloatingObject } from '../src/docum
 import type { AITask } from '../src/ai/types.ts'
 
 const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
-const object = { id: 'box', kind: 'html', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, textFlow: 'overlap', html: 'before', screenshot: 'png', alt: 'Figure' } as FloatingObject
-const caption = { id: 'caption', kind: 'text', anchorId: 'd', x: 24, y: 12, width: 88, textFlow: 'overlap',
+const object = { id: 'box', kind: 'html', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, placement: 'float', html: 'before', screenshot: 'png', alt: 'Figure' } as FloatingObject
+const caption = { id: 'caption', kind: 'text', anchorId: 'd', x: 24, y: 12, width: 88, placement: 'float',
   content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text', semantic: 'caption' }, content: [{ type: 'text', text: 'Caption' }] }] },
   attachment: { targetId: 'box', position: 'above' } } as FloatingObject
 const doc = { id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, floating: [object] } as MoteDocument
@@ -16,7 +16,7 @@ const textTask = { target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
 const objectTask = { target: { kind: 'object', objectId: 'box' } } as AITask
 
 test('partial selections expand to complete paragraphs without swallowing the next boundary', () => {
-  const schema = new Schema({ nodes: { doc: { content: 'block+' }, paragraph: { group: 'block', content: 'text*', attrs: { id: {} } }, spacer: { group: 'block' }, text: {} } })
+  const schema = new Schema({ nodes: { doc: { content: 'block+' }, paragraph: { group: 'block', content: 'text*', attrs: { id: {} } }, spacer: { group: 'block' }, flow: { group: 'block', attrs: { id: {}, objectId: {} } }, text: {} } })
   const doc = schema.nodeFromJSON({ type: 'doc', content: [paragraph('a', 'first'), paragraph('b', 'second'), paragraph('c', 'third')] })
   assert.deepEqual(paragraphSelection(doc, 3, 10), { blockIds: ['a', 'b'], selection: { from: 1, to: 14 }, selectedText: 'first\nsecond' })
   assert.deepEqual(paragraphSelection(doc, 3, 8)?.blockIds, ['a'])
@@ -26,6 +26,8 @@ test('partial selections expand to complete paragraphs without swallowing the ne
   const spaced = schema.nodeFromJSON({ type: 'doc', content: [paragraph('a', 'first'), { type: 'spacer' }, paragraph('b', 'second')] })
   assert.equal(paragraphSelection(spaced, 3, 11), null)
   assert.equal(paragraphSelection(spaced, 3, 8), null)
+  const flowing = schema.nodeFromJSON({ type: 'doc', content: [paragraph('a', 'first'), { type: 'flow', attrs: { id: 'flow-block', objectId: 'box' } }, paragraph('b', 'second')] })
+  assert.equal(paragraphSelection(flowing, 3, 11), null)
 })
 
 test('reservations allow unrelated edits and placement, but block content, size, and removal', () => {
@@ -38,7 +40,7 @@ test('reservations allow unrelated edits and placement, but block content, size,
 })
 
 test('drawing reservations lock strokes and labels while figure projection retains placement', () => {
-  const drawing: FloatingObject = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, textFlow: 'repel', background: null,
+  const drawing: FloatingObject = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, placement: 'float', background: null,
     strokes: [{ points: [[1, 2], [3, 4]], color: 'ink', width: 2 }], labels: [{ x: 5, y: 6, text: 'A', color: 'ink', size: 16 }] }
   const source = { ...doc, floating: [drawing] }
   assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, x: 50 }] }), true)
@@ -49,11 +51,11 @@ test('drawing reservations lock strokes and labels while figure projection retai
   assert.equal(projected.kind, 'html')
   assert.equal(projected.width, drawing.width)
   assert.equal('height' in projected && projected.height, drawing.height)
-  assert.equal(projected.textFlow, 'repel')
+  assert.equal(projected.placement, 'float')
   assert.equal(projected.anchorId, 'a')
 })
 
-const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 317, height: 179, textFlow: 'repel', background: null,
+const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 317, height: 179, placement: 'float', background: null,
   strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'ink', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'ink', size: 16 }] }
 
 test('draft drawing reservations accept scaled positions without unlocking drawing content', () => {
@@ -156,6 +158,21 @@ test('attached text binding is placement for reservations and survives candidate
   assert.deepEqual(applied.attachment, moved.attachment)
 })
 
+test('Flow revisions retain current placement and centering and protect the structural block', () => {
+  const flow = { type: 'flow', attrs: { id: 'flow-block', objectId: 'box' } }
+  const original = { ...object, placement: 'flow', centered: true, anchorId: 'flow-block', x: 0, y: 0 } as FloatingObject
+  const source = { ...doc, content: { type: 'doc', content: [paragraph('a'), flow, paragraph('b')] }, floating: [original] }
+  const candidate = { ...object, centered: false }
+  const applied = currentPlacement(candidate, original)
+  assert.equal(applied.placement, 'flow'); assert.equal(applied.centered, true)
+  assert.equal(applied.anchorId, 'flow-block'); assert.equal(applied.y, 0)
+  assert.equal(currentPlacement({ ...candidate, centered: true }, object).centered, undefined)
+  assert.equal('centered' in currentPlacement({ ...candidate, centered: true }, object), false)
+  assert.equal(permits([objectTask], source, { ...source, floating: [{ ...original, centered: false, x: 24 }] }), true)
+  assert.equal(permitsEditor([objectTask], 'main', source.content, { type: 'doc', content: [paragraph('a'), paragraph('b')] }), false)
+  assert.equal(permitsEditor([objectTask], 'main', source.content, { type: 'doc', content: [flow, paragraph('a'), paragraph('b')] }), true)
+})
+
 const segmentTarget = (range: { start: { index: number; offset: number }; end: { index: number; offset: number } }, blockIds: string[], objectIds: string[] = [], bookmarks = {
   start: { blockId: blockIds[0] ?? 'b', offset: 0 }, end: { blockId: blockIds.at(-1) ?? 'a', offset: 0, after: true },
 }) => ({ kind: 'segment', range, blockIds, objectIds, area: { x: 0, y: 0, width: 100, height: 100 }, bookmarks })
@@ -230,4 +247,18 @@ test('attached captions follow targets for segment ownership and reservation', (
   const source = { ...doc, floating }
   assert.equal(segmentReservationIntact(task, source), true)
   assert.equal(segmentReservationIntact(task, { ...source, floating: [floating[0], { ...caption, attachment: null } as FloatingObject] }), false)
+})
+
+test('a Flow segment reserves its block, object, anchored Floats, and captions together', () => {
+  const flow = { type: 'flow', attrs: { id: 'flow-block', objectId: 'box' } }
+  const primary = { ...object, placement: 'flow', anchorId: 'flow-block', y: 0, centered: true } as FloatingObject
+  const floating = [primary, { ...object, id: 'detail', anchorId: 'flow-block', x: 10, y: 20 }, caption]
+  const source = { ...doc, content: { type: 'doc', content: [paragraph('a'), flow, paragraph('d')] }, floating }
+  const target = segmentTarget({ start: { index: 1, offset: 0 }, end: { index: 2, offset: 0 } }, ['flow-block'], ['box', 'detail', 'caption'])
+  const task = segmentTask(target, [flow], floating)
+  assert.equal(segmentReservationIntact(task, source), true)
+  assert.equal(overlaps(target, objectTask.target, source), true)
+  assert.equal(permits([task], source, { ...source, floating: floating.map(item => item.id === 'box' ? { ...item, centered: false } : item) }), false)
+  assert.equal(permits([task], source, { ...source, floating: floating.map(item => item.id === 'detail' ? { ...item, anchorId: 'd' } : item) }), false)
+  assert.equal(permitsEditor([task], 'main', source.content, { ...source.content, content: [paragraph('a'), paragraph('d')] }), false)
 })

@@ -264,6 +264,10 @@ export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: rea
   }
   const selectedIds = selectedObjectSet(doc, canonical)
   const floating = doc.floating.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, selectedIds, blocks, selected, anchors, geometry, originTop))
+  for (const object of floating) if (isText(object) && object.attachment && !selected.blockIds.has(object.anchorId ?? '')) {
+    object.anchorId = null
+    object.y = 0
+  }
   const refs = new Set<string>()
   for (const block of content) paletteReferences(block, refs)
   for (const object of floating) objectPaletteReferences(object, refs)
@@ -367,10 +371,10 @@ function normalizeSpacers(blocks: JSONContent[]) {
   return { blocks: result, aliases }
 }
 
-function applyAlias(point: AnchorMapping, aliases: Map<string, SpacerAlias>): AnchorMapping {
+function applyAlias<T extends AnchorMapping>(point: T, aliases: Map<string, SpacerAlias>): T {
   if (point.anchorId === null) return point
   const alias = aliases.get(point.anchorId)
-  return alias ? { anchorId: alias.anchorId, y: point.y + alias.offset } : point
+  return alias ? { ...point, anchorId: alias.anchorId, y: point.y + alias.offset } : point
 }
 
 function absoluteToAnchor(point: { x: number; y: number }, anchors: readonly { id: string; top: number }[]): AnchorMapping {
@@ -529,20 +533,24 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
   const ordered = [...prefix, ...moving, ...retained.filter(piece => piece.from >= at)]
   const removedHeight = at > end ? topAtPoint(canonical.end, blocks, anchors) - payload.originTop : 0
   const insertionTop = topAtPoint(target, blocks, anchors) - removedHeight
-  const prefixAnchors = prefix.map(piece => ({ id: blockId(piece.block)!,
+  const prefixAnchors = prefix.filter(piece => piece.block.type !== 'flow').map(piece => ({ id: blockId(piece.block)!,
     top: anchorTop(piece.originalId, anchors) + piece.offset - (piece.from >= end ? removedHeight : 0) }))
   const { blocks: content, aliases } = normalizeSpacers(ordered.map(piece => piece.block))
   const mapRetained = (point: AnchorMapping) => {
     const piece = pieces.findLast(piece => piece.originalId === point.anchorId && piece.offset <= point.y)
     return piece ? applyAlias({ anchorId: blockId(piece.block)!, y: point.y - piece.offset }, aliases) : point
   }
-  const mapMoved = (point: AnchorMapping, absoluteY?: number) => {
+  const mapMoved = (point: FloatingObject, absoluteY?: number) => {
     const piece = moving.find(piece => piece.originalId === point.anchorId)
     if (piece) return applyAlias({ anchorId: blockId(piece.block)!, y: point.y }, aliases)
     const offset = (absoluteY ?? sourcePayloadAnchorTop(payload, point.anchorId) + point.y) - payload.originTop
     // Objects above the moved segment need a preceding anchor instead of clamping to its top.
+    const first: JSONContent = moving[0].block
+    const flow = first.type === 'flow' ? doc.floating.find(object => object.id === first.attrs?.objectId) : undefined
+    const origin = flow && geometry[flow.id]
     const mapped = offset < 0 ? absoluteToAnchor({ x: 0, y: Math.max(0, insertionTop + offset) }, prefixAnchors)
-      : { anchorId: blockId(moving[0].block)!, y: offset }
+      : origin ? { anchorId: blockId(first)!, x: (geometry[point.id]?.x ?? point.x) - origin.x, y: offset + payload.originTop - origin.y }
+      : { anchorId: blockId(first)!, y: offset }
     return applyAlias(mapped, aliases)
   }
   const movedObjects = new Map(payload.floating.map(object => [object.id, object]))
@@ -618,7 +626,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   const normalized = normalizeSpacers(preBlocks)
   const aliases = normalized.aliases
   const postBlocks = normalized.blocks
-  const resultAnchors = postBlocks.flatMap(block => {
+  const resultAnchors = postBlocks.filter(block => block.type !== 'flow').flatMap(block => {
     const id = blockId(block)
     if (!id) return []
     const alias = aliases.get(id)
@@ -632,6 +640,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
       const nextId = freshId(used)
       payloadObjectMap.set(object.id, nextId)
     }
+    for (const block of payloadBlocks) if (block.type === 'flow') block.attrs = { ...block.attrs, objectId: payloadObjectMap.get(block.attrs!.objectId)! }
     for (const object of payload.floating) {
       const next = clone(object)
       next.id = payloadObjectMap.get(object.id)!
@@ -645,6 +654,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
       const aliasOffset = mapped.y - object.y
       next.anchorId = mappedAnchor
       next.y = mapped.y
+      if ('x' in mapped) next.x = mapped.x as number
       if (isText(next)) {
         if (next.attachment && payloadObjectMap.has(next.attachment.targetId)) next.attachment = { ...next.attachment, targetId: payloadObjectMap.get(next.attachment.targetId)! }
         else if (next.attachment) {

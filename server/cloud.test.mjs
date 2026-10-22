@@ -16,7 +16,7 @@ function document(id = randomUUID(), value = 'Hello') {
   return { id, version: 'V0', width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 },
     theme: { hue: 145, defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' }, blocks: {}, palette: [{ id: 'ink', name: 'Ink', strong: '#303830' }, { id: 'muted', name: 'Muted', strong: '#687166' }, { id: 'paper', name: 'Paper', strong: '#fffefa' }] },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text: value }] }] },
-    floating: [{ id: 'image-1', kind: 'image', src: image, alt: 'test', anchorId: 'block-1', x: 0, y: 0, width: 100, textFlow: 'overlap' }],
+    floating: [{ id: 'image-1', kind: 'image', src: image, alt: 'test', anchorId: 'block-1', x: 0, y: 0, width: 100, placement: 'float' }],
   }
 }
 async function app(t, options = {}) {

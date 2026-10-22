@@ -165,7 +165,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       </>}
       <div className="theme-sample text-content" lang={language} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: paletteColor(theme, theme.defaults.background) }} aria-label="Style sample">
         {selected === 'math' ? <MathView latex="E=mc^2" />
-          : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', anchorId: null, x: 0, y: 0, width: 300, textFlow: 'overlap', language: 'javascript', scheme: 'light', source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
+          : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', anchorId: null, x: 0, y: 0, width: 300, placement: 'float', language: 'javascript', scheme: 'light', source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
           : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，保留V0草稿。</span></p>}
       </div>

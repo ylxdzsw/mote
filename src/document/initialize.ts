@@ -18,6 +18,7 @@ export function initializeDocument(draft: MoteDocument): MoteDocument {
   const content = getSchema(extensions(true)).nodeFromJSON(draft.content)
   content.check()
   draft.content = content.toJSON()
+  validateDocument(draft)
   for (const object of draft.floating) if ('content' in object) {
     getSchema(extensions(false, object.kind === 'table')).nodeFromJSON(object.content).check()
   }

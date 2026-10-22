@@ -57,9 +57,12 @@ function candidateBlock(state: EditorState, serializer: DOMSerializer, json: JSO
     element.append(content)
   } else if (node.type.name === 'spacer') {
     element.dataset.spacer = ''
+  } else if (node.type.name === 'flow') {
+    element.dataset.flow = ''
+    element.dataset.objectId = node.attrs.objectId
   }
   element.tabIndex = 0
-  element.setAttribute('aria-label', node.type.name === 'spacer' ? 'AI space preview' : 'AI paragraph preview')
+  element.setAttribute('aria-label', node.type.name === 'spacer' ? 'AI space preview' : node.type.name === 'flow' ? 'AI Flow preview' : 'AI paragraph preview')
   return element
 }
 

@@ -94,9 +94,16 @@ function checkTheme(value: unknown): void {
   if (!Array.isArray(theme.palette)) invalid('theme.palette must be an array')
 }
 
-function inspectContent(value: unknown, path: string): void {
+function inspectContent(value: unknown, path: string, allowFlow = false): void {
   const node = record(value, path)
   if (typeof node.type !== 'string') invalid(`${path}.type must be a string`)
+  if (node.type === 'flow') {
+    if (!allowFlow) invalid(`${path}: Flow blocks belong only in the main document`)
+    const attrs = record(node.attrs, `${path}.attrs`)
+    identifier(attrs.id, `${path}.attrs.id`)
+    identifier(attrs.objectId, `${path}.attrs.objectId`)
+    if (node.text !== undefined || Array.isArray(node.content) && node.content.length || Array.isArray(node.marks) && node.marks.length) invalid(`${path}: Flow blocks must be atomic`)
+  }
   if ('attrs' in node && node.attrs !== null && node.attrs !== undefined) {
     const attrs = record(node.attrs, `${path}.attrs`)
     if ('id' in attrs) identifier(attrs.id, `${path}.attrs.id`)
@@ -118,7 +125,7 @@ function inspectContent(value: unknown, path: string): void {
   if (node.type === 'text' && typeof node.text !== 'string') invalid(`${path}.text must be a string`)
   if ('content' in node) {
     if (!Array.isArray(node.content)) invalid(`${path}.content must be an array`)
-    node.content.forEach((child, index) => inspectContent(child, `${path}.content[${index}]`))
+    node.content.forEach((child, index) => inspectContent(child, `${path}.content[${index}]`, path === 'content' && node.type === 'doc'))
   }
 }
 
@@ -161,9 +168,11 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
   ids.add(id)
   anchor(object.anchorId, `${path}.anchorId`)
   finite(object.x, `${path}.x`)
-  finite(object.y, `${path}.y`, 0)
+  finite(object.y, `${path}.y`)
   finite(object.width, `${path}.width`, 0)
-  if (!['overlap', 'repel'].includes(object.textFlow as string)) invalid(`${path}.textFlow is unsupported`)
+  if ('textFlow' in object) invalid(`${path}.textFlow is unsupported`)
+  if (!['flow', 'float'].includes(object.placement as string)) invalid(`${path}.placement is unsupported`)
+  if ('centered' in object && typeof object.centered !== 'boolean') invalid(`${path}.centered must be a boolean`)
 
   const kind = object.kind
   if (kind === undefined || kind === 'text') {
@@ -181,6 +190,7 @@ function checkFloating(value: unknown, index: number, ids: Set<string>): void {
     if (object.attachment !== undefined && object.attachment !== null) {
       const attachment = object.attachment
       if (!isRecord(attachment)) invalid(`${path}.attachment must be an object`)
+      if (object.placement !== 'float') invalid(`${path}: captions must use Float placement`)
       identifier(attachment.targetId, `${path}.attachment.targetId`)
       if (!['above', 'below'].includes(attachment.position as string)) invalid(`${path}.attachment.position is unsupported`)
     }
@@ -255,9 +265,34 @@ export function validateDocument(value: unknown): asserts value is MoteDocument 
   if (!Array.isArray(document.floating)) invalid('document.floating must be an array')
   const ids = new Set<string>()
   document.floating.forEach((object, index) => checkFloating(object, index, ids))
+  const content = record(document.content, 'content')
+  if (content.type !== 'doc' || !Array.isArray(content.content)) invalid('content must be a document with blocks')
+  const blockIds = new Set<string>()
+  const flows = new Map<string, string>()
+  const flowAnchors = new Set<string>()
+  for (const [index, value] of content.content.entries()) {
+    const block = record(value, `content.content[${index}]`)
+    const attrs = record(block.attrs, `content.content[${index}].attrs`)
+    const id = identifier(attrs.id, `content.content[${index}].attrs.id`)
+    if (blockIds.has(id) || ids.has(id)) invalid('main block IDs must be unique and distinct from object IDs')
+    blockIds.add(id)
+    if (block.type !== 'flow') continue
+    const objectId = identifier(attrs.objectId, `content.content[${index}].attrs.objectId`)
+    if (!ids.has(objectId)) invalid('Flow block objectId does not exist')
+    if (flows.has(objectId)) invalid('each Flow object must have exactly one Flow block')
+    flows.set(objectId, id)
+    flowAnchors.add(id)
+  }
   const captions = new Set<string>()
   const objects = document.floating as RecordValue[]
   objects.forEach((object, index) => {
+    if (object.anchorId !== null && !blockIds.has(object.anchorId as string)) invalid(`floating[${index}].anchorId does not exist`)
+    if (object.placement === 'flow') {
+      if (!flows.has(object.id as string) || flows.get(object.id as string) !== object.anchorId || object.y !== 0) invalid(`floating[${index}] must bind its own Flow block with y=0`)
+    } else {
+      if (flows.has(object.id as string)) invalid(`floating[${index}]: Float objects cannot own Flow blocks`)
+      if (!flowAnchors.has(object.anchorId as string) && (object.y as number) < 0) invalid(`floating[${index}].y must be nonnegative outside a Flow anchor`)
+    }
     if (!isRecord(object.attachment)) return
     const targetId = identifier(object.attachment.targetId, `floating[${index}].attachment.targetId`)
     if (!ids.has(targetId)) invalid(`floating[${index}].attachment.targetId does not exist`)

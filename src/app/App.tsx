@@ -23,6 +23,7 @@ import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { patchFloating } from '../canvas/patchFloating'
+import { reconcileObjectDeletions } from '../document/flow'
 import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
@@ -240,14 +241,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   function addObject(kind: 'table' | 'katex', columns = 2, rows = 2) {
     const anchor = anchorId()
     if (!doc || anchor === undefined) return
-    const width = Math.min(kind === 'table' ? Math.max(340, columns * 80) : 340, doc.width - doc.margins.left - doc.margins.right)
-    const base = { id: crypto.randomUUID(), anchorId: anchor, x: doc.width - doc.margins.right - width, y: 32, width, textFlow: 'overlap' as const }
+    const width = kind === 'table' ? doc.width - doc.margins.left - doc.margins.right - 2 : Math.min(340, doc.width - doc.margins.left - doc.margins.right - 2)
+    const base = { id: crypto.randomUUID(), anchorId: anchor, x: 0, y: 0, width, placement: 'flow' as const, centered: true }
     const object: FloatingObject = kind === 'katex' ? { ...base, kind, latex: 'E = mc^2' }
       : { ...base, kind, content: tableContent(Array.from({ length: rows }, () => Array(columns).fill(''))) }
     actions.current?.insert([object])
   }
 
-  function updateFloating(floating: FloatingObject[]) { setDoc(current => current && ({ ...current, floating })) }
+  function updateFloating(floating: FloatingObject[]) { setDoc(current => current && reconcileObjectDeletions(current, floating, actions.current?.segmentContext())) }
 
   function updateObject(id: string, patch: FloatingPatch) {
     setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? patchFloating(object, patch) : object) }))
@@ -322,8 +323,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         ? target.anchorId : null
       const width = Math.min(340, current.width - current.margins.left - current.margins.right)
       const objects: FloatingObject[] = sources.map((src, index) => {
-        const base = { id: crypto.randomUUID(), anchorId: anchor, x: position?.x ?? current.width - current.margins.right - width,
-          y: position?.y ?? 32, width, textFlow: 'overlap' as const, alt: files[index].name.replace(/\.[^.]+$/, '') }
+        const base = { id: crypto.randomUUID(), anchorId: anchor, x: position?.x ?? 0,
+          y: position?.y ?? 0, width, placement: position ? 'float' as const : 'flow' as const, centered: !position, alt: files[index].name.replace(/\.[^.]+$/, '') }
         return target.kind === 'widget' ? { ...base, kind: 'html', height: 220, html: DEFAULT_WIDGET_HTML, screenshot: src }
           : { ...base, kind: 'image', src }
       })
@@ -572,8 +573,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
                   tableControls={<TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
                   onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
+                  onPlacement={placement => actions.current?.placement(placement)}
                   onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
-                  maxWidth={Math.max(16, doc.width - selectedObject.x - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
+                  maxWidth={Math.max(16, selectedObject.placement === 'flow' ? doc.width - doc.margins.left - doc.margins.right - 2 : doc.width - (actions.current?.segmentContext()?.geometry[selectedObject.id]?.x ?? selectedObject.x) - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   onRevise={() => { setTool(null); reserveSelection() }} />
                 : tool ? <div className="context-inspector">
@@ -597,10 +599,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { if (ids.length) showContext(); setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={setMainEditor} onActive={setActiveEditor}
-        onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift))}
+        onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
         onContextMenu={handleCanvasContextMenu} onDrawingEdit={editDrawing} />
-      {editable && <DocumentNotes key={doc.id} value={doc.notes ?? ''}
+      {editable && <DocumentNotes key={`notes:${doc.id}`} value={doc.notes ?? ''}
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
     {editable && drawing?.kind === 'drawing' && !assistant.lockedIds.has(drawing.id) && createPortal(

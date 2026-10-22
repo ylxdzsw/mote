@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
+import { reconcileObjectDeletions } from '../document/flow'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
 import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, reservedText, sameContent } from './reservations'
@@ -330,7 +331,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
 
   function reserve(target: AITarget, snapshot = currentDoc.current) {
     if (!loaded || !writable || !cloud || cloud.documentId !== snapshot.id || !persistence.engine.current?.ready) { setNotice('Connect this working copy to its cloud document before starting an AI task.'); return }
-    if (target.kind === 'text' && !reservedText(snapshot.content, target.blockIds)) { setNotice('Select consecutive paragraphs without crossing a space.'); return }
+    if (target.kind === 'text' && !reservedText(snapshot.content, target.blockIds)) { setNotice('Select consecutive paragraphs without crossing a space or Flow object.'); return }
     if (target.kind === 'segment') {
       const range = resolveSegmentRange(snapshot, target)
       if (!range) { setNotice('The selected segment is no longer available.'); return }
@@ -774,7 +775,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   function abandonAll() { for (const task of [...state.current]) if (task.documentId === currentDoc.current.id) forget(task.id) }
   function deleteObjects(floating: FloatingObject[]) {
     const removed = activeTasks().filter(task => task.target.kind === 'object' && !floating.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
-    const next = { ...currentDoc.current, floating }
+    const next = reconcileObjectDeletions(currentDoc.current, floating, segmentContext?.())
     if (!permits(activeTasks().filter(task => !removed.includes(task)), currentDoc.current, next)) {
       setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return false
     }

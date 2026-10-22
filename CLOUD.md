@@ -17,6 +17,12 @@ Mote is one private workspace protected by the existing `nginx_auth` cookie key.
 - Optional V0 `notes` is a plain-text, user-maintained scratchpad saved in the same document revision, local recovery, and native `.mote` exports. Missing notes means empty. Notes are outside the rendered page and hidden in reading mode. Public shared APIs remove the field for both snapshot and latest links; HTML export removes it from its embedded payload, and PNG only renders the page.
 - Clean private editors can adopt newer server revisions; dirty copies are never silently replaced. Browser recovery can be evicted or cleared, so unsynced work is not durable cloud storage.
 
+## Flow/Float document contract
+
+Cloud documents retain V0 and store native objects in `floating`, with required `placement: "flow" | "float"`. Every Flow object has exactly one main-document `flow` atom whose `objectId` identifies it; the object’s `anchorId` identifies that atom and its y is zero. Flow uses a text-column-relative x or optional `centered` placement. Ordinary Float anchors use page-space x and nonnegative vertical offsets; a Float anchored to a Flow uses signed offsets from the target’s measured top-left on both axes. Captions remain attached Float text objects; a Flow target and its caption occupy one normal-flow block. Legacy `textFlow`/Overlap/Repel records are unsupported and are not silently migrated. Invalid saved documents follow the existing confirmed, revision-checked reset-to-example recovery; declining preserves stored data.
+
+The editor, shared reader, PNG, and standalone HTML use the same portal-based Flow renderer and measured object heights. Floats repel main text only to their left, while overlap with Flow objects or other Floats remains allowed. Native import/export, clipboard compositions, cloud validation, and agent segment delivery preserve the Flow atom/object relationship, captions, and two-axis anchors. Segment copy/paste remaps both block and object IDs; a selected Flow brings its anchored Floats and caption. Agents revising a single object retain its current placement, centering, and anchor binding; composed segment candidates may include Flow atoms and their matching objects. Indexers receive the same native representation and can extract supported visuals from either placement.
+
 ## Sharing
 
 The Share dialog’s Link tab creates and manages two link types:

@@ -86,12 +86,55 @@ export const Spacer = Node.create({
   renderHTML: ({ HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-spacer': '', 'aria-label': 'Vertical space' })],
 })
 
+export const Flow = Node.create({
+  name: 'flow',
+  group: 'block',
+  atom: true,
+  selectable: false,
+  addAttributes() {
+    return {
+      objectId: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-object-id'),
+        renderHTML: attrs => ({ 'data-object-id': attrs.objectId }),
+      },
+    }
+  },
+  parseHTML: () => [{ tag: 'div[data-flow]' }],
+  renderHTML: ({ HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-flow': '', contenteditable: 'false' }), ['div', { 'data-flow-mount': '' }]],
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement('div')
+      dom.dataset.flow = ''
+      dom.contentEditable = 'false'
+      const mount = document.createElement('div')
+      mount.dataset.flowMount = ''
+      dom.append(mount)
+      const attributes = (value: typeof node) => {
+        dom.dataset.id = value.attrs.id
+        dom.dataset.objectId = value.attrs.objectId
+      }
+      attributes(node)
+      return {
+        dom,
+        update(next) {
+          if (next.type !== node.type) return false
+          attributes(next)
+          return true
+        },
+        ignoreMutation: () => true,
+        stopEvent: event => event.target instanceof globalThis.Node && mount.contains(event.target),
+      }
+    }
+  },
+})
+
 export function extensions(spatial: boolean, table = false) {
   return [
     table ? Document.extend({ content: 'table' }) : Document,
     table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
-    UniqueID.configure({ types: spatial ? ['paragraph', 'spacer'] : ['paragraph'] }),
-    ...(spatial ? [Spacer, Spaces] : []),
+    UniqueID.configure({ types: spatial ? ['paragraph', 'spacer', 'flow'] : ['paragraph'] }),
+    ...(spatial ? [Spacer, Flow, Spaces] : []),
     ...(table ? tableExtensions : [ParagraphBehavior]),
   ]
 }

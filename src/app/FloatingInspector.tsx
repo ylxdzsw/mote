@@ -14,6 +14,7 @@ interface Props {
   theme: Theme
   defaultFontSize: number
   onChange: (patch: FloatingPatch) => void
+  onPlacement: (placement: 'flow' | 'float') => void
   onAction: (action: 'remove' | 'duplicate' | 'detach') => void
   onCaption: (position?: CaptionPosition) => void
   onAttach: (targetId: string, position: CaptionPosition) => void
@@ -38,7 +39,7 @@ interface Props {
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, caption, attachmentTargets, onCaption, onAttach, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, caption, attachmentTargets, onCaption, onAttach, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const attached = isText(object) ? object.attachment : null
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
@@ -46,7 +47,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   const hasFlow = text || ['image', 'table', 'katex', 'html', 'code', 'drawing'].includes(object.kind!)
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
-    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : text ? 'Native rich text' : undefined} />
+    <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : object.placement === 'flow' ? 'Flow object' : 'Float object'} />
     {count === 1 && <>
       {object.kind === 'drawing' && <InspectorGroup title="Content">
         <button onClick={onDrawingEdit}>Edit drawing…</button>
@@ -98,7 +99,15 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           <InspectorField label="Width"><NumberField label="Widget width" value={widget.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
           <InspectorField label="Height"><NumberField label="Widget height" value={widget.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
         </InspectorRow>}
-        <label className="inspector-field">Main text flow<select value={object.textFlow ?? 'overlap'} onChange={event => onChange({ textFlow: event.target.value as 'overlap' | 'repel' })}><option value="overlap">Overlap</option><option value="repel">Repel</option></select></label>
+        {!attached && <>
+          <label className="inspector-field">Placement<select aria-label="Object placement" value={object.placement} onChange={event => onPlacement(event.target.value as 'flow' | 'float')}><option value="flow">Flow</option><option value="float">Float</option></select></label>
+          {object.placement === 'flow' && <>
+            {!['drawing', 'code', 'html'].includes(object.kind ?? 'text') && <InspectorField label="Width"><NumberField label="Object width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>}
+            <button aria-pressed={!!object.centered} onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>
+            <p className="hint">Drag sideways to position; snap to the center. Drag up or down to move between document blocks.</p>
+          </>}
+          {object.placement === 'float' && <p className="hint">Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.</p>}
+        </>}
       </InspectorGroup>}
       {!widget && !katex && object.kind !== 'code' && <InspectorGroup title={text || object.kind === 'table' ? 'Typography' : 'Colors'}>
         {(text || object.kind === 'table') && <>

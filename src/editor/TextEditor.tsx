@@ -54,10 +54,17 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
             .mark(node.marks.filter(mark => mark.type.name !== 'color' || palette.current.has(mark.attrs.color)))
         }
         const nodes: ProseMirrorNode[] = []
-        slice.content.forEach(node => nodes.push(clean(node)))
+        // Composed Mote clipboard data is handled by the canvas segment path.
+        // An ordinary HTML slice cannot carry an object's stored payload.
+        slice.content.forEach(node => { if (node.type.name !== 'flow') nodes.push(clean(node)) })
         return new Slice(Fragment.from(nodes), slice.openStart, slice.openEnd)
       },
       attributes: { 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' },
+      handleDrop: (_view, event, slice) => {
+        if (!slice.content.content.some(node => node.type.name === 'flow')) return false
+        event.preventDefault()
+        return true
+      },
       handleDOMEvents: { pointerdown: (_view, event) => {
         const space = (event.target as HTMLElement).closest('[data-spacer]')
         if (!editable || event.button !== 0 || !space) return false

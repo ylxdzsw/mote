@@ -8,7 +8,7 @@
     "check": "tsc --noEmit",
     "build": "npm run check && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:ai": "node --experimental-sqlite --experimental-strip-types --test tests/ai-reservations.test.mts tests/network.test.mts server/moted.test.mjs server/cloud.test.mjs server/indexer.test.mjs server/retrieval.test.mjs"
+    "test:ai": "node --experimental-sqlite --experimental-strip-types --test tests/flow-model.test.mjs tests/ai-reservations.test.mts tests/network.test.mts server/moted.test.mjs server/cloud.test.mjs server/indexer.test.mjs server/retrieval.test.mjs"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",

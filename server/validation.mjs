@@ -43,10 +43,16 @@ function themeLength(value, label, nonnegative = true) {
   if (nonnegative && Number(value.slice(0, -2)) < 0) throw new HttpError(400, `${label} must be nonnegative`)
 }
 
-function content(value, label = 'content', state = { count: 0, depth: 0 }) {
+function content(value, label = 'content', state = { count: 0, depth: 0 }, flowDepth = -1) {
   if (++state.count > MAX_NODES || state.depth > 100) throw new HttpError(413, 'document content is too large')
   const node = record(value, label)
   text(node.type, `${label}.type`, 64, true)
+  if (node.type === 'flow') {
+    if (state.depth !== flowDepth) throw new HttpError(400, 'Flow nodes are only supported as top-level main blocks')
+    const attrs = record(node.attrs, `${label}.attrs`)
+    safeId(attrs.id, `${label}.attrs.id`); safeId(attrs.objectId, `${label}.attrs.objectId`)
+    if (Object.keys(attrs).some(key => !['id', 'objectId'].includes(key)) || node.content?.length || node.text !== undefined || node.marks?.length) throw new HttpError(400, 'Flow blocks contain only id and objectId')
+  }
   if ('text' in node) text(node.text, `${label}.text`)
   if ('attrs' in node && node.attrs != null) {
     const attrs = record(node.attrs, `${label}.attrs`)
@@ -75,7 +81,7 @@ function content(value, label = 'content', state = { count: 0, depth: 0 }) {
   if ('content' in node) {
     if (!Array.isArray(node.content)) throw new HttpError(400, `${label}.content must be an array`)
     const child = { count: state.count, depth: state.depth + 1 }
-    node.content.forEach((item, i) => content(item, `${label}.content[${i}]`, child))
+    node.content.forEach((item, i) => content(item, `${label}.content[${i}]`, child, flowDepth))
     state.count = child.count
   }
 }
@@ -156,11 +162,14 @@ export function validateFloating(value, label = 'floating object', options = {})
   const object = record(value, label)
   safeId(object.id, `${label}.id`)
   if (object.anchorId !== null) safeId(object.anchorId, `${label}.anchorId`)
-  finite(object.x, `${label}.x`); finite(object.y, `${label}.y`, 0); finite(object.width, `${label}.width`, 0)
-  if (!['overlap', 'repel'].includes(object.textFlow)) throw new HttpError(400, 'invalid text flow')
+  finite(object.x, `${label}.x`); finite(object.y, `${label}.y`); finite(object.width, `${label}.width`, 0)
+  if ('textFlow' in object || !['flow', 'float'].includes(object.placement)) throw new HttpError(400, 'invalid object placement')
+  if (object.centered !== undefined && typeof object.centered !== 'boolean') throw new HttpError(400, 'centered must be a boolean')
+  if (object.placement === 'flow' && (object.anchorId === null || object.y !== 0)) throw new HttpError(400, 'Flow objects require their block anchor and y=0')
   const kind = object.kind ?? 'text'
   if ('attachment' in object && kind !== 'text') throw new HttpError(400, `${label}.attachment is only supported on text objects`)
   if (object.attachment !== undefined && object.attachment !== null) {
+    if (object.placement !== 'float') throw new HttpError(400, 'attached captions require Float placement')
     const attachment = record(object.attachment, `${label}.attachment`)
     safeId(attachment.targetId, `${label}.attachment.targetId`)
     if (attachment.targetId === object.id) throw new HttpError(400, `${label}.attachment cannot target itself`)
@@ -222,6 +231,27 @@ function validateAttachmentReferences(objects, scope) {
 
 }
 
+function validateFlowReferences(blocks, objects, scope) {
+  const byId = new Map(objects.map(object => [object.id, object]))
+  const blockIds = new Set(), flowAnchors = new Set(), flows = new Set()
+  for (const block of blocks) {
+    const id = block.attrs?.id
+    safeId(id, `${scope} block ID`)
+    if (blockIds.has(id) || byId.has(id)) throw new HttpError(400, `${scope} block IDs must be unique and distinct from object IDs`)
+    blockIds.add(id)
+    if (block.type !== 'flow') continue
+    const objectId = block.attrs.objectId, object = byId.get(objectId)
+    if (!object || object.placement !== 'flow' || object.attachment || object.anchorId !== id || object.y !== 0 || flows.has(objectId)) throw new HttpError(400, `${scope} Flow block must reference exactly one matching Flow object`)
+    flows.add(objectId)
+    flowAnchors.add(id)
+  }
+  for (const object of objects) {
+    if (object.placement === 'flow' && !flows.has(object.id)) throw new HttpError(400, `${scope} Flow object requires exactly one Flow block`)
+    if (object.anchorId !== null && !blockIds.has(object.anchorId)) throw new HttpError(400, `${scope} object anchor is outside its blocks`)
+    if (!flowAnchors.has(object.anchorId) && object.y < 0) throw new HttpError(400, `${scope} object y must be nonnegative outside a Flow anchor`)
+  }
+}
+
 export function validateDocument(value) {
   const document = record(value, 'document')
   if (document.version !== 'V0') throw new HttpError(400, 'document.version must be V0')
@@ -232,10 +262,11 @@ export function validateDocument(value) {
   finite(document.width, 'document.width', Number.MIN_VALUE)
   const margins = record(document.margins, 'document.margins')
   for (const side of ['top', 'right', 'bottom', 'left']) finite(margins[side], `document.margins.${side}`, 0)
-  theme(document.theme); content(document.content); if (document.content.type !== 'doc') throw new HttpError(400, 'document.content must be a doc node')
+  theme(document.theme); content(document.content, 'content', { count: 0, depth: 0 }, 1); if (document.content.type !== 'doc') throw new HttpError(400, 'document.content must be a doc node')
   if (!Array.isArray(document.floating)) throw new HttpError(400, 'document.floating must be an array')
   const ids = new Set(); for (const [i, object] of document.floating.entries()) { if (ids.has(object?.id)) throw new HttpError(400, 'duplicate floating object ID'); validateFloating(object, `document.floating[${i}]`); ids.add(object.id) }
   validateAttachmentReferences(document.floating, 'document')
+  validateFlowReferences(document.content.content ?? [], document.floating, 'document')
   palette(document)
   return document
 }
@@ -318,8 +349,8 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   if (!Array.isArray(payload.floating) || payload.floating.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.floating must be an array')
   const topIds = new Set()
   for (const [index, node] of payload.content.entries()) {
-    if (!node || !['paragraph', 'spacer'].includes(node.type)) throw new HttpError(400, 'candidate.segment.content must contain paragraphs and spacers')
-    content(node, `candidate.segment.content[${index}]`)
+    if (!node || !['paragraph', 'spacer', 'flow'].includes(node.type)) throw new HttpError(400, 'candidate.segment.content must contain paragraphs, spacers, and Flow blocks')
+    content(node, `candidate.segment.content[${index}]`, { count: 0, depth: 0 }, 0)
     const attrs = record(node.attrs, `candidate.segment.content[${index}].attrs`)
     safeId(attrs.id, `candidate.segment.content[${index}].attrs.id`)
     if (topIds.has(attrs.id)) throw new HttpError(400, 'candidate.segment.content block IDs must be unique')
@@ -340,6 +371,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   }
   const objectIds = new Set(objects.keys())
   validateAttachmentReferences([...objects.values()], 'candidate.segment')
+  validateFlowReferences(payload.content, [...objects.values()], 'candidate.segment')
   const geometry = validateSegmentGeometry(payload.geometry, objectIds)
   const anchorTops = record(payload.anchorTops, 'candidate.segment.anchorTops')
   for (const [id, value] of Object.entries(anchorTops)) {
@@ -348,9 +380,6 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     finite(value, `candidate.segment.anchorTops.${id}`)
   }
   finite(payload.originTop, 'candidate.segment.originTop')
-  for (const object of objects.values()) {
-    if (object.anchorId !== null && !topIds.has(object.anchorId)) throw new HttpError(400, 'candidate.segment object anchor is outside the segment')
-  }
   const references = new Set()
   for (const node of payload.content) segmentPaletteReferences(node, references)
   for (const object of objects.values()) segmentObjectPaletteReferences(object, references)
@@ -367,12 +396,6 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     if (!scope) throw new HttpError(400, 'candidate.segment target scope is invalid')
   }
   return { payload, paths, geometry, objects, nodeIds }
-}
-
-function blockIds(node, result = new Set()) {
-  if (node?.attrs?.id && ['paragraph', 'spacer'].includes(node.type)) result.add(node.attrs.id)
-  for (const child of node?.content ?? []) blockIds(child, result)
-  return result
 }
 
 function area(value, label) { const object = record(value, label); for (const key of ['x', 'y']) finite(object[key], `${label}.${key}`); for (const key of ['width', 'height']) finite(object[key], `${label}.${key}`, 0); return object }
@@ -488,8 +511,10 @@ function target(value, document) {
   if (object.kind === 'object') { safeId(object.objectId, 'target.objectId'); if (typeof object.isNew !== 'boolean') throw new HttpError(400, 'target.isNew must be boolean'); area(object.area, 'target.area'); if (!document.floating.some(item => item.id === object.objectId)) throw new HttpError(400, 'target object must be a document placeholder'); return object }
   if (object.kind === 'text') {
     if (!Array.isArray(object.blockIds) || !object.blockIds.length || object.blockIds.length > 128) throw new HttpError(400, 'target.blockIds must be a non-empty array')
-    const ids = blockIds(document.content); const unique = new Set(object.blockIds); if (unique.size !== object.blockIds.length) throw new HttpError(400, 'target.blockIds must be unique')
+    const ids = new Set((document.content.content ?? []).filter(node => node.type === 'paragraph').map(node => node.attrs.id)); const unique = new Set(object.blockIds); if (unique.size !== object.blockIds.length) throw new HttpError(400, 'target.blockIds must be unique')
     object.blockIds.forEach((id, i) => { safeId(id, `target.blockIds[${i}]`); if (!ids.has(id)) throw new HttpError(400, 'target block is not in document') })
+    const blocks = document.content.content ?? [], first = blocks.findIndex(node => node.attrs.id === object.blockIds[0])
+    if (object.blockIds.some((id, index) => blocks[first + index]?.attrs.id !== id)) throw new HttpError(400, 'text targets must contain consecutive paragraphs')
     const selection = record(object.selection, 'target.selection'); for (const key of ['from', 'to']) { finite(selection[key], `target.selection.${key}`, 0); if (!Number.isInteger(selection[key])) throw new HttpError(400, 'selection offsets must be integers') }; if (selection.to < selection.from) throw new HttpError(400, 'invalid selection range')
     if (typeof object.insert !== 'boolean') throw new HttpError(400, 'target.insert must be boolean'); area(object.area, 'target.area'); return object
   }
@@ -547,7 +572,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     palette({ ...document, content: { type: 'doc' }, floating: [candidateObject] })
   } else if (selectedTarget.kind === 'text') {
     if (!Array.isArray(candidate.content) || !candidate.content.length || candidate.content.length > 128) throw new HttpError(400, 'candidate.content is required')
-    candidate.content.forEach((node, i) => content(node, `candidate.content[${i}]`)); output.content = candidate.content
+    candidate.content.forEach((node, i) => { if (node?.type !== 'paragraph') throw new HttpError(400, 'text candidates must contain paragraphs'); content(node, `candidate.content[${i}]`) }); output.content = candidate.content
     palette({ ...document, content: { type: 'doc', content: candidate.content }, floating: [] })
   } else {
     if (!candidate.segment) throw new HttpError(400, 'candidate.segment is required')

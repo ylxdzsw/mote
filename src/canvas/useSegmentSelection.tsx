@@ -218,7 +218,13 @@ export function useSegmentSelection(props: Props) {
     } catch (error) { setNotice(error instanceof Error ? error.message : 'This segment could not be moved.') }
   }
   function copy(event: ClipboardEvent) {
-    const current = selected.current, { editable, doc, anchors, geometry } = live.current
+    const { editable, doc, editor, anchors, geometry } = live.current
+    let current = selected.current
+    if (!current && editor?.isFocused && !editor.state.selection.empty) {
+      const { $from, $to } = editor.state.selection
+      const start = $from.index(0), end = Math.min(doc.content.content!.length, $to.index(0) + ($to.depth && $to.parentOffset ? 1 : 0))
+      if (doc.content.content!.slice(start, end).some(block => block.type === 'flow')) current = { start: edge(start), end: edge(end) }
+    }
     if (!editable || !current || equal(current) || !ownedFocus() || !event.clipboardData) return
     event.preventDefault(); event.stopImmediatePropagation()
     try {
@@ -314,7 +320,7 @@ export function useSegmentSelection(props: Props) {
     }
     function focus(event: FocusEvent) {
       const target = event.target as HTMLElement
-      if (target !== live.current.stage.current && !target.closest('[data-segment-control]')) actions.current.clear()
+      if (target !== live.current.stage.current && !target.closest('[data-segment-control], [data-ai-segment-action]')) actions.current.clear()
     }
     const copied = (event: ClipboardEvent) => actions.current.copy(event)
     const pasted = (event: ClipboardEvent) => actions.current.paste(event)
@@ -388,6 +394,10 @@ export function useSegmentSelection(props: Props) {
     </>}
   </div>
   return { begin, clear, overlay, notice,
+    target: (y: number, alt = false) => {
+      const blocks = measure(), point = endpoint(y, alt, blocks)
+      return { point, top: boundaryY(point, 'start', blocks) }
+    },
     selection: () => selected.current && { range: selected.current, area: { x: 0, y: paint.top, width: props.doc.width - 2, height: Math.max(0, paint.bottom - paint.top) } },
     context: () => ({ anchors: snapshotAnchors(), geometry: live.current.geometry }),
   }

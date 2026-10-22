@@ -2,7 +2,7 @@ import { useRef, type PointerEvent } from 'react'
 import type { Editor } from '@tiptap/core'
 import { isText, type FloatingObject, type FloatingPatch } from '../document/model'
 import { TextEditor } from '../editor/TextEditor'
-import type { Geometry } from './floatingGeometry'
+import { captionGap, type Geometry } from './floatingGeometry'
 import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
 import { CodeView } from './CodeView'
@@ -24,17 +24,21 @@ interface Props {
   widgetRun: number; staticWidgets: boolean; order: number
   locked?: boolean; sizeLocked?: boolean; restoreWidgetRevision?: number
   aiTask?: AITask; aiReview?: AIReview
+  inFlow?: boolean
 }
 
-export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview }: Props) {
+export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview, inFlow = false }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const textStyle = !note.kind || note.kind === 'text' ? { padding: pixels(note.padding ?? 0, defaultFontSize), backgroundColor: note.background ? paletteCSS(note.background) : 'transparent', borderColor: note.borderColor ? paletteCSS(note.borderColor) : 'transparent' } : {}
   function begin(part: DragPart, event: PointerEvent) { if (editable && event.button === 0) onBegin(part, event) }
   const caption = isText(note) && !!note.attachment
   return <div className={`floating-note floating-${kind} ${caption ? 'is-caption' : ''} ${selected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
-    data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-text-flow={note.textFlow}
-    style={{ ...textStyle, '--ai-object-x': `${box.x}px`, zIndex: order + 1, left: box.x, top: box.y, width: Math.max(1, box.width), height: kind === 'html' || kind === 'drawing' ? Math.max(1, box.height) : undefined } as React.CSSProperties & { '--ai-object-x': string }}
+    data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-placement={note.placement} data-in-flow={inFlow ? '' : undefined}
+    style={{ ...textStyle, '--ai-object-x': `${box.x}px`, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
+      marginTop: inFlow && isText(note) && note.attachment?.position === 'below' ? captionGap : undefined,
+      marginBottom: inFlow && isText(note) && note.attachment?.position === 'above' ? captionGap : undefined,
+      width: Math.max(1, box.width), height: kind === 'html' || kind === 'drawing' ? Math.max(1, box.height) : undefined } as React.CSSProperties & { '--ai-object-x': string }}
     tabIndex={editable ? 0 : undefined} aria-label={caption ? 'Attached caption' : `Floating ${kind === 'text' ? 'text box' : kind}`}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null) }}
     onKeyDown={event => { if (event.target === event.currentTarget || (event.target as HTMLElement).matches('[data-floating-control]')) onKey(event) }}

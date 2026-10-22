@@ -4,28 +4,36 @@ import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
 import { collectNodeIds, freshNode, mergePalette, objectPaletteReferences, remapObjectPalette, remapPaletteContent, validateGeometry } from './segment'
 import { neutralIds } from '../theme/palette'
-import { anchorPoint, type Anchor, type Geometries } from '../canvas/floatingGeometry'
+import type { Anchor, Geometries } from '../canvas/floatingGeometry'
+import { insertDocumentObjects, placementAtPoint } from './flow'
 
 export const FLOATING_MIME = 'application/x-mote-floating+json'
 export interface FloatingClipboard {
   version: 'V0'
   type: 'floating'
   floating: FloatingObject[]
+  content: JSONContent[]
   palette: PaletteEntry[]
   geometry: Geometries
 }
 
 export function floatingCopyIds(objects: FloatingObject[], selected: string[]) {
   const ids = new Set(selected)
+  const anchors = new Set(objects.filter(object => ids.has(object.id) && object.placement === 'flow').map(object => object.anchorId))
+  for (const object of objects) if (object.anchorId !== null && anchors.has(object.anchorId) && !(isText(object) && object.attachment)) ids.add(object.id)
   for (const object of objects) if (isText(object) && object.attachment && ids.has(object.attachment.targetId)) ids.add(object.id)
   return ids
 }
 
 export function copyFloating(doc: MoteDocument, ids: Set<string>, geometry: Geometries): FloatingClipboard {
+  ids = floatingCopyIds(doc.floating, [...ids])
+  const content = structuredClone((doc.content.content ?? []).filter(block => block.type === 'flow' && ids.has(block.attrs?.objectId)))
+  const flowAnchors = new Set(content.map(block => block.attrs?.id))
   const floating = doc.floating.filter(object => ids.has(object.id)).map(original => {
     const object = structuredClone(original), box = geometry[object.id]
-    Object.assign(object, { x: box.x, y: Math.max(0, box.y), anchorId: null })
+    if (object.placement !== 'flow' && !flowAnchors.has(object.anchorId)) Object.assign(object, { x: box.x, y: Math.max(0, box.y), anchorId: null })
     if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) {
+      if (flowAnchors.has(object.anchorId)) Object.assign(object, placementAtPoint(doc, box, object.anchorId, { geometry }))
       object.width = box.width
       object.attachment = null
     }
@@ -33,47 +41,67 @@ export function copyFloating(doc: MoteDocument, ids: Set<string>, geometry: Geom
   })
   const references = new Set<string>()
   for (const object of floating) objectPaletteReferences(object, references)
-  return { version: 'V0', type: 'floating', floating,
+  return { version: 'V0', type: 'floating', floating, content,
     palette: structuredClone(doc.theme.palette.filter(entry => references.has(entry.id) || references.has(`${entry.id}:soft`))),
     geometry: structuredClone(Object.fromEntries(floating.map(object => [object.id, geometry[object.id]]))) }
 }
 
 export function parseFloating(json: string): FloatingClipboard {
   const payload = JSON.parse(json) as FloatingClipboard
-  if (!payload || payload.version !== 'V0' || payload.type !== 'floating' || !Array.isArray(payload.floating) || !payload.floating.length || !Array.isArray(payload.palette)) throw new Error('Invalid Mote floating elements.')
+  if (!payload || payload.version !== 'V0' || payload.type !== 'floating' || !Array.isArray(payload.floating) || !payload.floating.length || !Array.isArray(payload.palette) || !Array.isArray(payload.content) || payload.content.some(block => block.type !== 'flow')) throw new Error('Invalid Mote floating elements.')
   validateGeometry(payload.geometry)
   if (new Set(payload.palette.map(entry => entry.id)).size !== payload.palette.length) throw new Error('Duplicate floating clipboard palette IDs.')
   const palette = new Map(defaultTheme.palette.filter(entry => (neutralIds as readonly string[]).includes(entry.id)).map(entry => [entry.id, entry]))
   for (const entry of payload.palette) palette.set(entry.id, entry)
   const candidate: MoteDocument = { version: 'V0', id: 'clipboard', width: 960, margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    theme: { ...defaultTheme, palette: [...palette.values()] }, content: { type: 'doc', content: [paragraph('')] }, floating: payload.floating }
+    theme: { ...defaultTheme, palette: [...palette.values()] }, content: { type: 'doc', content: payload.content.length ? payload.content : [paragraph('')] }, floating: payload.floating }
   validateDocument(candidate)
   initializeDocument(candidate)
   const ids = new Set(payload.floating.map(object => object.id))
   for (const object of payload.floating) {
-    if (object.anchorId !== null || !payload.geometry[object.id]) throw new Error('Invalid floating clipboard geometry.')
+    if (object.anchorId !== null && !payload.content.some(block => block.attrs?.id === object.anchorId) || !payload.geometry[object.id]) throw new Error('Invalid floating clipboard geometry.')
     if (isText(object) && object.attachment && !ids.has(object.attachment.targetId)) throw new Error('Invalid floating clipboard attachment.')
   }
   return payload
 }
 
 export function importFloating(doc: MoteDocument, payload: FloatingClipboard, anchors: Anchor[]) {
-  const { palette, remap } = mergePalette(doc, { ...payload, content: [] })
+  const { palette, remap } = mergePalette(doc, payload)
   const used = new Set(doc.floating.map(object => object.id))
   collectNodeIds(doc.content, used)
   for (const object of doc.floating) if ('content' in object) collectNodeIds(object.content, used)
   const mapping = new Map(payload.floating.map(object => [object.id, crypto.randomUUID()]))
   for (const id of mapping.values()) used.add(id)
+  const anchorsMap = new Map<string, string>()
+  const content = payload.content.map(block => {
+    const next = freshNode(block, used, true)
+    anchorsMap.set(block.attrs!.id, next.attrs!.id)
+    next.attrs!.objectId = mapping.get(block.attrs!.objectId)!
+    return next
+  })
+  const ordinaryAnchors = anchors.filter(anchor => !(doc.content.content ?? []).some(block => block.type === 'flow' && block.attrs?.id === anchor.id))
   const floating = payload.floating.map(original => {
     const object = structuredClone(original)
     object.id = mapping.get(original.id)!
-    Object.assign(object, anchorPoint(payload.geometry[original.id], anchors))
+    const anchorId = original.anchorId && anchorsMap.get(original.anchorId)
+    if (anchorId) object.anchorId = anchorId
+    else {
+      const point = payload.geometry[original.id]
+      const anchor = ordinaryAnchors.findLast(anchor => anchor.top <= point.y)
+      Object.assign(object, placementAtPoint(doc, point, anchor?.id ?? null, { anchors }))
+    }
     if (isText(object) && object.attachment) object.attachment.targetId = mapping.get(object.attachment.targetId)!
     if ('content' in object) object.content = remapPaletteContent(freshNode(object.content, used), remap)
     remapObjectPalette(object, remap)
     return object
   })
-  return { floating, palette }
+  return { floating, palette, content }
+}
+
+export function pasteFloating(doc: MoteDocument, payload: FloatingClipboard, anchors: Anchor[], index?: number): MoteDocument {
+  const imported = importFloating(doc, payload, anchors)
+  const next = insertDocumentObjects(doc, imported.floating, index, imported.content)
+  return { ...next, theme: { ...next.theme, palette: imported.palette } }
 }
 
 export function floatingText(payload: FloatingClipboard) {

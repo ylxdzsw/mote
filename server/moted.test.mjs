@@ -23,8 +23,8 @@ const theme = {
 }
 function document(kind = 'text') {
   const doc = { version: 'V0', id: 'doc-1', width: 800, margins: { top: 48, right: 48, bottom: 48, left: 48 }, theme, content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text: 'Hello' }] }] }, floating: [] }
-  if (kind === 'text') doc.floating.push({ id: 'object-1', anchorId: 'block-1', x: 40, y: 10, width: 200, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'float-1', semantic: 'body' }, content: [] }] } })
-  if (kind === 'html') doc.floating.push({ id: 'object-1', kind: 'html', anchorId: 'block-1', x: 40, y: 10, width: 200, height: 100, textFlow: 'overlap', html: '<button>+</button>', screenshot: svg, alt: 'demo' })
+  if (kind === 'text') doc.floating.push({ id: 'object-1', anchorId: 'block-1', x: 40, y: 10, width: 200, placement: 'float', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'float-1', semantic: 'body' }, content: [] }] } })
+  if (kind === 'html') doc.floating.push({ id: 'object-1', kind: 'html', anchorId: 'block-1', x: 40, y: 10, width: 200, height: 100, placement: 'float', html: '<button>+</button>', screenshot: svg, alt: 'demo' })
   return doc
 }
 function request(id, doc = document(), extra = {}) { return { id, document: doc, model: 'codex/gpt-5.6-luna', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
@@ -36,9 +36,9 @@ function segmentDocument() {
     { type: 'paragraph', attrs: { id: 'seg-p2', semantic: 'body' }, content: [{ type: 'text', text: 'Last' }] },
   ]
   doc.floating = [
-    { id: 'seg-drawing', kind: 'drawing', anchorId: 'seg-space', x: 40, y: 24, width: 160, height: 60, textFlow: 'overlap', background: null, strokes: [{ points: [[8, 8], [152, 52]], color: 'ink', width: 2 }], labels: [] },
-    { id: 'seg-caption', anchorId: 'seg-space', x: 40, y: 24, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'Drawing' }] }] }, attachment: { targetId: 'seg-drawing', position: 'below' } },
-    { id: 'seg-widget', kind: 'html', anchorId: 'seg-p2', x: 40, y: 12, width: 120, height: 80, textFlow: 'overlap', html: '<p>source</p>', screenshot: svg, alt: 'Source widget' },
+    { id: 'seg-drawing', kind: 'drawing', anchorId: 'seg-space', x: 40, y: 24, width: 160, height: 60, placement: 'float', background: null, strokes: [{ points: [[8, 8], [152, 52]], color: 'ink', width: 2 }], labels: [] },
+    { id: 'seg-caption', anchorId: 'seg-space', x: 40, y: 24, width: 160, placement: 'float', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'Drawing' }] }] }, attachment: { targetId: 'seg-drawing', position: 'below' } },
+    { id: 'seg-widget', kind: 'html', anchorId: 'seg-p2', x: 40, y: 12, width: 120, height: 80, placement: 'float', html: '<p>source</p>', screenshot: svg, alt: 'Source widget' },
   ]
   return doc
 }
@@ -50,12 +50,12 @@ function segmentPayload(withWidgets = false) {
     { type: 'paragraph', attrs: { id: 'candidate-p', semantic: 'heading' }, content: [{ type: 'text', text: 'Generated composition' }] },
     { type: 'spacer', attrs: { id: 'candidate-space', height: 72 } },
   ]
-  const drawing = { id: 'candidate-drawing', kind: 'drawing', anchorId: 'candidate-p', x: 32, y: 12, width: 160, height: 60, textFlow: 'overlap', background: null, strokes: [{ points: [[8, 8], [152, 52]], color: 'ink', width: 2 }], labels: [] }
-  const caption = { id: 'candidate-caption', anchorId: 'candidate-p', x: 32, y: 12, width: 160, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'Generated drawing' }] }] }, attachment: { targetId: 'candidate-drawing', position: 'below' } }
+  const drawing = { id: 'candidate-drawing', kind: 'drawing', anchorId: 'candidate-p', x: 32, y: 12, width: 160, height: 60, placement: 'float', background: null, strokes: [{ points: [[8, 8], [152, 52]], color: 'ink', width: 2 }], labels: [] }
+  const caption = { id: 'candidate-caption', anchorId: 'candidate-p', x: 32, y: 12, width: 160, placement: 'float', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'Generated drawing' }] }] }, attachment: { targetId: 'candidate-drawing', position: 'below' } }
   const floating = [drawing, caption]
   const geometry = { 'candidate-drawing': { x: 32, y: 12, width: 160, height: 60 }, 'candidate-caption': { x: 32, y: 12, width: 160, height: 24 } }
   if (withWidgets) for (const id of ['candidate-widget-a', 'candidate-widget-b']) {
-    floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, textFlow: 'overlap', html: `<button>${id}</button>`, alt: id })
+    floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, placement: 'float', html: `<button>${id}</button>`, alt: id })
     geometry[id] = { x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80 }
   }
   return { version: 'V0', type: 'segment', content, floating, palette: [], geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
@@ -100,8 +100,8 @@ async function takeEvents(response, count) {
 
 test('new floating reservations accept supported kinds and reject removed kinds', () => {
   const doc = document('html'), original = doc.floating[0]
-  const { id, anchorId, x, y, width, textFlow } = original
-  const base = { id, anchorId, x, y, width, textFlow }
+  const { id, anchorId, x, y, width, placement } = original
+  const base = { id, anchorId, x, y, width, placement }
   const target = { kind: 'object', objectId: id, isNew: true, area: { x, y, width, height: 100 } }
   const paragraph = { type: 'paragraph', attrs: { semantic: 'body' }, content: [{ type: 'text', text: 'Native text' }] }
   const objects = [
@@ -126,7 +126,7 @@ test('new floating reservations accept supported kinds and reject removed kinds'
 
 test('drawings roundtrip with bounded native data and allow supported single-object conversions', () => {
   const doc = document('html'), widget = doc.floating[0]
-  const drawing = { id: widget.id, kind: 'drawing', anchorId: widget.anchorId, x: widget.x, y: widget.y, width: widget.width, height: 100, textFlow: 'overlap', background: 'paper',
+  const drawing = { id: widget.id, kind: 'drawing', anchorId: widget.anchorId, x: widget.x, y: widget.y, width: widget.width, height: 100, placement: 'float', background: 'paper',
     strokes: [{ points: [[-1, 2], [3.5, 8]], color: 'primary:soft', width: 2.5 }], labels: [{ x: 1, y: 2, text: 'A < B', color: 'ink', size: 13.5 }] }
   doc.floating = [drawing]
   assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(doc))), doc)
@@ -167,8 +167,8 @@ test('segment targets use canonical points and exact block/object ownership', ()
 
 test('caption attachments validate in documents and standalone candidates', () => {
   const doc = document()
-  const drawing = { id: 'caption-target', kind: 'drawing', anchorId: 'block-1', x: 40, y: 10, width: 80, height: 40, textFlow: 'overlap', background: null, strokes: [], labels: [] }
-  const caption = { id: 'caption-1', anchorId: 'block-1', x: 40, y: 10, width: 80, textFlow: 'overlap', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'A caption' }] }] }, attachment: { targetId: drawing.id, position: 'below' } }
+  const drawing = { id: 'caption-target', kind: 'drawing', anchorId: 'block-1', x: 40, y: 10, width: 80, height: 40, placement: 'float', background: null, strokes: [], labels: [] }
+  const caption = { id: 'caption-1', anchorId: 'block-1', x: 40, y: 10, width: 80, placement: 'float', content: { type: 'doc', content: [{ type: 'paragraph', attrs: { semantic: 'caption' }, content: [{ type: 'text', text: 'A caption' }] }] }, attachment: { targetId: drawing.id, position: 'below' } }
   doc.floating.push(drawing, caption)
   assert.equal(validateDocument(doc).floating.at(-1).attachment.position, 'below')
 
@@ -229,10 +229,53 @@ test('fake segment task returns a deterministic native composition', async t => 
   const status = await (await get(value, id)).json()
   assert.equal(status.status, 'ready')
   assert.equal(status.candidate.summary, 'Fake candidate for segment target.')
-  assert.deepEqual(status.candidate.segment.content.map(node => node.type), ['paragraph', 'spacer'])
+  assert.deepEqual(status.candidate.segment.content.map(node => node.type), ['paragraph', 'flow'])
   assert.deepEqual(status.candidate.segment.floating.map(object => object.kind ?? 'text'), ['drawing', 'text'])
   assert.equal(status.candidate.segment.floating[1].attachment.targetId, status.candidate.segment.floating[0].id)
+  assert.equal(status.candidate.segment.floating[0].placement, 'flow')
+  assert.equal(status.candidate.segment.floating[0].anchorId, status.candidate.segment.content[1].attrs.id)
+  assert.equal(status.candidate.segment.content[1].attrs.objectId, status.candidate.segment.floating[0].id)
   assert.deepEqual(Object.keys(status.candidate.segment.geometry).sort(), status.candidate.segment.floating.map(object => object.id).sort())
+})
+
+test('Flow validation enforces structural pairs, scope ownership, and paragraph-only text tasks', () => {
+  const doc = segmentDocument()
+  const flow = { type: 'flow', attrs: { id: 'seg-flow', objectId: 'seg-drawing' } }
+  doc.content.content[1] = flow
+  Object.assign(doc.floating[0], { placement: 'flow', anchorId: 'seg-flow', x: 0, y: 0, centered: true })
+  Object.assign(doc.floating[1], { anchorId: 'seg-flow' })
+  Object.assign(doc.floating[2], { anchorId: 'seg-flow', x: -8, y: -12 })
+  assert.equal(validateDocument(doc), doc)
+  const target = segmentTarget({ blockIds: ['seg-p0', 'seg-flow'], objectIds: ['seg-drawing', 'seg-caption', 'seg-widget'] })
+  assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target })).target, target)
+  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...target, objectIds: ['seg-drawing', 'seg-caption'] } })), /selected segment scope/)
+  for (const mutate of [
+    value => { value.content.content.splice(1, 1) },
+    value => { value.content.content.push({ ...flow, attrs: { ...flow.attrs, id: 'duplicate-flow' } }) },
+    value => { value.content.content[1].attrs.objectId = 'outside' },
+    value => { value.floating[0].placement = 'float' },
+    value => { value.floating[0].anchorId = 'seg-p0' },
+    value => { value.floating[0].y = 1 },
+    value => { value.floating[0].centered = 'yes' },
+    value => { value.floating[2].anchorId = 'seg-p0' },
+    value => { value.content.content[0].attrs.id = 'seg-drawing' },
+    value => { value.floating[1].placement = 'flow' },
+    value => { value.floating[0].textFlow = 'repel' },
+    value => { value.floating[1].content.content.push(flow) },
+  ]) {
+    const invalid = structuredClone(doc); mutate(invalid)
+    assert.throws(() => validateDocument(invalid))
+  }
+  const textTarget = { ...request(crypto.randomUUID()).target, blockIds: ['seg-flow'] }
+  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: textTarget })), /target block/)
+  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...textTarget, blockIds: ['seg-p0', 'seg-p2'] } })), /consecutive paragraphs/)
+  assert.throws(() => validateCandidate({ content: [flow], summary: 'bad text' }, doc, textTarget), /paragraphs/)
+  const payload = segmentPayload()
+  payload.content[1] = { type: 'flow', attrs: { id: 'candidate-space', objectId: 'candidate-drawing' } }
+  Object.assign(payload.floating[0], { placement: 'flow', anchorId: 'candidate-space', x: 0, y: 0 })
+  assert.equal(validateCandidate({ segment: payload, summary: 'Flow composition' }, doc, target).segment, payload)
+  payload.content.pop()
+  assert.throws(() => validateCandidate({ segment: payload, summary: 'orphaned Flow' }, doc, target), /Flow object requires/)
 })
 
 test('segment HTML screenshotPaths embed bounded screenshots for multiple widgets', async t => {
@@ -253,8 +296,8 @@ test('segment HTML screenshotPaths embed bounded screenshots for multiple widget
 test('a native KaTeX delivery reaches ready without HTML or screenshot artifacts', async t => {
   const doc = document('html'), original = doc.floating[0]
   const value = await app({ runner: async context => {
-    const { id, anchorId, x, y, width, textFlow } = original
-    await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ object: { id, anchorId, x, y, width, textFlow, kind: 'katex', latex: 'E = mc^2' }, summary: 'Native formula' }))
+    const { id, anchorId, x, y, width, placement } = original
+    await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ object: { id, anchorId, x, y, width, placement, kind: 'katex', latex: 'E = mc^2' }, summary: 'Native formula' }))
   } }); t.after(() => value.close())
   const id = crypto.randomUUID()
   assert.equal((await post(value, request(id, doc, { target: { kind: 'object', objectId: original.id, isNew: true, area: { x: 40, y: 10, width: 200, height: 100 } } }))).status, 202)

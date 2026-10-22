@@ -2,32 +2,42 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from '
 import type { Editor } from '@tiptap/core'
 import { isText, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { captionGap, captionPlacement, horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 import { nativeSize } from './measurement'
 
 export interface Placement { x: number; top: number }
 export type FloatingPreview = FloatingPatch & { top?: number }
 export type FloatingPreviews = Record<string, FloatingPreview>
 interface Obstacle { left: number; right: number; top: number; bottom: number }
-interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number } }
+interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number }; flowMounts: Record<string, HTMLElement> }
 interface VisibleBlock { element: HTMLElement; ids: string[]; paragraph: boolean }
 const gap = 8
-const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0, sideInsets: { left: 0, right: 0 } }
+const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0, sideInsets: { left: 0, right: 0 }, flowMounts: {} }
 
 function property(element: HTMLElement, name: string, value: string) {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
 }
 
 function layoutBlock(element: Element): element is HTMLElement {
-  return element instanceof HTMLElement && (element.matches('.main-paragraph') || element.matches('[data-spacer]'))
+  return element instanceof HTMLElement && element.matches('.main-paragraph, [data-spacer], [data-flow]')
 }
 
 function blockIds(element: HTMLElement, fallback?: string) {
   const ids = [element.dataset.aiBlock, element.dataset.id, fallback].filter((id): id is string => !!id)
-  for (const anchor of element.querySelectorAll<HTMLElement>('[data-ai-block]')) {
+  for (const anchor of element.matches('[data-flow]') ? [] : element.querySelectorAll<HTMLElement>('[data-ai-block]')) {
     if (anchor.dataset.aiBlock) ids.push(anchor.dataset.aiBlock)
   }
   return [...new Set(ids)]
+}
+
+function previewObjects(objects: FloatingObject[], preview: FloatingPreviews, anchors: Anchor[], columnLeft: number) {
+  return objects.map(note => {
+    const moving = preview[note.id]
+    const object = { ...note, ...moving } as FloatingObject
+    if (moving?.x !== undefined) object.x = moving.x - (object.placement === 'flow'
+      ? columnLeft : anchors.find(anchor => anchor.id === object.anchorId)?.left ?? 0)
+    return object
+  })
 }
 
 // One left-hand text interval per vertical band. Disconnected obstacles join only
@@ -59,40 +69,51 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     const observed = new Set<Element>()
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; measure() }) }
     const observer = new ResizeObserver(schedule)
+    // Portals arrive after their mounts are reported; preview DOM can also be
+    // replaced without changing its dimensions. Neither requires a document edit.
+    const mutations = new MutationObserver(schedule)
+    mutations.observe(editor.view.dom, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'data-object-id', 'data-ai-block', 'class'] })
     function measure(override = preview) {
       const floating = shiftSpaceObjects(doc.floating, spaceLayoutKey.getState(editor!.state)?.shift)
       const rect = surface.getBoundingClientRect()
       const scale = rect.width / nativeSize(surface).width
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
+      const localLeft = (element: Element) => (element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft
+      const column = { left: doc.margins.left, width: surface.clientWidth - doc.margins.left - doc.margins.right }
       const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
+      const notes = new Map<string, HTMLElement>()
       const sizes: Record<string, { width: number; height: number }> = {}
       surface.querySelectorAll<HTMLElement>('.floating-note').forEach(element => {
+        if (element.closest('.ai-original-hidden')) return
         const size = nativeSize(element)
+        notes.set(element.dataset.noteId!, element)
         heights.set(element.dataset.noteId!, size.height)
         sizes[element.dataset.noteId!] = size
         elements.add(element)
       })
       const anchors: Anchor[] = []
       const tops: Record<string, number> = {}
+      const flowMounts: Record<string, HTMLElement> = {}
       const obstacles: Obstacle[] = []
-      const activate = (note: FloatingObject, anchorTop: number) => {
-        if (isText(note) && note.attachment) return
+      const activate = (note: FloatingObject, anchorTop: number, anchorLeft = 0) => {
+        if (note.placement === 'flow' || isText(note) && note.attachment) return
         const moving = override[note.id]
         const top = moving?.top ?? anchorTop + note.y
-        const left = moving?.x ?? note.x
+        const left = moving?.x ?? anchorLeft + note.x
         const width = moving?.width ?? note.width
         tops[note.id] = top
-        if (note.textFlow === 'repel') obstacles.push({
+        const height = heights.get(note.id) ?? 0
+        obstacles.push({
           left: left - gap, right: left + width + gap,
-          top: Math.max(anchorTop, top - gap), bottom: top + (heights.get(note.id) ?? 0) + gap,
+          top: Math.max(anchorTop, top - gap), bottom: top + height + gap,
         })
         const caption = floating.find(object => isText(object) && object.attachment?.targetId === note.id)
-        if (caption?.textFlow === 'repel') {
-          const objects = floating.map(object => ({ ...object, ...override[object.id] }) as FloatingObject)
-          const box = resolveGeometry(objects, sizes, tops)[caption.id]
-          obstacles.push({ left: box.x - gap, right: box.x + box.width + gap,
-            top: Math.max(anchorTop, box.y - gap), bottom: box.y + box.height + gap })
+        if (caption && isText(caption) && caption.attachment) {
+          const captionHeight = heights.get(caption.id) ?? 0
+          const point = captionPlacement({ x: left, y: top, width, height }, captionHeight, caption.attachment.position)
+          obstacles.push({ left: point.x - gap, right: point.x + width + gap,
+            top: Math.max(anchorTop, point.y - gap), bottom: point.y + captionHeight + gap })
         }
       }
       // A dragged object has a fixed document-space position until release.
@@ -119,9 +140,9 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       }
       // Widget wrappers and zero-height reservation controls are not flow
       // boundaries. Resolve paragraph edge margins from visible block order.
-      for (const [index, { element, paragraph }] of blocks.entries()) if (paragraph) {
-        property(element, 'margin-top', index === 0 ? '0px' : 'var(--text-spaceBefore)')
-        property(element, 'margin-bottom', index === blocks.length - 1 ? '0px' : 'var(--text-spaceAfter)')
+      for (const [index, { element, paragraph }] of blocks.entries()) if (paragraph || element.hasAttribute('data-flow')) {
+        property(element, 'margin-top', !paragraph || index === 0 ? '0px' : 'var(--text-spaceBefore)')
+        property(element, 'margin-bottom', index === blocks.length - 1 ? '0px' : paragraph ? 'var(--text-spaceAfter)' : 'var(--body-spaceAfter)')
       }
       // A spacer separates margins that would otherwise collapse to their maximum.
       const visible = new Set(blocks.map(block => block.element))
@@ -134,16 +155,34 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         property(element, '--space-overlap', `${overlap}px`)
       })
       for (const { element, ids, paragraph } of blocks) {
-        const top = localTop(element)
+        let top = localTop(element)
+        let left: number | undefined
+        if (element.hasAttribute('data-flow')) {
+          const id = element.dataset.objectId!
+          const mount = element.querySelector<HTMLElement>('[data-flow-mount]')!
+          flowMounts[id] = mount
+          elements.add(mount)
+          const object = floating.find(note => note.id === id)
+          const target = notes.get(id)
+          if (target && mount.contains(target)) {
+            top = localTop(target)
+            left = localLeft(target)
+          } else if (object) {
+            const projected = previewObjects([object], override, anchors, column.left)
+            left = resolveGeometry(projected, sizes, {}, anchors, column)[id].x
+            const caption = floating.find(note => isText(note) && note.attachment?.targetId === id && note.attachment.position === 'above')
+            if (caption) top += (heights.get(caption.id) ?? 24) + captionGap
+          }
+          tops[id] = top
+        }
         // Resolve aliases for removed original blocks, but prefer the visible candidate.
-        anchors.push(...ids.toReversed().map(id => ({ id, top })))
+        anchors.push(...ids.toReversed().map(id => ({ id, top, ...(left === undefined ? {} : { left }) })))
         elements.add(element)
-        for (const note of floating) if (note.anchorId !== null && ids.includes(note.anchorId) && override[note.id]?.top === undefined) activate(note, top)
+        for (const note of floating) if (note.anchorId !== null && ids.includes(note.anchorId) && override[note.id]?.top === undefined) activate(note, top, left)
         if (!paragraph) continue
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
-        const left = (element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft
-        const shape = exclusion(obstacles, top, left, nativeSize(element).width)
+        const shape = exclusion(obstacles, top, localLeft(element), nativeSize(element).width)
         if (shape) {
           // Contain each proxy float, but derive paragraph height from its native
           // in-flow content rather than the (possibly much taller) proxy itself.
@@ -161,8 +200,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       }
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
-      const objects = floating.map(note => ({ ...note, ...override[note.id] }) as FloatingObject)
-      const geometry = resolveGeometry(objects, sizes, tops)
+      const objects = previewObjects(floating, override, anchors, column.left)
+      const geometry = resolveGeometry(objects, sizes, tops, anchors, column)
       // Only unused side margins may collapse in reading; retain every on-page object.
       let left = doc.margins.left, right = doc.width - doc.margins.right
       for (const note of objects) {
@@ -177,8 +216,14 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
       })
       const sideInsets = { left: Math.max(0, left), right: Math.max(0, doc.width - right) }
-      const next = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...objects.map(note => visualBottom(geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
-      setLayout(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
+      const values = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...objects.map(note => visualBottom(geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
+      const next = { ...values, flowMounts }
+      setLayout(previous => {
+        const { flowMounts: previousMounts, ...previousValues } = previous
+        return Object.keys(previousMounts).length === Object.keys(flowMounts).length
+          && Object.entries(flowMounts).every(([id, mount]) => previousMounts[id] === mount)
+          && JSON.stringify(previousValues) === JSON.stringify(values) ? previous : next
+      })
       return next
     }
     measureRef.current = measure
@@ -188,6 +233,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     return () => {
       cancelAnimationFrame(frame)
       observer.disconnect()
+      mutations.disconnect()
       editor.off('transaction', schedule)
       document.fonts.removeEventListener('loadingdone', schedule)
     }
@@ -195,13 +241,15 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
 
   function attach(note: FloatingObject, placement: Placement): FloatingPatch {
     const { anchors } = measureRef.current({ ...preview, [note.id]: placement })
-    const anchor = anchors.findLast(anchor => anchor.top <= placement.top - (note.textFlow === 'repel' ? gap : 0))
-    return { x: placement.x, y: Math.max(0, placement.top - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
+    const self = new Set((doc.content.content ?? []).filter(block => block.type === 'flow' && block.attrs?.objectId === note.id).map(block => block.attrs!.id))
+    const anchor = anchors.findLast(anchor => !self.has(anchor.id) && anchor.top <= placement.top - (anchor.left === undefined ? gap : 0))
+    return { x: placement.x - (anchor?.left ?? 0), y: Math.max(0, placement.top - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
   }
 
-  const objects = shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null)
-    .map(note => ({ ...note, ...preview[note.id] }) as FloatingObject)
-  const tops = Object.fromEntries(objects.map(note => [note.id, preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
-  const geometry = resolveGeometry(objects, layout.geometry, tops)
+  const objects = previewObjects(shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null), preview, layout.anchors, doc.margins.left)
+  const tops = Object.fromEntries(objects.map(note => [note.id, note.placement === 'flow'
+    ? layout.tops[note.id] ?? 0
+    : preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
+  const geometry = resolveGeometry(objects, layout.geometry, tops, layout.anchors, { left: doc.margins.left, width: (sheet.current?.clientWidth ?? doc.width - 2) - doc.margins.left - doc.margins.right })
   return { ...layout, tops, geometry, reflow, attach }
 }

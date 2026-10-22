@@ -100,7 +100,7 @@ test('visual extraction accepts only embedded native image fields and writes fix
   const documentPath = path.join(root, 'document.json')
   await writeFile(documentPath, JSON.stringify({
     floating: [
-      { kind: 'image', src: `data:image/png;base64,${png.toString('base64')}` },
+      { id: 'flow-image', kind: 'image', placement: 'flow', anchorId: 'image-block', x: 0, y: 0, src: `data:image/png;base64,${png.toString('base64')}` },
       { kind: 'html', screenshot: `data:image/jpeg;base64,${jpeg.toString('base64')}`, html: '<script>not run</script>' },
       { kind: 'image', src: 'https://example.invalid/image.png', alt: '../../outside.png' },
     ],
@@ -118,7 +118,8 @@ test('drawing extraction generates bounded inert SVG with escaped labels and pal
   const root = await mkdtemp(path.join(os.tmpdir(), 'mote-drawing-visuals-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const source = document('drawing-doc')
-  source.floating.push({ kind: 'drawing', width: 200, height: 100, background: 'paper',
+  source.content.content.push({ type: 'flow', attrs: { id: 'drawing-block', objectId: 'flow-drawing' } })
+  source.floating.push({ id: 'flow-drawing', kind: 'drawing', placement: 'flow', anchorId: 'drawing-block', x: 0, y: 0, width: 200, height: 100, background: 'paper',
     strokes: [{ points: [[1, 2], [3, 4], [5, 6]], color: 'primary', width: 2.5 }],
     labels: [{ x: 5, y: 6, text: '<script>alert("x")</script>\nA & B', color: 'ink', size: 16 }] })
   source.floating.push({ ...source.floating[0], labels: [{ ...source.floating[0].labels[0], color: 'url(https://example.invalid)' }] })
@@ -191,7 +192,11 @@ test('indexing debounces from the latest saved revision and passes the complete 
   const indexer = new DocumentIndexer(manager, { debounceMs: 180, runner: modelRunner })
   await indexer.init()
   await new Promise(resolve => setTimeout(resolve, 90))
-  const saved = store.put(created.id, { baseRevision: created.revision, operationId: randomUUID(), document: document(created.id, 'latest saved body') })
+  const latest = document(created.id, 'latest saved body')
+  latest.content.content.push({ type: 'flow', attrs: { id: 'flow-block', objectId: 'flow-text' } })
+  latest.floating.push({ id: 'flow-text', kind: 'text', placement: 'flow', centered: true, anchorId: 'flow-block', x: 0, y: 0, width: 240,
+    content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'flow-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Flow content belongs in the index input' }] }] } })
+  const saved = store.put(created.id, { baseRevision: created.revision, operationId: randomUUID(), document: latest })
   indexer.wake()
   await new Promise(resolve => setTimeout(resolve, 120))
   assert.equal(seen.length, 0, 'an older revision deadline must not start indexing the latest revision early')

@@ -5,6 +5,27 @@ submission/preview helpers are copied into each task's immutable input directory
 The guide SHA-256 is the exact-version identifier in the manifest. This file is
 the private-client and operator contract, not part of the agent's instructions.
 
+## Native Flow and Float contract
+
+V0 keeps all object kinds in `document.floating`. Objects require
+`placement: 'flow' | 'float'` and may have `centered: boolean`; `textFlow` is
+unsupported. Each Flow has exactly one top-level main node
+`{type:'flow',attrs:{id: uniqueBlockId,objectId: objectId}}`, with the object’s
+`anchorId` equal to that block ID and `y:0`. Its `x` offsets the left text margin,
+or `centered:true` centers it within the text width. A Float anchored to a Flow
+block uses `x,y` relative to that Flow object’s top-left; other Floats use page
+`x` and nonnegative anchor-relative `y`. Flow-relative Float offsets may be negative. Attached captions are Floats without their own Flow
+node; attachment placement takes precedence. Floats repel main paragraphs only.
+
+Segment scope includes Flow blocks, their objects, anchored Floats, and attached
+captions. A segment delivery may generate or replace these complete compositions;
+its Flow node/object references must be internal and one-to-one. Main-text tasks
+accept paragraphs only and cannot cross Flow blocks. A single-object revision
+retains the current target placement, centered state, geometry, and attachment
+when projected or accepted; it does not replace main nodes. A new single-object
+placeholder may remain Float. Indexing reads both placements from the same full
+native document and remains subject to the source’s current Private policy.
+
 ## Private task API
 
 Existing authenticated `/api/ai/tasks` routes retain their exact-Origin check.
