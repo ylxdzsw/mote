@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { isText, type FloatingObject, type FloatingText, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type CaptionPosition, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
@@ -44,11 +44,25 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
-  const hasFlow = text || ['image', 'table', 'katex', 'html', 'code', 'drawing'].includes(object.kind!)
+  const placementId = useId()
   const name = kindName(object)
   return <div className="context-inspector floating-inspector">
     <ContextHeading title={count > 1 ? `${count} objects` : name} subtitle={count > 1 ? 'Multiple selection' : attached ? 'Attached caption' : object.placement === 'flow' ? 'Flow object' : 'Float object'} />
     {count === 1 && <>
+      <InspectorGroup title="Placement">
+        {attached ? <p className="hint">Placement follows the caption’s object. Detach to choose Flow or Float independently.</p> : <>
+          <div className="placement-options" role="radiogroup" aria-label="Object placement" aria-describedby={`${placementId}-hint`}>
+            {(['flow', 'float'] as const).map(placement => <label key={placement}>
+              <input type="radio" name={placementId} value={placement} checked={object.placement === placement}
+                onChange={() => onPlacement(placement)} />
+              <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
+            </label>)}
+          </div>
+          <p className="hint" id={`${placementId}-hint`}>{object.placement === 'flow'
+            ? 'In the document flow, between text blocks.'
+            : 'Position freely; main text stays to its left.'}</p>
+        </>}
+      </InspectorGroup>
       {object.kind === 'drawing' && <InspectorGroup title="Content">
         <button onClick={onDrawingEdit}>Edit drawing…</button>
         <p className="hint">Sketch freely, then ask Assistant to turn it into a figure.</p>
@@ -89,7 +103,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         </InspectorRow>}
       </InspectorGroup>}
       {katex && <KaTeXControls value={katex} onChange={onChange} onTheme={onTheme} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
-      {hasFlow && <InspectorGroup title="Layout">
+      {!attached && (object.placement === 'flow' || ['drawing', 'code', 'html'].includes(object.kind ?? 'text')) && <InspectorGroup title="Layout">
         {object.kind === 'drawing' && <InspectorRow>
           <InspectorField label="Width"><NumberField label="Drawing width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
           <InspectorField label="Height"><NumberField label="Drawing height" value={object.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
@@ -99,14 +113,9 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           <InspectorField label="Width"><NumberField label="Widget width" value={widget.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>
           <InspectorField label="Height"><NumberField label="Widget height" value={widget.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
         </InspectorRow>}
-        {!attached && <>
-          <label className="inspector-field">Placement<select aria-label="Object placement" value={object.placement} onChange={event => onPlacement(event.target.value as 'flow' | 'float')}><option value="flow">Flow</option><option value="float">Float</option></select></label>
-          {object.placement === 'flow' && <>
-            {!['drawing', 'code', 'html'].includes(object.kind ?? 'text') && <InspectorField label="Width"><NumberField label="Object width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>}
-            <button aria-pressed={!!object.centered} onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>
-            <p className="hint">Drag sideways to position; snap to the center. Drag up or down to move between document blocks.</p>
-          </>}
-          {object.placement === 'float' && <p className="hint">Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.</p>}
+        {object.placement === 'flow' && <>
+          {!['drawing', 'code', 'html'].includes(object.kind ?? 'text') && <InspectorField label="Width"><NumberField label="Object width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>}
+          <button aria-pressed={!!object.centered} onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>
         </>}
       </InspectorGroup>}
       {!widget && !katex && object.kind !== 'code' && <InspectorGroup title={text || object.kind === 'table' ? 'Typography' : 'Colors'}>
@@ -129,6 +138,9 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     </InspectorGroup>
     <InspectorHelp key={count > 1 ? 'group' : object.kind ?? 'text'}>
       <FloatingHelp object={object} count={count} />
+      {count === 1 && !attached && <p>{object.placement === 'flow'
+        ? 'Drag sideways to position; snap to the center. Drag up or down to move between document blocks.'
+        : 'Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.'}</p>}
       <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Attached captions travel with their targets. While editing text, these shortcuts act on text instead.</p>
       <p>Delete/Backspace removes a focused object. Undo restores it.</p>
     </InspectorHelp>

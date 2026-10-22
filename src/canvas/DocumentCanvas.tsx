@@ -246,7 +246,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const target = segments.target(geometry[object.id].y)
     const next = convertObjectPlacement(doc, object.id, mode, { anchors, geometry, index: target.point.index,
       textLeft: doc.margins.left, textWidth: pageWidth() - doc.margins.left - doc.margins.right })
-    if (commitDocument(next)) { segments.clear(); focusObject(object.id) }
+    if (commitDocument(next)) segments.clear()
   }
   function focusObject(id: string, text = false) {
     requestAnimationFrame(() => sheet.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]${text ? ' :is(.tiptap, [data-code-source])' : ''}`)?.focus({ preventScroll: true }))
