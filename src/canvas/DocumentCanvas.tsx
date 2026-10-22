@@ -736,7 +736,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
-    onWheelCapture={interact} onDropCapture={interact}
+    onDropCapture={interact}
     style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
