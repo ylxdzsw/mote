@@ -10,6 +10,7 @@ import { CaptionBehavior, TableParagraph, tableExtensions } from './table'
 import { Spaces } from './spaces'
 import { ParagraphBehavior } from './paragraphBehavior'
 import { inlineMarks } from './inline'
+import { DocumentTail } from './documentTail'
 
 const SemanticParagraph = Paragraph.extend({
   addAttributes() {
@@ -144,7 +145,7 @@ export function extensions(spatial: boolean, table = false, caption = false) {
     caption ? Document.extend({ content: 'paragraph' }) : table ? Document.extend({ content: 'table' }) : Document,
     caption ? CaptionParagraph : table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
     UniqueID.configure({ types: spatial && !caption ? ['paragraph', 'spacer', 'flow'] : ['paragraph'] }),
-    ...(spatial && !caption ? [Spacer, Flow, Spaces] : []),
+    ...(spatial && !caption ? [Spacer, Flow, Spaces, DocumentTail] : []),
     ...(caption ? [CaptionMode, CaptionBehavior] : table ? tableExtensions : [ParagraphBehavior]),
   ]
 }

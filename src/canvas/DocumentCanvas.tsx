@@ -15,6 +15,7 @@ import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
 import { useScrollFloor } from './useScrollFloor'
 import { useParagraphInsertion } from './useParagraphInsertion'
+import { useDocumentTail } from './useDocumentTail'
 import { useImagePlacement } from './useImagePlacement'
 import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
@@ -119,6 +120,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     onStart: () => { cancel(); select([]); setActiveSegmentId(null); onActive(mainEditor); onToolChange(null) } })
   const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
+  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.theme, () => { select([]); onActive(mainEditor) })
   const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage, sheet, editor: mainEditor,
     insertion: () => { const selection = segments.selection(); return selection ? { x: doc.margins.left, y: selection.area.y } : undefined },
     onStart: () => { cancel(); segments.clear(); setActiveSegmentId(null); select([]); onActive(null); onToolChange(null) },
@@ -346,6 +348,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
+    if (tail.begin(event)) { segments.clear(); setActiveSegmentId(null); return }
     if (tool === 'paragraph') { paragraphs.insert(event); return }
     if (segments.begin(event)) return
     segments.clear()
@@ -819,6 +822,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
         </div>
+        {tail.hint !== null && <div className="document-tail-hint" aria-hidden="true" style={{ top: tail.hint, left: doc.margins.left }}>Continue writing…</div>}
         {editable && spaces.hint && <div className={`space-hint ${spaces.hint.dragging ? 'is-dragging' : ''}`} aria-hidden="true"
           style={{ top: spaces.hint.top + (spaces.hint.dragging ? spaces.hint.height : 0) }}>
           {spaces.hint.dragging ? spaces.hint.height < spaceRemovalThreshold ? 'Release to remove' : `${Math.round(spaces.hint.height)}px` : !spaces.hint.existing ? '↕' : null}

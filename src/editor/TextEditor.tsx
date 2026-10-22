@@ -12,6 +12,7 @@ import { reservationExtension } from './reservations'
 import type { AIReview } from '../ai/ReviewControls'
 import { paragraphClipboard } from './paragraphClipboard'
 import type { MoteDocument, PaletteEntry } from '../document/model'
+import { atDocumentTail } from './documentTail'
 
 interface Props {
   content: JSONContent
@@ -34,6 +35,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const palette = useRef(new Set<string>())
   palette.current = new Set(paletteSwatches(history.doc!.theme).map(swatch => swatch.value))
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
+  const tailComposition = useRef<number | undefined>(undefined)
   const syncing = useRef(false)
   const syncedRevision = useRef(-1)
   const review = useRef(aiReview)
@@ -67,7 +69,11 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         event.preventDefault()
         return true
       },
-      handleDOMEvents: { pointerdown: (_view, event) => {
+      handleDOMEvents: { compositionstart: view => {
+        // GapCursor creates its inline context before the first composition-tagged transaction.
+        tailComposition.current = spatial && atDocumentTail(view.state) ? Date.now() : undefined
+        return false
+      }, pointerdown: (_view, event) => {
         const space = (event.target as HTMLElement).closest('[data-spacer]')
         if (!editable || event.button !== 0 || !space) return false
         event.preventDefault()
@@ -88,11 +94,12 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
     onUpdate: ({ editor, transaction }) => {
       const pastedPalette = transaction.getMeta('paragraphPalette') as PaletteEntry[] | undefined
       const pastedDocument = transaction.getMeta('paragraphDocument') as MoteDocument | undefined
+      const composition = transaction.getMeta('composition') as number | undefined
       const typing = !transaction.getMeta('historyBoundary') && !transaction.getMeta('paste') && transaction.steps.length === 1
         && transaction.steps[0] instanceof ReplaceStep && transaction.steps[0].slice.content.childCount <= 1
         && (!transaction.steps[0].slice.content.firstChild || transaction.steps[0].slice.content.firstChild.isText)
       history.edit({ editorId: historyId, before: before.current,
-        composition: transaction.getMeta('composition'),
+        composition: editor.view.composing || composition !== undefined ? tailComposition.current ?? composition : undefined,
         group: pastedPalette ? crypto.randomUUID() : typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
       () => {
         if (pastedDocument) history.setDoc({ ...pastedDocument, content: editor.getJSON() })
