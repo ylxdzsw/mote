@@ -134,6 +134,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   })
   function selectAISegment(id: string) {
     segments.clear(); select([]); onActive(null); setActiveSegmentId(id)
+    aiReview?.open(id)
   }
   function segmentTask(id: string) {
     const owner = projection.owners.get(id)
@@ -672,7 +673,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
   function interact(event: React.SyntheticEvent) {
     // Zoom controls are portaled into the header, outside the document surface.
-    if (event.currentTarget.contains(event.target as Node)) onInteraction?.(event)
+    if (!editable || !event.currentTarget.contains(event.target as Node)) return
+    const target = event.target as HTMLElement
+    const reservation = target.closest<HTMLElement>('[data-ai-reservation], [data-ai-segment-owner], [data-ai-segment], [data-ai-controls], [data-ai-preview]')
+    const taskId = reservation?.dataset.aiReservation ?? reservation?.dataset.aiSegmentOwner ?? reservation?.dataset.aiSegment ?? reservation?.dataset.aiControls ?? reservation?.dataset.aiPreview
+    const objectId = target.closest<HTMLElement>('[data-note-id]')?.dataset.noteId
+    const task = aiReview?.tasks.find(task => task.id === taskId || task.target.kind === 'object' && task.target.objectId === objectId || task.target.kind === 'segment' && !!objectId && task.target.objectIds.includes(objectId))
+    if (task) aiReview?.open(task.id)
+    else onInteraction?.(event)
   }
 
   function handleContextMenu(event: React.MouseEvent) {

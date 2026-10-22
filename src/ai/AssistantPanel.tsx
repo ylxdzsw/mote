@@ -97,26 +97,22 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}${external ? ' ai-task-external' : ''}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} role="tabpanel" aria-labelledby={`ai-tab-${task.id}`} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
-        <ContextHeading title={taskTitle(task)} subtitle={task.target.kind === 'text' ? 'Text revision' : task.target.kind === 'segment' ? 'Section composition' : task.target.isNew ? 'Reserved area' : 'Object revision'} />
-        <div className="ai-scope"><PanelIcon name="anchor" /><span>{targetLabel(task)}<small>Full document context</small></span><button aria-label="Show in document" title="Show in document" disabled={!!inactive} onClick={onLocate}><PanelIcon name="arrow" /></button></div>
+        <div className="ai-task-title"><ContextHeading title={taskTitle(task)} /><button aria-label="Show in document" title="Show in document" disabled={!!inactive} onClick={onLocate}><PanelIcon name="arrow" /></button></div>
         <div className={`ai-status ${status}`} role="status"><span aria-hidden="true">{busy ? '◌' : task.status === 'ready' ? '✓' : task.status === 'error' ? '!' : '○'}</span>{inactive ? task.acceptance ? 'Applied locally · result retained' : 'Recovery only' : assistant.offline && (busy || task.status === 'waiting') ? 'Pending · offline' : external && status === 'waiting' ? 'Awaiting submission' : statusLabel[status]}</div>
-        <details className="ai-agent-settings" open={executorBusy || !!task.pendingWorkspaceRead || undefined}>
-          <summary>Agent &amp; access <span>{external ? 'External' : 'Built-in'}{task.workspaceRead ? ' · Workspace' : ''}</span></summary>
         <div className="ai-executor">
           <span className="ai-executor-label" id={`ai-executor-label-${task.id}`}>Agent</span>
           <div className="ai-executor-switch" role="group" aria-labelledby={`ai-executor-label-${task.id}`}>
-            <button type="button" aria-label="Use built-in agent" aria-pressed={executor === 'builtin'} disabled={executorBusy || workspaceReadBlocked || !!inactive}
+            <button type="button" aria-label="Use built-in agent" title="Work with Mote’s built-in agent using the full document snapshot." aria-pressed={executor === 'builtin'} disabled={executorBusy || workspaceReadBlocked || !!inactive}
               onClick={() => switchExecutor('builtin')}>Built-in</button>
-            <button type="button" aria-label="Use external agent" aria-pressed={executor === 'external'} disabled={executorBusy || workspaceReadBlocked || !!inactive || assistant.externalBlocked}
+            <button type="button" aria-label="Use external agent" title="Grant an external agent link access to the full document snapshot and candidate submission." aria-pressed={executor === 'external'} disabled={executorBusy || workspaceReadBlocked || !!inactive || assistant.externalBlocked}
               onClick={() => switchExecutor('external')}>External</button>
           </div>
-          {!external && <WorkspaceReadControl task={task} assistant={assistant} />}
+          <WorkspaceReadControl task={task} assistant={assistant} external={external} />
           {assistant.externalBlocked && <p className="ai-external-unavailable" role="status">{assistant.privateDocument ? 'External handoff is unavailable while this document is private.' : 'External handoff is paused until the privacy change is confirmed.'}</p>}
           {executorBusy && <p className="ai-executor-state" role="status">{task.pendingExecutor?.executor === 'external' ? 'Confirming external access…' : task.pendingExecutor?.executor === 'builtin' ? 'Confirming built-in agent…' : external ? 'Confirming agent access…' : 'Confirming agent change…'}</p>}
           {task.pendingExecutor && <button type="button" className="ai-executor-retry" disabled={retryingExecutor || assistant.executorWorking(task) || assistant.externalBlocked && task.pendingExecutor.executor === 'external'}
             aria-label="Retry agent switch confirmation" onClick={() => void retryExecutor()}>{retryingExecutor ? 'Retrying confirmation…' : 'Retry confirmation'}</button>}
         </div>
-        </details>
       </div>
       {inactive && <p className="ai-note" role="status">{inactive}</p>}
       {task.submitted && !external && task.status !== 'waiting' && <div className={`ai-activity${expanded ? '' : ' is-collapsed'}`}>
@@ -163,7 +159,6 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       </div>
       {assistant.privateDocument ? <p className="ai-external-unavailable" role="status">External handoff and its access link are disabled while this document is private.</p>
         : !agentLink && !executorBusy && <p className="ai-external-unavailable" role="status">Agent access link is unavailable.</p>}
-      {!assistant.privateDocument && <WorkspaceReadControl task={task} assistant={assistant} external />}
       {copyNotice && <p className="ai-copy-notice" role="status" aria-live="polite">{copyNotice}</p>}
       <p className="ai-privacy">This link gives the external agent access to the full immutable document snapshot, not only the reserved area. Access lasts until you switch back or release this task. Downloaded copies cannot be recalled. Only the returned candidate is limited to the reserved area for your review.</p>
     </div> : inactive ? <div className="ai-composer ai-actions">
@@ -198,10 +193,10 @@ function WorkspaceReadControl({ task, assistant, external = false }: { task: AIT
     ? 'Grant this external agent scoped access to non-Private workspace documents. Private sources stay unavailable. Turning this off blocks future reads but cannot recall fetched content.'
     : 'Let this built-in agent search and read non-Private workspace documents. Private sources remain limited to their own built-in agent. Turning this off blocks future reads but cannot erase context already fetched.'
   return <div className="ai-workspace-read">
-    {state.known && !state.pending && !executorChanging ? <label className="ai-workspace-read-toggle">
-      <input type="checkbox" checked={state.enabled} disabled={disabled || blocked}
+    {state.known && !state.pending && !executorChanging ? <label className="ai-workspace-read-toggle" title={description}>
+      <input type="checkbox" checked={state.enabled} disabled={disabled || blocked} aria-description={description}
         onChange={event => { void assistant.setWorkspaceRead(task.id, event.target.checked) }} />
-      <span><strong>{label}</strong><small>{description}</small></span>
+      <span>{label}</span>
     </label> : <div className="ai-workspace-read-current">
       <strong>{label}</strong>
       <p role="status">{state.pending ? `Confirming ${state.pending.enabled ? 'enabled' : 'disabled'} workspace reads. The change is not yet confirmed.`
@@ -226,24 +221,8 @@ function downloadRecovery(value: unknown, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-function JsonRecovery({ label, value }: { label: string; value: unknown }) {
-  const [expanded, setExpanded] = useState(false)
-  return <details onToggle={event => setExpanded(event.currentTarget.open)}><summary>{label}</summary>
-    {expanded && <textarea aria-label={label} readOnly value={JSON.stringify(value, null, 2)} rows={8} />}
-  </details>
-}
-
 function RecoveryDetails({ task }: { task: AITask }) {
-  return <details className="ai-recovery-details"><summary>Request, original & result</summary>
-    <p className="ai-progress">{task.prompt || task.draftPrompt || 'No request sent.'}</p>
-    {task.prompt && task.draftPrompt && <p className="ai-progress">Unsent: {task.draftPrompt}</p>}
-    <p className="ai-note">Document: {task.documentId}{task.baseRevision ? ` · Revision: ${task.baseRevision}` : ''}</p>
-    <JsonRecovery label="Original target (read-only)" value={task.original} />
-    {task.snapshotDocument && <JsonRecovery label="Original full snapshot (read-only)" value={task.snapshotDocument} />}
-    {task.candidate && <JsonRecovery label="Candidate result (read-only)" value={task.candidate} />}
-    {task.acceptance && <JsonRecovery label="Locally accepted document (read-only)" value={task.acceptance.document} />}
-    <button type="button" onClick={() => downloadRecovery(task, `mote-ai-${task.id}.json`)}>Save recovery JSON</button>
-  </details>
+  return <div className="ai-recovery-details"><button type="button" className="ai-quiet" title="Download the request, original snapshot, and result as JSON." onClick={() => downloadRecovery(task, `mote-ai-${task.id}.json`)}>Download task JSON</button></div>
 }
 
 function CloudStatus({ assistant }: { assistant: Assistant }) {

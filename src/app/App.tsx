@@ -145,10 +145,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }, [editable])
 
   useEffect(() => {
-    if (!settingsOpen && !assistant.open) return
+    if (!settingsOpen) return
     actions.current?.clearSelection()
     setActiveEditor(null)
-  }, [settingsOpen, assistant.open])
+  }, [settingsOpen])
 
   function showContext(_event?: React.SyntheticEvent) {
     if (!editable || !settingsOpen && !assistant.open) return
@@ -595,7 +595,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
           toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: assistant.openTask, deleteTarget: assistant.deleteTarget }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
-        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => { if (ids.length) showContext(); setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor) }}
+        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => {
+          const task = assistant.tasks.find(task => task.target.kind === 'object' ? ids.includes(task.target.objectId) : task.target.kind === 'segment' && task.target.objectIds.some(id => ids.includes(id)))
+          if (task) assistant.openTask(task.id)
+          else if (ids.length) showContext()
+          setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor)
+        }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={setMainEditor} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()))}
