@@ -9,9 +9,12 @@
 .sheet.is-editing .floating-drawing.is-selected { outline: 1px solid var(--ui-accent-border); }
 .floating-drawing .drawing-edit-button { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 38px; height: 38px; padding: 0; margin: 0; border: 1px solid var(--ui-border); border-radius: 50%; color: var(--ui-ink); background: var(--ui-surface-raised); box-shadow: 0 2px 8px var(--ui-shadow); cursor: pointer; }
 .sheet.show-floating-grid, .sheet.is-editing:has(.table-column-divider.is-dragging) { background-image: radial-gradient(circle, color-mix(in srgb, var(--ui-grid) 40%, transparent) .8px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; background-origin: padding-box; }
-.sheet.has-creation-tool { cursor: crosshair; }
-.sheet.has-creation-tool .main-text { cursor: crosshair; }
-.sheet.has-creation-tool [data-spacer] { cursor: crosshair; }
+/* While a creation tool is armed, every page target performs insertion. */
+.sheet.has-creation-tool, .sheet.has-creation-tool *, .sheet-footprint:has(> .sheet.has-creation-tool) .segment-gutter { cursor: crosshair !important; }
+.sheet.has-creation-tool iframe { pointer-events: none; }
+.object-insertion-preview { position: absolute; top: 0; left: 0; border: 1px solid transparent; transform-origin: top left; pointer-events: none; z-index: 2; }
+.object-insertion-preview .floating-note { opacity: .6; outline: 1px dashed var(--ui-accent-border); outline-offset: 0; background-color: var(--ui-accent-tint); }
+.object-insertion-preview :is(.floating-border-right, .object-handle) { display: none; }
 .sheet.has-image-placement, .sheet.has-image-placement * { cursor: crosshair !important; }
 .sheet.has-image-placement iframe { pointer-events: none; }
 .image-placement { position: absolute; border: 1px solid var(--ui-accent-border); border-radius: 3px; opacity: .65; pointer-events: none; z-index: 10002; }

@@ -38,6 +38,7 @@ import { AssistantPanel } from '../ai/AssistantPanel'
 import type { Area, AITask } from '../ai/types'
 import { paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
+import type { SegmentRange } from '../document/segment'
 import { uiThemeVariables } from '../theme/ui'
 import { Launchpad } from './Launchpad'
 import { DocumentNotes } from './DocumentNotes'
@@ -401,6 +402,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     const next = { ...doc, floating: [...doc.floating, object] }
     setDoc(next); assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next)
   }
+  function createAISegment(range: SegmentRange, area: Area) {
+    if (!doc) return
+    return assistant.reserve(makeSegmentTarget(doc, range, area))?.id
+  }
   function locateTask(task: AITask) {
     setTool(null)
     if (task.target.kind === 'segment') { actions.current?.locateSegment(task.id); return }
@@ -595,7 +600,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   onRevise={() => { setTool(null); reserveSelection() }} />
                 : tool ? <div className="context-inspector">
-                    <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle="Click or drag to place on the document." />
+                    <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click or drag to place on the document.' : `Click or drag to place on the page. Click the left gutter to ${tool === 'ai' ? 'reserve an AI section' : 'insert as Flow'}.`} />
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                   </div>
                 : activeEditor ? <TextInspector theme={doc.theme} semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
@@ -607,7 +612,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onInteraction={showContext} onCaptionSelection={setSelectedCaptionId}
-        lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}
+        lockedIds={assistant.lockedIds} onAICreate={createAIArea} onAISegmentCreate={createAISegment} onDeleteObjects={assistant.deleteObjects}
         aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
           toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: assistant.openTask, deleteTarget: assistant.deleteTarget }}
