@@ -1,7 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 import { objectPagePosition, placementAtPoint, reconcileFlowContent, type FlowGeometryOptions } from './flow'
-import { defaultHue } from '../theme/colors'
+import { defaultHue, defaultSecondaryHue } from '../theme/colors'
 import exampleMath from './examples/math.tex?raw'
 import attentionHTML from './examples/attention.html?raw'
 import attentionScreenshot from './examples/attention.png?inline'
@@ -26,49 +26,36 @@ export interface BlockStyle {
   letterSpacing: ThemeLength
 }
 
-export interface PaletteEntry {
-  id: string
-  name: string
-  strong: string
-  soft?: string
-}
-
 export const boxDecorations = {
-  info: { id: 'info', name: 'Info', strong: '#2874b8', soft: '#eaf3fc' },
-  warning: { id: 'warning', name: 'Warning', strong: '#c99716', soft: '#fff5cc' },
-} satisfies Record<string, PaletteEntry>
+  info: { name: 'Info', color: 'blue' },
+  warning: { name: 'Warning', color: 'amber' },
+}
 export type BoxDecoration = { kind: keyof typeof boxDecorations; color: string }
 
 export interface Theme {
+  mode: 'light' | 'dark'
   hue: number
+  secondaryHue: number
   autospace?: boolean
-  defaults: Omit<BlockStyle, 'size'> & { size: number; background: string }
+  defaults: Omit<BlockStyle, 'size'> & { size: number }
   blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
-  palette: PaletteEntry[]
 }
 
 export const defaultTheme: Theme = {
+  mode: 'light',
   hue: defaultHue,
-  defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
+  secondaryHue: defaultSecondaryHue,
+  defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
-    title: { size: '3em', color: 'ink', family: 'serif', lineHeight: '3.5em' },
-    heading: { size: '1.5em', color: 'ink', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
+    title: { size: '3em', color: 'gray2', family: 'serif', lineHeight: '3.5em' },
+    heading: { size: '1.5em', color: 'gray2', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
     body: { size: '1em' },
     table: { size: '1em' },
     math: {},
-    caption: { size: '0.75em', color: 'muted', lineHeight: '1.25em' },
+    caption: { size: '0.75em', color: 'gray3', lineHeight: '1.25em' },
     code: { size: '0.875em', family: 'mono', lineHeight: '1.375em' },
     list: { size: '1em', spaceAfter: '0.375em' },
   },
-  palette: [
-    { id: 'ink', name: 'Ink', strong: '#303830' },
-    { id: 'muted', name: 'Muted', strong: '#687166' },
-    { id: 'paper', name: 'Paper', strong: '#fffefa' },
-    { id: 'detail', name: 'Detail', strong: '#425f87', soft: '#e8eef7' },
-    { id: 'term', name: 'Term', strong: '#875a35', soft: '#f6edde' },
-    { id: 'caution', name: 'Caution', strong: '#984b38', soft: '#fae9e1' },
-    ...Object.values(boxDecorations),
-  ],
 }
 
 interface FloatingGeometry {
@@ -113,7 +100,7 @@ export interface FloatingDrawing extends FloatingGeometry {
   height: number
   strokes: Array<{ points: [number, number][]; color: string; width: number }>
   labels: Array<{ x: number; y: number; text: string; color: string; size: number }>
-  background: 'paper' | null
+  background: 'gray6' | null
 }
 
 export interface FloatingKaTeX extends FloatingGeometry {
@@ -216,7 +203,7 @@ export function createDocument(): MoteDocument {
   const imageObject = floating.find(object => object.id === image.attrs!.objectId)!
   if (supportsCaption(imageObject)) imageObject.caption = { content: captionContent('A path worth following. This caption stays with the image, and the next paragraph follows both.') }
   floating.push({ ...base(210), placement: 'float', kind: 'text', anchorId: image.attrs!.id, x: 400, y: 36,
-    padding: '0.75em', background: 'paper', borderColor: 'primary',
+    padding: '0.75em', background: 'gray6', borderColor: 'primary',
     content: { type: 'doc', content: [paragraph('A thought on the landscape', 'caption'), paragraph('Move the image: this note follows in both directions.', 'caption')] } })
   const alongside = paragraph('Some thoughts belong beside the main thread. A Float can sit anywhere on the page while the main text uses the space to its left. It can also overlap a figure or another Float. The figure itself keeps its own place in the document.')
   floating.push({ ...base(260), placement: 'float', centered: false, anchorId: alongside.attrs!.id, x: 628, y: 8,
@@ -231,9 +218,9 @@ export function createDocument(): MoteDocument {
   const drawing = flow({ ...base(640), kind: 'drawing', height: 220, background: null,
     strokes: [
       { color: 'primary', width: 3, points: [[44, 155], [63, 126], [89, 145], [119, 98], [147, 116], [177, 65], [207, 92], [242, 48], [270, 74]] },
-      { color: 'detail', width: 3, points: [[340, 125], [366, 102], [396, 108], [424, 72], [457, 86], [485, 52], [521, 63], [557, 36]] },
-      { color: 'muted', width: 2, points: [[295, 102], [324, 102], [316, 94], [324, 102], [316, 110]] },
-    ], labels: [{ x: 48, y: 190, text: 'Sketch the thought', color: 'ink', size: 18 }, { x: 356, y: 190, text: 'Refine it with Assistant', color: 'ink', size: 18 }] })
+      { color: 'secondary', width: 3, points: [[340, 125], [366, 102], [396, 108], [424, 72], [457, 86], [485, 52], [521, 63], [557, 36]] },
+      { color: 'gray3', width: 2, points: [[295, 102], [324, 102], [316, 94], [324, 102], [316, 110]] },
+    ], labels: [{ x: 48, y: 190, text: 'Sketch the thought', color: 'gray2', size: 18 }, { x: 356, y: 190, text: 'Refine it with Assistant', color: 'gray2', size: 18 }] })
   const formula = flow({ ...base(800), kind: 'katex', latex: exampleMath.trim() })
   const code = flow({ ...base(760), kind: 'code', language: 'javascript', scheme: 'light',
     source: '// Give each thought a place.\nconst workspace = {\n  write: "Follow the thread",\n  flow: "Make room for a figure",\n  float: "Keep a question nearby",\n}\nconsole.log(workspace.flow)' })
@@ -252,7 +239,7 @@ export function createDocument(): MoteDocument {
         { type: 'text', text: 'Write naturally. Give a figure its own place in the ' },
         { type: 'text', text: 'Flow', marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'primary' } }] },
         { type: 'text', text: ', or let a thought ' },
-        { type: 'text', text: 'Float', marks: [{ type: 'color', attrs: { color: 'detail' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] },
+        { type: 'text', text: 'Float', marks: [{ type: 'color', attrs: { color: 'secondary' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] },
         { type: 'text', text: ' beside it. Leave ' },
         { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'primary' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
         { type: 'text', text: ' for what comes next.' },

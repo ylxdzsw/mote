@@ -74,16 +74,19 @@ function themeStyle(value: unknown, path: string): void {
   for (const property of ['size', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
     if (property in style) themeLength(style[property], `${path}.${property}`)
   }
-  for (const property of ['color', 'background']) if (property in style) text(style[property], `${path}.${property}`)
+  if ('background' in style) invalid(`${path}.background is unsupported`)
+  if ('color' in style) text(style.color, `${path}.color`)
   if ('weight' in style) finite(style.weight, `${path}.weight`)
 }
 
 function checkTheme(value: unknown): void {
   const theme = record(value, 'theme')
-  if (finite(theme.hue, 'theme.hue', 0) >= 360) invalid('theme.hue must be less than 360')
+  if (!['light', 'dark'].includes(theme.mode as string)) invalid('theme.mode must be light or dark')
+  for (const name of ['hue', 'secondaryHue']) if (finite(theme[name], `theme.${name}`, 0) >= 360) invalid(`theme.${name} must be less than 360`)
+  if ('palette' in theme) invalid('theme.palette is unsupported')
   if ('autospace' in theme && typeof theme.autospace !== 'boolean') invalid('theme.autospace must be a boolean')
   const defaults = record(theme.defaults, 'theme.defaults')
-  for (const property of ['family', 'size', 'color', 'background', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
+  for (const property of ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
     if (!(property in defaults)) invalid(`theme.defaults.${property} is missing`)
   }
   themeStyle(defaults, 'theme.defaults')
@@ -94,7 +97,6 @@ function checkTheme(value: unknown): void {
     if (name === 'math' && (!blocks || !(name in blocks))) continue
     themeStyle(record(blocks?.[name], `theme.blocks.${name}`), `theme.blocks.${name}`)
   }
-  if (!Array.isArray(theme.palette)) invalid('theme.palette must be an array')
 }
 
 function inspectContent(value: unknown, path: string, allowFlow = false): void {
@@ -247,7 +249,7 @@ function checkFloating(value: unknown, index: number, ids: Set<string>, captionI
   if (kind === 'drawing') {
     finite(object.width, `${path}.width`, Number.MIN_VALUE)
     finite(object.height, `${path}.height`, Number.MIN_VALUE)
-    if (object.background !== null && object.background !== 'paper') invalid(`${path}.background must be paper or null`)
+    if (object.background !== null && object.background !== 'gray6') invalid(`${path}.background must be gray6 or null`)
     if (!Array.isArray(object.strokes) || object.strokes.length > 10000) invalid(`${path}.strokes must contain at most 10000 strokes`)
     let points = 0
     for (const [index, value] of object.strokes.entries()) {

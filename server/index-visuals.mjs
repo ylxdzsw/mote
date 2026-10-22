@@ -1,6 +1,7 @@
 import { constants as fsConstants, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { paletteEntries } from '../shared/palette.mjs'
 
 const MAX_DOCUMENT_BYTES = 128 * 1024 * 1024
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -36,42 +37,19 @@ function embeddedImage(value) {
   return { extension, bytes }
 }
 
-// The helper is copied into isolated index tasks: keep it dependency-free.
-function primaryColor(hue, soft) {
-  const lightness = soft ? .95 : .43, chroma = soft ? .025 : .09, angle = hue * Math.PI / 180
-  const rgb = c => {
-    const a = c * Math.cos(angle), b = c * Math.sin(angle)
-    const l = (lightness + .3963377774 * a + .2158037573 * b) ** 3
-    const m = (lightness - .1055613458 * a - .0638541728 * b) ** 3
-    const s = (lightness - .0894841775 * a - 1.291485548 * b) ** 3
-    return [4.0767416621 * l - 3.3077115913 * m + .2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - .3413193965 * s, -.0041960863 * l - .7034186147 * m + 1.707614701 * s]
-  }
-  let low = 0, high = chroma
-  const inGamut = values => values.every(value => value >= 0 && value <= 1)
-  if (inGamut(rgb(chroma))) low = chroma
-  else for (let i = 0; i < 16; i++) { const mid = (low + high) / 2; if (inGamut(rgb(mid))) low = mid; else high = mid }
-  return `#${rgb(low).map(value => Math.round(Math.max(0, Math.min(1, value <= .0031308 ? 12.92 * value : 1.055 * value ** (1 / 2.4) - .055)) * 255).toString(16).padStart(2, '0')).join('')}`
-}
-
 function drawingImage(object, theme) {
   const number = value => typeof value === 'number' && Number.isFinite(value)
   const positive = value => number(value) && value > 0
-  if (!positive(object.width) || !positive(object.height) || ![null, 'paper'].includes(object.background)
+  if (!positive(object.width) || !positive(object.height) || ![null, 'gray6'].includes(object.background)
     || !Array.isArray(object.strokes) || object.strokes.length > 10000 || !Array.isArray(object.labels) || object.labels.length > 1000) return
   const colors = new Map()
-  for (const entry of theme?.palette ?? []) {
+  for (const entry of paletteEntries(theme)) {
     if (/^#[0-9a-f]{6}$/i.test(entry?.strong)) colors.set(entry.id, entry.strong)
     if (/^#[0-9a-f]{6}$/i.test(entry?.soft)) colors.set(`${entry.id}:soft`, entry.soft)
   }
-  if (number(theme?.hue) && theme.hue >= 0 && theme.hue < 360) {
-    colors.set('primary', primaryColor(theme.hue, false)); colors.set('primary:soft', primaryColor(theme.hue, true))
-  }
   const escape = value => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character])
   const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${object.width}" height="${object.height}" viewBox="0 0 ${object.width} ${object.height}">`]
-  if (object.background === 'paper') {
-    if (!colors.has('paper')) return
-    parts.push(`<rect width="100%" height="100%" fill="${colors.get('paper')}"/>`)
-  }
+  if (object.background === 'gray6') parts.push(`<rect width="100%" height="100%" fill="${colors.get('gray6')}"/>`)
   let points = 0
   for (const stroke of object.strokes) {
     if (!stroke || !positive(stroke.width) || !colors.has(stroke.color) || !Array.isArray(stroke.points) || !stroke.points.length

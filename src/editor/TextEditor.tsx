@@ -4,14 +4,14 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import { Selection, TextSelection } from '@tiptap/pm/state'
 import { ReplaceStep } from '@tiptap/pm/transform'
 import { Fragment, Slice, type Node as ProseMirrorNode } from '@tiptap/pm/model'
-import { paletteSwatches } from '../theme/palette'
+import { validPaletteReference } from '../../shared/palette.mjs'
 import { extensions } from './extensions'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
 import { reservationExtension } from './reservations'
 import type { AIReview } from '../ai/ReviewControls'
 import { paragraphClipboard } from './paragraphClipboard'
-import type { MoteDocument, PaletteEntry } from '../document/model'
+import type { MoteDocument } from '../document/model'
 import { atDocumentTail } from './documentTail'
 
 interface Props {
@@ -32,8 +32,6 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const history = useHistory()
   const clipboardHistory = useRef(history)
   clipboardHistory.current = history
-  const palette = useRef(new Set<string>())
-  palette.current = new Set(paletteSwatches(history.doc!.theme).map(swatch => swatch.value))
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
   const tailComposition = useRef<number | undefined>(undefined)
   const syncing = useRef(false)
@@ -55,7 +53,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
           const children: ProseMirrorNode[] = []
           node.forEach(child => children.push(clean(child)))
           return (node.isLeaf ? node : node.copy(Fragment.from(children)))
-            .mark(node.marks.filter(mark => mark.type.name !== 'color' || palette.current.has(mark.attrs.color)))
+            .mark(node.marks.filter(mark => mark.type.name !== 'color' || validPaletteReference(mark.attrs.color)))
         }
         const nodes: ProseMirrorNode[] = []
         // Composed Mote clipboard data is handled by the canvas segment path.
@@ -92,7 +90,6 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
       onActive(editor)
     },
     onUpdate: ({ editor, transaction }) => {
-      const pastedPalette = transaction.getMeta('paragraphPalette') as PaletteEntry[] | undefined
       const pastedDocument = transaction.getMeta('paragraphDocument') as MoteDocument | undefined
       const composition = transaction.getMeta('composition') as number | undefined
       const typing = !transaction.getMeta('historyBoundary') && !transaction.getMeta('paste') && transaction.steps.length === 1
@@ -100,11 +97,10 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         && (!transaction.steps[0].slice.content.firstChild || transaction.steps[0].slice.content.firstChild.isText)
       history.edit({ editorId: historyId, before: before.current,
         composition: editor.view.composing || composition !== undefined ? tailComposition.current ?? composition : undefined,
-        group: pastedPalette ? crypto.randomUUID() : typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
+        group: typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
       () => {
         if (pastedDocument) history.setDoc({ ...pastedDocument, content: editor.getJSON() })
         else onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift'))
-        if (pastedPalette) history.setDoc(doc => doc && ({ ...doc, theme: { ...doc.theme, palette: pastedPalette } }))
       })
     },
   })
@@ -136,13 +132,6 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
       editor.view.dispatch(transaction.setSelection(selection))
     } finally { syncing.current = false }
   }, [content, editor, history.revision, historyId])
-
-  useLayoutEffect(() => {
-    const marks = editor.state.storedMarks
-    if (marks?.some(mark => mark.type.name === 'color' && !palette.current.has(mark.attrs.color))) {
-      editor.view.dispatch(editor.state.tr.setStoredMarks(marks.filter(mark => mark.type.name !== 'color' || palette.current.has(mark.attrs.color))))
-    }
-  }, [editor, history.doc!.theme.palette])
 
   const ready = useEffectEvent(() => onReady?.(editor))
   useEffect(() => { ready() }, [editor])

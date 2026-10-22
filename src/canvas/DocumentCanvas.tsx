@@ -9,7 +9,7 @@ import { copyParagraphs, PARAGRAPH_MIME } from '../document/paragraphClipboard'
 import { TextEditor } from '../editor/TextEditor'
 import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
-import { paletteColor } from '../theme/palette'
+import { pageColor } from '../../shared/palette.mjs'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
@@ -88,7 +88,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [inserting, setInserting] = useState<FloatingObject[]>([])
-  const pasteGroup = useRef<{ doc: MoteDocument; palette: MoteDocument['theme']['palette']; top?: number } | null>(null)
+  const pasteGroup = useRef<{ doc: MoteDocument; top?: number } | null>(null)
   const [clipboardNotice, setClipboardNotice] = useState('')
   const [marquee, setMarquee] = useState<Box | null>(null)
   const [manipulating, setManipulating] = useState(false)
@@ -108,7 +108,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     projected.current = { doc, editor: mainEditor, context: originalContext, tasks: candidates.map(task => ({ id: task.id, candidate: task.candidate })), value: projectSegments(doc, candidates, mainEditor, originalContext) }
   }
   const projection = projected.current.value
-  const layoutDoc = useMemo(() => ({ ...projection.document, theme: pasteGroup.current ? { ...projection.document.theme, palette: pasteGroup.current.palette } : projection.document.theme, floating: [...projection.document.floating.map(object => {
+  const layoutDoc = useMemo(() => ({ ...projection.document, floating: [...projection.document.floating.map(object => {
     const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
     return task && task.preview && task.candidate?.object ? currentPlacement(task.candidate.object, object) : object
   }), ...inserting, ...(creating ? [creating] : [])] }), [projection, creating, inserting, editable, aiReview?.tasks])
@@ -188,7 +188,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       let delta = boundedTranslation(inserting, boxes, ids, { x: Math.min(0, pageWidth() - right), y: group.top === undefined ? 0 : group.top - top }, pageWidth())
       while ((roots.length ? roots : inserting).some(object => doc.floating.some(other => fullyOverlaps({ ...boxes[object.id], x: boxes[object.id].x + delta.x, y: boxes[object.id].y + delta.y }, boxes[other.id])))) delta = { ...delta, y: delta.y + 24 }
       const placed = applyPatches(inserting, shifted(inserting, boxes, ids, delta.x, delta.y))
-      const next = { ...doc, theme: { ...doc.theme, palette: group.palette }, floating: [...doc.floating, ...placed] }
+      const next = { ...doc, floating: [...doc.floating, ...placed] }
       pasteGroup.current = null; setInserting([])
       if (!history.guard.current(doc, next)) { setClipboardNotice('Accept or discard the affected AI task before pasting.'); return }
       history.boundary(); history.setDoc(next); history.boundary()
@@ -603,14 +603,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         const payload = parseFloating(json)
         const imported = importFloating(doc, payload, anchors)
         if (imported.content.length) {
-          const next = insertDocumentObjects({ ...doc, theme: { ...doc.theme, palette: imported.palette } }, imported.floating, insertionIndex(), imported.content)
+          const next = insertDocumentObjects(doc, imported.floating, insertionIndex(), imported.content)
           if (commitDocument(next)) { cancel(); segments.clear(); select(imported.floating.map(object => object.id)); onActive(null); onToolChange(null); focusObject(imported.floating[0].id) }
           return
         }
         const caret = mainEditor?.isFocused ? mainEditor.view.coordsAtPos(mainEditor.state.selection.from) : null
         const top = caret ? point({ clientX: caret.left, clientY: caret.top }).y : undefined
         cancel(); segments.clear(); onToolChange(null)
-        pasteGroup.current = { doc, palette: imported.palette, top }
+        pasteGroup.current = { doc, top }
         setInserting(imported.floating)
       } catch (error) { setClipboardNotice(error instanceof Error ? error.message : 'The clipboard does not contain valid Mote elements.') }
     }
@@ -630,7 +630,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const ids = floatingCopyIds(doc.floating, selectedIds)
       const imported = importFloating(doc, copyFloating(doc, ids, geometry), anchors)
       const index = Math.max(...doc.content.content!.map((node, index) => ids.has(node.attrs?.objectId) ? index + 1 : 0))
-      const next = insertDocumentObjects({ ...doc, theme: { ...doc.theme, palette: imported.palette } }, imported.floating, index, imported.content)
+      const next = insertDocumentObjects(doc, imported.floating, index, imported.content)
       if (commitDocument(next)) { select(imported.floating.map(object => object.id)); onActive(null); focusObject(imported.floating[0].id) }
       return
     }
@@ -799,7 +799,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onDropCapture={interact}
-    style={{ '--page-background': paletteColor(doc.theme, doc.theme.defaults.background) } as React.CSSProperties}>
+    style={{ '--page-background': pageColor(doc.theme) } as React.CSSProperties}>
     <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="canvas-scroll-floor" ref={scrollFloor.container}>

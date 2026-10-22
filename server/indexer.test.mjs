@@ -1,4 +1,7 @@
 import test from 'node:test'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { paletteEntries } from '../shared/palette.mjs'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, mkdir, readFile, rm, stat as fsStat, writeFile } from 'node:fs/promises'
@@ -14,14 +17,9 @@ function document(id, text = 'initial content') {
     id, version: 'V0', width: 960,
     margins: { top: 48, right: 48, bottom: 48, left: 48 },
     theme: {
-      hue: 145,
-      defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
+      mode: 'light', hue: 145, secondaryHue: 260,
+      defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
       blocks: {},
-      palette: [
-        { id: 'ink', name: 'Ink', strong: '#303830' },
-        { id: 'muted', name: 'Muted', strong: '#687166' },
-        { id: 'paper', name: 'Paper', strong: '#fffefa' },
-      ],
     },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text }] }] },
     floating: [],
@@ -119,23 +117,29 @@ test('drawing extraction generates bounded inert SVG with escaped labels and pal
   t.after(() => rm(root, { recursive: true, force: true }))
   const source = document('drawing-doc')
   source.content.content.push({ type: 'flow', attrs: { id: 'drawing-block', objectId: 'flow-drawing' } })
-  source.floating.push({ id: 'flow-drawing', kind: 'drawing', placement: 'flow', anchorId: 'drawing-block', x: 0, y: 0, width: 200, height: 100, background: 'paper',
+  source.floating.push({ id: 'flow-drawing', kind: 'drawing', placement: 'flow', anchorId: 'drawing-block', x: 0, y: 0, width: 200, height: 100, background: 'gray6',
     strokes: [{ points: [[1, 2], [3, 4], [5, 6]], color: 'primary', width: 2.5 }],
-    labels: [{ x: 5, y: 6, text: '<script>alert("x")</script>\nA & B', color: 'ink', size: 16 }] })
+    labels: [{ x: 5, y: 6, text: '<script>alert("x")</script>\nA & B', color: 'gray1', size: 16 }] })
   source.floating.push({ ...source.floating[0], labels: [{ ...source.floating[0].labels[0], color: 'url(https://example.invalid)' }] })
   const input = path.join(root, 'document.json')
-  await writeFile(input, JSON.stringify(source))
-  const result = await extractNativeVisuals(input, path.join(root, 'output'))
-  assert.equal(result.paths.length, 1)
-  assert.equal(result.skipped, 1)
-  assert.equal(path.basename(result.paths[0]), 'visual-001.svg')
-  const svg = await readFile(result.paths[0], 'utf8')
-  assert.match(svg, /viewBox="0 0 200 100"/)
-  assert.match(svg, /fill="#fffefa"/)
-  assert.match(svg, /d="M1 2Q3 4 4 5L5 6"/)
-  assert.match(svg, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/)
-  assert.match(svg, /A &amp; B/)
-  assert.doesNotMatch(svg, /<script|https:\/\/example|onload=/)
+  for (const mode of ['light', 'dark']) {
+    source.theme.mode = mode
+    await writeFile(input, JSON.stringify(source))
+    const result = await extractNativeVisuals(input, path.join(root, `output-${mode}`))
+    assert.equal(result.paths.length, 1)
+    assert.equal(result.skipped, 1)
+    assert.equal(path.basename(result.paths[0]), 'visual-001.svg')
+    const svg = await readFile(result.paths[0], 'utf8')
+    const colors = new Map(paletteEntries(source.theme).map(entry => [entry.id, entry]))
+    assert.match(svg, /viewBox="0 0 200 100"/)
+    assert.ok(svg.includes(`fill="${colors.get('gray6').strong}"`))
+    assert.ok(svg.includes(`stroke="${colors.get('primary').strong}"`))
+    assert.ok(svg.includes(`fill="${colors.get('gray1').strong}"`))
+    assert.match(svg, /d="M1 2Q3 4 4 5L5 6"/)
+    assert.match(svg, /&lt;script&gt;alert\(&quot;x&quot;\)&lt;\/script&gt;/)
+    assert.match(svg, /A &amp; B/)
+    assert.doesNotMatch(svg, /<script|https:\/\/example|onload=/)
+  }
 })
 
 test('workspace index and historical reads enforce current source privacy, including Private own document', async t => {
@@ -183,6 +187,8 @@ test('indexing debounces from the latest saved revision and passes the complete 
     inputMode = (await fsStat(context.inputDir)).mode & 0o777
     nativeFileMode = (await fsStat(path.join(context.inputDir, 'document.json'))).mode & 0o777
     indexPrompt = await readFile(context.promptPath, 'utf8')
+    assert.equal((await fsStat(path.join(context.taskDir, 'shared', 'palette.mjs'))).mode & 0o777, 0o444)
+    await promisify(execFile)(process.execPath, [path.join(context.inputDir, 'index-visuals.mjs'), path.join(context.inputDir, 'document.json'), context.outputDir])
     await writeFile(path.join(context.outputDir, 'index.json'), JSON.stringify({ description: 'A concise reusable discovery.' }))
   })
   const manager = managerFor(root, store)

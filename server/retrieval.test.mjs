@@ -14,14 +14,9 @@ function document(id, text) {
     id, version: 'V0', width: 960,
     margins: { top: 48, right: 48, bottom: 48, left: 48 },
     theme: {
-      hue: 145,
-      defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
+      mode: 'light', hue: 145, secondaryHue: 260,
+      defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
       blocks: {},
-      palette: [
-        { id: 'ink', name: 'Ink', strong: '#303830' },
-        { id: 'muted', name: 'Muted', strong: '#687166' },
-        { id: 'paper', name: 'Paper', strong: '#fffefa' },
-      ],
     },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text }] }] },
     floating: [],

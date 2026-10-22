@@ -1,9 +1,8 @@
 import type { JSONContent } from '@tiptap/core'
-import { defaultTheme, paragraph, supportsCaption, type FloatingObject, type MoteDocument, type PaletteEntry } from './model'
+import { defaultTheme, paragraph, supportsCaption, type FloatingObject, type MoteDocument } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
-import { collectNodeIds, collectObjectNodeIds, freshNode, mergePalette, objectPaletteReferences, remapObjectPalette, remapPaletteContent, validateGeometry } from './segment'
-import { neutralIds } from '../theme/palette'
+import { collectNodeIds, collectObjectNodeIds, freshNode, validateGeometry } from './segment'
 import type { Anchor, Geometries } from '../canvas/floatingGeometry'
 import { insertDocumentObjects, placementAtPoint } from './flow'
 
@@ -13,7 +12,6 @@ export interface FloatingClipboard {
   type: 'floating'
   floating: FloatingObject[]
   content: JSONContent[]
-  palette: PaletteEntry[]
   geometry: Geometries
 }
 
@@ -33,22 +31,16 @@ export function copyFloating(doc: MoteDocument, ids: Set<string>, geometry: Geom
     if (object.placement !== 'flow' && !flowAnchors.has(object.anchorId)) Object.assign(object, { x: box.x, y: Math.max(0, box.y), anchorId: null })
     return object
   })
-  const references = new Set<string>()
-  for (const object of floating) objectPaletteReferences(object, references)
   return { version: 'V0', type: 'floating', floating, content,
-    palette: structuredClone(doc.theme.palette.filter(entry => references.has(entry.id) || references.has(`${entry.id}:soft`))),
     geometry: structuredClone(Object.fromEntries(floating.map(object => [object.id, geometry[object.id]]))) }
 }
 
 export function parseFloating(json: string): FloatingClipboard {
   const payload = JSON.parse(json) as FloatingClipboard
-  if (!payload || payload.version !== 'V0' || payload.type !== 'floating' || !Array.isArray(payload.floating) || !payload.floating.length || !Array.isArray(payload.palette) || !Array.isArray(payload.content) || payload.content.some(block => block.type !== 'flow')) throw new Error('Invalid Mote floating elements.')
+  if (!payload || payload.version !== 'V0' || payload.type !== 'floating' || !Array.isArray(payload.floating) || !payload.floating.length || 'palette' in payload || !Array.isArray(payload.content) || payload.content.some(block => block.type !== 'flow')) throw new Error('Invalid Mote floating elements.')
   validateGeometry(payload.geometry)
-  if (new Set(payload.palette.map(entry => entry.id)).size !== payload.palette.length) throw new Error('Duplicate floating clipboard palette IDs.')
-  const palette = new Map(defaultTheme.palette.filter(entry => (neutralIds as readonly string[]).includes(entry.id)).map(entry => [entry.id, entry]))
-  for (const entry of payload.palette) palette.set(entry.id, entry)
   const candidate: MoteDocument = { version: 'V0', id: 'clipboard', width: 960, margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    theme: { ...defaultTheme, palette: [...palette.values()] }, content: { type: 'doc', content: payload.content.length ? payload.content : [paragraph('')] }, floating: payload.floating }
+    theme: structuredClone(defaultTheme), content: { type: 'doc', content: payload.content.length ? payload.content : [paragraph('')] }, floating: payload.floating }
   validateDocument(candidate)
   initializeDocument(candidate)
   for (const object of payload.floating) if (object.anchorId !== null && !payload.content.some(block => block.attrs?.id === object.anchorId) || !payload.geometry[object.id]) throw new Error('Invalid floating clipboard geometry.')
@@ -56,7 +48,6 @@ export function parseFloating(json: string): FloatingClipboard {
 }
 
 export function importFloating(doc: MoteDocument, payload: FloatingClipboard, anchors: Anchor[]) {
-  const { palette, remap } = mergePalette(doc, payload)
   const used = new Set(doc.floating.map(object => object.id))
   collectNodeIds(doc.content, used)
   for (const object of doc.floating) collectObjectNodeIds(object, used)
@@ -80,18 +71,16 @@ export function importFloating(doc: MoteDocument, payload: FloatingClipboard, an
       const anchor = ordinaryAnchors.findLast(anchor => anchor.top <= point.y)
       Object.assign(object, placementAtPoint(doc, point, anchor?.id ?? null, { anchors }))
     }
-    if ('content' in object) object.content = remapPaletteContent(freshNode(object.content, used), remap)
+    if ('content' in object) object.content = freshNode(object.content, used)
     if (supportsCaption(object) && object.caption) object.caption = { ...object.caption, content: freshNode(object.caption.content, used) }
-    remapObjectPalette(object, remap)
     return object
   })
-  return { floating, palette, content }
+  return { floating, content }
 }
 
 export function pasteFloating(doc: MoteDocument, payload: FloatingClipboard, anchors: Anchor[], index?: number): MoteDocument {
   const imported = importFloating(doc, payload, anchors)
-  const next = insertDocumentObjects(doc, imported.floating, index, imported.content)
-  return { ...next, theme: { ...next.theme, palette: imported.palette } }
+  return insertDocumentObjects(doc, imported.floating, index, imported.content)
 }
 
 export function floatingText(payload: FloatingClipboard) {

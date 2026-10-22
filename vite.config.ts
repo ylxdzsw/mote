@@ -44,7 +44,7 @@ function readerBundlePlugin(): Plugin {
       return `export default ${JSON.stringify(await pending)}`
     },
     handleHotUpdate(context) {
-      if (!context.file.startsWith(`${projectRoot}src/`)) return
+      if (!['src/', 'shared/'].some(directory => context.file.startsWith(`${projectRoot}${directory}`))) return
       invalidate()
       const module = context.server.moduleGraph.getModuleById(readerVirtualId)
       if (module) {

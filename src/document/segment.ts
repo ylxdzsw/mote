@@ -1,9 +1,8 @@
 import type { JSONContent } from '@tiptap/core'
-import type { FloatingObject, MoteDocument, PaletteEntry } from './model'
-import { defaultTheme, isText, supportsCaption } from './model'
+import type { FloatingObject, MoteDocument } from './model'
+import { defaultTheme, supportsCaption } from './model'
 import { initializeDocument } from './initialize'
 import { validateDocument } from './validate'
-import { neutralIds, primaryVariables } from '../theme/palette'
 import type { Geometries } from '../canvas/floatingGeometry'
 
 export const SEGMENT_MIME = 'application/x-mote-segment+json'
@@ -23,7 +22,6 @@ export interface SegmentClipboard {
   type: 'segment'
   content: JSONContent[]
   floating: FloatingObject[]
-  palette: PaletteEntry[]
   geometry: Geometries
   anchorTops: Record<string, number>
   originTop: number
@@ -201,24 +199,6 @@ function transformCopiedObject(object: FloatingObject, blocks: JSONContent[], se
   return result
 }
 
-function paletteReferences(content: JSONContent, result = new Set<string>()) {
-  for (const mark of content.marks ?? []) if (mark.type === 'color' && typeof mark.attrs?.color === 'string') result.add(mark.attrs.color)
-  for (const child of content.content ?? []) paletteReferences(child, result)
-  return result
-}
-
-export function objectPaletteReferences(object: FloatingObject, result = new Set<string>()) {
-  if (isText(object) && object.decoration) result.add(object.decoration.color)
-  if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
-  if ('content' in object) paletteReferences(object.content, result)
-  if (supportsCaption(object) && object.caption) paletteReferences(object.caption.content, result)
-  for (const key of ['background', 'borderColor'] as const) {
-    const value = (object as unknown as Record<string, unknown>)[key]
-    if (typeof value === 'string') result.add(value)
-  }
-  return result
-}
-
 export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: readonly { id: string; top: number }[], geometry: Geometries): SegmentClipboard {
   const canonical = canonicalRange(doc, range)
   const blocks = blocksOf(doc)
@@ -239,74 +219,9 @@ export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: rea
   }
   const selectedIds = selectedObjectSet(doc, canonical)
   const floating = doc.floating.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, blocks, selected))
-  const refs = new Set<string>()
-  for (const block of content) paletteReferences(block, refs)
-  for (const object of floating) objectPaletteReferences(object, refs)
-  const palette = doc.theme.palette.filter(entry => refs.has(entry.id) || refs.has(`${entry.id}:soft`)).map(clone)
   const selectedGeometry: Geometries = {}
   for (const object of floating) if (geometry[object.id]) selectedGeometry[object.id] = clone(geometry[object.id])
-  return { version: 'V0', type: 'segment', content, floating, palette, geometry: selectedGeometry, anchorTops, originTop }
-}
-
-function paletteEntryEqual(a: PaletteEntry, b: PaletteEntry) {
-  return a.name === b.name && a.strong === b.strong && a.soft === b.soft
-}
-
-const paletteNames = (id: string) => [id, `${id}-soft`, `${id}-surface`]
-function uniquePaletteId(id: string, existing: Set<string>) {
-  let candidate = `${id}-copy`
-  let suffix = 2
-  while (paletteNames(candidate).some(name => existing.has(name))) candidate = `${id}-copy-${suffix++}`
-  return candidate
-}
-
-export function mergePalette(doc: MoteDocument, payload: Pick<SegmentClipboard, 'content' | 'floating' | 'palette'>) {
-  const palette = doc.theme.palette.map(clone)
-  const byId = new Map(palette.map(entry => [entry.id, entry]))
-  const ids = new Set([...primaryVariables, ...palette.flatMap(entry => paletteNames(entry.id))])
-  const references = new Set<string>()
-  for (const block of payload.content) paletteReferences(block, references)
-  for (const object of payload.floating) objectPaletteReferences(object, references)
-  const remap = new Map<string, string>()
-  for (const source of payload.palette) {
-    if (!references.has(source.id) && !references.has(`${source.id}:soft`)) continue
-    const destination = byId.get(source.id)
-    if (destination && ((neutralIds as readonly string[]).includes(source.id) || paletteEntryEqual(destination, source))) {
-      remap.set(source.id, source.id)
-      continue
-    }
-    const equal = palette.find(entry => paletteEntryEqual(entry, source))
-    if (equal) {
-      remap.set(source.id, equal.id)
-      continue
-    }
-    const id = paletteNames(source.id).some(name => ids.has(name)) ? uniquePaletteId(source.id, ids) : source.id
-    const entry = { ...clone(source), id }
-    palette.push(entry); byId.set(id, entry); paletteNames(id).forEach(name => ids.add(name)); remap.set(source.id, id)
-  }
-  return { palette, remap }
-}
-
-export function remapPaletteContent(node: JSONContent, remap: Map<string, string>): JSONContent {
-  return { ...node,
-    ...(node.marks && { marks: node.marks.map(mark => mark.type === 'color' && typeof mark.attrs?.color === 'string'
-      ? { ...mark, attrs: { ...mark.attrs, color: remap.get(mark.attrs.color.split(':')[0]) ? `${remap.get(mark.attrs.color.split(':')[0])}${mark.attrs.color.endsWith(':soft') ? ':soft' : ''}` : mark.attrs?.color } } : mark) }),
-    ...(node.content && { content: node.content.map(child => remapPaletteContent(child, remap)) }),
-  }
-}
-
-export function remapObjectPalette(object: FloatingObject, remap: Map<string, string>) {
-  const reference = (value: string) => `${remap.get(value.split(':')[0]) ?? value.split(':')[0]}${value.endsWith(':soft') ? ':soft' : ''}`
-  if (isText(object) && object.decoration) object.decoration = { ...object.decoration, color: reference(object.decoration.color) }
-  for (const key of ['background', 'borderColor'] as const) {
-    const record = object as unknown as Record<string, unknown>, value = record[key]
-    if (typeof value === 'string') record[key] = reference(value)
-  }
-  if (object.kind === 'drawing') {
-    object.strokes = object.strokes.map(stroke => ({ ...stroke, color: reference(stroke.color) }))
-    object.labels = object.labels.map(label => ({ ...label, color: reference(label.color) }))
-  }
-  if (supportsCaption(object) && object.caption) object.caption = { ...object.caption, content: remapPaletteContent(object.caption.content, remap) }
+  return { version: 'V0', type: 'segment', content, floating, geometry: selectedGeometry, anchorTops, originTop }
 }
 
 export function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
@@ -406,20 +321,12 @@ function validatePayloadMappings(payload: SegmentClipboard) {
   }
   const anchorTops = payload.anchorTops as Record<string, unknown>
   for (const id of Object.keys(anchorTops)) if (!safe(id) || !blockIds.has(id)) throw new Error('Invalid segment anchor mapping')
-  const paletteIds = new Set<string>()
-  for (const entry of payload.palette) {
-    const id = (entry as unknown as Record<string, unknown>)?.id
-    if (typeof id !== 'string' || !safe(id) || paletteIds.has(id)) throw new Error('Invalid or duplicate segment palette ID')
-    paletteIds.add(id)
-  }
 }
 
 function payloadCandidate(payload: SegmentClipboard): MoteDocument {
-  const entries = new Map(defaultTheme.palette.filter(entry => (neutralIds as readonly string[]).includes(entry.id)).map(entry => [entry.id, clone(entry)]))
-  for (const entry of payload.palette) entries.set(entry.id, clone(entry))
   return {
     version: 'V0', id: 'segment', width: 1, margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    theme: { ...clone(defaultTheme), palette: [...entries.values()] },
+    theme: clone(defaultTheme),
     content: { type: 'doc', content: clone(payload.content) }, floating: clone(payload.floating),
   }
 }
@@ -428,7 +335,7 @@ function validateClipboard(value: unknown): asserts value is SegmentClipboard {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Mote segment')
   const payload = value as Partial<SegmentClipboard>
   if (payload.version !== 'V0' || payload.type !== 'segment') throw new Error('Unsupported Mote segment version')
-  if (!Array.isArray(payload.content) || !Array.isArray(payload.floating) || !Array.isArray(payload.palette)) throw new Error('Invalid Mote segment contents')
+  if ('palette' in payload || !Array.isArray(payload.content) || !Array.isArray(payload.floating)) throw new Error('Invalid Mote segment contents')
   if (typeof payload.originTop !== 'number' || !Number.isFinite(payload.originTop) || !payload.anchorTops || typeof payload.anchorTops !== 'object' || Array.isArray(payload.anchorTops)) throw new Error('Invalid Mote segment anchors')
   for (const value of Object.values(payload.anchorTops as Record<string, unknown>)) if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Invalid Mote segment anchor top')
   validateGeometry(payload.geometry)
@@ -568,13 +475,9 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   const payloadBlockMap = new Map<string, string>()
   const payloadObjectMap = new Map<string, string>()
   let payloadBlocks: JSONContent[] = []
-  let destinationPalette = doc.theme.palette
-  let paletteMap = new Map<string, string>()
   if (payload) {
-    const merged = mergePalette(doc, payload)
-    destinationPalette = merged.palette; paletteMap = merged.remap
     payloadBlocks = payload.content.map(block => {
-      const fresh = freshNode(remapPaletteContent(block, paletteMap), used, true)
+      const fresh = freshNode(block, used, true)
       if (blockId(block)) payloadBlockMap.set(blockId(block)!, blockId(fresh)!)
       const id = blockId(fresh)
       if (id) preTops.set(id, destinationPayloadTop(payload, blockId(block) ?? null, insertionTop))
@@ -627,15 +530,14 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
       next.anchorId = mappedAnchor
       next.y = mapped.y
       if ('x' in mapped) next.x = mapped.x as number
-      if ('content' in next) next.content = remapPaletteContent(freshNode(next.content, used), paletteMap)
+      if ('content' in next) next.content = freshNode(next.content, used)
       if (supportsCaption(next) && next.caption) next.caption = { ...next.caption, content: freshNode(next.caption.content, used) }
-      remapObjectPalette(next, paletteMap)
       retained.push(next)
     }
   }
 
   const content = postBlocks.length ? { ...clone(doc.content), content: postBlocks } : { ...clone(doc.content), content: [{ type: 'paragraph', attrs: { id: freshId(used), semantic: 'body' }, content: [] }] }
-  return { ...doc, theme: destinationPalette === doc.theme.palette ? doc.theme : { ...doc.theme, palette: destinationPalette }, content, floating: retained }
+  return { ...doc, content, floating: retained }
 }
 
 function nodeText(node: JSONContent): string {

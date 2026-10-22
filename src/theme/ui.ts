@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import type { Theme } from '../document/model'
 import { contrastRatio, mixHex, oklchHex } from './colors'
-import { paletteColor } from './palette'
+import { pageColor } from './palette'
 
 // Keep tonal roles readable across normal, hovered, and selected surfaces.
 function toward(from: string, to: string, readable: (color: string) => boolean) {
@@ -20,8 +20,8 @@ function segmentCursor(accent: string) {
 }
 
 export function uiThemeVariables(theme: Theme, language: 'en' | 'zh-Hans' = 'en'): CSSProperties {
-  const page = paletteColor(theme, theme.defaults.background)
-  const dark = contrastRatio('#ffffff', page) > contrastRatio('#000000', page)
+  const page = pageColor(theme)
+  const dark = theme.mode === 'dark'
   const endpoint = dark ? '#ffffff' : '#000000'
   const tone = (light: number, night: number, chroma: number) => oklchHex(dark ? night : light, chroma, theme.hue)
   const readable = (color: string, backgrounds: string[]) => toward(color, endpoint, value => backgrounds.every(bg => contrastRatio(value, bg) >= 4.5))

@@ -50,7 +50,7 @@ Choose controls that explain the decision: tabs for related views, a segmented c
 
 Use the existing `--ui-*` roles and [theme derivation](../src/theme/ui.ts), rather than inventing a palette for each feature. Common roles include `--ui-surface`, `--ui-surface-raised`, `--ui-ink`, `--ui-muted`, `--ui-border`, `--ui-accent`, and the hover/selected/focus and semantic-status variants.
 
-UI accents follow the document hue with controlled tones and readable contrast; they do not simply copy authored Ink or Muted. Main surfaces follow the page background, while surrounding workspace tones stay achromatic. Keep error, warning, and success meanings distinguishable. Check selected-plus-hover and keyboard focus as well as the idle state, including dark or colored page backgrounds.
+UI accents follow the document Primary hue with controlled tones and readable contrast; Secondary colors document content. The saved Light/Dark mode controls both the fixed page surface and the interface. Main surfaces follow the page background, while surrounding workspace tones stay achromatic. Keep error, warning, and success meanings distinguishable. Check selected-plus-hover and keyboard focus as well as the idle state, in both Light and Dark appearance.
 
 Keep document colors and UI colors conceptually separate. Authored marks and object decorations use document palette references; the interface uses readable UI roles. Swatches and previews should show the authored result faithfully. Improving chrome contrast should not silently recolor the user's content.
 
@@ -79,7 +79,7 @@ Useful implementation references:
 
 - [styles.css](../src/app/styles.css) and [ui.ts](../src/theme/ui.ts): shell, surfaces, controls, and theme roles.
 - [Inspector.tsx](../src/app/Inspector.tsx), [FloatingInspector.tsx](../src/app/FloatingInspector.tsx), and [inspector.css](../src/app/inspector.css): headings, groups, text tools, and object properties.
-- [PanelIcon.tsx](../src/app/PanelIcon.tsx) and [PaletteControl.tsx](../src/theme/PaletteControl.tsx): shared icons and named color choices.
+- [PanelIcon.tsx](../src/app/PanelIcon.tsx) and [PaletteControl.tsx](../src/theme/PaletteControl.tsx): shared icons and fixed paired color choices.
 - [App.tsx](../src/app/App.tsx), [FilesWindow.tsx](../src/cloud/FilesWindow.tsx), and [ShareWindow.tsx](../src/cloud/ShareWindow.tsx): stable shell, document switching, and dialog organization.
 - [AssistantPanel.tsx](../src/ai/AssistantPanel.tsx): compact task controls, visible permission state, and review.
 

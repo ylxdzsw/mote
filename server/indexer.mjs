@@ -285,9 +285,11 @@ export class DocumentIndexer {
     const directory = path.join(this.indexDir, current.runId)
     await mkdirSafe(directory)
     await mkdirSafe(path.join(directory, 'input'), 0o755)
+    await mkdirSafe(path.join(directory, 'shared'), 0o755)
     for (const name of ['output', 'logs', 'tmp', '.agent-browser', '.config', '.cache']) await mkdirSafe(path.join(directory, name))
     await writeNew(path.join(directory, 'input', 'document.json'), JSON.stringify(envelope.document), 0o444)
     await writeNew(path.join(directory, 'input', 'index-visuals.mjs'), await fs.readFile(new URL('./index-visuals.mjs', import.meta.url)), 0o444)
+    await writeNew(path.join(directory, 'shared', 'palette.mjs'), await fs.readFile(new URL('../shared/palette.mjs', import.meta.url)), 0o444)
     await this.manager.prepareScope(directory)
     const prompt = [
       'Create a concise document-local discovery description for this full native Mote V0 document: aim for a few useful sentences or short paragraphs, not a forced section/object inventory.',

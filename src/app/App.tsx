@@ -24,7 +24,7 @@ import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { patchFloating } from '../canvas/patchFloating'
 import { constrainCaptionResize } from '../canvas/floatingGeometry'
-import { boxDecorationPalette } from '../theme/palette'
+import { boxDecorations } from '../document/model'
 import { reconcileObjectDeletions } from '../document/flow'
 import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
@@ -579,9 +579,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                     history.boundary()
                     setDoc(current => {
                       if (!current) return current
-                      const colors = kind ? boxDecorationPalette(current.theme, kind) : null
-                      return { ...current, theme: colors ? { ...current.theme, palette: colors.palette } : current.theme,
-                        floating: current.floating.map(object => object.id === selectedObject.id ? patchFloating(object, { decoration: kind && colors ? { kind, color: colors.color } : null }) : object) }
+                      const color = kind ? boxDecorations[kind].color : null
+                      return { ...current,
+                        floating: current.floating.map(object => object.id === selectedObject.id ? patchFloating(object, { decoration: kind && color ? { kind, color } : null }) : object) }
                     })
                     history.boundary()
                   }}

@@ -2,6 +2,7 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import { validateDocument as validateServerDocument } from '../server/validation.mjs'
+import { pageColor, contrastRatio } from '../shared/palette.mjs'
 
 // Vite loads the model's embedded example assets and the actual editor schema.
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
@@ -10,7 +11,8 @@ const { defaultTheme, paragraph, captionContent, createBlankDocument, isPristine
 const { flowBlock, insertFlowObject, insertDocumentObjects, convertObjectPlacement, reconcileObjectDeletions, objectPagePosition } = await server.ssrLoadModule('/src/document/flow.ts')
 const { validateDocument } = await server.ssrLoadModule('/src/document/validate.ts')
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
-const { paletteEntryUsed, replacePaletteEntry } = await server.ssrLoadModule('/src/theme/palette.ts')
+const { paletteColor, paletteEntries } = await server.ssrLoadModule('/src/theme/palette.ts')
+const { copyParagraphs, parseParagraphs } = await server.ssrLoadModule('/src/document/paragraphClipboard.ts')
 const { copySegment, serializeSegment, parseSegment, replaceSegment, moveSegment, segmentObjectIds } = await server.ssrLoadModule('/src/document/segment.ts')
 const { copyFloating, parseFloating, importFloating, pasteFloating, floatingCopyIds } = await server.ssrLoadModule('/src/document/floatingClipboard.ts')
 const { resolveGeometry, horizontalBounds, boundedTranslation, constrainCaptionResize, intersects } = await server.ssrLoadModule('/src/canvas/floatingGeometry.ts')
@@ -41,6 +43,8 @@ test('only a default single empty body paragraph is a pristine blank document', 
     d => { d.width++ },
     d => { d.margins.left++ },
     d => { d.theme.hue++ },
+    d => { d.theme.secondaryHue++ },
+    d => { d.theme.mode = 'dark' },
     d => { d.theme.autospace = false },
     d => { d.language = 'zh-Hans' },
     d => { d.aiModel = 'custom-model' },
@@ -98,51 +102,86 @@ test('Flow validation enforces the block/object bijection and actual schema reta
   for (const edit of edits) { const invalid = doc(); edit(invalid); assert.throws(() => validateDocument(invalid)) }
 })
 
-test('captions use one id-only paragraph and participate in palette replacement', () => {
+test('captions use one id-only paragraph and fixed color references', () => {
   const empty = captionContent()
   assert.equal(empty.type, 'doc')
   assert.equal(empty.content.length, 1)
   assert.deepEqual(Object.keys(empty.content[0].attrs), ['id'])
   const source = doc()
+  source.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'secondary:soft' } }]
   assert.equal(source.floating[0].caption.width, 230)
-  source.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'detail' } }]
-  assert.equal(paletteEntryUsed(source, 'detail'), true)
-  const replaced = replacePaletteEntry(source, 'detail', 'muted')
-  assert.equal(replaced.floating[0].caption.content.content[0].content[0].marks[0].attrs.color, 'muted')
-  assert.equal(replaced.floating[0].caption.width, 230)
-  initializeDocument(replaced)
+  initializeDocument(source)
 })
 
-test('text-box decorations validate and retain their palette through replacement and clipboard', () => {
+test('text-box decorations keep fixed slots and destination theme on paste', () => {
   const source = doc()
   source.floating[0].src = 'data:image/png;base64,iVBORw0KGgo='
   const note = { id: 'note', kind: 'text', placement: 'float', anchorId: 'before', x: 0, y: 0, width: 200,
-    content: { type: 'doc', content: [p('note-text')] }, background: 'paper', borderColor: 'term', decoration: { kind: 'info', color: 'info' } }
+    content: { type: 'doc', content: [p('note-text')] }, background: 'gray6', borderColor: 'secondary', decoration: { kind: 'info', color: 'blue' } }
   source.floating.push(note)
   for (const validate of [value => { validateDocument(value); initializeDocument(value) }, validateServerDocument]) {
     validate(source)
-    for (const decoration of [{ kind: 'unknown', color: 'info' }, { kind: 'info', color: 'missing' }, 'info']) {
+    for (const decoration of [{ kind: 'unknown', color: 'blue' }, { kind: 'info', color: 'missing' }, 'info']) {
       const invalid = structuredClone(source); invalid.floating.at(-1).decoration = decoration
       assert.throws(() => validate(invalid))
     }
     const invalid = structuredClone(source); invalid.floating[0].decoration = note.decoration
     assert.throws(() => validate(invalid))
   }
-  assert.equal(paletteEntryUsed(source, 'info'), true)
-  const replaced = replacePaletteEntry(source, 'info', 'detail')
-  assert.deepEqual(replaced.floating.at(-1).decoration, { kind: 'info', color: 'detail' })
-  initializeDocument(replaced); validateServerDocument(replaced)
   const payload = parseFloating(JSON.stringify(copyFloating(source, new Set(['note']), { note: { x: 0, y: 20, width: 200, height: 50 } })))
-  assert.ok(payload.palette.some(entry => entry.id === 'info'))
+  assert.equal('palette' in payload, false)
   const destination = doc()
   destination.floating[0].src = source.floating[0].src
-  destination.theme.palette.find(entry => entry.id === 'info').strong = '#112233'
+  Object.assign(destination.theme, { mode: 'dark', hue: 220, secondaryHue: 300 })
   const pasted = pasteFloating(destination, payload, anchors)
   const copied = pasted.floating.at(-1)
-  assert.notEqual(copied.decoration.color, 'info')
-  assert.equal(pasted.theme.palette.find(entry => entry.id === copied.decoration.color).strong, source.theme.palette.find(entry => entry.id === 'info').strong)
-  assert.equal(copied.background, 'paper'); assert.equal(copied.borderColor, 'term')
+  assert.equal(pasted.theme, destination.theme)
+  assert.deepEqual(copied.decoration, note.decoration)
+  assert.equal(copied.background, 'gray6'); assert.equal(copied.borderColor, 'secondary')
   initializeDocument(pasted); validateServerDocument(pasted)
+})
+
+test('fixed palette retains readable pairs across all theme hues and both modes', () => {
+  for (const mode of ['light', 'dark']) for (let hue = 0; hue < 360; hue++) {
+    const theme = { ...defaultTheme, mode, hue, secondaryHue: hue }
+    const entries = paletteEntries(theme)
+    assert.equal(entries.length, 14)
+    assert.equal(entries.filter(entry => entry.soft).length, 8)
+    assert.equal(paletteColor(theme, 'gray1'), mode === 'light' ? '#000000' : '#ffffff')
+    assert.equal(paletteColor(theme, 'gray6'), mode === 'light' ? '#ffffff' : '#000000')
+    for (const entry of entries.filter(entry => entry.soft)) {
+      for (const [foreground, background] of [[entry.strong, pageColor(theme)], [entry.strong, entry.soft], [paletteColor(theme, 'gray2'), entry.soft]]) {
+        assert.ok(contrastRatio(foreground, background) >= 4.5, `${mode} ${hue} ${entry.id}`)
+      }
+    }
+  }
+})
+
+test('native themes reject legacy palette/background and drawings accept only gray6 or null', () => {
+  const source = doc()
+  source.floating[0].src = 'data:image/png;base64,iVBORw0KGgo='
+  const drawing = { id: 'drawing', kind: 'drawing', placement: 'float', anchorId: 'before', x: 0, y: 0, width: 200, height: 100,
+    strokes: [], labels: [], background: 'gray6' }
+  source.floating.push(drawing)
+  for (const validate of [value => { validateDocument(value); initializeDocument(value) }, validateServerDocument]) {
+    validate(source)
+    for (const change of [
+      value => { value.theme.palette = [] },
+      value => { value.theme.defaults.background = 'gray6' },
+      value => { delete value.theme.mode },
+      value => { value.theme.mode = 'sepia' },
+      value => { value.theme.secondaryHue = 360 },
+      value => { value.theme.secondaryHue = -1 },
+      value => { delete value.theme.secondaryHue },
+      value => { value.floating.at(-1).background = 'paper' },
+      value => { value.floating.at(-1).background = 'gray5' },
+    ]) {
+      const invalid = structuredClone(source); change(invalid)
+      assert.throws(() => validate(invalid))
+    }
+    const transparent = structuredClone(source); transparent.floating.at(-1).background = null
+    validate(transparent)
+  }
 })
 
 test('structural insertion and conversion preserve bindings and measured annotation geometry', () => {
@@ -252,20 +291,62 @@ test('object copying owns captions and gives their paragraph IDs fresh values', 
   assert.equal(copied.caption.width, 230)
 })
 
-test('floating clipboard remaps palette references from embedded captions', () => {
+const fixedReferences = ['primary', 'secondary', 'red', 'amber', 'green', 'cyan', 'blue', 'violet']
+  .flatMap(id => [id, `${id}:soft`]).concat(['gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6'])
+const coloredText = () => fixedReferences.map(color => ({ type: 'text', text: color, marks: [{ type: 'color', attrs: { color } }] }))
+const references = paragraph => paragraph.content.map(node => node.marks[0].attrs.color)
+
+test('floating captions retain fixed slots and resolve with destination hues and mode', () => {
   const source = doc(), destination = doc()
-  const entry = { id: 'caption-shade', name: 'Caption shade', strong: '#123456', soft: '#abcdef' }
-  source.theme.palette.push(entry)
-  destination.theme.palette.push({ ...entry, name: 'Different shade', strong: '#654321', soft: '#fedcba' })
-  source.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: entry.id } }]
+  Object.assign(source.theme, { mode: 'light', hue: 20, secondaryHue: 80 })
+  Object.assign(destination.theme, { mode: 'dark', hue: 220, secondaryHue: 300 })
+  source.floating[0].caption.content.content[0].content = coloredText()
   const payload = parseFloating(JSON.stringify(copyFloating(source, new Set(['figure']), geometry)))
+  assert.equal('palette' in payload, false)
   const pasted = pasteFloating(destination, payload, anchors)
-  validateDocument(pasted)
+  initializeDocument(pasted)
   const copied = pasted.floating.at(-2)
-  const reference = copied.caption.content.content[0].content[0].marks[0].attrs.color
-  assert.notEqual(reference, entry.id)
-  assert.ok(pasted.theme.palette.some(value => value.id === reference))
+  assert.deepEqual(references(copied.caption.content.content[0]), fixedReferences)
   assert.equal(copied.caption.width, 230)
+  assert.equal(pasted.theme, destination.theme)
+  const entries = new Map(paletteEntries(destination.theme).map(entry => [entry.id, entry]))
+  for (const reference of fixedReferences) {
+    const [id, tone] = reference.split(':')
+    assert.equal(paletteColor(pasted.theme, reference), entries.get(id)[tone === 'soft' ? 'soft' : 'strong'])
+  }
+  for (const reference of ['primary', 'secondary', 'gray1', 'gray6']) {
+    assert.notEqual(paletteColor(pasted.theme, reference), paletteColor(source.theme, reference))
+  }
+})
+
+test('segment and paragraph clipboards retain target slots without transferring a theme', () => {
+  const source = doc(), destination = doc()
+  Object.assign(source.theme, { mode: 'light', hue: 20, secondaryHue: 80 })
+  Object.assign(destination.theme, { mode: 'dark', hue: 220, secondaryHue: 300 })
+  source.content.content[0].content = coloredText()
+  const range = { start: { index: 0, offset: 0 }, end: { index: 1, offset: 0 } }
+  const target = { start: { index: 3, offset: 0 }, end: { index: 3, offset: 0 } }
+  const payloads = [copySegment(source, range, anchors, geometry), copyParagraphs(source, [source.content.content[0]])]
+  for (const original of payloads) {
+    const json = serializeSegment(original)
+    const payload = parseParagraphs(json)
+    assert.equal('palette' in payload, false)
+    const pasted = replaceSegment(destination, target, payload, anchors, geometry)
+    initializeDocument(pasted)
+    assert.deepEqual(references(pasted.content.content.at(-1)), fixedReferences)
+    assert.equal(pasted.theme, destination.theme)
+    assert.notEqual(pasted.content.content.at(-1).attrs.id, source.content.content[0].attrs.id)
+    for (const legacy of [[], [{ id: 'custom', name: 'Custom', strong: '#123456', soft: '#abcdef' }]]) {
+      const legacyJSON = JSON.stringify({ ...original, palette: legacy })
+      assert.throws(() => parseSegment(legacyJSON))
+      assert.throws(() => parseParagraphs(legacyJSON))
+      assert.throws(() => serializeSegment({ ...original, palette: legacy }))
+    }
+  }
+  const floating = copyFloating(source, new Set(['figure']), geometry)
+  for (const legacy of [[], [{ id: 'custom', name: 'Custom', strong: '#123456', soft: '#abcdef' }]]) {
+    assert.throws(() => parseFloating(JSON.stringify({ ...floating, palette: legacy })))
+  }
 })
 
 test('the example embeds image, table, and widget captions but no drawing caption', () => {

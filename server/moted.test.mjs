@@ -14,13 +14,9 @@ import { validateDelivery } from './agent-protocol.mjs'
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const svg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`
 const theme = {
-  hue: 145,
-  defaults: { family: 'sans', size: 16, color: 'ink', background: 'paper', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
+  mode: 'light', hue: 145, secondaryHue: 260,
+  defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: { title: {}, heading: {}, body: {}, caption: {}, code: {}, list: {}, table: {}, math: {} },
-  palette: [
-    { id: 'ink', name: 'Ink', strong: '#303830' }, { id: 'muted', name: 'Muted', strong: '#687166' },
-    { id: 'paper', name: 'Paper', strong: '#fffefa' },
-  ],
 }
 function document(kind = 'text') {
   const doc = { version: 'V0', id: 'doc-1', width: 800, margins: { top: 48, right: 48, bottom: 48, left: 48 }, theme, content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text: 'Hello' }] }] }, floating: [] }
@@ -57,7 +53,7 @@ function segmentPayload(withWidgets = false) {
     floating.push({ id, kind: 'html', anchorId: 'candidate-p', x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80, placement: 'float', html: `<button>${id}</button>`, alt: id, ...(id.endsWith('a') ? { caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `${id}-caption` }, content: [{ type: 'text', text: 'Widget caption' }] }] } } } : {}) })
     geometry[id] = { x: id.endsWith('a') ? 240 : 380, y: 12, width: 120, height: 80 }
   }
-  return { version: 'V0', type: 'segment', content, floating, palette: [], geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
+  return { version: 'V0', type: 'segment', content, floating, geometry, anchorTops: { 'candidate-p': 0, 'candidate-space': 28 }, originTop: 0 }
 }
 function pngHeader(width, height) { const header = Buffer.alloc(24); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header); header.write('IHDR', 12); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20); return header }
 async function app(options = {}) {
@@ -97,6 +93,63 @@ async function takeEvents(response, count) {
   return result
 }
 
+test('fixed palette slots validate across documents, text candidates, and segments', () => {
+  const references = ['primary', 'secondary', 'red', 'amber', 'green', 'cyan', 'blue', 'violet'].flatMap(id => [id, `${id}:soft`])
+  references.push('gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6')
+  const paragraph = color => ({ type: 'paragraph', attrs: { id: 'color-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color } }] }] })
+  for (const mode of ['light', 'dark']) for (const color of references) {
+    const doc = structuredClone(document())
+    doc.theme.mode = mode
+    doc.theme.defaults.color = color
+    doc.theme.blocks.math = { color }
+    doc.content.content[0].content = paragraph(color).content
+    Object.assign(doc.floating[0], { background: color, borderColor: color, decoration: { kind: 'info', color } })
+    assert.equal(validateDocument(doc), doc)
+    assert.doesNotThrow(() => validateCandidate({ content: [paragraph(color)], summary: 'Color' }, doc, request('unused', doc).target))
+    const segment = segmentPayload()
+    segment.content[0].content = paragraph(color).content
+    segment.floating[0].caption.content.content[0].content = paragraph(color).content
+    assert.equal(validateCandidate({ segment, summary: 'Color' }, segmentDocument(), segmentTarget()).segment, segment)
+  }
+  for (const color of ['ink', 'muted', 'paper', 'detail', 'gray1:soft', 'gray6:soft', 'gray7', 'primary:strong', 'blue:soft:soft', '#ffffff']) {
+    const doc = structuredClone(document())
+    doc.theme.defaults.color = color
+    assert.throws(() => validateDocument(doc), /unknown palette color/)
+    assert.throws(() => validateCandidate({ content: [paragraph(color)], summary: 'Invalid' }, document(), request('unused').target), /unknown palette color/)
+    const segment = segmentPayload()
+    segment.content[0].content = paragraph(color).content
+    assert.throws(() => validateCandidate({ segment, summary: 'Invalid' }, segmentDocument(), segmentTarget()), /unknown palette color/)
+  }
+})
+
+test('theme requires mode and two finite hues and rejects legacy palette fields', () => {
+  for (const mode of [undefined, null, 'auto', 'LIGHT']) {
+    const doc = structuredClone(document()); doc.theme.mode = mode
+    assert.throws(() => validateDocument(doc), /theme.mode/)
+  }
+  for (const key of ['hue', 'secondaryHue']) {
+    for (const value of [undefined, null, -1, 360, NaN, Infinity, '145']) {
+      const doc = structuredClone(document()); doc.theme[key] = value
+      assert.throws(() => validateDocument(doc), new RegExp(`theme.${key}`))
+    }
+    for (const value of [0, 359.99]) {
+      const doc = structuredClone(document()); doc.theme[key] = value
+      assert.doesNotThrow(() => validateDocument(doc))
+    }
+  }
+  for (const value of [[], null, undefined]) {
+    const doc = structuredClone(document()); doc.theme.palette = value
+    assert.throws(() => validateDocument(doc), /theme.palette is unsupported/)
+    assert.throws(() => validateCandidate({ content: doc.content.content, summary: 'Legacy' }, doc, request('unused').target), /theme.palette is unsupported/)
+    const segment = segmentPayload(); segment.palette = value
+    assert.throws(() => validateCandidate({ segment, summary: 'Legacy' }, segmentDocument(), segmentTarget()), /segment.palette is unsupported/)
+  }
+  for (const background of ['gray6', 'paper', null, undefined]) {
+    const doc = structuredClone(document()); doc.theme.defaults.background = background
+    assert.throws(() => validateDocument(doc), /theme.defaults.background is unsupported/)
+  }
+})
+
 test('new floating reservations accept supported kinds and reject removed kinds', () => {
   const doc = document('html'), original = doc.floating[0]
   const { id, anchorId, x, y, width, placement } = original
@@ -104,7 +157,7 @@ test('new floating reservations accept supported kinds and reject removed kinds'
   const target = { kind: 'object', objectId: id, isNew: true, area: { x, y, width, height: 100 } }
   const paragraph = { type: 'paragraph', attrs: { semantic: 'body' }, content: [{ type: 'text', text: 'Native text' }] }
   const objects = [
-    { ...base, kind: 'drawing', height: 100, background: null, strokes: [{ points: [[5, 8]], color: 'ink', width: 2.5 }], labels: [] },
+    { ...base, kind: 'drawing', height: 100, background: null, strokes: [{ points: [[5, 8]], color: 'gray1', width: 2.5 }], labels: [] },
     { ...base, kind: 'code', source: 'const answer = 42\n', language: 'javascript', scheme: 'dark' },
     { ...base, kind: 'katex', latex: String.raw`\int_0^1 x^2\,dx = \frac{1}{3}` },
     { ...base, kind: 'text', content: { type: 'doc', content: [paragraph] } },
@@ -124,15 +177,15 @@ test('new floating reservations accept supported kinds and reject removed kinds'
 
 test('drawings roundtrip with bounded native data and allow supported single-object conversions', () => {
   const doc = document('html'), widget = doc.floating[0]
-  const drawing = { id: widget.id, kind: 'drawing', anchorId: widget.anchorId, x: widget.x, y: widget.y, width: widget.width, height: 100, placement: 'float', background: 'paper',
-    strokes: [{ points: [[-1, 2], [3.5, 8]], color: 'primary:soft', width: 2.5 }], labels: [{ x: 1, y: 2, text: 'A < B', color: 'ink', size: 13.5 }] }
+  const drawing = { id: widget.id, kind: 'drawing', anchorId: widget.anchorId, x: widget.x, y: widget.y, width: widget.width, height: 100, placement: 'float', background: 'gray6',
+    strokes: [{ points: [[-1, 2], [3.5, 8]], color: 'primary:soft', width: 2.5 }], labels: [{ x: 1, y: 2, text: 'A < B', color: 'gray1', size: 13.5 }] }
   doc.floating = [drawing]
   assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(doc))), doc)
   const target = { kind: 'object', objectId: drawing.id, isNew: false, area: { x: drawing.x, y: drawing.y, width: drawing.width, height: drawing.height } }
   for (const object of [drawing, widget, { ...widget, kind: 'image', src: png }, document().floating[0]]) {
     assert.equal(validateCandidate({ object, summary: 'Convert sketch to figure' }, doc, target).object, object)
   }
-  const mutations = [value => { value.width = 0 }, value => { value.height = 0 }, value => { value.background = 'ink' },
+  const mutations = [value => { value.width = 0 }, value => { value.height = 0 }, value => { value.background = 'gray1' }, value => { value.background = 'paper' },
     value => { value.strokes[0].width = 0 }, value => { value.strokes[0].points = [] }, value => { value.strokes[0].points[0] = [NaN, 0] },
     value => { value.strokes[0].points[0].push(0) }, value => { value.strokes[0].points = Array(100001).fill([0, 0]) },
     value => { value.labels[0].size = -1 }, value => { value.labels[0].x = Infinity }, value => { value.labels[0].text = 'x'.repeat(4097) },
@@ -164,7 +217,7 @@ test('segment targets use canonical points and exact block/object ownership', ()
 })
 
 test('caption subobjects validate, preserve content and user width, clear when explicitly empty, and reject legacy schemas', () => {
-  const caption = (id, textValue = 'A caption', width) => ({ content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'muted' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] }] }] }, ...(width === undefined ? {} : { width }) })
+  const caption = (id, textValue = 'A caption', width) => ({ content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'gray2' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] }] }] }, ...(width === undefined ? {} : { width }) })
   const doc = document('html')
   doc.floating[0].caption = caption('html-caption', 'A caption', 240)
   assert.equal(validateDocument(doc).floating[0].caption.content.content[0].content[0].text, 'A caption')
@@ -252,7 +305,7 @@ test('segment candidate rejects external refs and accepts native composition pay
   const unknownCaptionPalette = segmentPayload(); unknownCaptionPalette.floating[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
   assert.throws(() => validateCandidate({ segment: unknownCaptionPalette, summary: 'bad' }, doc, target), /unknown palette/)
   const emptyTarget = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
-  assert.deepEqual(validateCandidate({ segment: { version: 'V0', type: 'segment', content: [], floating: [], palette: [], geometry: {}, anchorTops: {}, originTop: 0 }, summary: 'empty' }, doc, emptyTarget).segment.content, [])
+  assert.deepEqual(validateCandidate({ segment: { version: 'V0', type: 'segment', content: [], floating: [], geometry: {}, anchorTops: {}, originTop: 0 }, summary: 'empty' }, doc, emptyTarget).segment.content, [])
 })
 
 test('fake segment task returns a deterministic native composition', async t => {

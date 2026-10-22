@@ -39,10 +39,10 @@ test('reservations allow unrelated edits and placement, but block content, size,
 
 test('drawing reservations lock strokes and labels while figure projection retains placement', () => {
   const drawing: FloatingObject = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, placement: 'float', background: null,
-    strokes: [{ points: [[1, 2], [3, 4]], color: 'ink', width: 2 }], labels: [{ x: 5, y: 6, text: 'A', color: 'ink', size: 16 }] }
+    strokes: [{ points: [[1, 2], [3, 4]], color: 'gray1', width: 2 }], labels: [{ x: 5, y: 6, text: 'A', color: 'gray1', size: 16 }] }
   const source = { ...doc, floating: [drawing] }
   assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, x: 50 }] }), true)
-  for (const patch of [{ strokes: [] }, { labels: [] }, { width: 500 }, { background: 'paper' as const }]) {
+  for (const patch of [{ strokes: [] }, { labels: [] }, { width: 500 }, { background: 'gray6' as const }]) {
     assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, ...patch }] }), false)
   }
   const projected = currentPlacement(object, drawing)
@@ -54,7 +54,7 @@ test('drawing reservations lock strokes and labels while figure projection retai
 })
 
 const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 317, height: 179, placement: 'float', background: null,
-  strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'ink', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'ink', size: 16 }] }
+  strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'gray1', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'gray1', size: 16 }] }
 
 test('draft drawing reservations accept scaled positions without unlocking drawing content', () => {
   const task = { ...objectTask, documentId: doc.id, original: drawing, status: 'draft', submitted: false } as AITask
@@ -75,10 +75,10 @@ test('draft drawing reservations accept scaled positions without unlocking drawi
   const edits: Array<(value: FloatingDrawing) => void> = [
     value => { value.strokes[0].points[0][0] += .01 }, value => { value.strokes[0].points.reverse() },
     value => { value.strokes[0].points.push([10, 10]) }, value => { value.strokes.push(structuredClone(value.strokes[0])) },
-    value => { value.strokes[0].width = 3 }, value => { value.strokes[0].color = 'muted' },
+    value => { value.strokes[0].width = 3 }, value => { value.strokes[0].color = 'gray3' },
     value => { value.labels[0].x += .01 }, value => { value.labels[0].size = 17 },
-    value => { value.labels[0].color = 'muted' }, value => { value.labels[0].text = 'B' },
-    value => { value.labels = [] }, value => { value.background = 'paper' },
+    value => { value.labels[0].color = 'gray3' }, value => { value.labels[0].text = 'B' },
+    value => { value.labels = [] }, value => { value.background = 'gray6' },
   ]
   for (const edit of edits) {
     const changed = structuredClone(resized); edit(changed)
@@ -95,12 +95,12 @@ test('draft drawing reservations accept scaled positions without unlocking drawi
 
 test('drawing candidate placement scales positions into target bounds while retaining pen and font sizes', () => {
   const candidate: FloatingDrawing = { ...drawing, x: 999, y: 999, width: 100, height: 50,
-    strokes: [{ points: [[25, 10], [100, 50]], color: 'muted', width: 3 }], labels: [{ x: 50, y: 25, text: 'B', color: 'ink', size: 18 }] }
+    strokes: [{ points: [[25, 10], [100, 50]], color: 'gray3', width: 3 }], labels: [{ x: 50, y: 25, text: 'B', color: 'gray1', size: 18 }] }
   const before = structuredClone(candidate)
   for (const original of [{ ...drawing, width: 200, height: 150 }, { ...object, width: 200, height: 150 }]) {
     const placed = currentPlacement(candidate, original) as FloatingDrawing
-    assert.deepEqual(placed.strokes, [{ points: [[50, 30], [200, 150]], color: 'muted', width: 3 }])
-    assert.deepEqual(placed.labels, [{ x: 100, y: 75, text: 'B', color: 'ink', size: 18 }])
+    assert.deepEqual(placed.strokes, [{ points: [[50, 30], [200, 150]], color: 'gray3', width: 3 }])
+    assert.deepEqual(placed.labels, [{ x: 100, y: 75, text: 'B', color: 'gray1', size: 18 }])
     assert.equal(placed.x, original.x); assert.equal(placed.y, original.y)
     assert.equal(placed.width, 200); assert.equal(placed.height, 150)
     assert.deepEqual(currentPlacement(candidate, original), placed)
@@ -194,7 +194,7 @@ const segmentTarget = (range: { start: { index: number; offset: number }; end: {
   start: { blockId: blockIds[0] ?? 'b', offset: 0 }, end: { blockId: blockIds.at(-1) ?? 'a', offset: 0, after: true },
 }) => ({ kind: 'segment', range, blockIds, objectIds, area: { x: 0, y: 0, width: 100, height: 100 }, bookmarks })
 const segmentTask = (target: ReturnType<typeof segmentTarget>, blocks: ReturnType<typeof paragraph>[], objects: FloatingObject[] = []) => ({
-  id: 'segment-task', documentId: 'document', target, original: { version: 'V0', type: 'segment', content: structuredClone(blocks), floating: structuredClone(objects), palette: [], geometry: {}, anchorTops: {}, originTop: 0 },
+  id: 'segment-task', documentId: 'document', target, original: { version: 'V0', type: 'segment', content: structuredClone(blocks), floating: structuredClone(objects), geometry: {}, anchorTops: {}, originTop: 0 },
   segmentOriginalBlocks: structuredClone(blocks), segmentOriginalObjects: structuredClone(objects), status: 'draft', submitted: false,
 } as unknown as AITask)
 

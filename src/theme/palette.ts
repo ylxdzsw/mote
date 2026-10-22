@@ -1,12 +1,8 @@
-import { boxDecorations, isText, supportsCaption, type BoxDecoration, type MoteDocument, type Theme } from '../document/model'
+import { isText, supportsCaption, type MoteDocument, type Theme } from '../document/model'
 import type { JSONContent } from '@tiptap/core'
-import { primaryEntry } from './colors'
+import { paletteEntries, validPaletteReference } from '../../shared/palette.mjs'
+export { paletteEntries, pageColor, neutralIds } from '../../shared/palette.mjs'
 
-export const neutralIds = ['ink', 'muted', 'paper'] as const
-export const primaryVariables = ['primary', 'primary-soft', 'primary-surface']
-export function paletteEntries(theme: Theme) {
-  return [primaryEntry(theme.hue), ...theme.palette]
-}
 export function paletteColor(theme: Theme, reference: string): string {
   const [id, tone] = reference.split(':')
   const entry = paletteEntries(theme).find(entry => entry.id === id)!
@@ -17,87 +13,21 @@ export function paletteCSS(reference: string): string {
 }
 export function paletteSwatches(theme: Theme) {
   return paletteEntries(theme).flatMap(entry => [
-    { value: entry.id, label: entry.name, color: entry.strong },
+    { value: entry.id, label: entry.soft ? `${entry.name} · Strong` : entry.name, color: entry.strong },
     ...(entry.soft ? [{ value: `${entry.id}:soft`, label: `${entry.name} · Soft`, color: entry.soft }] : []),
   ])
 }
 export function softReference(theme: Theme, reference: string) {
   const id = reference.split(':')[0]
-  return paletteEntries(theme).find(entry => entry.id === id)?.soft ? `${id}:soft` : 'primary:soft'
-}
-
-export function boxDecorationPalette(theme: Theme, kind: BoxDecoration['kind']) {
-  const existing = theme.palette.find(entry => entry.id === kind)
-  if (existing) return { palette: theme.palette, color: existing.id }
-  const names = new Set([...primaryVariables, ...theme.palette.flatMap(entry => [entry.id, `${entry.id}-soft`, `${entry.id}-surface`])])
-  let id: string = kind
-  while ([id, `${id}-soft`, `${id}-surface`].some(name => names.has(name))) id = `${kind}-${crypto.randomUUID()}`
-  return { palette: [...theme.palette, { ...boxDecorations[kind], id }], color: id }
-}
-
-export function paletteEntryUsed(doc: MoteDocument, id: string): boolean {
-  const uses = (value: string | null | undefined) => value?.split(':')[0] === id
-  const content = (node: JSONContent): boolean => !!(node.marks?.some(mark => mark.type === 'color' && uses(mark.attrs?.color)) || node.content?.some(content))
-  return uses(doc.theme.defaults.color) || uses(doc.theme.defaults.background)
-    || Object.values(doc.theme.blocks).some(style => uses(style.color)) || content(doc.content)
-    || doc.floating.some(object => ('content' in object && content(object.content))
-      || (isText(object) && uses(object.decoration?.color))
-      || (supportsCaption(object) && !!object.caption && content(object.caption.content))
-      || (object.kind === 'drawing' && [...object.strokes, ...object.labels].some(item => uses(item.color)))
-      || (['background', 'borderColor'] as const).some(key => key in object && uses((object as unknown as Record<string, string | null>)[key])))
-}
-
-export function replacePaletteEntry(doc: MoteDocument, id: string, replacement: string): MoteDocument {
-  const replace = (value: string | null | undefined) => value?.split(':')[0] !== id ? value
-    : value.endsWith(':soft') ? softReference(doc.theme, replacement) : replacement
-  const content = (node: JSONContent): JSONContent => ({ ...node,
-    ...(node.marks && { marks: node.marks.map(mark => mark.type === 'color' ? { ...mark, attrs: { color: replace(mark.attrs?.color) } } : mark) }),
-    ...(node.content && { content: node.content.map(content) }),
-  })
-  return { ...doc, theme: { ...doc.theme,
-    palette: doc.theme.palette.filter(entry => entry.id !== id),
-    defaults: { ...doc.theme.defaults, color: replace(doc.theme.defaults.color)!, background: replace(doc.theme.defaults.background)! },
-    blocks: Object.fromEntries(Object.entries(doc.theme.blocks).map(([name, style]) => [name, { ...style, ...(style.color && { color: replace(style.color) }) }])) as Theme['blocks'],
-  }, content: content(doc.content), floating: doc.floating.map(object => ({ ...object,
-    ...(isText(object) && object.decoration && { decoration: { ...object.decoration, color: replace(object.decoration.color)! } }),
-    ...(object.kind === 'drawing' && { strokes: object.strokes.map(stroke => ({ ...stroke, color: replace(stroke.color)! })), labels: object.labels.map(label => ({ ...label, color: replace(label.color)! })) }),
-    ...('content' in object && { content: content(object.content) }),
-    ...('background' in object && { background: replace(object.background) }),
-    ...('borderColor' in object && { borderColor: replace(object.borderColor) }),
-    ...(supportsCaption(object) && object.caption && { caption: { ...object.caption, content: content(object.caption.content) } }),
-  })) as MoteDocument['floating'] }
+  return paletteEntries(theme).find(entry => entry.id === id)?.soft ? `${id}:soft` : 'gray5'
 }
 
 export function validatePaletteReferences(doc: MoteDocument) {
   const fail = (message: string): never => { throw new Error(`Invalid palette: ${message}`) }
-  if (typeof doc.theme.hue !== 'number' || !Number.isFinite(doc.theme.hue) || doc.theme.hue < 0 || doc.theme.hue >= 360) fail('theme hue must be from 0 to less than 360')
-  if (!Array.isArray(doc.theme.palette)) fail('missing document palette')
-  const entries = new Map<string, Theme['palette'][number]>([['primary', primaryEntry(doc.theme.hue)]])
-  const variables = new Set(primaryVariables)
-  for (const entry of doc.theme.palette) {
-    if (!entry || typeof entry.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(entry.id)
-      || ['__proto__', 'constructor', 'prototype', 'mixed'].includes(entry.id) || entries.has(entry.id)) fail('invalid or duplicate entry ID')
-    if (typeof entry.name !== 'string' || !entry.name.trim()) fail('entries need a name')
-    const neutral = (neutralIds as readonly string[]).includes(entry.id)
-    if (neutral ? entry.soft !== undefined : typeof entry.soft !== 'string') fail('families need Strong and Soft tones; neutrals use one color')
-    for (const value of [entry.strong, ...(!neutral ? [entry.soft] : [])]) {
-      if (typeof value !== 'string' || !/^#[0-9a-f]{6}$/i.test(value)) fail('colors must be opaque six-digit hex values')
-    }
-    for (const variable of [entry.id, `${entry.id}-soft`, `${entry.id}-surface`]) {
-      if (variables.has(variable)) fail('entry IDs overlap color tones')
-      variables.add(variable)
-    }
-    entries.set(entry.id, entry)
-  }
-  for (const id of neutralIds) if (!entries.has(id)) fail(`missing ${id}`)
   const reference = (value: unknown) => {
-    if (typeof value !== 'string') fail('color must reference a palette entry')
-    const parts = (value as string).split(':')
-    const entry = entries.get(parts[0])
-    if (!entry || parts.length > 2 || (parts.length === 2 && (parts[1] !== 'soft' || !entry.soft))) fail(`unknown color ${value}`)
+    if (!validPaletteReference(value)) fail(`unknown color ${value}`)
   }
   reference(doc.theme.defaults.color)
-  reference(doc.theme.defaults.background)
   for (const style of Object.values(doc.theme.blocks)) if (style.color !== undefined) reference(style.color)
   const content = (node: JSONContent) => {
     for (const mark of node.marks ?? []) {

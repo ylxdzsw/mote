@@ -49,6 +49,22 @@ are tentative user context, not published page content or automatic task
 instructions. Candidate writes cannot target or edit Notes. Public shares and
 HTML/PNG exports omit them; native `.mote` exports preserve them.
 
+## Native fixed palette contract
+
+V0 requires `theme.mode` (`light` or `dark`), `theme.hue` (Primary), and
+`theme.secondaryHue` (Secondary). Each hue must be finite and in `[0, 360)`.
+The fixed color references are `primary`, `secondary`, `red`, `amber`, `green`,
+`cyan`, `blue`, and `violet`, each also supporting `:soft`, plus the single-tone
+`gray1` through `gray6`. Every slot adapts to the document mode; Primary and
+Secondary also follow their theme hues. The page background follows the mode.
+Drawing `background` is `"gray6"` or `null`.
+
+Document validation rejects `theme.palette` and `theme.defaults.background`.
+Segment/clipboard payloads reject any `palette` field, including `[]`; fixed
+references adopt the destination theme without importing color definitions.
+Legacy fields and color references are rejected without migration. Code syntax
+schemes, embedded images, and widget source retain their independent colors.
+
 ## Private task API
 
 Existing authenticated `/api/ai/tasks` routes retain their exact-Origin check.

@@ -6,7 +6,7 @@ import type { RefObject } from 'react'
 import type { useDocumentHistory } from '../document/history'
 import { blockClasses } from '../document/model'
 import { copyParagraphs, paragraphClipboardJSON, parseParagraphs, PARAGRAPH_MIME } from '../document/paragraphClipboard'
-import { freshNode, mergePalette, remapPaletteContent, replaceSegment, serializeSegment } from '../document/segment'
+import { freshNode, replaceSegment, serializeSegment } from '../document/segment'
 
 interface Range { from: number; to: number }
 interface CutRange extends Range { space?: { id: string; offset: number } }
@@ -123,8 +123,7 @@ export function paragraphClipboard(history: RefObject<ReturnType<typeof useDocum
                 view.dispatch(tr.setSelection(TextSelection.create(tr.doc, end - 1)).setMeta('paragraphDocument', next).setMeta('paste', true).scrollIntoView())
                 return true
               }
-              const { palette, remap } = mergePalette(history.current.doc!, payload)
-              const nodes = Fragment.from(payload.content.map(node => view.state.schema.nodeFromJSON(freshNode(remapPaletteContent(node, remap), new Set()))))
+              const nodes = Fragment.from(payload.content.map(node => view.state.schema.nodeFromJSON(freshNode(node, new Set()))))
               const selection = view.state.selection
               let target = cutKey.getState(view.state) ?? wholeParagraphs(view.state)
               if (!target && selection.empty && selection.$from.parent.type.name === 'paragraph') {
@@ -138,7 +137,7 @@ export function paragraphClipboard(history: RefObject<ReturnType<typeof useDocum
               } else {
                 tr.replaceSelection(new Slice(nodes, 1, 1))
               }
-              view.dispatch(tr.setMeta('paragraphPalette', palette).setMeta('paste', true).setMeta('uiEvent', 'paste').scrollIntoView())
+              view.dispatch(tr.setMeta('paste', true).setMeta('uiEvent', 'paste').scrollIntoView())
             } catch { /* Invalid native data must not fall through to destructive text replacement. */ }
             return true
           },

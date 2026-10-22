@@ -117,12 +117,12 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           <div className="placement-options decoration-options" role="radiogroup" aria-label="Text box decoration">
             {(['none', 'info', 'warning'] as const).map(kind => {
               const preset = kind === 'none' ? null : boxDecorations[kind]
-              const color = object.decoration?.kind === kind ? object.decoration.color : theme.palette.find(entry => entry.id === kind)?.id
+              const color = object.decoration?.kind === kind ? object.decoration.color : preset?.color
               return <label key={kind}>
                 <input type="radio" name={decorationId} value={kind} checked={(object.decoration?.kind ?? 'none') === kind}
                   onChange={() => onDecoration(kind === 'none' ? null : kind)} />
-                <span>{preset && <i aria-hidden="true" style={{ borderLeftColor: color ? paletteColor(theme, color) : preset.strong,
-                  background: color ? paletteColor(theme, softReference(theme, color)) : preset.soft }} />}{preset?.name ?? 'None'}</span>
+                <span>{preset && <i aria-hidden="true" style={{ borderLeftColor: color ? paletteColor(theme, color) : paletteColor(theme, preset.color),
+                  background: color ? paletteColor(theme, softReference(theme, color)) : paletteColor(theme, `${preset.color}:soft`) }} />}{preset?.name ?? 'None'}</span>
               </label>
             })}
           </div>

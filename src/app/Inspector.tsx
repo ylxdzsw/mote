@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, type ReactNode, type CSSProperties } from 'react'
+import React, { useState, useRef, useEffect, useLayoutEffect, type ReactNode, type CSSProperties } from 'react'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
 import { NodeSelection, type Command } from '@tiptap/pm/state'
@@ -8,9 +8,11 @@ import { classLabel } from '../theme/ThemePanel'
 import { blockClasses, type BlockClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
 import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
-import { neutralIds, paletteColor, paletteEntries } from '../theme/palette'
+import { paletteColor, paletteSwatches } from '../theme/palette'
+import { PaletteControl } from '../theme/PaletteControl'
 import { PanelIcon } from './PanelIcon'
 import './inspector.css'
+import './text-color-popup.css'
 
 type TIconName = 'bold' | 'color' | 'box' | 'underline' | 'plain' | 'chevron' | 'clear' | BlockClass
 function TIcon({ name }: { name: TIconName }) {
@@ -32,40 +34,80 @@ function TIcon({ name }: { name: TIconName }) {
   return <svg className="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="16" height="16">{paths[name]}</svg>
 }
 
-function ToolPopup({ label, children, items, disabled }: {
+function ToolPopup({ label, children, items = [], panelContent, panelClassName, disabled }: {
   label: string; children: React.ReactNode
-  items: { id: string; label: string; icon: React.ReactNode; checked?: boolean; action: () => void; separator?: boolean; disabled?: boolean }[]
+  items?: { id: string; label: string; icon: React.ReactNode; checked?: boolean; action: () => void; separator?: boolean; disabled?: boolean }[]
+  panelContent?: (close: () => void) => ReactNode
+  panelClassName?: string
   disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  const [panelPosition, setPanelPosition] = useState<CSSProperties>()
   const rootRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const triggerId = React.useId()
+  const hasPanelContent = !!panelContent
   useEffect(() => {
     if (!open) return
-    rootRef.current?.querySelector<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)')?.focus({ preventScroll: true })
+    const first = hasPanelContent
+      ? panelRef.current?.querySelector<HTMLElement>('[data-popup-autofocus]')
+        ?? panelRef.current?.querySelector<HTMLElement>('.palette-choice:checked')
+        ?? panelRef.current?.querySelector<HTMLElement>('.palette-choice:not(:disabled)')
+      : panelRef.current?.querySelector<HTMLButtonElement>('button[role^="menuitem"]:not(:disabled)')
+    const focusFrame = requestAnimationFrame(() => first?.focus({ preventScroll: true }))
     const outside = (e: PointerEvent) => { if (!rootRef.current?.contains(e.target as Node)) setOpen(false) }
     document.addEventListener('pointerdown', outside, true)
-    return () => document.removeEventListener('pointerdown', outside, true)
-  }, [open])
+    return () => { cancelAnimationFrame(focusFrame); document.removeEventListener('pointerdown', outside, true) }
+  }, [open, hasPanelContent])
+  useLayoutEffect(() => {
+    if (!open || panelClassName !== 'tt-color-popup-panel') {
+      setPanelPosition(undefined)
+      return
+    }
+    const place = () => {
+      const trigger = rootRef.current?.querySelector<HTMLButtonElement>('.tt-btn')
+      const panel = panelRef.current
+      if (!trigger || !panel) return
+      const triggerRect = trigger.getBoundingClientRect()
+      const width = panel.offsetWidth
+      const height = panel.offsetHeight
+      const left = Math.max(8, Math.min(triggerRect.right - width, window.innerWidth - width - 8))
+      let top = triggerRect.bottom + 4
+      if (top + height > window.innerHeight - 8) top = triggerRect.top - height - 4
+      top = Math.max(8, Math.min(top, window.innerHeight - height - 8))
+      setPanelPosition({ left, top, visibility: 'visible' })
+    }
+    place()
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
+    }
+  }, [open, panelClassName])
+  const close = () => setOpen(false)
   return <div className="tt-popup" ref={rootRef} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setOpen(false) }}>
     <button className="tt-btn" aria-label={label} title={label} disabled={disabled}
-      aria-haspopup="menu" aria-expanded={open} id={triggerId}
+      aria-haspopup={panelContent ? 'dialog' : 'menu'} aria-expanded={open} id={triggerId}
       onMouseDown={e => e.preventDefault()} onClick={() => setOpen(!open)}>
       {children}<TIcon name="chevron" />
     </button>
-    {open && <div className="tt-popup-panel" role="menu" aria-label={label}
+    {open && <div className={`tt-popup-panel${panelClassName ? ` ${panelClassName}` : ''}`} ref={panelRef}
+      style={panelClassName === 'tt-color-popup-panel' ? panelPosition ?? { visibility: 'hidden' } : undefined}
+      role={panelContent ? 'dialog' : 'menu'} aria-label={label}
       onKeyDown={e => {
-        if (e.key === 'Escape') { e.preventDefault(); setOpen(false); rootRef.current?.querySelector<HTMLButtonElement>('.tt-btn')?.focus(); return }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); rootRef.current?.querySelector<HTMLButtonElement>('.tt-btn')?.focus(); return }
+        if (panelContent) return
         const btns = [...rootRef.current!.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')]
         const i = btns.indexOf(document.activeElement as HTMLButtonElement)
         const next = e.key === 'ArrowDown' ? (i+1)%btns.length : e.key === 'ArrowUp' ? (i-1+btns.length)%btns.length : e.key === 'Home' ? 0 : e.key === 'End' ? btns.length - 1 : -1
         if (next >= 0) { e.preventDefault(); btns[next]?.focus() }
       }}>
-      {items.map(item => <div key={item.id} role="none">
+      {panelContent ? panelContent(close) : items.map(item => <div key={item.id} role="none">
         {item.separator && <div className="tt-sep" role="separator" />}
         <button role={item.checked === undefined ? 'menuitem' : 'menuitemradio'} tabIndex={-1} aria-checked={item.checked} disabled={item.disabled}
           onMouseDown={e => e.preventDefault()}
-          onClick={() => { setOpen(false); item.action() }}>
+          onClick={() => { close(); item.action() }}>
           {item.icon}<span>{item.label}</span>
           {item.checked !== undefined && <span aria-hidden="true">{item.checked ? '✓' : ''}</span>}
         </button>
@@ -176,17 +218,6 @@ export function TableControls({ selection, onCommand }: { selection: TableInspec
   </InspectorGroup>
 }
 
-const neutralSet = new Set<string>(neutralIds)
-function colorEntries(theme: Theme) {
-  return paletteEntries(theme).filter(e => e.id === 'ink' || e.id === 'muted' || !neutralSet.has(e.id))
-}
-function swatchColor(theme: Theme, reference: string | null | 'mixed') {
-  if (!reference || reference === 'mixed') return undefined
-  const [id, tone] = reference.split(':')
-  const entry = paletteEntries(theme).find(v => v.id === id)
-  return tone === 'soft' ? entry?.soft ?? entry?.strong : entry?.strong
-}
-
 export interface TextToolsRowProps {
   editor: Editor | null
   theme: Theme
@@ -231,11 +262,11 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
 
   const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
   const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
-  const colorSwatch = swatchColor(theme, selection.color === null ? inheritedColor : selection.color)
-  return <div className="text-tools" ref={tools}
-    style={{ '--palette-ink': paletteColor(theme, 'ink'), '--palette-muted': paletteColor(theme, 'muted'), '--palette-paper': paletteColor(theme, 'paper') } as CSSProperties}>
+  const colorSwatch = selection.color === 'mixed' ? undefined : paletteColor(theme, selection.color ?? inheritedColor)
+  const swatches = paletteSwatches(theme)
+  return <div className="text-tools" ref={tools}>
     <div className="text-tools-row" role="toolbar" aria-label="Text formatting" onKeyDown={event => {
-      if ((event.target as HTMLElement).closest('[role="menu"]')) return
+      if ((event.target as HTMLElement).closest('[role="menu"], [role="dialog"]')) return
       if (event.key === 'Escape') { event.preventDefault(); editor?.commands.focus(); return }
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('.tt-btn:not(:disabled)')]
@@ -254,16 +285,25 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     <button className="tt-btn tt-bold" aria-label="Bold" title="Bold · Ctrl/⌘B"
       aria-pressed={inlineDisabled ? false : selection.bold} disabled={inlineDisabled}
       onMouseDown={e => e.preventDefault()} onClick={applyBold}><TIcon name="bold" /></button>
-    <ToolPopup label="Text color" disabled={inlineDisabled} items={[
-      { id: 'inherit', label: 'Inherit', icon: <span className="tt-swatch tt-swatch-inherit" />, checked: selection.color === null, action: () => applyColor(null) },
-      ...colorEntries(theme).map(entry => ({ id: entry.id, label: entry.name, icon: <span className="tt-swatch" style={{ backgroundColor: entry.strong }} />, checked: selection.color === entry.id, action: () => applyColor(entry.id) })),
-      ...recentColors.flatMap(id => {
-        const entry = colorEntries(theme).find(value => value.id === id)
-        return entry ? [{ id: `recent-${id}`, label: `${entry.name} · Recent`, icon: <span className="tt-swatch" style={{ backgroundColor: entry.strong }} />, separator: id === recentColors[0], action: () => applyColor(id) }] : []
-      }),
-      { id: 'edit-palette', label: 'Edit palette…', icon: <TIcon name="color" />, separator: !recentColors.length, action: () => onPalette?.() },
-      { id: 'clear', label: 'Clear formatting', icon: <TIcon name="clear" />, action: () => editor?.chain().focus().unsetMark('color').unsetMark('bold').unsetMark('decoration').run() },
-    ]}>
+    <ToolPopup label="Text color" disabled={inlineDisabled} panelClassName="tt-color-popup-panel" panelContent={close => <>
+      {recentColors.length > 0 && <div className="tt-color-recent" aria-label="Recent text colors">
+        <span>Recent</span>
+        {recentColors.flatMap(reference => {
+          const swatch = swatches.find(value => value.value === reference)
+          return swatch ? [<button key={reference} type="button" className="tt-color-recent-swatch" aria-label={`${swatch.label} · Recent`}
+            title={`${swatch.label} · Recent`} aria-pressed={selection.color === reference}
+            style={{ '--recent-color': swatch.color } as CSSProperties}
+            onMouseDown={event => event.preventDefault()} onClick={() => { close(); applyColor(reference) }} />] : []
+        })}
+      </div>}
+      <PaletteControl theme={theme} label="Text color" value={selection.color} onChange={color => { close(); applyColor(color) }}
+        optional="default" fallback={inheritedColor} />
+      <div className="tt-color-popup-actions">
+        <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { close(); onPalette?.() }}>Theme colors…</button>
+        <button type="button" onMouseDown={event => event.preventDefault()}
+          onClick={() => { close(); editor?.chain().focus().unsetMark('color').unsetMark('bold').unsetMark('decoration').run() }}>Clear formatting</button>
+      </div>
+    </>}>
       <span className={`tt-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} />
     </ToolPopup>
     {(['box', 'underline'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
