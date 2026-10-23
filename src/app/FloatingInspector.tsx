@@ -162,7 +162,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           <InspectorField label="Height"><NumberField label="Widget height" value={widget.height} min={16} max={4000} onChange={height => onChange({ height })} /></InspectorField>
         </InspectorRow>}
         {object.placement === 'flow' && <>
-          {!['drawing', 'code', 'html'].includes(object.kind ?? 'text') && <InspectorField label="Width"><NumberField label="Object width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>}
+          {!['drawing', 'code', 'html', 'table'].includes(object.kind ?? 'text') && <InspectorField label="Width"><NumberField label="Object width" value={object.width} min={16} max={maxWidth} onChange={width => onChange({ width })} /></InspectorField>}
           <button aria-pressed={!!object.centered} onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>
         </>}
       </InspectorGroup>}
