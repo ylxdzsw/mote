@@ -1567,3 +1567,9 @@ Removed the server-wide codex/gpt-5.6-luna default and Mu status lookup. New bui
 ## 2026-10-23 — Object sizing stays on the canvas
 
 Removed object Width/Height fields from Context in favor of existing border and handle dragging. Layout retains Flow centering and stacking actions; caption width controls remain separate. This reduces duplicate geometry controls without changing resizing, keyboard access, document geometry, or saved content.
+
+## 2026-10-23 — Flow style spacing and signed object layout footprints
+
+Separated document rhythm from local composition: Flow objects have shared paragraph-like Before/After spacing in the document theme, while every Flow/Float object may carry four signed document-pixel margins. Margins expand or contract the complete body-and-caption layout footprint, not its content dimensions. This allows optical centering, deliberate overlap, and text-repulsion adjustment without spacer nodes, body resizing, or a second placement system. Shared style gaps collapse like paragraphs; object margins remain inside the footprint and do not collapse. Omitted Flow Before is zero and After follows Body, retaining the prior rhythm without rewriting documents.
+
+Normal-flow mounts incorporate signed vertical margins; centering, Float repulsion, placement, and insertion use layout bounds. Selection/editing/resize handles and Flow-relative annotation anchors remain content-based. Page/reading extents include visible content as well as reserved space so a contracted footprint does not silently truncate exports. Margins surround captions without changing their internal gap, and remain user-owned geometry for individual AI tasks while section reservations lock the composition. A focused margin field reveals the footprint; readers, minimaps, and exports omit that editing cue.

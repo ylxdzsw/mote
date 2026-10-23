@@ -7,7 +7,7 @@ import { copySegment, moveSegment, parseSegment, replaceSegment, segmentObjectId
 import { isComposingKey } from '../editor/composition'
 import { floatingClipboardJSON } from '../document/floatingClipboard'
 import { paragraphClipboardJSON, parseParagraphs } from '../document/paragraphClipboard'
-import { horizontalBounds, type Anchor, type Box, type Geometries } from './floatingGeometry'
+import { extentBounds, type Anchor, type Box, type Geometries } from './floatingGeometry'
 import './segment.css'
 
 interface Props {
@@ -100,8 +100,8 @@ export function useSegmentSelection(props: Props) {
     const objects = [...segmentObjectIds(doc, current)].flatMap(id => {
       const box = geometry[id]
       if (!box) return []
-      const bounds = horizontalBounds(box)
-      return [{ ...box, x: bounds.left, width: bounds.right - bounds.left, id }]
+      const bounds = extentBounds(box)
+      return [{ ...bounds, id }]
     })
     const top = boundaryY(current.start, 'start', blocks), bottom = equal(current) ? top : boundaryY(current.end, 'end', blocks)
     const bands = equal(current) ? [] : [{ x: 0, y: top, width: doc.width - 2, height: bottom - top }]

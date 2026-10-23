@@ -35,6 +35,7 @@ export interface Theme {
   hue: number
   secondaryHue: number
   autospace?: boolean
+  flow?: { spaceBefore?: ThemeLength; spaceAfter?: ThemeLength }
   defaults: Omit<BlockStyle, 'size'> & { size: number }
   blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
 }
@@ -64,6 +65,7 @@ interface FloatingGeometry {
   width: number
   placement: 'flow' | 'float'
   centered?: boolean
+  margins?: { top: number; right: number; bottom: number; left: number }
 }
 
 export interface Caption {

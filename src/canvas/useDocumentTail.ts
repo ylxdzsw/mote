@@ -33,7 +33,7 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
       const element = editor!.view.nodeDOM(editor!.state.doc.content.size - last.nodeSize) as HTMLElement
       const style = getComputedStyle(surface)
       const before = parseFloat(style.getPropertyValue('--body-spaceBefore')) || 0
-      const after = last.type.name === 'flow' ? parseFloat(style.getPropertyValue('--body-spaceAfter')) || 0 : 0
+      const after = last.type.name === 'flow' ? parseFloat(style.getPropertyValue('--flow-spaceAfter')) || 0 : 0
       setHint((element.getBoundingClientRect().bottom - surface.getBoundingClientRect().top) / scale - surface.clientTop + Math.max(before, after))
     }
     const move = (event: globalThis.PointerEvent) => { pointer.current = event; update() }

@@ -15,7 +15,7 @@ const { paletteColor, paletteEntries } = await server.ssrLoadModule('/src/theme/
 const { copyParagraphs, parseParagraphs } = await server.ssrLoadModule('/src/document/paragraphClipboard.ts')
 const { copySegment, serializeSegment, parseSegment, replaceSegment, moveSegment, segmentObjectIds } = await server.ssrLoadModule('/src/document/segment.ts')
 const { copyFloating, parseFloating, importFloating, pasteFloating, floatingCopyIds } = await server.ssrLoadModule('/src/document/floatingClipboard.ts')
-const { resolveGeometry, horizontalBounds, boundedTranslation, constrainCaptionResize, intersects } = await server.ssrLoadModule('/src/canvas/floatingGeometry.ts')
+const { resolveGeometry, horizontalBounds, layoutBounds, extentBounds, flowX, boundedTranslation, constrainCaptionResize, intersects } = await server.ssrLoadModule('/src/canvas/floatingGeometry.ts')
 
 const p = id => ({ ...paragraph(id), attrs: { id, semantic: 'body' } })
 const figure = { id: 'figure', kind: 'image', placement: 'flow', anchorId: 'flow-block', x: 30, y: 0, width: 200,
@@ -100,6 +100,29 @@ test('Flow validation enforces the block/object bijection and actual schema reta
     d => { d.floating[1].anchorId = 'missing' },
   ]
   for (const edit of edits) { const invalid = doc(); edit(invalid); assert.throws(() => validateDocument(invalid)) }
+})
+
+test('signed object margins change layout footprints without shrinking visible bounds and survive structural copying', () => {
+  const margins = { top: -8, right: -20, bottom: 24, left: 40 }
+  const object = { ...figure, centered: true, margins }
+  const box = { x: 100, y: 80, width: 200, height: 100, captionWidth: 240, margins }
+  assert.deepEqual(horizontalBounds(box), { left: 80, right: 320 })
+  assert.deepEqual(layoutBounds(box), { x: 40, y: 88, width: 260, height: 116 })
+  assert.deepEqual(extentBounds(box), { x: 40, y: 80, width: 280, height: 124 })
+  assert.equal(flowX(object, 720), 290)
+  assert.deepEqual(layoutBounds({ ...box, margins: { top: -120, right: -300, bottom: 0, left: 0 } }), { x: 80, y: 200, width: 0, height: 0 })
+  const source = doc()
+  source.floating[0].margins = margins
+  source.floating[0].src = 'data:image/png;base64,iVBORw0KGgo='
+  source.theme.flow = { spaceBefore: '1.5em', spaceAfter: 32 }
+  validateDocument(source); validateServerDocument(source); initializeDocument(source)
+  const copied = parseFloating(JSON.stringify(copyFloating(source, new Set(['figure']), geometry)))
+  assert.deepEqual(copied.floating[0].margins, margins)
+  assert.deepEqual(convertObjectPlacement(source, 'figure', 'float', options).floating[0].margins, margins)
+  for (const mutate of [d => { d.theme.flow.spaceBefore = -1 }, d => { d.floating[0].margins.top = '1px' }, d => { delete d.floating[0].margins.left }]) {
+    const invalid = structuredClone(source); mutate(invalid)
+    assert.throws(() => validateDocument(invalid)); assert.throws(() => validateServerDocument(invalid))
+  }
 })
 
 test('captions use one id-only paragraph and fixed color references', () => {

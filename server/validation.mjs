@@ -48,7 +48,7 @@ function rejectLegacyAttachments(value, label, seen = new WeakSet()) {
 
 function themeLength(value, label, nonnegative = true) {
   if (typeof value === 'number') return finite(value, label, nonnegative ? 0 : undefined)
-  if (typeof value !== 'string' || !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px|em)$/.test(value)) throw new HttpError(400, `${label} must be a theme length`)
+  if (typeof value !== 'string' || !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px|em)$/.test(value) || !Number.isFinite(parseFloat(value))) throw new HttpError(400, `${label} must be a finite theme length`)
   if (nonnegative && Number(value.slice(0, -2)) < 0) throw new HttpError(400, `${label} must be nonnegative`)
 }
 
@@ -167,6 +167,11 @@ function theme(value) {
   for (const key of ['hue', 'secondaryHue']) if (finite(valueObject[key], `theme.${key}`, 0) >= 360) throw new HttpError(400, `theme.${key} must be less than 360`)
   if ('palette' in valueObject) throw new HttpError(400, 'theme.palette is unsupported')
   if (valueObject.autospace !== undefined && typeof valueObject.autospace !== 'boolean') throw new HttpError(400, 'theme.autospace must be a boolean')
+  if ('flow' in valueObject) {
+    const flow = record(valueObject.flow, 'theme.flow')
+    if (Object.keys(flow).some(key => !['spaceBefore', 'spaceAfter'].includes(key))) throw new HttpError(400, 'theme.flow contains an unsupported property')
+    for (const key of ['spaceBefore', 'spaceAfter']) if (flow[key] !== undefined) themeLength(flow[key], `theme.flow.${key}`)
+  }
   const defaults = record(valueObject.defaults, 'theme.defaults')
   if ('background' in defaults) throw new HttpError(400, 'theme.defaults.background is unsupported')
   for (const key of ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) if (!(key in defaults)) throw new HttpError(400, `theme.defaults.${key} is missing`)
@@ -194,6 +199,12 @@ export function validateFloating(value, label = 'floating object', options = {})
   finite(object.x, `${label}.x`); finite(object.y, `${label}.y`); finite(object.width, `${label}.width`, 0)
   if ('textFlow' in object || !['flow', 'float'].includes(object.placement)) throw new HttpError(400, 'invalid object placement')
   if (object.centered !== undefined && typeof object.centered !== 'boolean') throw new HttpError(400, 'centered must be a boolean')
+  if ('margins' in object) {
+    const margins = record(object.margins, `${label}.margins`)
+    const sides = ['top', 'right', 'bottom', 'left']
+    if (Object.keys(margins).some(side => !sides.includes(side)) || sides.some(side => !Object.hasOwn(margins, side))) throw new HttpError(400, `${label}.margins must contain top, right, bottom, and left`)
+    for (const side of sides) finite(margins[side], `${label}.margins.${side}`)
+  }
   if (object.placement === 'flow' && (object.anchorId === null || object.y !== 0)) throw new HttpError(400, 'Flow objects require their block anchor and y=0')
   const kind = object.kind ?? 'text'
   if ('decoration' in object) {
@@ -574,6 +585,8 @@ export function validateCandidate(value, document, selectedTarget, options = {})
       }
     }
     validateFloating(candidateObject, 'candidate.object', { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
+    if (original.margins === undefined) delete candidateObject.margins
+    else candidateObject = { ...candidateObject, margins: structuredClone(original.margins) }
     validateCaptionIds(document.content.content ?? [], document.floating.map(object => object.id === candidateObject.id ? candidateObject : object), 'candidate.object')
     output.object = candidateObject
     palette({ ...document, content: { type: 'doc' }, floating: [candidateObject] })

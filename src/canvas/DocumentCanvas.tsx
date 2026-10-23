@@ -22,7 +22,7 @@ import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../edit
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
 import { FloatingObjectView, type DragPart } from './FloatingObjectView'
 import { patchFloating } from './patchFloating'
-import { anchorPoint, boundedTranslation, constrainCaptionResize, contains, distance, fullyOverlaps, gridSize, horizontalBounds, insertionPosition, intersects, type Box, type Geometries, type Point } from './floatingGeometry'
+import { anchorPoint, boundedTranslation, constrainCaptionResize, contains, distance, extentBounds, flowX, fullyOverlaps, gridSize, insertionPosition, intersects, layoutBounds, type Box, type Geometries, type Point } from './floatingGeometry'
 import type { ViewSettings } from '../app/GlobalSettings'
 import { PanelIcon } from '../app/PanelIcon'
 import './floating.css'
@@ -194,8 +194,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (group) {
       const ids = inserting.map(object => object.id), boxes = measured.geometry
       const roots = inserting
-      const top = Math.min(...inserting.map(object => boxes[object.id].y))
-      const right = Math.max(...inserting.map(object => horizontalBounds(boxes[object.id]).right))
+      const bounds = inserting.map(object => extentBounds(boxes[object.id]))
+      const top = Math.min(...bounds.map(box => box.y))
+      const right = Math.max(...bounds.map(box => box.x + box.width))
       let delta = boundedTranslation(inserting, boxes, ids, { x: Math.min(0, pageWidth() - right), y: group.top === undefined ? 0 : group.top - top }, pageWidth())
       while ((roots.length ? roots : inserting).some(object => doc.floating.some(other => fullyOverlaps({ ...boxes[object.id], x: boxes[object.id].x + delta.x, y: boxes[object.id].y + delta.y }, boxes[other.id])))) delta = { ...delta, y: delta.y + 24 }
       const placed = applyPatches(inserting, shifted(inserting, boxes, ids, delta.x, delta.y))
@@ -335,6 +336,22 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function boundedWidth(x: number, width: number, minimum: number, inset = 0) {
     return Math.max(0, Math.min(pageWidth() - x - inset, Math.max(minimum, width)))
+  }
+  function boundedObjectWidth(object: FloatingObject, box: Box, width: number) {
+    const margins = object.margins
+    const left = margins?.left ?? 0, right = margins?.right ?? 0
+    const minimum = object.placement === 'flow' || object.kind === 'html' || object.kind === 'drawing' ? 16 : 120
+    const maximum = object.placement === 'flow'
+      ? pageWidth() - doc.margins.left - doc.margins.right - (object.centered ? left + right : Math.max(0, object.x) + right)
+      : pageWidth() - box.x - right
+    return Math.max(Math.min(minimum, object.width), Math.min(maximum, Math.max(minimum, width)))
+  }
+  function boundedResizePoint(position: Point, object: FloatingObject, north: boolean): Point {
+    const margins = object.margins
+    const left = object.placement === 'flow' ? doc.margins.left + (margins?.left ?? 0) : Math.max(0, margins?.left ?? 0)
+    const right = object.placement === 'flow' ? pageWidth() - doc.margins.right - (margins?.right ?? 0) : pageWidth() - Math.max(0, margins?.right ?? 0)
+    const top = object.placement === 'flow' || !north ? 0 : Math.max(0, margins?.top ?? 0)
+    return { x: Math.max(left, Math.min(right, position.x)), y: Math.max(top, position.y) }
   }
   function capture(event: PointerEvent) {
     event.preventDefault(); event.stopPropagation()
@@ -506,17 +523,20 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           setPreviews(d.patches); setFlowDrop({ top: target.top, centered: false }); return
         }
         const left = doc.margins.left, available = pageWidth() - left - doc.margins.right
-        const center = left + (available - box.width) / 2
-        let x = Math.max(left, Math.min(left + Math.max(0, available - box.width), box.x + p.x - d.start.x))
+        const center = left + flowX({ ...object, centered: true }, available)
+        const minimum = left + (object.margins?.left ?? 0)
+        const maximum = left + available - object.width - (object.margins?.right ?? 0)
+        let x = Math.max(minimum, Math.min(Math.max(minimum, maximum), box.x + p.x - d.start.x))
         x = box.x + boundedTranslation(d.objects, d.geometry, [object.id], { x: x - box.x, y: 0 }, pageWidth()).x
         const centered = !event.altKey && Math.abs(x - center) * scale <= 8
         if (centered) x = center
         d.patches = { [object.id]: { x, centered } }
         setPreviews(d.patches); setFlowDrop({ centered }); return
       }
-      let placement = snap({ x: box.x + p.x - d.start.x, y: box.y + p.y - d.start.y }, event.altKey)
-      const dx = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].x)), placement.x - box.x)
-      const dy = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].y)), placement.y - box.y)
+      const footprint = layoutBounds(box)
+      const placement = snap({ x: footprint.x + p.x - d.start.x, y: footprint.y + p.y - d.start.y }, event.altKey)
+      const dx = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].x)), placement.x - footprint.x)
+      const dy = Math.max(-Math.min(...d.ids.map(id => d.geometry[id].y)), placement.y - footprint.y)
       d.patches = shifted(d.objects, d.geometry, d.ids, dx, dy)
       setPreviews(d.patches); return
     } else if (d.part === 'caption-width' && supportsCaption(object) && object.caption) {
@@ -525,20 +545,21 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       patch = { caption: { ...object.caption, width: boundedCaptionWidth(object, box, 2 * (edge.x - box.x - box.width / 2)) } }
     } else if (d.part === 'width') {
       const edge = snap({ x: box.x + box.width + p.x - d.start.x, y: box.y }, event.altKey || object.placement === 'flow')
-      patch = { width: object.placement === 'flow' ? Math.min(pageWidth() - doc.margins.left - doc.margins.right - (object.centered ? 0 : Math.max(0, object.x)), Math.max(16, edge.x - box.x))
-        : boundedWidth(box.x, edge.x - box.x, object.kind === 'html' ? 16 : 120) }
+      patch = { width: boundedObjectWidth(object, box, edge.x - box.x) }
       if (object.kind === 'drawing') patch.height = object.height * patch.width! / object.width
     } else {
       const west = d.part.includes('w'), north = d.part.includes('n')
       const fixed = { x: west ? box.x + box.width : box.x, y: north ? box.y + ('height' in object ? object.height : box.height) : box.y }
-      const end = boundedPoint(snap(p, event.altKey || object.placement === 'flow'))
+      const end = boundedResizePoint(snap(p, event.altKey || object.placement === 'flow'), object, north)
       let width = Math.max(16, west ? fixed.x - end.x : end.x - fixed.x), height = Math.max(16, north ? fixed.y - end.y : end.y - fixed.y)
       const ratio = object.kind === 'drawing' ? object.height / object.width : 0
       if (ratio) width = Math.max(width, height / ratio)
       else if (event.shiftKey) width = height = Math.max(width, height)
-      width = Math.min(width, west ? Math.max(0, fixed.x) : Math.max(0, pageWidth() - fixed.x))
-      if (object.placement === 'flow') width = Math.min(width, object.centered ? pageWidth() - doc.margins.left - doc.margins.right
-        : west ? Math.max(16, fixed.x - doc.margins.left) : Math.max(16, pageWidth() - doc.margins.right - fixed.x))
+      const marginLeft = object.margins?.left ?? 0, marginRight = object.margins?.right ?? 0
+      width = Math.min(width, west ? Math.max(0, fixed.x - marginLeft) : Math.max(0, pageWidth() - fixed.x - marginRight))
+      if (object.placement === 'flow') width = Math.min(width, object.centered ? pageWidth() - doc.margins.left - doc.margins.right - marginLeft - marginRight
+        : west ? Math.max(16, fixed.x - doc.margins.left - marginLeft) : Math.max(16, pageWidth() - doc.margins.right - fixed.x - marginRight))
+      width = Math.max(Math.min(16, object.width), width)
       if (ratio) height = width * ratio
       else if (event.shiftKey) height = width
       patch = { x: west ? fixed.x - width : fixed.x, top: Math.max(0, north ? fixed.y - height : fixed.y), width, height }
@@ -715,7 +736,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function boundedCaptionWidth(object: FloatingObject, box: Box, width: number) {
     const center = box.x + object.width / 2
-    return Math.max(1, Math.min(Math.max(16, width), 2 * Math.max(0, Math.min(center, pageWidth() - center))))
+    const left = center - (object.margins?.left ?? 0), right = pageWidth() - center - (object.margins?.right ?? 0)
+    return Math.max(1, Math.min(Math.max(16, width), 2 * Math.max(0, Math.min(left, right))))
   }
   function captionWidth(width: number | null) {
     const object = doc.floating.find(object => object.id === selectedIds[0])
@@ -789,18 +811,20 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     }
     if (sizeLocked(id) && part) return
     const object = doc.floating.find(object => object.id === id)!
-    const width = (next: number) => object.placement === 'flow'
-      ? Math.max(16, Math.min(pageWidth() - doc.margins.left - doc.margins.right - (object.centered ? 0 : Math.max(0, object.x)), next))
-      : boundedWidth(geometry[id].x, next, object.kind === 'html' || object.kind === 'drawing' ? 16 : 120)
-    if (part === 'width' || part && object.kind === 'drawing') { onNoteChange(id, { width: width(object.width + (direction.x || direction.y) * step) }); return }
+    const width = (next: number) => boundedObjectWidth(object, geometry[id], next)
+    if (part === 'width' || part && object.kind === 'drawing') {
+      onNoteChange(id, constrainCaptionResize(object, { width: width(object.width + (direction.x || direction.y) * step) }, geometry[id], pageWidth())); return
+    }
     if (part && object.kind === 'html') {
-      onNoteChange(id, { width: width(object.width + direction.x * step), height: Math.max(16, object.height + direction.y * step) }); return
+      onNoteChange(id, constrainCaptionResize(object, { width: width(object.width + direction.x * step), height: Math.max(16, object.height + direction.y * step) }, geometry[id], pageWidth())); return
     }
     if (object.placement === 'flow') {
       if (direction.x) {
         const available = pageWidth() - doc.margins.left - doc.margins.right
         const box = geometry[id]
-        const desired = Math.max(0, Math.min(Math.max(0, available - object.width), box.x - doc.margins.left + direction.x * (event.shiftKey ? 10 : 1))) + doc.margins.left
+        const minimum = doc.margins.left + (object.margins?.left ?? 0)
+        const maximum = doc.margins.left + available - object.width - (object.margins?.right ?? 0)
+        const desired = Math.max(minimum, Math.min(Math.max(minimum, maximum), box.x + direction.x * (event.shiftKey ? 10 : 1)))
         onNoteChange(id, { x: box.x - doc.margins.left + boundedTranslation(doc.floating, geometry, [id], { x: desired - box.x, y: 0 }, pageWidth()).x, centered: false })
       } else {
         const index = doc.content.content!.findIndex(node => node.attrs?.objectId === id)
@@ -847,7 +871,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
   function renderObject(original: FloatingObject, inFlow = false) {
           const note = patchFloating(original, previews[original.id] ?? {})
-          const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24 }
+          const box = geometry[note.id] ?? { x: note.x, y: previews[note.id]?.top ?? note.y, width: note.width, height: 'height' in note ? note.height : 24,
+            ...(note.margins && { margins: note.margins }) }
           const segment = segmentTask(note.id)
           return <FloatingObjectView key={note.id} note={note} inFlow={inFlow} geometry={inFlow ? { ...box, x: box.x - doc.margins.left } : box} editable={editable} locked={lockedIds.has(note.id) || !!segment} sizeLocked={sizeLocked(note.id) || !!segment} selected={segment ? activeSegmentId === segment.id : selectedIds.includes(note.id) || creating?.id === note.id}
             captionSelected={selectedIds.length === 1 && selectedCaptionId === note.id} captionResizable={!segment}
@@ -907,8 +932,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), width: doc.width, transform: `scale(${scale})` } as React.CSSProperties}>
         {(() => {
           const flow = !!insertionHint.boundary, object = objectAt(insertionHint.position, flow)
-          const x = flow ? doc.margins.left + (pageWidth() - doc.margins.left - doc.margins.right - object.width) / 2 : insertionHint.position.x
-          return <FloatingObjectView note={object} geometry={{ x, y: insertionHint.position.y, width: object.width, height: 'height' in object ? object.height : 24 }}
+          const x = flow ? doc.margins.left + flowX({ ...object, centered: true }, pageWidth() - doc.margins.left - doc.margins.right) : insertionHint.position.x
+          return <FloatingObjectView note={object} geometry={{ x, y: insertionHint.position.y, width: object.width, height: 'height' in object ? object.height : 24,
+            ...(object.margins && { margins: object.margins }) }}
             editable staticWidgets selected={false} contentActive={false} defaultFontSize={doc.theme.defaults.size} widgetRun={0} order={0}
             onBegin={() => {}} onActive={() => {}} onChange={() => {}} onCaption={() => {}} onKey={() => {}} />
         })()}

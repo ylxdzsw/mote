@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from '
 import type { Editor } from '@tiptap/core'
 import { supportsCaption, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { horizontalBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { extentBounds, layoutBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
 import { nativeSize } from './measurement'
 
 export interface Placement { x: number; top: number }
@@ -82,8 +82,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const column = { left: doc.margins.left, width: surface.clientWidth - doc.margins.left - doc.margins.right }
       const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
-      const bodyHeights = new Map<string, number>()
-      const captionHeights = new Map<string, number>()
       const notes = new Map<string, HTMLElement>()
       const sizes: Record<string, { width: number; height: number }> = {}
       surface.querySelectorAll<HTMLElement>('.floating-note').forEach(element => {
@@ -93,8 +91,6 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         heights.set(element.dataset.noteId!, size.height)
         const caption = element.querySelector<HTMLElement>('.object-caption')
         if (caption) {
-          bodyHeights.set(element.dataset.noteId!, nativeSize(element.querySelector<HTMLElement>('.object-body')!).height)
-          captionHeights.set(element.dataset.noteId!, nativeSize(caption).height)
           elements.add(caption)
         }
         sizes[element.dataset.noteId!] = size
@@ -103,7 +99,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const anchors: Anchor[] = []
       const tops: Record<string, number> = {}
       const flowMounts: Record<string, HTMLElement> = {}
-      const obstacles: Obstacle[] = []
+      const obstacles = new Map<string, Obstacle>()
       const activate = (note: FloatingObject, anchorTop: number, anchorLeft = 0) => {
         if (note.placement === 'flow') return
         const moving = override[note.id]
@@ -111,18 +107,14 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const left = moving?.x ?? anchorLeft + note.x
         const width = moving?.width ?? note.width
         tops[note.id] = top
-        const height = bodyHeights.get(note.id) ?? heights.get(note.id) ?? 0
-        obstacles.push({
-          left: left - gap, right: left + width + gap,
-          top: Math.max(anchorTop, top - gap), bottom: top + height + gap,
-        })
+        const height = heights.get(note.id) ?? 0
         const caption = moving?.caption ?? (supportsCaption(note) ? note.caption : undefined)
-        if (caption && captionHeights.has(note.id)) {
-          const captionWidth = caption.width ?? width
-          const captionLeft = left + (width - captionWidth) / 2
-          obstacles.push({ left: captionLeft - gap, right: captionLeft + captionWidth + gap,
-            top: top + height, bottom: top + height + 8 + captionHeights.get(note.id)! + gap })
-        }
+        const bounds = layoutBounds({ x: left, y: top, width, height, captionWidth: caption?.width, margins: moving?.margins ?? note.margins })
+        if (bounds.width > 0 && bounds.height > 0) obstacles.set(note.id, {
+          left: bounds.x - gap, right: bounds.x + bounds.width + gap,
+          top: Math.max(anchorTop, bounds.y - gap), bottom: bounds.y + bounds.height + gap,
+        })
+        else obstacles.delete(note.id)
       }
       // A dragged object has a fixed document-space position until release.
       for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
@@ -149,8 +141,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       // Widget wrappers and zero-height reservation controls are not flow
       // boundaries. Resolve paragraph edge margins from visible block order.
       for (const [index, { element, paragraph }] of blocks.entries()) if (paragraph || element.hasAttribute('data-flow')) {
-        property(element, 'margin-top', !paragraph || index === 0 ? '0px' : 'var(--text-spaceBefore)')
-        property(element, 'margin-bottom', index === blocks.length - 1 ? '0px' : paragraph ? 'var(--text-spaceAfter)' : 'var(--body-spaceAfter)')
+        property(element, 'margin-top', index === 0 ? '0px' : paragraph ? 'var(--text-spaceBefore)' : 'var(--flow-spaceBefore)')
+        property(element, 'margin-bottom', index === blocks.length - 1 ? '0px' : paragraph ? 'var(--text-spaceAfter)' : 'var(--flow-spaceAfter)')
       }
       // A spacer separates margins that would otherwise collapse to their maximum.
       const visible = new Set(blocks.map(block => block.element))
@@ -162,6 +154,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const overlap = Math.min(before ? parseFloat(getComputedStyle(before).marginBottom) || 0 : 0, after ? parseFloat(getComputedStyle(after).marginTop) || 0 : 0)
         property(element, '--space-overlap', `${overlap}px`)
       })
+      // Repulsion starts at the anchor: an object must not reflow preceding
+      // content that establishes its own position (a cyclic layout dependency).
       for (const { element, ids, paragraph } of blocks) {
         let top = localTop(element)
         let left: number | undefined
@@ -188,7 +182,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         if (!paragraph) continue
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
-        const shape = exclusion(obstacles, top, localLeft(element), nativeSize(element).width)
+        const shape = exclusion([...obstacles.values()], top, localLeft(element), nativeSize(element).width)
         if (shape) {
           // Contain each proxy float, but derive paragraph height from its native
           // in-flow content rather than the (possibly much taller) proxy itself.
@@ -211,8 +205,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       // Only unused side margins may collapse in reading; retain every on-page object.
       let left = doc.margins.left, right = doc.width - doc.margins.right
       for (const note of objects) {
-        const bounds = horizontalBounds(geometry[note.id])
-        const start = bounds.left + surface.clientLeft, end = bounds.right + surface.clientLeft
+        const bounds = extentBounds(geometry[note.id])
+        const start = bounds.x + surface.clientLeft, end = bounds.x + bounds.width + surface.clientLeft
         if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
       }
       // Display math can extend beyond its author-sized box on either side.

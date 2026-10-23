@@ -27,10 +27,10 @@ function sortedKeys(_key: string, value: unknown): unknown {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value
 }
-// Placement belongs to the user; content and size belong to the reserved task.
+// Placement and margins belong to the user; content and size belong to the reserved task.
 export function objectContent(object: FloatingObject) {
-  const { x, y, anchorId, placement, centered, ...content } = object
-  void x; void y; void anchorId; void placement; void centered
+  const { x, y, anchorId, placement, centered, margins, ...content } = object
+  void x; void y; void anchorId; void placement; void centered; void margins
   if (supportsCaption(object) && object.caption) return { ...content, caption: { content: object.caption.content } }
   return content
 }
@@ -258,6 +258,8 @@ export function currentPlacement(candidate: FloatingObject, original: FloatingOb
   const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.width, ...('height' in original && { height: original.height }) }) : candidate
   const result: FloatingObject = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, placement: original.placement, centered: original.centered }
   if (original.centered === undefined) delete result.centered
+  if (original.margins === undefined) delete result.margins
+  else result.margins = { ...original.margins }
   if ('height' in original && 'height' in result) result.height = original.height
   if (supportsCaption(result)) {
     const originalCaption = supportsCaption(original) ? original.caption : undefined

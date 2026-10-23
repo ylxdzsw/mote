@@ -1,8 +1,10 @@
 .sheet { isolation: isolate; }
-.main-text [data-flow] { display: flow-root; width: 100%; margin: 0 0 var(--body-spaceAfter); }
+.main-text [data-flow] { display: flow-root; width: 100%; margin: var(--flow-spaceBefore) 0 var(--flow-spaceAfter); }
 .main-text [data-flow-mount] { display: flow-root; width: 100%; }
 .main-text [data-flow].ai-original-hidden { display: none; }
 .floating-note[data-in-flow] { display: flow-root; }
+.object-layout-footprint { display: none; position: absolute; pointer-events: none; outline: 1px dashed var(--ui-accent-border); opacity: .6; }
+.app:has(.object-margins:focus-within) .object-layout-footprint { display: block; }
 .floating-note.floating-drawing { border: 0; border-radius: 0; }
 .floating-drawing .object-body > svg { display: block; width: 100%; height: 100%; pointer-events: none; }
 .sheet.is-editing .floating-drawing { outline: 1px dashed var(--ui-border); }

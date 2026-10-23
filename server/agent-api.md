@@ -15,6 +15,13 @@ unsupported. Each Flow has exactly one top-level main node
 or `centered:true` centers it within the text width. A Float anchored to a Flow
 block uses `x,y` relative to that Flow object’s top-left; other Floats use page
 `x` and nonnegative anchor-relative `y`. Flow-relative Float offsets may be negative.
+The optional `theme.flow` object is document-level Flow spacing, not a paragraph
+semantic: its optional `spaceBefore` and `spaceAfter` use nonnegative theme
+lengths (finite numbers or `px`/`em` strings). Omitted `spaceBefore` is 0;
+omitted `spaceAfter` follows the resolved Body `spaceAfter`. Every object kind
+may have optional `margins: {top,right,bottom,left}` with four signed finite
+document-pixel values; omission means zero. Margins affect layout footprint,
+not object dimensions. Clipboard and conversion operations retain them.
 Optional captions belong only to image, HTML, and table objects. They always
 appear below the owner, including tables, and use the document's Caption theme.
 The schema is `{content: JSONContent, width?: number}`: `content` is a doc with
@@ -32,9 +39,14 @@ anchored Floats. A segment delivery may generate or replace these complete
 compositions; its Flow node/object references must be internal and one-to-one.
 Captions remain within the owning object's fields and are not separate
 `objectIds` or geometry entries. Main-text tasks accept paragraphs only and
-cannot cross Flow blocks. A single-object revision retains the current target
-placement, centered state, geometry, and existing caption when the candidate
-omits `caption`; an explicit empty `caption.content` paragraph clears it.
+cannot cross Flow blocks. An individual object target treats margins as
+user-owned geometry: candidate margins are validated but normalized to the
+snapshot object's value (or omission), and acceptance rebinds the latest
+original value so changes made since submission survive. Section/segment
+candidates may author object margins. A single-object revision retains the
+current target placement, centered state, geometry, and existing caption when
+the candidate omits `caption`; an explicit empty `caption.content` paragraph
+clears it.
 Caption rich text belongs to the reservation, but width is user-owned: the
 frontend preserves its current value and the backend normalizes candidate width
 to the saved value (or omission when the saved width followed the owner). A

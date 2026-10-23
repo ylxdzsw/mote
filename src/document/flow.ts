@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import type { Anchor, Geometries, Point } from '../canvas/floatingGeometry'
+import { flowX, type Anchor, type Geometries, type Point } from '../canvas/floatingGeometry'
 import { paragraph, type FloatingObject, type MoteDocument } from './model'
 
 export interface FlowGeometryOptions {
@@ -23,7 +23,8 @@ export function objectPagePosition(doc: MoteDocument, object: FloatingObject, op
   if (object.placement === 'flow') {
     const left = options.textLeft ?? doc.margins.left
     const width = options.textWidth ?? doc.width - left - doc.margins.right
-    return { x: left + (object.centered ? (width - object.width) / 2 : object.x), y: anchorTop(object.anchorId, options) }
+    const anchor = options.anchors?.findLast(candidate => candidate.id === object.anchorId)
+    return { x: left + flowX(object, width), y: anchor?.top ?? object.margins?.top ?? 0 }
   }
   const target = flowAt(doc, object.anchorId)
   const origin = target ? objectPagePosition(doc, target, options) : { x: 0, y: anchorTop(object.anchorId, options) }

@@ -61,19 +61,20 @@ function finiteValues(value: unknown, path = 'document'): void {
   }
 }
 
-function themeLength(value: unknown, path: string): void {
+function themeLength(value: unknown, path: string, nonnegative = false): void {
   if (typeof value === 'number') {
-    finite(value, path)
+    finite(value, path, nonnegative ? 0 : undefined)
     return
   }
   if (typeof value !== 'string' || !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px|em)$/.test(value) || !Number.isFinite(parseFloat(value))) invalid(`${path} must be a finite theme length`)
+  if (nonnegative && parseFloat(value) < 0) invalid(`${path} must be nonnegative`)
 }
 
 function themeStyle(value: unknown, path: string): void {
   const style = record(value, path)
   if ('family' in style && !['sans', 'serif', 'mono'].includes(style.family as string)) invalid(`${path}.family is unsupported`)
   for (const property of ['size', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
-    if (property in style) themeLength(style[property], `${path}.${property}`)
+    if (property in style) themeLength(style[property], `${path}.${property}`, property === 'spaceBefore' || property === 'spaceAfter')
   }
   if ('background' in style) invalid(`${path}.background is unsupported`)
   if ('color' in style) text(style.color, `${path}.color`)
@@ -86,6 +87,13 @@ function checkTheme(value: unknown): void {
   for (const name of ['hue', 'secondaryHue']) if (finite(theme[name], `theme.${name}`, 0) >= 360) invalid(`theme.${name} must be less than 360`)
   if ('palette' in theme) invalid('theme.palette is unsupported')
   if ('autospace' in theme && typeof theme.autospace !== 'boolean') invalid('theme.autospace must be a boolean')
+  if ('flow' in theme) {
+    const flow = record(theme.flow, 'theme.flow')
+    if (Object.keys(flow).some(property => property !== 'spaceBefore' && property !== 'spaceAfter')) invalid('theme.flow contains an unsupported property')
+    for (const property of ['spaceBefore', 'spaceAfter']) {
+      if (flow[property] !== undefined) themeLength(flow[property], `theme.flow.${property}`, true)
+    }
+  }
   const defaults = record(theme.defaults, 'theme.defaults')
   for (const property of ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) {
     if (!(property in defaults)) invalid(`theme.defaults.${property} is missing`)
@@ -216,6 +224,12 @@ function checkFloating(value: unknown, index: number, ids: Set<string>, captionI
   if ('textFlow' in object) invalid(`${path}.textFlow is unsupported`)
   if (!['flow', 'float'].includes(object.placement as string)) invalid(`${path}.placement is unsupported`)
   if ('centered' in object && typeof object.centered !== 'boolean') invalid(`${path}.centered must be a boolean`)
+  if ('margins' in object) {
+    const margins = record(object.margins, `${path}.margins`)
+    const sides = ['top', 'right', 'bottom', 'left']
+    if (Object.keys(margins).some(side => !sides.includes(side)) || sides.some(side => !(side in margins))) invalid(`${path}.margins must contain top, right, bottom, and left`)
+    for (const side of sides) finite(margins[side], `${path}.margins.${side}`)
+  }
 
   const kind = object.kind
   if ('decoration' in object) {

@@ -2,7 +2,7 @@ import { useRef, type PointerEvent } from 'react'
 import type { Editor } from '@tiptap/core'
 import { isText, supportsCaption, type FloatingObject, type FloatingPatch } from '../document/model'
 import { TextEditor } from '../editor/TextEditor'
-import { type Geometry } from './floatingGeometry'
+import { layoutBounds, type Geometry } from './floatingGeometry'
 import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
 import { CodeView } from './CodeView'
@@ -32,6 +32,7 @@ interface Props {
 export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, captionSelected = false, captionResizable = true, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview, inFlow = false }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
+  const footprint = layoutBounds({ ...box, margins: note.margins })
   const decoration = isText(note) ? note.decoration : null
   const textStyle = isText(note) ? {
     padding: pixels(note.padding ?? (decoration ? '0.75em' : 0), defaultFontSize),
@@ -70,6 +71,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
     data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-placement={note.placement} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
     data-table-style={note.kind === 'table' ? note.style ?? 'simple' : undefined} data-table-header={note.kind === 'table' && note.headerRow ? '' : undefined}
     style={{ ...textStyle, '--ai-object-x': `${box.x}px`, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
+      marginTop: inFlow ? note.margins?.top : undefined, marginBottom: inFlow ? note.margins?.bottom : undefined,
       width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.height : box.height) : undefined } as React.CSSProperties & { '--ai-object-x': string }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`} aria-describedby={captionVisible ? `${note.id}-caption` : undefined}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null) }}
@@ -109,5 +111,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       className={`object-handle handle-${part}`} data-floating-control={part} aria-label={`Resize ${kind} ${part}`} onPointerDown={event => begin(part, event)} />)}
     </div>
     {captionView}
+    {editable && selected && note.margins && Object.values(note.margins).some(Boolean) && <div className="object-layout-footprint" aria-hidden="true"
+      style={{ left: footprint.x - box.x, top: footprint.y - box.y, width: footprint.width, height: footprint.height }} />}
   </div>
 }

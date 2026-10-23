@@ -308,6 +308,14 @@ export function validateGeometry(geometry: unknown): asserts geometry is Geometr
     const box = value as Record<string, unknown>
     for (const key of ['x', 'y']) if (typeof box[key] !== 'number' || !Number.isFinite(box[key])) throw new Error('Invalid segment geometry')
     for (const key of ['width', 'height']) if (typeof box[key] !== 'number' || !Number.isFinite(box[key]) || box[key] < 0) throw new Error('Invalid segment geometry')
+    if (box.margins !== undefined) {
+      const margins = box.margins as Record<string, unknown>
+      const sides = ['top', 'right', 'bottom', 'left']
+      if (!margins || typeof margins !== 'object' || Array.isArray(margins)
+        || Object.keys(margins).some(side => !sides.includes(side)) || sides.some(side => typeof margins[side] !== 'number' || !Number.isFinite(margins[side]))) {
+        throw new Error('Invalid segment geometry')
+      }
+    }
   }
 }
 

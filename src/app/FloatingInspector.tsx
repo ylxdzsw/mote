@@ -41,11 +41,13 @@ interface Props {
   onDrawingEdit: () => void
   onRevise?: () => void
   reviseDisabled?: boolean
+  reserved?: boolean
+  onOpenTask?: () => void
 }
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled, reserved, onOpenTask }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -56,8 +58,8 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   if (captionSelected && supportsCaption(object) && object.caption) {
     const ownerSelectionLabel = object.kind === 'image' ? 'Select image' : object.kind === 'table' ? 'Select table' : 'Select widget'
     return <div className="context-inspector floating-inspector">
-      <ContextHeading title="Caption" actions={<button className="icon-action delete-action" aria-label="Remove caption" title="Remove caption" onClick={() => onChange({ caption: null })}><PanelIcon name="trash" /></button>} />
-      <InspectorRow><button onClick={onCaption}>Edit caption</button><button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
+      <ContextHeading title={reserved ? 'Caption · Reserved for AI' : 'Caption'} actions={!reserved && <button className="icon-action delete-action" aria-label="Remove caption" title="Remove caption" onClick={() => onChange({ caption: null })}><PanelIcon name="trash" /></button>} />
+      <InspectorRow>{reserved && onOpenTask && <button onClick={onOpenTask}>Open AI task</button>}{!reserved && <button onClick={onCaption}>Edit caption</button>}<button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
       <InspectorGroup title="Layout">
         <InspectorField label="Width">
           <NumberField label="Caption width" value={object.caption.width ?? object.width} min={16} max={captionMaxWidth} onChange={onCaptionWidth} />
@@ -67,16 +69,18 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           </label>
         </InspectorField>
       </InspectorGroup>
-      <InspectorStyles semantic="caption" onTheme={onTheme} />
+      {!reserved && <InspectorStyles semantic="caption" onTheme={onTheme} />}
       <InspectorHelp>
+        {reserved ? <p>Caption content stays reserved for the active AI task. Its width remains user-controlled.</p> : <>
         <p>Click once to select the caption, then click inside it to edit. Drag the caption box or its borders to move its owner; the right border resizes the caption while keeping it centered.</p>
         <p>Width follows the owner unless overridden; wider captions stay centered within the page.</p>
         <p>Delete removes the caption. Captions cannot be detached from their owners.</p>
+        </>}
       </InspectorHelp>
     </div>
   }
   return <div className="context-inspector floating-inspector">
-    <ContextHeading title={count > 1 ? `${count} objects` : name} actions={<>
+    <ContextHeading title={reserved ? 'Reserved for AI' : count > 1 ? `${count} objects` : name} subtitle={reserved ? name : undefined} actions={!reserved && <>
       <button className="icon-action" aria-label="Duplicate" title={count > 1 ? `Duplicate ${count} objects` : 'Duplicate'} onClick={() => onAction('duplicate')}><PanelIcon name="copy" /></button>
       <button className="icon-action delete-action" aria-label={count > 1 ? `Delete ${count} objects` : 'Delete'} title={count > 1 ? `Delete ${count} objects` : 'Delete'} onClick={() => onAction('remove')}><PanelIcon name="trash" /></button>
     </>} />
@@ -89,8 +93,9 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
             <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
           </label>)}
         </div>
-        {onRevise && <ReviseControl onRevise={onRevise} disabled={reviseDisabled} />}
+        {reserved && onOpenTask ? <button onClick={onOpenTask}>Open AI task</button> : onRevise && <ReviseControl onRevise={onRevise} disabled={reviseDisabled} />}
       </div>
+      {!reserved && <>
       {object.kind === 'drawing' && <button onClick={onDrawingEdit}>Edit drawing…</button>}
       {object.kind === 'code' && <label className="inspector-field">Language<select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
           {!codeLanguages.some(language => language.value === object.language) && <option value={object.language}>{object.language || 'Plain text'}</option>}
@@ -139,21 +144,41 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         </InspectorField>}
         <TextPadding value={object.padding ?? (object.decoration ? '0.75em' : 0)} base={defaultFontSize} onChange={padding => onChange({ padding })} />
       </InspectorGroup>}
+      </>}
     </>}
     <InspectorGroup title="Layout">
       {count === 1 && object.placement === 'flow' && <button aria-pressed={!!object.centered} title="Keep centered as the width changes; drag sideways to position freely"
         onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>}
+      {count === 1 && <ObjectMargins object={object} onChange={margins => onChange({ margins })} />}
       <InspectorRow><button onClick={onFront}>Bring to front</button><button onClick={onBack}>Send to back</button></InspectorRow>
     </InspectorGroup>
-    {count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'math' : undefined} onTheme={onTheme} />}
+    {!reserved && count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'math' : undefined} onTheme={onTheme} />}
     <InspectorHelp key={count > 1 ? 'group' : object.kind ?? 'text'}>
-      <FloatingHelp object={object} count={count} />
-      {count === 1 && <p>{object.placement === 'flow'
+      {reserved ? <p>Content and size stay reserved for the active AI task. Placement and margins remain user-controlled.</p> : <FloatingHelp object={object} count={count} />}
+      {!reserved && count === 1 && <p>{object.placement === 'flow'
         ? 'Drag sideways to position; snap to the center. Drag up or down to move between document blocks.'
         : 'Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.'}</p>}
-      <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Captions stay with their objects. While editing text, these shortcuts act on text instead.</p>
-      <p>Delete/Backspace removes a focused object. Undo restores it.</p>
+      {!reserved && <>
+        <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Captions stay with their objects. While editing text, these shortcuts act on text instead.</p>
+        <p>Delete/Backspace removes a focused object. Undo restores it.</p>
+      </>}
     </InspectorHelp>
+  </div>
+}
+
+function ObjectMargins({ object, onChange }: { object: FloatingObject; onChange: (margins: NonNullable<FloatingObject['margins']>) => void }) {
+  const sides = ['top', 'right', 'bottom', 'left'] as const
+  const margins = object.margins ?? { top: 0, right: 0, bottom: 0, left: 0 }
+  return <div className="inspector-field object-margin-fieldset">
+    <div className="field-heading">Margins</div>
+    <div className="object-margins">
+      {sides.map(side => <label key={side}>
+        <span>{side[0].toUpperCase() + side.slice(1)}</span>
+        <NumberField label={`${side} margin`} value={margins[side]} step="any"
+          onChange={value => onChange({ ...margins, [side]: value })} />
+      </label>)}
+    </div>
+    <p className="hint">Margins affect layout footprint, not object size.</p>
   </div>
 }
 

@@ -200,7 +200,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .sheet.can-continue-writing { cursor: text; }
 .stage:has(.sheet.can-continue-writing) { cursor: text; }
 .main-text .has-tail-caret > .ProseMirror-gapcursor { margin-top: var(--body-spaceBefore); font-size: var(--body-size); line-height: var(--body-lineHeight); }
-.main-text .has-tail-caret > [data-flow] + .ProseMirror-gapcursor { margin-top: max(var(--body-spaceBefore), var(--body-spaceAfter)); }
+.main-text .has-tail-caret > [data-flow] + .ProseMirror-gapcursor { margin-top: max(var(--body-spaceBefore), var(--flow-spaceAfter)); }
 .main-text .has-tail-caret > .ProseMirror-gapcursor::after { top: 0; width: 0; height: 1lh; border-top: 0; border-left: 1px solid var(--body-color); }
 .main-paragraph[data-repel] { height: var(--text-height); }
 .main-paragraph[data-repel]::before { content: ''; float: right; width: 100%; height: var(--repel-height); shape-outside: var(--repel-shape); pointer-events: none; }

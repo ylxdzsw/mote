@@ -25,7 +25,7 @@ import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { patchFloating } from '../canvas/patchFloating'
-import { constrainCaptionResize } from '../canvas/floatingGeometry'
+import { constrainCaptionResize, extentBounds } from '../canvas/floatingGeometry'
 import { reconcileObjectDeletions } from '../document/flow'
 import { WorkspaceSettings } from '../cloud/WorkspaceSettings'
 import { PanelIcon } from './PanelIcon'
@@ -118,6 +118,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
   const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
   const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
+  const selectedObjectTask = selectedIds.length === 1 && selectedObject
+    ? assistant.tasks.find(task => task.target.kind === 'object' && task.target.objectId === selectedObject.id)
+    : undefined
   const [drawingId, setDrawingId] = useState<string | null>(null)
   const drawing = doc?.floating.find(object => object.id === drawingId)
   const imageInput = useRef<HTMLInputElement>(null)
@@ -348,6 +351,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (!element || !sheet) return { x: doc!.margins.left, y: doc!.margins.top, width: doc!.width - doc!.margins.left - doc!.margins.right, height: 24 }
     const origin = sheet.getBoundingClientRect(), rect = element.getBoundingClientRect(), scale = origin.width / sheet.offsetWidth
     const caption = element.querySelector('.object-caption')?.getBoundingClientRect()
+    const object = doc!.floating.find(object => object.id === element.getAttribute('data-note-id'))
+    if (object) return extentBounds({ x: (rect.left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop,
+      width: rect.width / scale, height: rect.height / scale, captionWidth: caption ? caption.width / scale : undefined, margins: object.margins })
     const left = Math.min(rect.left, caption?.left ?? rect.left), right = Math.max(rect.right, caption?.right ?? rect.right)
     return { x: (left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: (right - left) / scale, height: rect.height / scale }
   }
@@ -554,7 +560,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
               {!tool && <TextToolsRow editor={activeEditor} theme={doc.theme} caption={isCaptionEditor(activeEditor)} onPalette={() => openThemeClass('palette')}
                 recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
               <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
-              {selectedObject && assistant.lockedIds.has(selectedObject.id) ? <div className="context-inspector">
+              {selectedObject && assistant.lockedIds.has(selectedObject.id) && !selectedObjectTask ? <div className="context-inspector">
                 <ContextHeading title="Reserved for AI" subtitle="Review the result before editing this area." />
                 <div className="inspector-stack">
                   <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
@@ -572,7 +578,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onWidgetRun={runWidget}
                   onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
-                  onRevise={() => { setTool(null); reserveSelection() }} />
+                  onRevise={() => { setTool(null); reserveSelection() }} reserved={!!selectedObjectTask}
+                  onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} />
                 : tool ? <div className="context-inspector">
                     <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click or drag to place on the document.' : `Click or drag to place on the page. Click the left gutter to ${tool === 'ai' ? 'reserve an AI section' : 'insert as Flow'}.`} />
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
