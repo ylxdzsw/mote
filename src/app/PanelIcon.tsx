@@ -8,6 +8,8 @@ const paths = {
   close: 'm6 6 12 12M6 18 18 6',
   trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',
   copy: 'M9 9h12v12H9zM15 5V3H3v12h2',
+  front: 'M3 3h12v12H3zM19 9h2v12H9v-2',
+  back: 'M9 9h12v12H9zM15 5V3H3v12h2',
   chevron: 'm8 10 4 4 4-4',
   undo: 'm9 5-5 5 5 5M4 10h10a6 6 0 0 1 0 12',
   redo: 'm15 5 5 5-5 5M20 10H10a6 6 0 0 0 0 12',

@@ -146,11 +146,11 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       </InspectorGroup>}
       </>}
     </>}
-    <InspectorGroup title="Layout">
-      {count === 1 && object.placement === 'flow' && <button aria-pressed={!!object.centered} title="Keep centered as the width changes; drag sideways to position freely"
-        onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>}
+    <InspectorGroup title="Layout" actions={<>
+      <button className="icon-action" aria-label="Bring to front" title="Bring to front" onClick={onFront}><PanelIcon name="front" /></button>
+      <button className="icon-action" aria-label="Send to back" title="Send to back" onClick={onBack}><PanelIcon name="back" /></button>
+    </>}>
       {count === 1 && <ObjectMargins object={object} onChange={margins => onChange({ margins })} />}
-      <InspectorRow><button onClick={onFront}>Bring to front</button><button onClick={onBack}>Send to back</button></InspectorRow>
     </InspectorGroup>
     {!reserved && count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'math' : undefined} onTheme={onTheme} />}
     <InspectorHelp key={count > 1 ? 'group' : object.kind ?? 'text'}>

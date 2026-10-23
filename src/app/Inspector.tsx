@@ -137,9 +137,9 @@ function selectedClasses(editor: Editor | null, caption: boolean) {
   }
 }
 
-export function InspectorGroup({ title, children }: { title: string; children: ReactNode }) {
+export function InspectorGroup({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
   return <section className="inspector-group" aria-label={title}>
-    <h3>{title}</h3>{children}
+    {actions ? <div className="context-heading"><h3>{title}</h3><div className="context-heading-actions">{actions}</div></div> : <h3>{title}</h3>}{children}
   </section>
 }
 
