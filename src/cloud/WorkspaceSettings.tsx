@@ -15,7 +15,6 @@ interface WorkspaceSettings {
   revision: number
   models: ModelSettings
   indexingEnabled: boolean
-  serverDefaultModel: string | null
 }
 
 interface IndexedDocument {
@@ -58,8 +57,7 @@ function parseSettings(value: unknown, status: number): WorkspaceSettings {
   if (!Number.isSafeInteger(result.revision) || result.revision! < 0 || !result.models ||
     typeof result.models.builtin !== 'string' || result.models.builtin.length > 256 ||
     typeof result.models.indexing !== 'string' || result.models.indexing.length > 256 ||
-    typeof result.indexingEnabled !== 'boolean' ||
-    !(typeof result.serverDefaultModel === 'string' || result.serverDefaultModel === null)) {
+    typeof result.indexingEnabled !== 'boolean') {
     throw new SettingsRequestError('The workspace settings response was invalid.', status)
   }
   return result as WorkspaceSettings
@@ -289,13 +287,13 @@ export function WorkspaceSettings({ active }: { active: boolean }) {
           placeholder="provider/model:effort" disabled={!settings || operation !== null}
           onChange={event => setDraftSettings({ ...(draftRef.current ?? { models: { builtin: '', indexing: '' }, indexingEnabled: false }), models: { ...(draftRef.current?.models ?? { builtin: '', indexing: '' }), builtin: event.target.value } })} />
       </label>
-      <p className="cloud-detail">Leave blank to use {settings?.serverDefaultModel ? <code>{settings.serverDefaultModel}</code> : 'Mu’s configured default'}.</p>
+      <p className="cloud-detail">A model must be set here or in Document settings before using the built-in agent.</p>
       <label className="cloud-field">Indexing model
         <input type="text" maxLength={256} spellCheck={false} autoComplete="off" value={draft?.models.indexing ?? ''}
           placeholder="provider/model:effort" disabled={!settings || operation !== null}
           onChange={event => setDraftSettings({ ...(draftRef.current ?? { models: { builtin: '', indexing: '' }, indexingEnabled: false }), models: { ...(draftRef.current?.models ?? { builtin: '', indexing: '' }), indexing: event.target.value } })} />
       </label>
-      <p className="cloud-detail">Blank inherits the built-in agent default.</p>
+      <p className="cloud-detail">Blank inherits the workspace built-in agent model. Indexing requires one of these workspace models.</p>
       <p className="cloud-detail">Use <code>provider/model:effort</code>, or <code>model:effort</code> for configured provider fallback. Settings do not test model availability. Enabling auto-indexing authorizes background model calls.</p>
       <label className="cloud-check-field">
         <input type="checkbox" checked={draft?.indexingEnabled ?? false} disabled={!settings || operation !== null}

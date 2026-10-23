@@ -45,14 +45,14 @@ function managerFor(root, store, extra = {}) {
   return {
     store, env: { MOTED_FAKE_RUNNER: '1' }, stateDir: root, tasksDir,
     dataDir: path.join(root, 'data'), backupDir: path.join(root, 'backups'), sourcePath: root,
-    useSystemd: false, timeoutMs: 3000, defaultModel: 'fake', active: 0,
+    useSystemd: false, timeoutMs: 3000, active: 0,
     async prepareScope() {}, ...extra,
   }
 }
 
 function enable(store, enabled = true) {
   const current = store.settings()
-  return store.putSettings({ baseRevision: current.revision, models: current.models, indexingEnabled: enabled })
+  return store.putSettings({ baseRevision: current.revision, models: { builtin: 'fake', indexing: '' }, indexingEnabled: enabled })
 }
 
 async function waitFor(predicate, message = 'condition') {
@@ -194,6 +194,14 @@ test('indexing debounces from the latest saved revision and passes the complete 
   const manager = managerFor(root, store)
   await mkdir(manager.tasksDir, { recursive: true })
   store.putSettings({ baseRevision: store.settings().revision, models: { builtin: 'workspace/builtin', indexing: 'workspace/indexer' }, indexingEnabled: true })
+  const resolution = new DocumentIndexer(manager)
+  assert.equal(await resolution.resolveModel(), 'workspace/indexer')
+  store.putSettings({ baseRevision: store.settings().revision, models: { builtin: 'workspace/builtin', indexing: '' } })
+  assert.equal(await resolution.resolveModel(), 'workspace/builtin')
+  store.putSettings({ baseRevision: store.settings().revision, models: { builtin: '', indexing: '' } })
+  manager.env.MOTED_MU_DEFAULT_MODEL = 'global/ignored'
+  assert.equal(await resolution.resolveModel(), '')
+  store.putSettings({ baseRevision: store.settings().revision, models: { builtin: 'workspace/builtin', indexing: 'workspace/indexer' } })
   const models = []
   const modelRunner = fakeRunner(async (context, source) => { models.push(context.model); return runner(context, source) })
   const indexer = new DocumentIndexer(manager, { debounceMs: 180, runner: modelRunner })

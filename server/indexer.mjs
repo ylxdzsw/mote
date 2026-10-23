@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { constants as fsConstants, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fingerprint } from './agent-protocol.mjs'
-import { configuredModel, muRunner, stopWorkerUnit, workerUnit } from './runner.mjs'
+import { muRunner, stopWorkerUnit, workerUnit } from './runner.mjs'
 import { HttpError } from './validation.mjs'
 
 const MAX_INDEX_BYTES = 16 * 1024
@@ -172,10 +172,7 @@ export class DocumentIndexer {
 
   async resolveModel() {
     const settings = this.store.settings()
-    const preference = settings.models.indexing || settings.models.builtin || this.manager.defaultModel || this.env.MOTED_MU_DEFAULT_MODEL
-    if (this.env.MOTED_FAKE_RUNNER === '1') return preference || 'fake'
-    return preference ||
-      this.env.MOTED_MU_DEFAULT_MODEL || await configuredModel(this.env, this.manager.sourcePath)
+    return settings.models.indexing || settings.models.builtin
   }
 
   async startNext() {
@@ -208,7 +205,7 @@ export class DocumentIndexer {
     try { model = await this.resolveModel() } catch (error) { model = undefined }
     if (this.closed) return
     if (!model) {
-      this.store.failQueuedIndex(source.id, source.revision, 'Mu has no configured default model')
+      this.store.failQueuedIndex(source.id, source.revision, 'Choose an indexing or built-in agent model in Settings → Workspace, then retry indexing.')
       this.scheduleNext()
       return
     }

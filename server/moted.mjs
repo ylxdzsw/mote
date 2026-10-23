@@ -4,7 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
 import { HttpError, MAX_BODY, MAX_RESULT, MAX_SCREENSHOT, PROD_ORIGIN, UUID, validateRequest } from './validation.mjs'
-import { configuredModel, fakeRunner, muRunner, readSessionId, stopWorkerUnit, workerUnit } from './runner.mjs'
+import { fakeRunner, muRunner, readSessionId, stopWorkerUnit, workerUnit } from './runner.mjs'
 import { TranscriptJournal } from './transcript.mjs'
 import { cloudApi } from './cloud-api.mjs'
 import { storagePaths } from './storage-paths.mjs'
@@ -178,7 +178,6 @@ export class TaskManager {
     this.heartbeatMs = Math.max(10, Number(options.transcriptHeartbeatMs || this.env.MOTED_TRANSCRIPT_HEARTBEAT_MS || 15000))
     this.useSystemd = options.useSystemd ?? ['1', 'true', 'yes'].includes((this.env.MOTED_USE_SYSTEMD || 'true').toLowerCase())
     this.runner = options.runner || (this.env.MOTED_FAKE_RUNNER === '1' ? fakeRunner : muRunner)
-    this.defaultModel = options.defaultModel
     this.creations = Promise.resolve()
     this.tasks = new Map(); this.queue = []; this.active = 0; this.operations = new WeakMap(); this.persistence = new WeakMap(); this.documentOperations = new Map(); this.closing = false
   }
@@ -535,7 +534,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     const request = validateRequest(body)
     const privacy = request.executor === 'external' && body.cloudDocumentId ? this.store.assertExternal(body.cloudDocumentId) : undefined
     const model = request.model || (request.executor === 'builtin' ? await this.resolveModel() : undefined)
-    if (request.executor === 'builtin' && !model) throw new HttpError(503, 'Mu has no configured default model')
+    if (request.executor === 'builtin' && !model) throw new HttpError(400, 'Choose a model in Settings → Document or Settings → Workspace before generating.')
     const dir = path.join(this.tasksDir, request.id)
     try { await fs.mkdir(dir, { mode: 0o700 }) } catch (error) { if (error.code === 'EEXIST') throw new HttpError(409, 'task ID already exists'); throw error }
     try {
@@ -698,7 +697,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     if (task.meta.executor !== 'builtin' || task.meta.executorRevision !== executorRevision) throw new HttpError(409, 'executor revision conflict', this.view(task))
     if ([...task.executions].some(current => current.cleanupFailed)) throw new HttpError(503, 'Worker cleanup is unconfirmed; service recovery is required before another built-in run.')
     const model = task.meta.model || await this.resolveModel()
-    if (!model) throw new HttpError(503, 'Mu has no configured default model')
+    if (!model) throw new HttpError(400, 'Choose a model in Settings → Document or Settings → Workspace before generating.')
     this.invalidateRun(task)
     task.meta.model = model; task.meta.prompt = prompt; task.meta.status = 'queued'; task.meta.progress = task.executions.size ? 'Waiting for previous worker cleanup' : 'Queued revision'; task.meta.feedback = task.meta.error; delete task.meta.error
     task.meta.attempt = Math.max(Number(task.meta.attempt || 0), task.transcript.maxAttempt) + 1
@@ -707,7 +706,7 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
   }
 
   async resolveModel() {
-    return this.store?.settings().models.builtin || this.defaultModel || await configuredModel(this.env, this.sourcePath)
+    return this.store?.settings().models.builtin
   }
 
   async remove(task) {
@@ -777,7 +776,7 @@ export async function createMotedServer(options = {}) {
         if (!['GET', 'PUT'].includes(request.method)) throw new HttpError(404, 'not found')
         const settings = request.method === 'GET' ? store.settings() : store.putSettings(await readBody(request))
         if (request.method === 'PUT') indexer.wake()
-        send(response, 200, { ...settings, serverDefaultModel: manager.defaultModel || manager.env.MOTED_MU_DEFAULT_MODEL || null }, origin, manager.env); return
+        send(response, 200, settings, origin, manager.env); return
       }
       if (url.pathname === '/api/indexing' || url.pathname === '/api/indexing/retry') {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')

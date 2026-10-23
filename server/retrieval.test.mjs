@@ -27,7 +27,7 @@ async function app(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mote-retrieval-test-'))
   const value = await createMotedServer({
     ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0,
-    useSystemd: false, defaultModel: 'fake', allowDirectTasks: false,
+    useSystemd: false, allowDirectTasks: false,
     env: {
       MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin,
       MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '',

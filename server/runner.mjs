@@ -154,17 +154,6 @@ export async function fakeRunner(context) {
   return { sessionId: context.sessionId || `fake-${context.taskId}` }
 }
 
-export async function configuredModel(env, cwd) {
-  if (env.MOTED_MU_DEFAULT_MODEL) return env.MOTED_MU_DEFAULT_MODEL
-  // Only an explicit generation request resolves Mu's default. Never block the
-  // service event loop (or contact a provider) to open/save a document or settings.
-  const output = await new Promise(resolve => {
-    execFile(env.MOTED_MU_BIN || 'mu', ['status', '--json'], { cwd, env, encoding: 'utf8', timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 },
-      (error, stdout) => resolve(error ? '' : stdout))
-  })
-  try { return JSON.parse(output).model.canonical } catch { return undefined }
-}
-
 async function prepareWorkerPaths(context) {
   if (!context.useSystemd) return
   const user = context.env.MOTED_WORKER_USER || 'mote-ai'

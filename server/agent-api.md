@@ -76,7 +76,12 @@ appears only for a currently authorized external reservation. `waiting` means an
 external task awaits a candidate; a previous complete candidate may coexist.
 
 - **POST `/api/ai/tasks`** takes the validated snapshot body, `executor` (default
-  builtin), and an `operationId` UUID. An external create needs no prompt, model,
+  builtin), and an `operationId` UUID. Built-in creation uses the explicit `model`
+  (the client sends the document override) or the workspace built-in default.
+  Without either, it returns 400 with Settings guidance and creates no task;
+  the client may correct its settings and prepare a fresh request. Server/Mu
+  defaults are never used. Existing task models remain pinned.
+  An external create needs no prompt, model,
   provider configuration, or worker. Cloud tasks must already be acknowledged in
   that document's assistant state with matching ID, target, and baseRevision,
   without acceptance/release. Snapshot JSON must match the named saved revision.

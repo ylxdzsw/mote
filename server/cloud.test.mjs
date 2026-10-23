@@ -22,7 +22,8 @@ function document(id = randomUUID(), value = 'Hello') {
 async function app(t, options = {}) {
   const root = options.root || await mkdtemp(path.join(os.tmpdir(), 'mote-cloud-test-'))
   if (!options.root) t.after(() => rm(root, { recursive: true, force: true }))
-  const value = await createMotedServer({ ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, defaultModel: options.defaultModel ?? 'fake', allowDirectTasks: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0', ...options.env } })
+  const value = await createMotedServer({ ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, allowDirectTasks: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0', ...options.env } })
+  if (!options.root && options.workspaceModel !== '') value.store.putSettings({ baseRevision: 0, models: { builtin: 'fake', indexing: '' } })
   await value.start()
   t.after(() => value.close())
   value.root = root
@@ -40,10 +41,10 @@ const save = (envelope, text, extra = {}) => ({ baseRevision: envelope.revision,
 
 test('workspace model defaults are provider-free, durable, validated and revision checked', async t => {
   let runs = 0
-  const value = await app(t, { runner: async () => { runs++ } })
+  const value = await app(t, { workspaceModel: '', runner: async () => { runs++ } })
   const original = await create(value)
   const initial = await value.call('GET', 'settings')
-  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false, serverDefaultModel: 'fake' })
+  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false })
   assert.equal(initial.headers.get('cache-control'), 'no-store')
   const models = { builtin: 'provider/author:high', indexing: 'provider/indexer:low' }
   assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models }, { origin: 'https://other.invalid' })).status, 403)
@@ -58,7 +59,7 @@ test('workspace model defaults are provider-free, durable, validated and revisio
   const restarted = await app(t, { root: value.root })
   assert.deepEqual((await restarted.call('GET', 'settings')).body.models, models)
   assert.equal((await restarted.call('PUT', 'settings', { baseRevision: 1, models: { builtin: '', indexing: '' } })).status, 200)
-  assert.equal(await restarted.manager.resolveModel(), 'fake')
+  assert.equal(await restarted.manager.resolveModel(), '')
 })
 
 test('missing Mu and failed workers leave cloud documents usable without automatic execution retries', async t => {
@@ -85,24 +86,26 @@ test('missing Mu and failed workers leave cloud documents usable without automat
   assert.deepEqual((await restarted.call('GET', `documents/${original.id}`)).body.document, saved.body.document)
 })
 
-test('slow Mu default lookup does not block cloud reads and saves; unavailable default fails once', async t => {
-  const value = await app(t, { defaultModel: '', env: { MOTED_MU_DEFAULT_MODEL: '' } })
-  const bin = path.join(value.root, 'slow-mu')
-  await writeFile(bin, `#!/usr/bin/node\nsetTimeout(() => process.exit(1), 700)\n`, { mode: 0o700 })
+test('missing model ignores global defaults, starts no worker, and leaves cloud work usable', async t => {
+  const value = await app(t, { workspaceModel: '', env: { MOTED_MU_DEFAULT_MODEL: 'global/ignored' },
+    runner: async () => assert.fail('missing configuration must not start a worker') })
+  const bin = path.join(value.root, 'configured-mu'), marker = path.join(value.root, 'mu-called')
+  await writeFile(bin, `#!/usr/bin/node
+require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called'); console.log(JSON.stringify({model:{canonical:'mu/ignored'}}))
+`, { mode: 0o700 })
   value.manager.env.MOTED_MU_BIN = bin
   const original = await create(value)
-  let finished = false
   const body = { id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, operationId: randomUUID(),
     document: original.document, prompt: 'Test unavailable model', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } }
   await reservations(value, original, [body])
-  const pending = value.call('POST', 'ai/tasks', body).then(result => { finished = true; return result })
-  await new Promise(resolve => setTimeout(resolve, 50))
+  const result = await value.call('POST', 'ai/tasks', body)
+  assert.equal(result.status, 400)
+  assert.match(result.body.error, /Choose a model in Settings/)
+  await assert.rejects(stat(marker), { code: 'ENOENT' })
+  assert.equal(value.manager.tasks.size, 0)
   assert.equal((await value.call('GET', 'settings')).status, 200)
   assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
   assert.equal((await value.call('PUT', `documents/${original.id}`, save(original, 'Still usable'))).status, 200)
-  assert.equal(finished, false)
-  assert.equal((await pending).status, 503)
-  assert.equal(value.manager.tasks.size, 0)
 })
 
 test('competing saves CAS across SQLite connections; lost-response retry survives restart and later saves', async t => {

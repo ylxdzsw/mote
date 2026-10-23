@@ -497,7 +497,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         else if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
         else if (connectionSnapshot().offline) update(id, { status: task.requestSent || task.submitted ? 'waiting' : 'draft',
           progress: 'Offline · request retained. Waiting for reconnection.', error: undefined })
-        else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message })
+        else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message,
+          ...(!task.submitted && error instanceof AIServiceError && error.status === 400 ? { requestSent: false, creation: undefined } : {}) })
       }
     }
     finally {

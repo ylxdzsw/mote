@@ -88,7 +88,7 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
             value={doc.aiModel ?? ''} placeholder="Workspace default" onFocus={() => history.begin('document-ai-model')} onBlur={history.boundary}
             onChange={event => onChange({ ...doc, aiModel: event.target.value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '') })} />
         </div>
-        <p className="hint">Leave blank to use the workspace default; a value here overrides it for this document. AI runs only when you explicitly request generation, and the full document is sent to the selected Mu model.</p>
+        <p className="hint">Leave blank to use the workspace default; set a model here or in Workspace settings before generating. AI runs only when you explicitly request generation, and the full document is sent to the selected Mu model.</p>
       </section> : <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} /></div>}
     </div>
   </div>

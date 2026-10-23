@@ -33,7 +33,7 @@ function document(kind = 'text') {
   if (kind === 'html') doc.floating.push({ id: 'object-1', kind: 'html', anchorId: 'block-1', x: 40, y: 10, width: 200, height: 100, placement: 'float', html: '<button>+</button>', screenshot: svg, alt: 'demo' })
   return doc
 }
-function request(id, doc = document(), extra = {}) { return { id, document: doc, model: 'codex/gpt-5.6-luna', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
+function request(id, doc = document(), extra = {}) { return { id, document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
 function segmentDocument() {
   const doc = document('text')
   doc.content.content = [
@@ -67,7 +67,7 @@ function segmentPayload(withWidgets = false) {
 function pngHeader(width, height) { const header = Buffer.alloc(24); Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(header); header.write('IHDR', 12); header.writeUInt32BE(width, 16); header.writeUInt32BE(height, 20); return header }
 async function app(options = {}) {
   const stateDir = options.stateDir || await mkdtemp(path.join(os.tmpdir(), 'moted-test-'))
-  const value = await createMotedServer({ ...options, stateDir, port: 0, useSystemd: false, defaultModel: 'codex/gpt-5.6-luna', env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: 'http://localhost:5173', MOTED_SHARED_MU_DIR: path.join(stateDir, 'unused-config'), MOTED_MU_ENV_SOURCE: '', ...(options.env || {}) } })
+  const value = await createMotedServer({ ...options, stateDir, port: 0, useSystemd: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: 'http://localhost:5173', MOTED_SHARED_MU_DIR: path.join(stateDir, 'unused-config'), MOTED_MU_ENV_SOURCE: '', ...(options.env || {}) } })
   if (options.runner) value.manager.runner = async context => {
     const result = await options.runner(context)
     try { await readFile(path.join(context.outputDir, 'result.json')) } catch (error) { if (error.code === 'ENOENT') return result; throw error }
@@ -562,6 +562,11 @@ test('workspace defaults apply only to new sessions and explicit document model 
   await post(value, request(explicit, document(), { model: 'document/override' }))
   await waitReady(value, explicit)
   assert.equal(value.manager.tasks.get(explicit).meta.model, 'document/override')
+  value.store.putSettings({ baseRevision: 2, models: { builtin: '', indexing: '' } })
+  assert.equal((await post(value, request(crypto.randomUUID(), document(), { model: undefined }))).status, 400)
+  assert.equal((await post(value, { prompt: 'Continue without a workspace default', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 202)
+  await waitReady(value, id)
+  assert.equal(value.manager.tasks.get(id).meta.model, 'workspace/first')
 })
 
 test('unconfirmed worker cleanup stays fenced without requeue or unsafe artifact deletion', async t => {
@@ -602,7 +607,6 @@ async function until(predicate) {
 
 test('external handoff is immutable, agent-independent, and accepts only validated candidate bytes', async t => {
   const value = await app({ env: { MOTED_MU_BIN: '/not-an-installed-agent', MOTED_SHARED_MU_DIR: '/not-a-provider' } }); t.after(() => value.close())
-  value.manager.defaultModel = undefined
   const doc = document('html'), id = crypto.randomUUID()
   doc.notes = 'Internal working outline for authorized agent context'
   const target = { kind: 'object', objectId: 'object-1', isNew: false, area: { x: 40, y: 10, width: 200, height: 100 } }
