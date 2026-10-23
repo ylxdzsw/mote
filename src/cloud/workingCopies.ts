@@ -17,7 +17,7 @@ export interface WorkingRecord {
   pending?: PendingSave
   draft?: boolean
   pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument }
-  pendingPrivacy?: { private: boolean; basePrivacyRevision: number; operationId: string }
+  pendingPrivacy?: { private: boolean; basePrivacyRevision: number; baseShareRevision?: number; operationId: string }
 }
 
 let database: Promise<IDBDatabase> | undefined

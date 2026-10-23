@@ -546,8 +546,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
               ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
               : 'Not private. Click to block public sharing and external agents. The built-in agent remains available.'}
             disabled={cloud.privacy.busy || !!cloud.privacy.pending}
-            onClick={() => void copy.setPrivate(!cloud.record.meta.private, count => window.confirm(
-              `Make "${cloud.record.meta.name}" private?\n\nThis will revoke ${count} active share ${count === 1 ? 'link' : 'links'}. Turning Private off will not restore ${count === 1 ? 'it' : 'them'}. External-agent access will also be revoked.`
+            onClick={() => void copy.setPrivate(!cloud.record.meta.private, () => window.confirm(
+              `Make "${cloud.record.meta.name}" private?\n\nThis will disable sharing and revoke the current link. Turning Private off will not restore it. External-agent access will also be revoked.`
             ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /><span>Private</span></button>
         </div>
         <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}

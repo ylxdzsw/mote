@@ -13,10 +13,10 @@ Mote is one private workspace protected by the existing `nginx_auth` cookie key.
 - A draft’s first save persists the exact creation body and operation ID before its POST. Uncertain creation replays that same operation before draining newer edits through revision-checked saves; reloading or recovering a draft must not replace its unacknowledged creation body.
 - **Synced** means an acknowledged cloud save; **Saved locally · changes pending** is not a backup. Local saving, cloud failure, sign-in, conflicts, and deletion have distinct feedback. Local-save failure warns before leaving.
 - A conflict pauses automatic sync. **Save as copy** creates another file; **Discard local changes** fetches the latest cloud content; **Overwrite cloud version** still checks the exact version shown to the user. If that version changed again, it conflicts again. Overwrite directly replaces the current cloud version; it creates no extra recovery copy.
-- **Local recovery** lists pending working copies, including those from closed tabs and copies with pending assistant input even when the document itself is synced. Opening a recovery carries its assistant checkpoint into the new tab's working-copy identity without changing pending operation bodies or IDs. It never replaces another local pending checkpoint; use a new tab when necessary. There is no server recovery-copy browser, merging, or conflict-comparison renderer. Immutable revisions used by snapshot sharing, AI inputs, and request acknowledgments are separate from overwrite recovery.
+- **Local recovery** lists pending working copies, including those from closed tabs and copies with pending assistant input even when the document itself is synced. Opening a recovery carries its assistant checkpoint into the new tab's working-copy identity without changing pending operation bodies or IDs. It never replaces another local pending checkpoint; use a new tab when necessary. There is no server recovery-copy browser, merging, or conflict-comparison renderer. Immutable revisions used by AI inputs and request acknowledgments are separate from overwrite recovery.
 - A deleted document is tombstoned, all its links are revoked, and stale tabs cannot resurrect it through autosave. Their local work can be saved as another file or explicitly discarded.
 - Undo/redo remains an editing-session history in memory, not a cloud-wide stack. Sync does not clear it; undo after sync makes a new local change. Reload, adoption of remote content, and reset clear history. Undo history is never exported in `.mote`.
-- Optional V0 `notes` stores an ordered array of user-maintained plain-text scratchpads; a string is also accepted as a single note. Notes save in the same document revision, local recovery, and native `.mote` exports. Missing notes means empty. Notes are outside the rendered page and hidden in reading mode. Public shared APIs remove the field for both snapshot and latest links; HTML export removes it from its embedded payload, and PNG only renders the page.
+- Optional V0 `notes` stores an ordered array of user-maintained plain-text scratchpads; a string is also accepted as a single note. Notes save in the same document revision, local recovery, and native `.mote` exports. Missing notes means empty. Notes are outside the rendered page and hidden in reading mode. Public shared APIs remove the field; HTML export removes it from its embedded payload, and PNG only renders the page.
 - Clean private editors can adopt newer server revisions; dirty copies are never silently replaced. Browser recovery can be evicted or cleared, so unsynced work is not durable cloud storage.
 
 ## Flow/Float document contract
@@ -27,14 +27,15 @@ The editor, shared reader, PNG, and standalone HTML use the same portal-based Fl
 
 ## Sharing
 
-The Share dialog’s Link tab creates and manages two link types:
+Public sharing is disabled for new documents. The Share dialog's **Link** tab controls at most one active, latest-version link per document. Opening the dialog reads the server-owned share state but never creates a link. Enabling first synchronizes the current working copy; if synchronization fails, no share is enabled and no URL is issued. Once enabled, the tab shows the URL and **Copy link**. **Replace link** asks for confirmation before revoking the current token and issuing a fresh URL. **Disable sharing** also requires confirmation; confirmed revocation is permanent, and enabling later creates a new URL. Copy, replace, and disable have no document-save prerequisite. Share state is server metadata, not document content, undo history, or export settings.
 
-- **Current snapshot** waits for successful synchronization and pins exactly that acknowledged revision. Later edits do not change it.
-- **Latest version** resolves the current cloud revision once when the link is opened. Unsynced local changes are not included. Reuse the active link for that document rather than creating duplicates.
+Share state has its own server-owned revision. `GET /api/documents/:id/shares` returns `{revision, share: null | {id, token}}`; `PUT /api/documents/:id/shares` accepts `action: "enable" | "disable" | "replace"`, `baseRevision`, and `operationId`. Each operation atomically compares the base share revision, and operation IDs make uncertain retries safe. There is no link-list endpoint or snapshot-creation `POST`. These operations do not change document or AI revisions.
 
-Both use `/s/:token`, work without login, and mount the read-only canvas. The reader makes one scoped document request: no polling, SSE, update notification, or automatic refresh. Reloading a Latest version link fetches the then-current cloud document. Interactive widget code may independently load network resources; a content snapshot does not archive external dependencies or runtime state.
+Links use 256-bit random tokens at `/s/:token`, work without login, and mount the read-only canvas. Opening a public link makes one scoped document fetch of the then-current cloud revision; unsynced local changes are not included. The reader does not poll, use SSE, announce updates, or refresh automatically. Later cloud saves appear after reload, which fetches the then-current document. Notes are removed from the public shared response. Interactive widget code may independently load network resources; sharing does not archive external dependencies or runtime state.
 
-Links have 256-bit random tokens. The UI lists their type, creation time, URL, and Copy/Revoke actions. Revocation and file deletion stop future access, not copies already opened or downloaded. Shared APIs expose only the selected document, filename, and revision, never AI state or other files. Public navigation uses no-referrer/noindex/no-store headers. Sharing is read-only even when the visitor holds the workspace cookie.
+Revocation and file deletion stop future access, not copies already opened or downloaded. Shared APIs expose only the selected document, filename, and current revision, never AI state or other files. Public navigation uses no-referrer/noindex/no-store headers. Sharing is read-only even when the visitor holds the workspace cookie. The latest-only public-link change leaves AI capability grants, executor rules, immutable AI input revisions, and candidate protocols unchanged.
+
+On rollout, existing snapshot links are retired while each document's existing Latest URL remains active, so those documents stay enabled. No document content or AI state is rewritten or deleted.
 
 ## AI is document-associated
 
@@ -102,7 +103,7 @@ Each agent task belongs to one server-bound document. “Own document” below m
 | Built-in agent on another document discovers or reads its content/index | Allowed | Denied |
 | External agent works on the source document itself | Allowed with an active external grant | Denied |
 | External agent on another document discovers or reads its content/index | Requires an active external grant with optional workspace-read permission | Denied |
-| Public Current snapshot or Latest version sharing | Requires an explicit share link | Denied |
+| Public latest-version sharing | Requires the document's active link | Denied |
 
 Private protects the source, not the destination: a built-in agent working on private document A may retrieve non-private B, but cannot retrieve another private document C. Built-in agents are trusted to process their own private context; that trust does not grant them access to every private document. Cross-document reading never expands the task's reserved write region or permits automatic acceptance.
 
@@ -122,9 +123,9 @@ Private is server-owned document metadata, separate from editable content and co
 
 New documents default to non-private. Save as copy preserves Private; native exports contain document content, not cloud access settings. Privacy has its own monotonically increasing revision and retry-safe update operation, independent of content revisions. Clients refresh it even with unsynced text and never adopt an older privacy revision from a delayed save acknowledgment.
 
-Checking Private must revoke existing public share links (both snapshot and latest) and the document's external-agent grants, reject new shares/external handoffs, and immediately prevent other-document discovery and reads. Its own built-in agent and indexing remain available. Revocation must not depend on index updates or delayed worker cleanup; revoked external grants also cannot submit late candidates.
+Checking Private must revoke the document's active latest-only public link and its external-agent grants, reject new shares/external handoffs, and immediately prevent other-document discovery and reads. Its own built-in agent and indexing remain available. Revocation must not depend on index updates or delayed worker cleanup; revoked external grants also cannot submit late candidates.
 
-When enabling Private, the editor first checks for active share links. If any exist, it asks for confirmation with the link count and warns that turning Private off will not restore them. Cancel leaves privacy and links unchanged; a failed link check does not proceed with the change. No confirmation is shown when there are no active links or when disabling Private.
+When enabling Private, the editor checks whether the one active public link exists. If it does, one confirmation warns that the link will be permanently revoked and turning Private off will not restore it. The privacy request carries the observed sharing revision; a concurrent sharing change rejects the update and requires reviewing Private again rather than revoking a newly issued link. Cancel leaves privacy and the link unchanged; a failed share-state check does not proceed with the change. No confirmation is shown when there is no active link or when disabling Private. The existing external-agent revocation policy is unchanged.
 
 Revoked external tasks return to Built-in without starting generation, retaining their reservation and any completed candidate. External capabilities are bound to the privacy revision at grant creation, so they remain invalid after an on/off cycle even if task-file cleanup failed. Privacy mutations serialize with task commits; the server acknowledges the policy only after preceding commits finish. Every external read and delivery also checks the current policy.
 
@@ -137,7 +138,7 @@ Revocation governs future access. It cannot recall already fetched content, eras
 - A private document is indexed and usable by its own built-in agent while absent from another document's agent search, including metadata-only results.
 - Other-document agents cannot bypass Private with a known ID, old result reference, historical revision, preview/asset URL, or broad workspace-read grant.
 - Marking a document private takes effect despite a stale index or in-flight indexing job; indexing may finish without making its results accessible elsewhere.
-- Existing snapshot/latest links and external-agent capabilities stop working when Private is enabled and stay revoked after it is disabled. Its own built-in access remains available.
+- The active latest-only link and external-agent capabilities stop working when Private is enabled and stay revoked after it is disabled. Its own built-in access remains available.
 - Private A can retrieve non-private B, not private C; owner access through Files remains unchanged, and stale content saves cannot clear Private.
 
 ## V0 remains disposable-format development

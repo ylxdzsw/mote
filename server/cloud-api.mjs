@@ -27,8 +27,7 @@ export async function cloudApi(store, request, pathname, readBody) {
     else if (method === 'PUT') body = store.putAssistant(id, await readBody(request))
   } else if (action === 'shares') {
     if (method === 'GET' && !child) body = store.shares(id)
-    else if (method === 'POST' && !child) body = store.share(id, await readBody(request))
-    else if (method === 'DELETE' && child) body = store.revoke(id, child)
+    else if (method === 'PUT' && !child) body = store.putShares(id, await readBody(request))
   }
   if (body === undefined) throw new HttpError(404, 'not found')
   return { status, body }

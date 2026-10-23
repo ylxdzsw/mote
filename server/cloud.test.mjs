@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { createMotedServer } from './moted.mjs'
 import { backupDatabase } from './backup.mjs'
@@ -38,6 +38,7 @@ async function create(value, doc = document()) {
   assert.equal(result.status, 201, JSON.stringify(result.body)); assert.equal(typeof result.body.createdAt, 'number'); assert.equal(typeof result.body.updatedAt, 'number'); return result.body
 }
 const save = (envelope, text, extra = {}) => ({ baseRevision: envelope.revision, document: document(envelope.id, text), operationId: randomUUID(), ...extra })
+const shareMutation = (value, id, baseRevision, action, operationId = randomUUID()) => value.call('PUT', `documents/${id}/shares`, { baseRevision, operationId, action })
 
 test('workspace model defaults are provider-free, durable, validated and revision checked', async t => {
   let runs = 0
@@ -77,7 +78,7 @@ test('missing Mu and failed workers leave cloud documents usable without automat
   const saved = await value.call('PUT', `documents/${original.id}`, save(original, 'Manual edit with Mu absent'))
   assert.equal(saved.status, 200)
   assert.equal((await value.call('GET', 'documents')).body.documents.length, 1)
-  assert.equal((await value.call('POST', `documents/${original.id}/shares`, { mode: 'latest' })).status, 200)
+  assert.equal((await shareMutation(value, original.id, 0, 'enable')).status, 200)
   await new Promise(resolve => setTimeout(resolve, 100))
   assert.equal(failed.meta.attempt, 1); assert.equal(value.manager.queue.length, 0)
   await value.close()
@@ -180,7 +181,7 @@ test('legacy SQLite privacy columns migrate idempotently without resetting docum
   assert.equal((await reopened.call('GET', `documents/${original.id}/privacy`)).body.privacyRevision, 0)
 })
 
-test('private creation is validated; snapshot/latest links are revoked and never revive', async t => {
+test('private creation is validated; latest links are revoked and never revive', async t => {
   const value = await app(t); const doc = document(); const base = `documents/${doc.id}`
   const request = { id: doc.id, name: 'Private note', document: doc, private: true, operationId: randomUUID() }
   const created = await value.call('POST', 'documents', request)
@@ -188,25 +189,30 @@ test('private creation is validated; snapshot/latest links are revoked and never
   assert.equal((await value.call('GET', base)).status, 200)
   assert.equal((await value.call('GET', `${base}/assistant`)).status, 200)
   assert.ok((await value.call('GET', 'documents')).body.documents.some(item => item.id === doc.id && item.private))
-  assert.equal((await value.call('POST', `${base}/shares`, { mode: 'latest' })).status, 403)
+  assert.deepEqual((await value.call('GET', `${base}/shares`)).body, { revision: 0, share: null })
+  assert.equal((await shareMutation(value, doc.id, 0, 'enable')).status, 403)
   const invalidDoc = document()
   assert.equal((await value.call('POST', 'documents', { id: invalidDoc.id, name: 'Invalid', document: invalidDoc, private: 'true', operationId: randomUUID() })).status, 400)
 
   const publicDoc = await create(value)
   const publicBase = `documents/${publicDoc.id}`
-  const snapshot = (await value.call('POST', `${publicBase}/shares`, { mode: 'snapshot', revision: publicDoc.revision })).body
-  const latest = (await value.call('POST', `${publicBase}/shares`, { mode: 'latest' })).body
-  const privateMeta = await value.call('PUT', `${publicBase}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() })
+  const latest = (await shareMutation(value, publicDoc.id, 0, 'enable')).body.share
+  assert.deepEqual((await value.call('GET', `${publicBase}/shares`)).body, { revision: 1, share: latest })
+  const staleConfirmation = await value.call('PUT', `${publicBase}/privacy`, { private: true, basePrivacyRevision: 0, baseShareRevision: 0, operationId: randomUUID() })
+  assert.equal(staleConfirmation.status, 409)
+  assert.equal(staleConfirmation.body.current.private, false)
+  assert.equal((await value.call('GET', `shared/${latest.token}`)).status, 200)
+  const privateMeta = await value.call('PUT', `${publicBase}/privacy`, { private: true, basePrivacyRevision: 0, baseShareRevision: 1, operationId: randomUUID() })
   assert.equal(privateMeta.status, 200); assert.equal(privateMeta.body.privacyRevision, 1)
-  assert.equal((await value.call('GET', `shared/${snapshot.token}`)).status, 404)
+  assert.deepEqual((await value.call('GET', `${publicBase}/shares`)).body, { revision: 2, share: null })
   assert.equal((await value.call('GET', `shared/${latest.token}`)).status, 404)
-  const forbidden = await value.call('POST', `${publicBase}/shares`, { mode: 'latest' })
+  const forbidden = await shareMutation(value, publicDoc.id, 2, 'enable')
   assert.equal(forbidden.status, 403); assert.match(forbidden.body.error, /Private/)
   await value.call('PUT', `${publicBase}/privacy`, { private: false, basePrivacyRevision: 1, operationId: randomUUID() })
-  assert.equal((await value.call('GET', `shared/${snapshot.token}`)).status, 404)
+  assert.deepEqual((await value.call('GET', `${publicBase}/shares`)).body, { revision: 3, share: null })
   assert.equal((await value.call('GET', `shared/${latest.token}`)).status, 404)
-  const fresh = await value.call('POST', `${publicBase}/shares`, { mode: 'latest' })
-  assert.equal(fresh.status, 200); assert.notEqual(fresh.body.token, latest.token)
+  const fresh = await shareMutation(value, publicDoc.id, 3, 'enable')
+  assert.equal(fresh.status, 200); assert.notEqual(fresh.body.share.token, latest.token)
 })
 
 test('create retries are idempotent; rename is separate; overwrite uses CAS without recovery copies', async t => {
@@ -217,7 +223,7 @@ test('create retries are idempotent; rename is separate; overwrite uses CAS with
   assert.equal(renamed.body.revision, first.body.revision)
   assert.equal(renamed.body.document, undefined)
   assert.deepEqual((await value.call('POST', 'documents', request)).body, first.body)
-  const share = (await value.call('POST', `documents/${doc.id}/shares`, { mode: 'snapshot', revision: first.body.revision })).body
+  const share = (await shareMutation(value, doc.id, 0, 'enable')).body.share
   const replacement = save(first.body, 'Replacement')
   const overwritten = await value.call('PUT', `documents/${doc.id}`, replacement)
   assert.equal(overwritten.status, 200); assert.equal(overwritten.body.name, 'Renamed')
@@ -229,36 +235,88 @@ test('create retries are idempotent; rename is separate; overwrite uses CAS with
   assert.equal((await value.call('DELETE', `documents/${doc.id}/recovery/${randomUUID()}`)).status, 404)
   assert.equal(value.store.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='recovery'").get(), undefined)
   assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM revisions').get().n, 2)
-  assert.deepEqual((await value.call('GET', `shared/${share.token}`)).body.document, doc)
+  assert.deepEqual((await value.call('GET', `shared/${share.token}`)).body.document, replacement.document)
 })
 
-test('snapshot pins acknowledged revision, latest resolves head; deletion revokes all and prevents resurrection', async t => {
+test('single latest share is CAS-controlled, retry-safe, and revoked on deletion', async t => {
   const value = await app(t); const original = await create(value)
   const base = `documents/${original.id}`
-  const snapshot = (await value.call('POST', `${base}/shares`, { mode: 'snapshot', revision: original.revision })).body
-  const latest = (await value.call('POST', `${base}/shares`, { mode: 'latest' })).body
-  assert.deepEqual((await value.call('POST', `${base}/shares`, { mode: 'latest' })).body, latest)
-  assert.equal(Buffer.from(latest.token, 'base64url').length, 32)
-  assert.equal(latest.revision, null)
-  assert.equal((await value.call('POST', `${base}/shares`, { mode: 'snapshot' })).status, 400)
+  assert.deepEqual((await value.call('GET', `${base}/shares`)).body, { revision: 0, share: null })
+  assert.equal((await value.call('POST', `${base}/shares`, { mode: 'latest' })).status, 404)
+  assert.equal((await value.call('DELETE', `${base}/shares/${randomUUID()}`)).status, 404)
+
+  const enableOperation = randomUUID()
+  const enabled = await shareMutation(value, original.id, 0, 'enable', enableOperation)
+  assert.equal(enabled.status, 200); assert.equal(enabled.body.revision, 1)
+  const first = enabled.body.share
+  assert.equal(Buffer.from(first.token, 'base64url').length, 32)
+
+  const stale = await shareMutation(value, original.id, 0, 'disable')
+  assert.equal(stale.status, 409); assert.deepEqual(stale.body.current, enabled.body)
+  const duplicateEnable = await shareMutation(value, original.id, 1, 'enable')
+  assert.equal(duplicateEnable.status, 409); assert.deepEqual(duplicateEnable.body.current, enabled.body)
+
+  const replaceOperation = randomUUID()
+  const replaced = await shareMutation(value, original.id, 1, 'replace', replaceOperation)
+  assert.equal(replaced.status, 200); assert.equal(replaced.body.revision, 2)
+  const second = replaced.body.share
+  assert.notEqual(second.token, first.token)
+  assert.equal((await value.call('GET', `shared/${first.token}`)).status, 404)
+  assert.deepEqual((await value.call('GET', `shared/${second.token}`)).body.document, original.document)
+  assert.deepEqual((await shareMutation(value, original.id, 0, 'enable', enableOperation)).body, replaced.body)
+
+  assert.throws(() => value.store.db.prepare("INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,'latest',NULL,?)")
+    .run(randomUUID(), original.id, randomBytes(32).toString('base64url'), Date.now()))
+
   const mutation = save(original, 'Published later')
   const updated = (await value.call('PUT', base, mutation)).body
-  const pinned = await value.call('GET', `shared/${snapshot.token}`, undefined, { origin: 'http://untrusted.test' })
-  assert.equal(pinned.status, 200); assert.deepEqual(pinned.body, { name: original.name, revision: original.revision, document: original.document })
-  assert.deepEqual((await value.call('GET', `shared/${latest.token}`)).body.document, updated.document)
-  assert.equal(pinned.headers.get('cache-control'), 'no-store'); assert.equal(pinned.headers.get('referrer-policy'), 'no-referrer'); assert.match(pinned.headers.get('x-robots-tag'), /noindex/)
-  assert.equal(pinned.headers.get('access-control-allow-origin'), null)
+  const publicLatest = await value.call('GET', `shared/${second.token}`, undefined, { origin: 'http://untrusted.test' })
+  assert.equal(publicLatest.status, 200); assert.deepEqual(publicLatest.body, { name: original.name, revision: updated.revision, document: updated.document })
+  assert.equal(publicLatest.headers.get('cache-control'), 'no-store'); assert.equal(publicLatest.headers.get('referrer-policy'), 'no-referrer'); assert.match(publicLatest.headers.get('x-robots-tag'), /noindex/)
+  assert.equal(publicLatest.headers.get('access-control-allow-origin'), null)
+
+  const disabled = await shareMutation(value, original.id, 2, 'disable')
+  assert.equal(disabled.status, 200); assert.deepEqual(disabled.body, { revision: 3, share: null })
+  assert.equal((await value.call('GET', `shared/${second.token}`)).status, 404)
+  assert.deepEqual((await shareMutation(value, original.id, 1, 'replace', replaceOperation)).body, disabled.body)
+  const replaceWhenDisabled = await shareMutation(value, original.id, 3, 'replace')
+  assert.equal(replaceWhenDisabled.status, 409); assert.deepEqual(replaceWhenDisabled.body.current, disabled.body)
+  assert.deepEqual((await shareMutation(value, original.id, 3, 'disable')).body, disabled.body)
+
+  const reenabled = await shareMutation(value, original.id, 3, 'enable')
+  assert.equal(reenabled.status, 200); assert.equal(reenabled.body.revision, 4)
+  assert.notEqual(reenabled.body.share.token, first.token)
   assert.equal((await value.call('DELETE', base, { baseRevision: original.revision })).status, 409)
-  assert.equal((await value.call('DELETE', `${base}/shares/${snapshot.id}`)).status, 200)
-  assert.equal((await value.call('GET', `shared/${snapshot.token}`)).status, 404)
   assert.equal((await value.call('DELETE', base, { baseRevision: updated.revision })).status, 200)
-  assert.equal((await value.call('GET', `shared/${latest.token}`)).status, 404)
-  for (const [method, suffix, body] of [['GET', '', undefined], ['PUT', '', mutation], ['PATCH', '', { name: 'Back' }], ['GET', '/assistant', undefined], ['PUT', '/assistant', { baseRevision: '0', tasks: [], operationId: randomUUID() }], ['POST', '/shares', { mode: 'latest' }]]) {
+  assert.equal((await value.call('GET', `shared/${reenabled.body.share.token}`)).status, 404)
+  assert.equal(value.store.db.prepare('SELECT shareRevision FROM documents WHERE id=?').get(original.id).shareRevision, 5)
+  for (const [method, suffix, body] of [['GET', '', undefined], ['PUT', '', mutation], ['PATCH', '', { name: 'Back' }], ['GET', '/assistant', undefined], ['PUT', '/assistant', { baseRevision: '0', tasks: [], operationId: randomUUID() }]]) {
     assert.equal((await value.call(method, base + suffix, body)).status, 410)
   }
+  assert.equal((await value.call('POST', `${base}/shares`, { mode: 'latest' })).status, 404)
   assert.equal((await value.call('POST', 'documents', { id: original.id, name: 'Resurrection', document: original.document, operationId: randomUUID() })).status, 410)
   assert.deepEqual((await value.call('GET', 'documents')).body, { documents: [] })
   assert.equal((await value.call('GET', `documents/${randomUUID()}`)).status, 404)
+})
+
+test('legacy snapshot links are revoked during the single-latest transition without changing latest tokens', async t => {
+  const value = await app(t), original = await create(value)
+  const latest = (await shareMutation(value, original.id, 0, 'enable')).body.share
+  await value.close()
+
+  const legacy = new DatabaseSync(value.store.databasePath)
+  legacy.exec('DROP INDEX active_share; ALTER TABLE documents DROP COLUMN shareRevision')
+  const snapshotToken = randomBytes(32).toString('base64url')
+  legacy.prepare("INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,'snapshot',?,?)")
+    .run(randomUUID(), original.id, snapshotToken, original.revision, Date.now())
+  legacy.close()
+
+  const restarted = await app(t, { root: value.root })
+  assert.deepEqual((await restarted.call('GET', `documents/${original.id}/shares`)).body, { revision: 1, share: latest })
+  assert.equal((await restarted.call('GET', `shared/${latest.token}`)).status, 200)
+  assert.equal((await restarted.call('GET', `shared/${snapshotToken}`)).status, 404)
+  assert.equal(restarted.store.db.prepare("SELECT count(*) AS n FROM shares WHERE documentId=? AND mode='snapshot' AND revokedAt IS NULL").get(original.id).n, 0)
+  assert.equal(restarted.store.db.prepare("SELECT count(*) AS n FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(original.id).n, 1)
 })
 
 test('Notes round-trip through saves, validate as text or multiple notes, affect retries, and stay out of public shares', async t => {
@@ -266,8 +324,7 @@ test('Notes round-trip through saves, validate as text or multiple notes, affect
   doc.notes = 'Outline and unverified plan'
   const original = await create(value, doc), base = `documents/${original.id}`
   assert.equal((await value.call('GET', base)).body.document.notes, doc.notes)
-  const snapshot = (await value.call('POST', `${base}/shares`, { mode: 'snapshot', revision: original.revision })).body
-  const latest = (await value.call('POST', `${base}/shares`, { mode: 'latest' })).body
+  const latest = (await shareMutation(value, doc.id, 0, 'enable')).body.share
 
   const updatedDocument = { ...original.document, notes: ['Updated working notes', 'Another outline', ''] }
   const operation = { baseRevision: original.revision, document: updatedDocument, operationId: randomUUID() }
@@ -282,13 +339,9 @@ test('Notes round-trip through saves, validate as text or multiple notes, affect
     })).status, 400)
   }
 
-  const publicSnapshot = await value.call('GET', `shared/${snapshot.token}`)
   const publicLatest = await value.call('GET', `shared/${latest.token}`)
-  const { notes: _originalNotes, ...publicOriginal } = doc
   const { notes: _updatedNotes, ...publicUpdated } = updatedDocument
-  assert.equal(Object.hasOwn(publicSnapshot.body.document, 'notes'), false)
   assert.equal(Object.hasOwn(publicLatest.body.document, 'notes'), false)
-  assert.deepEqual(publicSnapshot.body.document, publicOriginal)
   assert.deepEqual(publicLatest.body.document, publicUpdated)
 })
 

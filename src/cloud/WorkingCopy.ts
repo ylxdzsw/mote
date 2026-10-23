@@ -1,12 +1,13 @@
 import { isPristineBlankDocument, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
-import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type Share } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type SharingState } from './api'
 import { saveWorkingCopy, type WorkingRecord } from './workingCopies'
 import { connectionSnapshot, retryConnection } from './connection'
 
 export interface PrivacyChange {
   private: boolean
   basePrivacyRevision: number
+  baseShareRevision?: number
   operationId: string
 }
 
@@ -269,30 +270,39 @@ export class WorkingCopy {
           this.finishPrivacy(change)
           return
         }
+        if (error.status === 409 && change.baseShareRevision !== undefined) {
+          if (this.state.privacy.pending?.operationId !== change.operationId) return
+          const { pendingPrivacy: _pendingPrivacy, ...record } = this.state.record
+          this.publish({ record, privacy: { busy: false, error: 'Sharing changed in another tab. Private was not changed. Choose Private again to review the current link.', message: '' } })
+          await this.persist().catch(() => {})
+          return
+        }
       }
       const detail = error instanceof Error ? error.message : 'The privacy change could not be confirmed.'
       await this.reconcilePendingPrivacy(change, `The privacy change could not be confirmed. ${detail}`)
     }
   }
 
-  setPrivate = async (value: boolean, confirmRevoke: (count: number) => boolean) => {
+  setPrivate = async (value: boolean, confirmRevoke: () => boolean) => {
     const meta = this.state.record.meta
     if (this.state.privacy.busy || this.state.privacy.pending || meta.private === value) return
+    let baseShareRevision = value ? 0 : undefined
     if (value && !this.state.record.draft) {
-      this.publish({ privacy: { busy: true, error: '', message: 'Checking active share links…' } })
+      this.publish({ privacy: { busy: true, error: '', message: 'Checking sharing status…' } })
       try {
-        const { shares } = await cloudRequest<{ shares: Share[] }>(`/api/documents/${meta.id}/shares`)
-        if (this.state.record.meta.private || shares.length > 0 && !confirmRevoke(shares.length)) {
+        const { share, revision } = await cloudRequest<SharingState>(`/api/documents/${meta.id}/shares`)
+        baseShareRevision = revision
+        if (this.state.record.meta.private || share && !confirmRevoke()) {
           this.publish({ privacy: { busy: false, error: '', message: '' } })
           return
         }
       } catch (error) {
         const detail = error instanceof Error ? error.message : 'Please try again.'
-        this.publish({ privacy: { busy: false, error: `Could not check active share links. Private was not changed. ${detail}`, message: '' } })
+        this.publish({ privacy: { busy: false, error: `Could not check sharing status. Private was not changed. ${detail}`, message: '' } })
         return
       }
     }
-    const change: PrivacyChange = { private: value, basePrivacyRevision: meta.privacyRevision, operationId: crypto.randomUUID() }
+    const change: PrivacyChange = { private: value, basePrivacyRevision: meta.privacyRevision, baseShareRevision, operationId: crypto.randomUUID() }
     this.publish({ record: { ...this.state.record, pendingPrivacy: change }, privacy: { pending: change, busy: true, error: '', message: '' } })
     try { await this.persist() }
     catch {

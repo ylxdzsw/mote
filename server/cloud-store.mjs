@@ -6,12 +6,12 @@ import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
 const now = () => Date.now()
-const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision'
+const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision,shareRevision'
 const metadata = row => ({ id: row.id, name: row.name, revision: row.revision, createdAt: row.createdAt, updatedAt: row.updatedAt, private: row.private === 1, privacyRevision: Number(row.privacyRevision) })
-const shareView = row => ({ id: row.id, token: row.token, mode: row.mode, createdAt: row.createdAt, revision: row.revision })
 function uuid(value, label) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, `${label} must be a UUID`); return value }
 function revision(value, label = 'baseRevision') { return text(value, label, 128, true) }
 function privacyRevision(value, label) { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative safe integer`); return value }
+function shareRevision(value, label = 'baseRevision') { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative safe integer`); return value }
 function name(value) { return text(value, 'name', 1024, true) }
 
 export class CloudStore {
@@ -30,7 +30,8 @@ export class CloudStore {
         id TEXT PRIMARY KEY, name TEXT NOT NULL, revision TEXT NOT NULL,
         createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, deletedAt INTEGER,
         assistantRevision TEXT NOT NULL DEFAULT '0', tasks TEXT NOT NULL DEFAULT '{"value":[],"assets":[]}',
-        private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1)), privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)
+        private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1)), privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0),
+        shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0)
       );
       CREATE TABLE IF NOT EXISTS revisions (
         documentId TEXT NOT NULL REFERENCES documents(id), revision TEXT NOT NULL,
@@ -72,8 +73,18 @@ export class CloudStore {
       const columns = new Set(db.prepare('PRAGMA table_info(documents)').all().map(column => column.name))
       if (!columns.has('private')) db.exec('ALTER TABLE documents ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1))')
       if (!columns.has('privacyRevision')) db.exec('ALTER TABLE documents ADD COLUMN privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)')
+      if (!columns.has('shareRevision')) db.exec('ALTER TABLE documents ADD COLUMN shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0)')
       const settingsColumns = new Set(db.prepare('PRAGMA table_info(workspace_settings)').all().map(column => column.name))
       if (!settingsColumns.has('indexingEnabled')) db.exec('ALTER TABLE workspace_settings ADD COLUMN indexingEnabled INTEGER NOT NULL DEFAULT 0 CHECK(indexingEnabled IN (0,1))')
+      const legacySnapshots = db.prepare("SELECT DISTINCT documentId FROM shares WHERE mode='snapshot' AND revokedAt IS NULL").all()
+      for (const { documentId } of legacySnapshots) {
+        const row = db.prepare('SELECT shareRevision FROM documents WHERE id=?').get(documentId)
+        const current = Number(row.shareRevision)
+        if (!Number.isSafeInteger(current) || current < 0 || !Number.isSafeInteger(current + 1)) throw new Error('share revision exhausted during migration')
+        db.prepare('UPDATE documents SET shareRevision=? WHERE id=?').run(current + 1, documentId)
+        db.prepare("UPDATE shares SET revokedAt=? WHERE documentId=? AND mode='snapshot' AND revokedAt IS NULL").run(now(), documentId)
+      }
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS active_share ON shares(documentId) WHERE revokedAt IS NULL')
       db.prepare(`INSERT OR IGNORE INTO workspace_settings
         (id,revision,builtin,indexing,indexingEnabled) VALUES (1,0,'','',0)`).run()
     })
@@ -359,6 +370,11 @@ export class CloudStore {
     return metadata(row)
   }
   compare(row, baseRevision) { if (row.revision !== revision(baseRevision)) throw new HttpError(409, 'document revision conflict', metadata(row)) }
+  nextShareRevision(row) {
+    const current = Number(row.shareRevision)
+    if (!Number.isSafeInteger(current) || current < 0 || !Number.isSafeInteger(current + 1)) throw new HttpError(409, 'share revision exhausted', this.shareState(row.id))
+    return current + 1
+  }
 
   retry(id, kind, body) {
     uuid(body.operationId, 'operationId')
@@ -406,15 +422,18 @@ export class CloudStore {
     const body = record(value, 'request')
     if (typeof body.private !== 'boolean') throw new HttpError(400, 'private must be a boolean')
     const basePrivacyRevision = privacyRevision(body.basePrivacyRevision, 'basePrivacyRevision')
+    const baseShareRevision = body.baseShareRevision === undefined ? undefined : shareRevision(body.baseShareRevision, 'baseShareRevision')
     uuid(body.operationId, 'operationId')
     return this.transaction(() => {
       const row = this.row(id); const retry = this.retry(id, 'privacy', body)
       if (retry.response) return retry.response
       if (row.privacyRevision !== basePrivacyRevision) throw new HttpError(409, 'privacy revision conflict', metadata(row))
+      if (body.private && baseShareRevision !== undefined && row.shareRevision !== baseShareRevision) throw new HttpError(409, 'sharing changed before privacy confirmation', metadata(row))
       if (Boolean(row.private) !== body.private) {
         if (!Number.isSafeInteger(row.privacyRevision + 1)) throw new HttpError(409, 'privacy revision exhausted', metadata(row))
         const nextPrivacyRevision = row.privacyRevision + 1
-        this.db.prepare('UPDATE documents SET private=?,privacyRevision=? WHERE id=?').run(body.private ? 1 : 0, nextPrivacyRevision, id)
+        const nextShareRevision = this.nextShareRevision(row)
+        this.db.prepare('UPDATE documents SET private=?,privacyRevision=?,shareRevision=? WHERE id=?').run(body.private ? 1 : 0, nextPrivacyRevision, nextShareRevision, id)
         if (body.private) this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(now(), id)
       }
       return this.remember(id, 'privacy', body, retry.digest, this.privacyMeta(id))
@@ -428,9 +447,10 @@ export class CloudStore {
   delete(id, value) {
     const body = record(value, 'request')
     return this.transaction(() => {
-      this.compare(this.row(id), body.baseRevision)
+      const row = this.row(id)
+      this.compare(row, body.baseRevision)
       const time = now()
-      this.db.prepare('UPDATE documents SET deletedAt=?,updatedAt=? WHERE id=?').run(time, time, id)
+      this.db.prepare('UPDATE documents SET deletedAt=?,updatedAt=?,shareRevision=? WHERE id=?').run(time, time, this.nextShareRevision(row), id)
       this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(time, id)
       for (const task of this.assistantTasks(id)) this.revokeTask(task.id, id)
       for (const task of this.db.prepare('SELECT taskId FROM task_revisions WHERE documentId=?').all(id)) this.revokeTask(task.taskId, id)
@@ -438,38 +458,52 @@ export class CloudStore {
     })
   }
 
-  shares(id) { this.row(id); return { shares: this.db.prepare('SELECT * FROM shares WHERE documentId=? AND revokedAt IS NULL ORDER BY createdAt,id').all(id).map(shareView) } }
-  share(id, value) {
+  shareState(id) {
+    const row = this.row(id)
+    const share = this.db.prepare("SELECT id,token FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
+    return { revision: Number(row.shareRevision), share: share ? { id: share.id, token: share.token } : null }
+  }
+  shares(id) { return this.shareState(id) }
+  putShares(id, value) {
     const body = record(value, 'request')
-    if (!['snapshot', 'latest'].includes(body.mode)) throw new HttpError(400, 'mode must be snapshot or latest')
+    const baseRevision = shareRevision(body.baseRevision)
+    uuid(body.operationId, 'operationId')
+    if (!['enable', 'disable', 'replace'].includes(body.action)) throw new HttpError(400, 'action must be enable, disable, or replace')
     return this.transaction(() => {
       const document = this.row(id)
-      if (document.private) throw new HttpError(403, 'Private documents cannot be shared; turn off Private to create a new share link')
-      if (body.mode === 'latest') {
-        if (body.revision !== undefined && body.revision !== null) throw new HttpError(400, 'latest links do not pin a revision')
-        const previous = this.db.prepare("SELECT * FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
-        if (previous) return shareView(previous)
-      } else this.saved(id, revision(body.revision, 'revision'))
-      const share = { id: randomUUID(), token: randomBytes(32).toString('base64url'), mode: body.mode, revision: body.mode === 'snapshot' ? body.revision : null, createdAt: now() }
-      this.db.prepare('INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,?,?,?)').run(share.id, id, share.token, share.mode, share.revision, share.createdAt)
-      return share
-    })
-  }
-  revoke(id, shareId) {
-    return this.transaction(() => {
-      this.row(id)
-      const share = this.db.prepare('SELECT id FROM shares WHERE documentId=? AND id=?').get(id, shareId)
-      if (!share) throw new HttpError(404, 'share not found')
-      this.db.prepare('UPDATE shares SET revokedAt=? WHERE id=?').run(now(), shareId)
-      return { ok: true }
+      const retry = this.retry(id, 'shares', body)
+      // A replay returns today's state, not a saved token that may since have been revoked.
+      if (retry.response) return this.shareState(id)
+      const current = this.shareState(id)
+      if (current.revision !== baseRevision) throw new HttpError(409, 'share revision conflict', current)
+      if (document.private && body.action !== 'disable') throw new HttpError(403, 'Private documents cannot be shared; turn off Private to create a new share link')
+
+      const previous = this.db.prepare("SELECT id FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
+      if (body.action === 'enable' && previous) throw new HttpError(409, 'share is already enabled', current)
+      if (body.action === 'replace' && !previous) throw new HttpError(409, 'share is not enabled', current)
+      if (body.action === 'disable' && !previous) {
+        this.remember(id, 'shares', body, retry.digest, { ok: true })
+        return current
+      }
+
+      const nextRevision = this.nextShareRevision(document)
+      const time = now()
+      if (previous) this.db.prepare('UPDATE shares SET revokedAt=? WHERE id=?').run(time, previous.id)
+      if (body.action !== 'disable') {
+        const share = { id: randomUUID(), token: randomBytes(32).toString('base64url') }
+        this.db.prepare("INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,'latest',NULL,?)").run(share.id, id, share.token, time)
+      }
+      this.db.prepare('UPDATE documents SET shareRevision=? WHERE id=?').run(nextRevision, id)
+      this.remember(id, 'shares', body, retry.digest, { ok: true })
+      return this.shareState(id)
     })
   }
   shared(token) {
-    // One statement resolves the head exactly once and checks deletion/revocation.
+    // Legacy snapshot rows remain stored but can never resolve through public sharing.
     const row = this.db.prepare(`SELECT d.name, r.revision, r.body FROM shares s
       JOIN documents d ON d.id=s.documentId
-      JOIN revisions r ON r.documentId=d.id AND r.revision=CASE WHEN s.mode='latest' THEN d.revision ELSE s.revision END
-      WHERE s.token=? AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(token)
+      JOIN revisions r ON r.documentId=d.id AND r.revision=d.revision
+      WHERE s.token=? AND s.mode='latest' AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(token)
     if (!row) throw new HttpError(404, 'share not found')
     const document = this.unpack(row.body)
     delete document.notes
