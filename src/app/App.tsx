@@ -621,7 +621,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
     {editable && drawing?.kind === 'drawing' && !assistant.lockedIds.has(drawing.id) && createPortal(
-      <DrawingEditor key={drawing.id} drawing={drawing} theme={doc.theme} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
+      <DrawingEditor key={drawing.id} drawing={drawing} theme={doc.theme}
+        maxWidth={drawing.placement === 'flow' ? doc.width - doc.margins.left - doc.margins.right : doc.width}
+        signedY={doc.content.content!.some(node => node.type === 'flow' && node.attrs?.id === drawing.anchorId)} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
       document.querySelector('.app')!)}
     {editable && <Launchpad
       point={launchpadPoint}

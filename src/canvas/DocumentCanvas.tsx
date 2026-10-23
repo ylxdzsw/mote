@@ -533,11 +533,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       const fixed = { x: west ? box.x + box.width : box.x, y: north ? box.y + ('height' in object ? object.height : box.height) : box.y }
       const end = boundedPoint(snap(p, event.altKey || object.placement === 'flow'))
       let width = Math.max(16, west ? fixed.x - end.x : end.x - fixed.x), height = Math.max(16, north ? fixed.y - end.y : end.y - fixed.y)
-      if (event.shiftKey) width = height = Math.max(width, height)
+      const ratio = object.kind === 'drawing' ? object.height / object.width : 0
+      if (ratio) width = Math.max(width, height / ratio)
+      else if (event.shiftKey) width = height = Math.max(width, height)
       width = Math.min(width, west ? Math.max(0, fixed.x) : Math.max(0, pageWidth() - fixed.x))
       if (object.placement === 'flow') width = Math.min(width, object.centered ? pageWidth() - doc.margins.left - doc.margins.right
         : west ? Math.max(16, fixed.x - doc.margins.left) : Math.max(16, pageWidth() - doc.margins.right - fixed.x))
-      if (event.shiftKey) height = width
+      if (ratio) height = width * ratio
+      else if (event.shiftKey) height = width
       patch = { x: west ? fixed.x - width : fixed.x, top: Math.max(0, north ? fixed.y - height : fixed.y), width, height }
       if (object.placement === 'flow') { delete patch.top; if (object.centered) delete patch.x }
     }
@@ -789,8 +792,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const width = (next: number) => object.placement === 'flow'
       ? Math.max(16, Math.min(pageWidth() - doc.margins.left - doc.margins.right - (object.centered ? 0 : Math.max(0, object.x)), next))
       : boundedWidth(geometry[id].x, next, object.kind === 'html' || object.kind === 'drawing' ? 16 : 120)
-    if (part === 'width') { onNoteChange(id, { width: width(object.width + direction.x * step) }); return }
-    if (part && (object.kind === 'html' || object.kind === 'drawing')) {
+    if (part === 'width' || part && object.kind === 'drawing') { onNoteChange(id, { width: width(object.width + (direction.x || direction.y) * step) }); return }
+    if (part && object.kind === 'html') {
       onNoteChange(id, { width: width(object.width + direction.x * step), height: Math.max(16, object.height + direction.y * step) }); return
     }
     if (object.placement === 'flow') {
