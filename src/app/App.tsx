@@ -577,7 +577,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                     <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click or drag to place on the document.' : `Click or drag to place on the page. Click the left gutter to ${tool === 'ai' ? 'reserve an AI section' : 'insert as Flow'}.`} />
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                   </div>
-                : activeEditor ? <TextInspector theme={doc.theme} semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
+                : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
                     onRevise={() => { setTool(null); reserveSelection() }} reviseDisabled={!mainEditor} />
                 : <div className="context-inspector"><p className="hint">Select text or an object to see its properties.</p></div>}
               </>}

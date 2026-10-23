@@ -137,8 +137,8 @@ function selectedClasses(editor: Editor | null, caption: boolean) {
   }
 }
 
-export function InspectorGroup({ title, children, divided = false }: { title: string; children: ReactNode; divided?: boolean }) {
-  return <section className={`inspector-group${divided ? ' is-divided' : ''}`} aria-label={title}>
+export function InspectorGroup({ title, children }: { title: string; children: ReactNode }) {
+  return <section className="inspector-group" aria-label={title}>
     <h3>{title}</h3>{children}
   </section>
 }
@@ -155,35 +155,36 @@ export function InspectorHelp({ children }: { children: ReactNode }) {
   return <details className="inspector-help"><summary>Help &amp; shortcuts</summary><div>{children}</div></details>
 }
 
-export function ContextHeading({ title, subtitle }: { title: string; subtitle?: string }) {
-  return <header className="context-heading"><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</header>
+export function ContextHeading({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+  return <header className="context-heading"><div><h2>{title}</h2>{subtitle && <p>{subtitle}</p>}</div>{actions && <div className="context-heading-actions">{actions}</div>}</header>
 }
 
-export function TypographyPreview({ theme, semantic }: { theme: Theme; semantic: string }) {
-  const style = { ...theme.defaults, ...theme.blocks[semantic as keyof Theme['blocks']] }
-  return <div className="style-preview">
-    <span aria-hidden="true" style={{ fontFamily: style.family === 'serif' ? 'Georgia, serif' : style.family === 'mono' ? 'ui-monospace, monospace' : 'inherit', fontWeight: style.weight }}>Aa</span>
-    <div>{classLabel(semantic)}<small>Document theme</small></div>
-  </div>
+export function InspectorStyles({ semantic, onTheme }: { semantic?: string; onTheme: (name: string) => void }) {
+  return <details className="inspector-details">
+    <summary>Document styles</summary>
+    <div>
+      {semantic && <button title={`Changes ${classLabel(semantic)} typography throughout this document`} onClick={() => onTheme(semantic)}>{classLabel(semantic)} style… <PanelIcon name="sliders" /></button>}
+      <button onClick={() => onTheme('palette')}>Palette… <PanelIcon name="sliders" /></button>
+    </div>
+  </details>
 }
 
-export function TextInspector({ theme, semantic, listLevel, onTheme, onRevise, reviseDisabled }: {
-  theme: Theme; semantic: string; listLevel: number; onTheme: (name: string) => void; onRevise?: () => void; reviseDisabled?: boolean
+export function ReviseControl({ onRevise, disabled, passage = false }: { onRevise: () => void; disabled?: boolean; passage?: boolean }) {
+  return <button data-ai-segment-action={passage || undefined} onClick={onRevise} disabled={disabled}
+    title={passage ? 'Revise the selected passage or paragraph at the caret' : 'Revise this object with Assistant'}>Revise with AI <PanelIcon name="spark" /></button>
+}
+
+export function TextInspector({ semantic, listLevel, onTheme, onRevise, reviseDisabled }: {
+  semantic: string; listLevel: number; onTheme: (name: string) => void; onRevise?: () => void; reviseDisabled?: boolean
 }) {
   return <div className="context-inspector">
-    <ContextHeading title={semantic === 'list' ? 'List item' : `${classLabel(semantic)} paragraph`} subtitle={semantic === 'list' ? `Main document text · Level ${listLevel + 1}` : 'Main document text'} />
-    <InspectorGroup title="Typography">
-      <TypographyPreview theme={theme} semantic={semantic} />
-      <button onClick={() => onTheme(semantic)}>Edit {semantic} style <PanelIcon name="sliders" /></button>
-      <button className="quiet-action" onClick={() => onTheme('palette')}>Document palette <PanelIcon name="arrow" /></button>
-    </InspectorGroup>
-    {onRevise && <InspectorGroup title="Assistant">
-      <button data-ai-segment-action onClick={onRevise} disabled={reviseDisabled}>Revise this passage <PanelIcon name="spark" /></button>
-    </InspectorGroup>}
+    <ContextHeading title={semantic === 'list' ? 'List item' : `${classLabel(semantic)} paragraph`} subtitle={semantic === 'list' ? `Level ${listLevel + 1}` : undefined} />
+    {onRevise && <ReviseControl onRevise={onRevise} disabled={reviseDisabled} passage />}
+    <InspectorStyles semantic={semantic} onTheme={onTheme} />
     <InspectorHelp key={semantic}>
       {semantic === 'body' && <p>Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
       {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
-      <p>Revise this passage uses the selected segment, selected paragraphs, or the paragraph at the caret. Styles apply to every paragraph of their class.</p>
+      <p>Revise with AI uses the selected segment, selected paragraphs, or the paragraph at the caret. Styles apply to every paragraph of their class.</p>
       <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>
       <p>Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection.</p>
       <p>Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag other empty areas to select objects.</p>
@@ -199,20 +200,20 @@ export interface TableInspectorSelection {
 export function TableControls({ selection, onCommand }: { selection: TableInspectorSelection | null; onCommand: (command: Command) => void }) {
   return <InspectorGroup title="Cells">
     <div className="inspector-stack" onMouseDown={event => { if ((event.target as HTMLElement).closest('button')) event.preventDefault() }}>
-      <InspectorField label="Rows"><InspectorRow>
+      <div className="inspector-labeled-row"><span>Rows</span><InspectorRow>
         <button aria-label="Add row below" disabled={!selection?.tableRect} onClick={() => onCommand(addRowAfter)}>Add below</button>
         <button aria-label="Remove row" disabled={!selection?.tableRect?.removeRow} onClick={() => onCommand(deleteRow)}>Remove</button>
-      </InspectorRow></InspectorField>
-      <InspectorField label="Columns"><InspectorRow>
+      </InspectorRow></div>
+      <div className="inspector-labeled-row"><span>Columns</span><InspectorRow>
         <button aria-label="Add column after" disabled={!selection?.tableRect} onClick={() => onCommand(changeColumns())}>Add after</button>
         <button aria-label="Remove column" disabled={!selection?.tableRect?.removeColumn} onClick={() => onCommand(changeColumns(true))}>Remove</button>
-      </InspectorRow></InspectorField>
+      </InspectorRow></div>
       <InspectorField label="Column alignment">
-        <div className="column-alignment">
+        <div className="column-alignment" title="Applies to entire selected columns">
           {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={!selection?.tableRect}
             aria-pressed={selection?.columnAlignment === align} onClick={() => onCommand(alignColumns(align))}>{classLabel(align)}</button>)}
         </div>
-        <p className="hint">{selection?.tableRect ? 'Applies to entire selected columns.' : 'Click a cell to edit rows, columns, and alignment.'}</p>
+        {!selection?.tableRect && <p className="hint">Select a cell to edit rows and columns.</p>}
       </InspectorField>
     </div>
   </InspectorGroup>
