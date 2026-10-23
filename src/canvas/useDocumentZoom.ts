@@ -12,27 +12,44 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   const scale = zoom === undefined ? Math.min(autoScale, 1) : zoom ?? autoScale
   const minScale = Math.min(.25, autoScale)
   const focal = useRef<{ document: Point; client: Point } | null>(null)
+  const topPadding = useRef<number | null>(null)
   const wheelGesture = useRef<{ scale: number; time: number } | null>(null)
 
   useLayoutEffect(() => { wheelGesture.current = null; pinch.current = null }, [autoScale, editable])
 
-  useLayoutEffect(() => {
+  const measure = useEffectEvent(() => {
     const viewport = stage.current!
-    const measure = () => {
-      const style = getComputedStyle(viewport)
-      const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
-      const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-      setFit(Math.min(1, availableWidth / width))
-      // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
-      const automatic = Math.min(3, availableWidth / width, availableHeight / 600)
-      setAutoScale(automatic)
-      if (!editable) setZooms(current => current.read === undefined ? { ...current, read: Math.min(automatic, 1) } : current)
+    const style = getComputedStyle(viewport)
+    const paddingTop = parseFloat(style.paddingTop)
+    const paddingChange = paddingTop - (topPadding.current ?? paddingTop)
+    topPadding.current = paddingTop
+    const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
+    const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
+    setFit(Math.min(1, availableWidth / width))
+    // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
+    const automatic = Math.min(3, availableWidth / width, availableHeight / 600)
+    if (zoom === null && automatic !== scale && !focal.current) {
+      const rect = viewport.getBoundingClientRect()
+      // Anchor the visible top, not the centre; leave the page top in place when it is visible.
+      const pageTop = sheet.current!.getBoundingClientRect().top
+      rememberFocal({ x: rect.left + viewport.clientWidth / 2, y: Math.max(rect.top, pageTop) }, pageTop < rect.top ? paddingChange : 0)
     }
+    setAutoScale(automatic)
+    if (!editable) setZooms(current => current.read === undefined ? { ...current, read: Math.min(automatic, 1) } : current)
+  })
+
+  useLayoutEffect(() => {
     measure()
     const observer = new ResizeObserver(measure)
-    observer.observe(viewport)
+    observer.observe(stage.current!)
     return () => observer.disconnect()
   }, [stage, width, editable])
+
+  function rememberFocal(client: Point, paddingChange = 0) {
+    const page = sheet.current!.getBoundingClientRect()
+    // Responsive padding has already changed by the time ResizeObserver runs.
+    focal.current = { document: { x: (client.x - page.left) / scale, y: (client.y - page.top + paddingChange) / scale }, client }
+  }
 
   function zoomTo(next: number, client?: Point, snap = false, automatic = false) {
     wheelGesture.current = null
@@ -47,9 +64,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     if (next === scale) return
     const viewport = stage.current!
     const rect = viewport.getBoundingClientRect()
-    const page = sheet.current!.getBoundingClientRect()
-    const point = client ?? { x: rect.left + viewport.clientWidth / 2, y: rect.top + viewport.clientHeight / 2 }
-    focal.current = { document: { x: (point.x - page.left) / scale, y: (point.y - page.top) / scale }, client: point }
+    rememberFocal(client ?? { x: rect.left + viewport.clientWidth / 2, y: rect.top + viewport.clientHeight / 2 })
   }
 
   function zoomBy(factor: number) { zoomTo(scale * factor, undefined, true) }
