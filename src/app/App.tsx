@@ -22,7 +22,7 @@ import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
-import { FloatingInspector } from './FloatingInspector'
+import { FloatingInspector, kindName } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { patchFloating } from '../canvas/patchFloating'
 import { constrainCaptionResize, extentBounds } from '../canvas/floatingGeometry'
@@ -35,9 +35,9 @@ import { isCaptionEditor } from '../editor/extensions'
 import { ContextHeading, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
-import { AssistantPanel } from '../ai/AssistantPanel'
-import type { Area, AITask } from '../ai/types'
-import { paragraphSelection } from '../ai/reservations'
+import { AssistantPanel, type ReservationSelection } from '../ai/AssistantPanel'
+import type { Area, AITarget, AITask } from '../ai/types'
+import { containsTarget, overlaps, paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
 import type { SegmentRange } from '../document/segment'
 import { uiThemeVariables } from '../theme/ui'
@@ -113,6 +113,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [zoomHost, setZoomHost] = useState<HTMLDivElement | null>(null)
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [selectedSegment, setSelectedSegment] = useState<{ range: SegmentRange | null; taskId: string | null }>({ range: null, taskId: null })
   const [tool, setTool] = useState<CreationTool>(null)
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
@@ -148,16 +149,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setActiveEditor(null)
   }, [settingsOpen])
 
-  function showContext(_event?: React.SyntheticEvent) {
-    if (!editable || !settingsOpen && !assistant.open) return
-    history.boundary()
-    setSettingsOpen(false)
-    assistant.setOpen(false)
+  function followCanvasSelection() {
+    if (!editable) return
+    assistant.followSelection()
   }
 
   useEffect(() => {
     if (selectedIds.some(id => !doc?.floating.some(object => object.id === id))) {
-      setSelectedIds(ids => ids.filter(id => doc?.floating.some(object => object.id === id))); setActiveEditor(mainEditor)
+      setSelectedIds(ids => ids.filter(id => doc?.floating.some(object => object.id === id))); setActiveEditor(null)
     }
   }, [doc?.floating, selectedIds, mainEditor])
 
@@ -226,6 +225,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         table: !caption && !!editor?.schema.nodes.table,
         columnAlignment: rect && columnAlignment(editor!.state),
         tableRect: rect && { removeRow: rect.bottom - rect.top < rect.map.height, removeColumn: rect.right - rect.left < rect.map.width },
+        paragraphs: editor && editor === mainEditor ? paragraphSelection(editor.state.doc, editor.state.selection.from, editor.state.selection.to) : null,
       }
     },
   })
@@ -338,7 +338,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setSettingsTab('theme')
     setSettingsOpen(true)
     setSettingsSection('document')
-    assistant.setOpen(false)
   }
 
   function runWidget(id: string) {
@@ -357,43 +356,66 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     const left = Math.min(rect.left, caption?.left ?? rect.left), right = Math.max(rect.right, caption?.right ?? rect.right)
     return { x: (left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: (right - left) / scale, height: rect.height / scale }
   }
-  // Starts the assistant from the current selection: a single object, a gutter
-  // segment, selected paragraphs, or the paragraph at the caret.
-  function reserveSelection() {
-    if (!doc) return
-    if (isCaptionEditor(activeEditor) && selectedIds.length !== 1) return
+  function selectionTarget(): AITarget | null {
+    if (!doc || tool) return null
     if (selectedIds.length === 1 && selectedObject) {
       const range = activeEditor && !isCaptionEditor(activeEditor) && activeEditor !== mainEditor && !activeEditor.state.selection.empty ? activeEditor.state.selection : null
-      assistant.reserve({ kind: 'object', objectId: selectedObject.id, isNew: false,
+      return { kind: 'object', objectId: selectedObject.id, isNew: false,
         ...(range ? { selection: { from: range.from, to: range.to }, selectedText: activeEditor!.state.doc.textBetween(range.from, range.to, '\n') } : {}),
-        area: measuredArea(document.querySelector(`.workspace [data-note-id="${selectedObject.id}"]`)) })
-      setActiveEditor(null)
-      return
+        area: measuredArea(document.querySelector(`.workspace [data-note-id="${selectedObject.id}"]`)) }
     }
-    if (!mainEditor || selectedIds.length) return
+    if (!mainEditor || selectedIds.length) return null
     const segment = actions.current?.segmentSelection()
-    if (segment) {
-      const task = assistant.reserve(makeSegmentTarget(doc, segment.range, segment.area))
-      if (task) { setActiveEditor(null); actions.current?.locateSegment(task.id) }
-      return
-    }
-    const { from, to } = mainEditor.state.selection
-    const range = paragraphSelection(mainEditor.state.doc, from, to)
-    if (!range) { assistant.setNotice('Select consecutive main-text paragraphs without crossing a space.'); return }
+    if (selectedSegment.range && segment) return makeSegmentTarget(doc, segment.range, segment.area)
+    const range = activeEditor === mainEditor ? selection?.paragraphs : null
+    if (!range) return null
     const ids = range.blockIds
     const first = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids[0]}"]`))
     const last = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids.at(-1)}"]`))
-    const task = assistant.reserve({ kind: 'text', ...range, insert: false, area: { ...first, height: last.y + last.height - first.y } })
-    if (task) mainEditor.commands.setTextSelection(range.selection)
+    return { kind: 'text', ...range, insert: false, area: { ...first, height: last.y + last.height - first.y } }
+  }
+  const target = selectionTarget()
+  const overlappingTasks = target && doc ? assistant.tasks.filter(task => overlaps(task.target, target, doc))
+    : assistant.tasks.filter(task => selectedIds.some(id => task.target.kind === 'object' ? task.target.objectId === id : task.target.kind === 'segment' && task.target.objectIds.includes(id)))
+  const selectedTask = assistant.tasks.find(task => task.id === selectedSegment.taskId)
+    ?? (target && doc && overlappingTasks.length === 1 && containsTarget(overlappingTasks[0].target, target, doc) ? overlappingTasks[0] : undefined)
+  const reservationSelection: ReservationSelection = {
+    title: selectedIds.length > 1 ? `${selectedIds.length} objects` : selectedObject ? kindName(selectedObject)
+      : target?.kind === 'segment' ? target.range.start.index === target.range.end.index && target.range.start.offset === target.range.end.offset ? 'New section' : 'Document section'
+      : target?.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : 'Assistant',
+    detail: overlappingTasks.length && !selectedTask ? 'This selection overlaps existing reservations. Select one task or an unreserved area.'
+      : selectedIds.length > 1 ? 'Select one object, or select a section using the gutter.'
+      : selectedObject ? selectedObject.kind === 'table' ? selectedObject.caption ? 'Entire table and caption.' : 'Entire table.' : 'caption' in selectedObject && selectedObject.caption ? 'Includes its caption.' : undefined
+      : target?.kind === 'text' ? 'Reserves whole paragraphs, including any unselected text.'
+      : target?.kind === 'segment' ? target.blockIds.length || target.objectIds.length ? 'Reserves this section and its owned objects.' : 'Creates a section at this insertion point.'
+      : activeEditor === mainEditor && mainEditor ? 'Select consecutive paragraphs, or use the gutter to include spaces and Flow objects.'
+      : 'Select a passage, an object, or a section to work with Assistant.',
+    canReserve: !!target && !overlappingTasks.length,
+    tasks: selectedTask ? [] : overlappingTasks,
+  }
+  const assistantTaskId = assistant.allTasks.some(task => task.id === assistant.activeId) ? assistant.activeId : selectedTask?.id ?? null
+
+  function reserveSelection() {
+    if (!target || !reservationSelection.canReserve) return
+    const task = assistant.reserve(target)
+    if (!task) return
+    if (target.kind === 'segment') { setActiveEditor(null); actions.current?.locateSegment(task.id) }
+    else if (target.kind === 'text') mainEditor?.commands.setTextSelection(target.selection)
+    focusRequest(task)
+  }
+  function focusRequest(task?: AITask) {
+    if (task) requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>(`[data-ai-task="${task.id}"] textarea`)?.focus())
   }
   function createAIArea(object: FloatingObject, area: Area) {
     if (!doc) return
     const next = { ...doc, floating: [...doc.floating, object] }
-    setDoc(next); assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next)
+    setDoc(next); focusRequest(assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next))
   }
   function createAISegment(range: SegmentRange, area: Area) {
     if (!doc) return
-    return assistant.reserve(makeSegmentTarget(doc, range, area))?.id
+    const task = assistant.reserve(makeSegmentTarget(doc, range, area))
+    focusRequest(task)
+    return task?.id
   }
   function locateTask(task: AITask) {
     setTool(null)
@@ -458,7 +480,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           <button className="header-icon-btn" aria-label="Share" title="Share or export" aria-haspopup="dialog" aria-expanded={shareOpen}
             onClick={() => setShareOpen(true)}><PanelIcon name="share" /></button>
           <button className="header-icon-btn" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
-            onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen); assistant.setOpen(false) }}><PanelIcon name="settings" /></button>
+            onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen) }}><PanelIcon name="settings" /></button>
           <button className="header-icon-btn" aria-label="Reset to example" title="Reset to example" aria-haspopup="dialog" onClick={() => {
             if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
             assistant.abandonAll()
@@ -555,7 +577,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           </button>
         </div>
         {assistant.open ? <div id="assistant-panel" className="side-panel-body" role="tabpanel" aria-labelledby="assistant-tab">
-          <AssistantPanel assistant={assistant} onLocate={locateTask} />
+          <AssistantPanel assistant={assistant} activeId={assistantTaskId} selection={reservationSelection} onReserve={reserveSelection} onLocate={locateTask} />
         </div> : <div id="context-panel" className="side-panel-body" role="tabpanel" aria-labelledby="context-tab">
               {!tool && <TextToolsRow editor={activeEditor} theme={doc.theme} caption={isCaptionEditor(activeEditor)} onPalette={() => openThemeClass('palette')}
                 recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
@@ -578,31 +600,32 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onWidgetRun={runWidget}
                   onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
-                  onRevise={() => { setTool(null); reserveSelection() }} reserved={!!selectedObjectTask}
+                  reserved={!!selectedObjectTask}
                   onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} />
+                : selectedTask ? <div className="context-inspector">
+                    <ContextHeading title="Reserved for AI" subtitle="Review the result before editing this area." />
+                    <button onClick={() => assistant.openTask(selectedTask.id)}>Open AI task</button>
+                  </div>
                 : tool ? <div className="context-inspector">
                     <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click or drag to place on the document.' : `Click or drag to place on the page. Click the left gutter to ${tool === 'ai' ? 'reserve an AI section' : 'insert as Flow'}.`} />
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                   </div>
-                : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass}
-                    onRevise={() => { setTool(null); reserveSelection() }} reviseDisabled={!mainEditor} />
+                : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
                 : <div className="context-inspector"><p className="hint">Select text or an object to see its properties.</p></div>}
               </>}
               </div>
             </div>}
       </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
-        onInteraction={showContext} onCaptionSelection={setSelectedCaptionId}
+        onInteraction={followCanvasSelection} onCaptionSelection={setSelectedCaptionId}
+        onSegmentSelection={(range, taskId) => setSelectedSegment({ range, taskId })}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onAISegmentCreate={createAISegment} onDeleteObjects={assistant.deleteObjects}
         aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
           toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: assistant.openTask, deleteTarget: assistant.deleteTarget }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
         widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => {
-          const task = assistant.tasks.find(task => task.target.kind === 'object' ? ids.includes(task.target.objectId) : task.target.kind === 'segment' && task.target.objectIds.some(id => ids.includes(id)))
-          if (task) assistant.openTask(task.id)
-          else if (ids.length) showContext()
-          setSelectedIds(ids); if (!ids.length) setActiveEditor(mainEditor)
+          setSelectedIds(ids)
         }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={setMainEditor} onActive={setActiveEditor}

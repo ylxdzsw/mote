@@ -320,12 +320,12 @@ export function useSegmentSelection(props: Props) {
       if (event.type === 'keydown' && event.key === 'Escape' && (d || selected.current || insertion.current)) { event.preventDefault(); if (d) cancel(); else actions.current.clear() }
     }
     function outside(event: PointerEvent) {
-      if ((event.target as Element).closest('[data-ai-segment-action]')) return
+      if ((event.target as Element).closest('.side-panel')) return
       if (!live.current.stage.current!.contains(event.target as Node)) actions.current.clear()
     }
     function focus(event: FocusEvent) {
       const target = event.target as HTMLElement
-      if (target !== live.current.stage.current && !target.closest('[data-segment-control], [data-ai-segment-action]')) actions.current.clear()
+      if (target !== live.current.stage.current && !target.closest('[data-segment-control], .side-panel')) actions.current.clear()
     }
     const copied = (event: ClipboardEvent) => actions.current.copy(event)
     const pasted = (event: ClipboardEvent) => actions.current.paste(event)
@@ -398,7 +398,7 @@ export function useSegmentSelection(props: Props) {
       {dropY !== null && <div className="segment-drop" style={{ top: (dropY + 1) * props.scale }}><span>Move here</span></div>}
     </>}
   </div>
-  return { begin, clear, overlay, notice,
+  return { begin, clear, overlay, notice, range,
     target: (y: number, alt = false) => {
       const blocks = measure(), point = endpoint(y, alt, blocks)
       return { point, top: boundaryY(point, 'start', blocks) }

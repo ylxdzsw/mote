@@ -102,6 +102,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const inactiveReason = (task: AITask) => inactiveTaskReason(task, currentDoc.current)
     ?? (!activeTasks().some(active => active.id === task.id) ? 'Another task reserves this target. This copy is retained for inspection and cannot lock or change the document.' : null)
   function openTask(id: string) { setActiveId(id); setOpen(true) }
+  function followSelection() { setActiveId(null) }
   function markMutation(id: string) { mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1) }
   function update(id: string, patch: Partial<AITask>) {
     if (!mounted.current) return
@@ -220,7 +221,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
   }, [externalBlocked, allTasks])
   useEffect(() => {
-    setActiveId(current => allTasks.some(task => task.id === current) ? current : allTasks[0]?.id ?? null)
+    setActiveId(current => allTasks.some(task => task.id === current) ? current : null)
   }, [allTasks])
 
   useEffect(() => {
@@ -362,7 +363,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     return task
   }
   function missingRemote(id: string) {
-    update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then start a new revision from the context panel.' })
+    update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then reserve the content again in Assistant.' })
   }
   function rejectPrivateExternalDraft(id: string) {
     const task = state.current.find(task => task.id === id)
@@ -704,11 +705,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     markMutation(id)
     preparations.current.delete(id)
     const task = state.current.find(task => task.id === id)
-    const index = state.current.findIndex(task => task.id === id)
     discarded.current.add(id)
     persistence.replace(state.current.filter(task => task.id !== id))
-    setActiveId(current => current === id ? (state.current[index] ?? state.current[index - 1])?.id ?? null : current)
-    if (!state.current.length) setOpen(false)
+    setActiveId(current => current === id ? null : current)
     const store = persistence.engine.current
     if (store && (task?.submitted || task?.requestSent)) void cleanup(id, store)
   }
@@ -812,7 +811,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
-  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
+  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
     switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
     workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,
     workspaceReadWorking: (id: string) => !!workspaceReadOperations[id],

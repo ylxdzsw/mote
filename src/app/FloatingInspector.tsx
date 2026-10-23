@@ -5,7 +5,7 @@ import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
 
-import { ContextHeading, InspectorField, InspectorGroup, InspectorHelp, InspectorRow, InspectorStyles, ReviseControl } from './Inspector'
+import { ContextHeading, InspectorField, InspectorGroup, InspectorHelp, InspectorRow, InspectorStyles } from './Inspector'
 import { PanelIcon } from './PanelIcon'
 import { codeLanguages } from '../document/code'
 import { WIDGET_SCREENSHOT_PLACEHOLDER } from '../document/widget'
@@ -39,15 +39,13 @@ interface Props {
   screenshotOffline: boolean
   onReplaceImage: () => void
   onDrawingEdit: () => void
-  onRevise?: () => void
-  reviseDisabled?: boolean
   reserved?: boolean
   onOpenTask?: () => void
 }
 
-const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
+export const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled, reserved, onOpenTask }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, reserved, onOpenTask }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -93,7 +91,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
             <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
           </label>)}
         </div>
-        {reserved && onOpenTask ? <button onClick={onOpenTask}>Open AI task</button> : onRevise && <ReviseControl onRevise={onRevise} disabled={reviseDisabled} />}
+        {reserved && onOpenTask && <button onClick={onOpenTask}>Open AI task</button>}
       </div>
       {!reserved && <>
       {object.kind === 'drawing' && <button onClick={onDrawingEdit}>Edit drawing…</button>}
@@ -238,7 +236,7 @@ function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffli
 function FloatingHelp({ object, count }: { object: FloatingObject; count: number }) {
   if (count > 1) return <p>Drag any selected object to move the group. Select one object alone to edit its contents. Shift-click adds or removes objects from the selection.</p>
   switch (object.kind) {
-    case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; the right border and corners resize with proportions intact. To crop or extend a side without stretching, drag the editor's edge handles. Pen widths stay in document pixels. Revise with AI can turn the sketch into a figure.</p></>
+    case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; the right border and corners resize with proportions intact. To crop or extend a side without stretching, drag the editor's edge handles. Pen widths stay in document pixels. Reserve the sketch in Assistant to turn it into a figure.</p></>
     case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. Syntax colors follow the document's Light or Dark appearance, independently of the palette hues.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>The saved screenshot is used for the minimap and PNG export, not the widget’s current interaction state.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. Update screenshot runs the saved code separately on the server; it does not restart the widget on this page. Refresh it after changing code or dimensions.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click the image to add or edit its caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>

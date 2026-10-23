@@ -44,7 +44,7 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
     if (!busy && !task.pendingExecutor && !workspacePermissionUnconfirmed) button('Accept', () => actions().accept(task.id))
   }
   if (busy && !task.pendingExecutor && task.executor !== 'external') button('Stop', () => actions().stop(task.id))
-  button('Discard', () => actions().discard(task.id))
+  button(task.status === 'draft' ? 'Cancel reservation' : 'Discard', () => actions().discard(task.id))
   button('Request…', () => actions().open(task.id))
   if (actions().deleteTarget) button('Delete region', () => actions().deleteTarget!(task.id))
   return root

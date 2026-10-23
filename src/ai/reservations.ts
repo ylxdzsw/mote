@@ -225,6 +225,21 @@ export function overlaps(a: AITarget, b: AITarget, doc?: MoteDocument): boolean 
   return false
 }
 
+// Panel navigation may open a containing reservation, but never hide a mixed selection.
+export function containsTarget(owner: AITarget, selection: AITarget, doc: MoteDocument): boolean {
+  if (selection.kind === 'object') return owner.kind === 'object' ? owner.objectId === selection.objectId
+    : owner.kind === 'segment' && owner.objectIds.includes(selection.objectId)
+  if (owner.kind === 'object') return false
+  const rangeOf = (target: Exclude<AITarget, { kind: 'object' }>) => {
+    if (target.kind === 'segment') return resolveSegmentRange(doc, target)
+    const index = doc.content.content!.findIndex(node => node.attrs?.id === target.blockIds[0])
+    return index < 0 ? null : { start: { index, offset: 0 }, end: { index: index + target.blockIds.length, offset: 0 } }
+  }
+  const outer = rangeOf(owner), inner = rangeOf(selection)
+  return !!outer && !!inner && segmentCompare(outer.start, inner.start) <= 0 && segmentCompare(outer.end, inner.end) >= 0
+    && (selection.kind !== 'segment' || selection.objectIds.every(id => owner.kind === 'segment' && owner.objectIds.includes(id)))
+}
+
 export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocument) {
   if (tasks.length && before.id !== after.id) return false
   return tasks.every(task => {

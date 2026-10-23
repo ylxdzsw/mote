@@ -169,22 +169,16 @@ export function InspectorStyles({ semantic, onTheme }: { semantic?: string; onTh
   </details>
 }
 
-export function ReviseControl({ onRevise, disabled, passage = false }: { onRevise: () => void; disabled?: boolean; passage?: boolean }) {
-  return <button data-ai-segment-action={passage || undefined} onClick={onRevise} disabled={disabled}
-    title={passage ? 'Revise the selected passage or paragraph at the caret' : 'Revise this object with Assistant'}>Revise with AI <PanelIcon name="spark" /></button>
-}
-
-export function TextInspector({ semantic, listLevel, onTheme, onRevise, reviseDisabled }: {
-  semantic: string; listLevel: number; onTheme: (name: string) => void; onRevise?: () => void; reviseDisabled?: boolean
+export function TextInspector({ semantic, listLevel, onTheme }: {
+  semantic: string; listLevel: number; onTheme: (name: string) => void
 }) {
   return <div className="context-inspector">
     <ContextHeading title={semantic === 'list' ? 'List item' : `${classLabel(semantic)} paragraph`} subtitle={semantic === 'list' ? `Level ${listLevel + 1}` : undefined} />
-    {onRevise && <ReviseControl onRevise={onRevise} disabled={reviseDisabled} passage />}
     <InspectorStyles semantic={semantic} onTheme={onTheme} />
     <InspectorHelp key={semantic}>
       {semantic === 'body' && <p>Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
       {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
-      <p>Revise with AI uses the selected segment, selected paragraphs, or the paragraph at the caret. Styles apply to every paragraph of their class.</p>
+      <p>Reserve a passage in Assistant to revise it with AI. Styles apply to every paragraph of their class.</p>
       <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>
       <p>Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection.</p>
       <p>Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag other empty areas to select objects.</p>

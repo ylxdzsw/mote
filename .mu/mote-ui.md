@@ -24,7 +24,7 @@ Organize by what the user is doing and what the action affects. Extend an existi
 | Create content | Add / right-click launchpad: one coherent creation vocabulary |
 | Format native rich text | Fixed Text strip: short, stable access to frequent formatting |
 | Change the selected object or caption | Context: properties stay with their target |
-| Work with an AI reservation | Assistant: request, access, and review stay together |
+| Reserve content or work with an AI task | Assistant: reservation, request, access, and review stay together |
 | Find or manage a document | Title → Files: search and opening lead; row actions handle maintenance |
 | Change wider settings | Settings → Document / Workspace / Browser: scope is explicit |
 | Share or export | Share → Link / Export: related outcomes in one dialog |
@@ -36,7 +36,7 @@ Make scope visible through selection, headings, and grouping. For example, capti
 
 Stable geometry and focus are part of the visual design. Opening a menu, changing a panel tab, or receiving an AI result should not casually move the page, change its zoom, or steal the caret. The right Context/Assistant lane stays the same width across its tabs; Settings and Notes avoid resizing the canvas. Read/Edit retains its position.
 
-Distinguish navigation from intent to edit. Scrolling preserves the active side-panel tab; selecting a reservation opens its task; opening Assistant preserves canvas selection for review. Let direct manipulation preview its effect, support cancellation, and commit as a coherent undo step. Selection outlines should make the target clear, especially for owned subobjects such as captions.
+Distinguish navigation from intent to edit. Context/Assistant is the user’s workspace choice: selecting content changes the panel’s target, not its tab. Assistant follows selection to an existing task or an explicit reservation invitation; selecting or opening the panel never starts a task by itself. Task tabs provide deliberate navigation without scrolling, while background completion never takes over the current view. Opening Assistant preserves canvas selection, including gutter sections, for reservation and review. Let direct manipulation preview its effect, support cancellation, and commit as a coherent undo step. Selection outlines should make the target clear, especially for owned subobjects such as captions.
 
 ## Build hierarchy with restraint
 

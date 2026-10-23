@@ -1578,3 +1578,10 @@ Normal-flow mounts incorporate signed vertical margins; centering, Float repulsi
 ## 2026-10-23 — Canvas centering and compact stacking
 
 Removed the Context Flow centering button in favor of existing horizontal drag snapping, retaining persistent centered geometry and Alt bypass. Bring to front / Send to back now use flat, labeled and tooltipped 32px icon targets beside the Layout heading, rather than a separate full-width button row. Object margins and group stacking remain available; no canvas or saved-document behavior changed.
+
+
+## 2026-10-23 — Persistent Context/Assistant and explicit reservation entry
+
+Context/Assistant now represents a user-chosen workspace, not a side effect of canvas interaction. Both tabs persist through selection, scrolling, Settings, Read/Edit, and release of the last task. Assistant follows the selected scope to an existing task or a Reserve for Assistant invitation; Context no longer starts revisions. Reserving is distinct from generating or granting external access, and unsent drafts offer Cancel reservation. This removes the round trip through Context and avoids changing the user’s tools while they explore the document.
+
+Task tabs remain reachable even for one task and can explicitly open a task without moving the page; the next canvas interaction follows selection again. Selection-driven task changes never focus the composer; explicit reservation creation does. Background completion and switching targets retain requests/results without taking over the panel. Gutter selections survive panel navigation, while empty selection never borrows an old caret. Captions and table cells name their whole-owner scope, paragraph selections name whole-paragraph scope, mixed reservations offer existing tasks, and independent multi-object selection does not create implicit batches. Focus restoration after marquee/Shift selection now retains the selected group rather than collapsing it to the focused object, keeping the invitation’s scope truthful. Reservation protection, generation, acceptance, and recovery formats are unchanged.

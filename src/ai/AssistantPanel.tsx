@@ -3,45 +3,60 @@ import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
 import { ContextHeading } from '../app/Inspector'
 import { PanelIcon } from '../app/PanelIcon'
+import { kindName } from '../app/FloatingInspector'
 import './assistant.css'
 
 const Transcript = lazy(() => import('./Transcript'))
 type Assistant = ReturnType<typeof useAssistant>
-const targetLabel = ({ target }: AITask) => target.kind === 'segment'
+const targetLabel = ({ target, original }: AITask) => target.kind === 'segment'
   ? target.range.start.index === target.range.end.index && target.range.start.offset === target.range.end.offset ? 'New section' : 'Document section'
-  : target.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : target.isNew ? 'Floating area' : 'Object revision'
+  : target.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : target.isNew ? 'Floating area'
+  : !Array.isArray(original) && 'id' in original ? `${kindName(original)} revision` : 'Object revision'
 const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim().split('\n')[0].slice(0, 40) || targetLabel(task)
 const statusLabel = { draft: 'Not sent', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Waiting for result', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
 const displayedStatus = (task: AITask) => task.executor === 'external' && ['preparing', 'queued', 'running'].includes(task.status) ? 'waiting' : task.status
 const busyTask = (task: AITask) => (task.executor ?? 'builtin') === 'builtin' && ['preparing', 'queued', 'running'].includes(task.status)
 
-export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; onLocate: (task: AITask) => void }) {
+export interface ReservationSelection {
+  title: string
+  detail?: string
+  canReserve: boolean
+  tasks: AITask[]
+}
+
+export function AssistantPanel({ assistant, activeId, selection, onReserve, onLocate }: {
+  assistant: Assistant; activeId: string | null; selection: ReservationSelection; onReserve: () => void; onLocate: (task: AITask) => void
+}) {
   const tabs = useRef<HTMLDivElement>(null)
-  useEffect(() => { tabs.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [assistant.activeId])
+  useEffect(() => { tabs.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [activeId])
   return <div className="ai-panel" aria-label="AI assistant">
     <CloudStatus assistant={assistant} />
-    {!!assistant.allTasks.length && <div className="ai-tabs" hidden={assistant.allTasks.length === 1} role="tablist" aria-label="Agents" ref={tabs} onKeyDown={event => {
-      const index = assistant.allTasks.findIndex(task => task.id === assistant.activeId)
+    {!!assistant.allTasks.length && <div className="ai-tabs" role="tablist" aria-label="Tasks" ref={tabs} onKeyDown={event => {
+      const index = [...tabs.current!.querySelectorAll('[role="tab"]')].indexOf(document.activeElement!)
       const next = event.key === 'ArrowRight' ? (index + 1) % assistant.allTasks.length : event.key === 'ArrowLeft' ? (index + assistant.allTasks.length - 1) % assistant.allTasks.length
         : event.key === 'Home' ? 0 : event.key === 'End' ? assistant.allTasks.length - 1 : -1
       if (next < 0) return
       event.preventDefault(); assistant.openTask(assistant.allTasks[next].id)
       tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next].focus()
     }}>
-      {assistant.allTasks.map(task => <button key={task.id} id={`ai-tab-${task.id}`} role="tab" aria-selected={assistant.activeId === task.id}
-        aria-controls={`ai-panel-${task.id}`} tabIndex={assistant.activeId === task.id ? 0 : -1} title={`${taskTitle(task)} — ${statusLabel[displayedStatus(task)]}`}
+      {assistant.allTasks.map((task, index) => <button key={task.id} id={`ai-tab-${task.id}`} role="tab" aria-selected={activeId === task.id}
+        aria-controls={`ai-panel-${task.id}`} tabIndex={activeId === task.id || !activeId && index === 0 ? 0 : -1} title={`${taskTitle(task)} — ${statusLabel[displayedStatus(task)]}`}
         onClick={() => assistant.openTask(task.id)}>
         <span className={`ai-tab-status ${displayedStatus(task)}`} aria-label={statusLabel[displayedStatus(task)]}>{busyTask(task) ? '◌' : task.status === 'ready' ? '✓' : task.status === 'error' ? '!' : '○'}</span>
         <span className="ai-tab-title">{taskTitle(task)}</span>
       </button>)}
     </div>}
-    {!assistant.allTasks.length && <div className="ai-empty">
-      <ContextHeading title="Assistant" subtitle="Work with a passage or a new area." />
-      <div className="ai-empty-scope"><PanelIcon name="spark" /><p>Select a passage or an object, then choose <strong>Revise</strong> in Context.</p></div>
-      <p>For something new, choose <strong>Add → AI object</strong> and draw an area on the document.</p>
+    {!activeId && <div className="ai-empty">
+      <ContextHeading title={selection.title} subtitle={selection.detail} />
+      {selection.canReserve ? <>
+        <button className="ai-primary ai-reserve" onClick={onReserve}>Reserve for Assistant <PanelIcon name="spark" /></button>
+        <p>Reserving locks the content for an AI task. Nothing is generated until you send a request.</p>
+      </> : selection.tasks.length ? <div className="ai-selection-tasks">
+        {selection.tasks.map(task => <button key={task.id} onClick={() => assistant.openTask(task.id)}>Open {taskTitle(task)}</button>)}
+      </div> : <p>For something new, choose <strong>Add → AI object</strong> and place an area on the document.</p>}
       <p className="ai-empty-note">Changes preview in place. You decide what to keep.</p>
     </div>}
-    {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={assistant.activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
+    {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
     <RecoveryArchives assistant={assistant} />
     <footer className="ai-footer">
       <details className="ai-info"><summary>Help & privacy</summary>
@@ -54,7 +69,6 @@ export function AssistantPanel({ assistant, onLocate }: { assistant: Assistant; 
 }
 
 function TaskView({ task, active, assistant, onLocate }: { task: AITask; active: boolean; assistant: Assistant; onLocate: () => void }) {
-  const input = useRef<HTMLTextAreaElement>(null)
   const [activityCollapsed, setActivityCollapsed] = useState(true)
   const [copyNotice, setCopyNotice] = useState('')
   const [retryingExecutor, setRetryingExecutor] = useState(false)
@@ -73,7 +87,6 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     : task.target.kind === 'segment' ? 'Describe the section you want to create…'
     : task.target.kind === 'text' ? 'Rewrite, expand, or explore these paragraphs…'
     : task.target.isNew ? 'Describe a diagram, formula, or interactive object…' : 'Describe how this object should change…'
-  useEffect(() => { if (active && task.status === 'draft' && !document.activeElement?.closest('[role="tablist"]')) input.current?.focus() }, [])
   async function copyText(text: string, label: string) {
     try {
       await navigator.clipboard.writeText(text)
@@ -166,12 +179,12 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       {busy && <button type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>}
     </div> : <form className="ai-composer" onSubmit={event => { event.preventDefault(); if (!busy && !executorBusy) void assistant.start(task.id, retry ? task.prompt : prompt) }}>
       <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>
-      <textarea ref={input} id={`ai-request-${task.id}`} aria-label="AI request" aria-describedby={!task.submitted ? `ai-privacy-${task.id}` : undefined} rows={task.submitted ? 3 : 5} value={prompt}
+      <textarea id={`ai-request-${task.id}`} aria-label="AI request" aria-describedby={!task.submitted ? `ai-privacy-${task.id}` : undefined} rows={task.submitted ? 3 : 5} value={prompt}
         placeholder={placeholder} disabled={executorBusy} onChange={event => assistant.update(task.id, { draftPrompt: event.target.value })} />
       <div className="ai-actions ai-compose-actions">
         {busy ? <button key="stop" type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>
           : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Preview candidate'} <PanelIcon name="spark" /></button>}
-        {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>}
+        {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>{task.status === 'draft' ? 'Cancel reservation' : 'Discard'}</button>}
       </div>
       {!task.submitted && <p className="ai-privacy" id={`ai-privacy-${task.id}`}>Requests sync to your workspace. Preview candidate shares the saved document revision and a snapshot with Mu. Changes preview in place for your review.</p>}
     </form>}

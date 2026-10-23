@@ -50,6 +50,7 @@ interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
   selectedIds: string[]; onSelect: (ids: string[]) => void
   onCaptionSelection?: (id: string | null) => void
+  onSegmentSelection?: (range: SegmentRange | null, taskId: string | null) => void
   onInteraction?: (event: React.SyntheticEvent) => void
   tool: CreationTool; onToolChange: (tool: CreationTool) => void
   onMainChange: (content: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => void; onNoteChange: (id: string, patch: FloatingPatch) => void
@@ -77,7 +78,7 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'katex' && !object.latex.trim())
   || (object.kind === 'code' && !object.source.trim())
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -129,7 +130,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
   useLayoutEffect(scrollFloor.reset, [doc.id, editable, scale, scrollFloor.reset])
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
-    onStart: () => { cancel(); select([]); setActiveSegmentId(null); onActive(mainEditor); onToolChange(null) } })
+    onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
+  useLayoutEffect(() => { onSegmentSelection?.(segments.range, activeSegmentId) }, [segments.range, activeSegmentId])
   const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
   const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.theme, () => { select([]); onActive(mainEditor) })
   const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage, sheet, editor: mainEditor,
@@ -151,7 +153,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   })
   function selectAISegment(id: string) {
     segments.clear(); select([]); onActive(null); setActiveSegmentId(id)
-    aiReview?.open(id)
   }
   function segmentTask(id: string) {
     const owner = projection.owners.get(id)
@@ -254,6 +255,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }, [selectedIds, selectedCaptionId, doc.floating])
 
   function select(ids: string[], captionId: string | null = null) {
+    setActiveSegmentId(null)
     setSelectedCaptionId(captionId); onCaptionSelection?.(captionId)
     onSelect(ids)
     setClipboardNotice('')
@@ -308,6 +310,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (event.key !== 'Escape' || isComposingKey(event)) return
       if (drag.current) { event.preventDefault(); cancel() }
       onToolChange(null)
+      if (stage.current?.contains(event.target as Node) && !drag.current && !event.defaultPrevented) {
+        segments.clear(); select([]); onActive(null)
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      }
     }
     window.addEventListener('keydown', escape)
     window.addEventListener('blur', cancel)
@@ -845,13 +851,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function interact(event: React.SyntheticEvent) {
     // Zoom controls are portaled into the header, outside the document surface.
     if (!editable || !event.currentTarget.contains(event.target as Node)) return
-    const target = event.target as HTMLElement
-    const reservation = target.closest<HTMLElement>('[data-ai-reservation], [data-ai-segment-owner], [data-ai-segment], [data-ai-controls], [data-ai-preview]')
-    const taskId = reservation?.dataset.aiReservation ?? reservation?.dataset.aiSegmentOwner ?? reservation?.dataset.aiSegment ?? reservation?.dataset.aiControls ?? reservation?.dataset.aiPreview
-    const objectId = target.closest<HTMLElement>('[data-note-id]')?.dataset.noteId
-    const task = aiReview?.tasks.find(task => task.id === taskId || task.target.kind === 'object' && task.target.objectId === objectId || task.target.kind === 'segment' && !!objectId && task.target.objectIds.includes(objectId))
-    if (task) aiReview?.open(task.id)
-    else onInteraction?.(event)
+    onInteraction?.(event)
   }
 
   function handleContextMenu(event: React.MouseEvent) {
@@ -880,7 +880,12 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
             aiReview={canvasReview} aiTask={editable ? segment ?? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
-            onBegin={(part, event, caption) => begin(note.id, part, event, caption)} onActive={(editor, caption = false) => { if (segment) { selectAISegment(segment.id); return }; if (!drag.current) { select([note.id], caption ? note.id : null); onActive(editor) } }}
+            onBegin={(part, event, caption) => begin(note.id, part, event, caption)} onActive={(editor, caption = false) => {
+              if (segment) { selectAISegment(segment.id); return }
+              if (drag.current) return
+              if (editor || caption || selectedIds.length <= 1 || !selectedIds.includes(note.id)) select([note.id], caption ? note.id : null)
+              onActive(editor)
+            }}
             onChange={patch => onNoteChange(note.id, patch)} onCaption={() => caption(note.id)} onDrawingEdit={() => onDrawingEdit?.(note.id)} onKey={(event, caption) => key(note.id, event, caption)} />
   }
 
