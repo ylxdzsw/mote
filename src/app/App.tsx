@@ -10,6 +10,8 @@ import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas
 import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
+import { DEFAULT_WIDGET_HTML, WIDGET_SCREENSHOT_PLACEHOLDER } from '../document/widget'
+import { useWidgetScreenshot } from './useWidgetScreenshot'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
 import { WorkingCopy } from '../cloud/WorkingCopy'
 import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
@@ -41,17 +43,6 @@ import type { SegmentRange } from '../document/segment'
 import { uiThemeVariables } from '../theme/ui'
 import { Launchpad } from './Launchpad'
 import { DocumentNotes } from './DocumentNotes'
-
-const DEFAULT_WIDGET_HTML = `<button id="counter" type="button">Count: <span>0</span></button>
-<style>
-  #counter { border: 1px solid #9eb392; border-radius: 6px; padding: 8px 12px; background: #e9efdf; color: #355b43; cursor: pointer; }
-</style>
-<script>
-  const button = document.querySelector('#counter');
-  const count = button.querySelector('span');
-  let value = 0;
-  button.addEventListener('click', () => { count.textContent = String(++value); });
-</script>`
 
 export function App() {
   return <CloudWorkspace renderDocument={(copy, onFiles, onOpen) => <DraftSession key={copy.getSnapshot().record.key} copy={copy} onFiles={onFiles} onOpen={onOpen} />} />
@@ -108,6 +99,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const mobile = useMedia('(max-width: 767px)')
   const smallScreen = useMedia('(max-width: 1050px)')
   const editable = writable && assistant.loaded && !mobile && mode === 'edit'
+  const screenshot = useWidgetScreenshot(history, editable, assistant.lockedIds)
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsSection, setSettingsSection] = useState<'document' | 'workspace' | 'browser'>('document')
@@ -129,7 +121,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [drawingId, setDrawingId] = useState<string | null>(null)
   const drawing = doc?.floating.find(object => object.id === drawingId)
   const imageInput = useRef<HTMLInputElement>(null)
-  const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string; kind: 'image' | 'widget' } | null>(null)
+  const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string } | null>(null)
   const [imageError, setImageError] = useState('')
   const [imageLoading, setImageLoading] = useState(false)
   const workspace = useRef<HTMLElement>(null)
@@ -243,12 +235,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     return block.attrs.id as string
   }
 
-  function addObject(kind: 'table' | 'katex', columns = 2, rows = 2) {
+  function addObject(kind: 'table' | 'katex' | 'html', columns = 2, rows = 2) {
     const anchor = anchorId()
     if (!doc || anchor === undefined) return
     const width = kind === 'table' ? doc.width - doc.margins.left - doc.margins.right - 2 : Math.min(340, doc.width - doc.margins.left - doc.margins.right - 2)
     const base = { id: crypto.randomUUID(), anchorId: anchor, x: 0, y: 0, width, placement: 'flow' as const, centered: true }
     const object: FloatingObject = kind === 'katex' ? { ...base, kind, latex: 'E = mc^2' }
+      : kind === 'html' ? { ...base, kind, height: 220, html: DEFAULT_WIDGET_HTML, screenshot: WIDGET_SCREENSHOT_PLACEHOLDER, alt: '' }
       : { ...base, kind, content: tableContent(Array.from({ length: rows }, () => Array(columns).fill(''))) }
     actions.current?.insert([object])
   }
@@ -285,7 +278,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setLaunchpadAnchor(null)
     setTool(null)
     if (kind === 'image') { chooseImage(); return }
-    if (kind === 'html') { chooseWidgetScreenshot(); return }
+    if (kind === 'html') { addObject('html'); return }
     if (kind === 'table') { addObject('table'); return }
     if (kind === 'katex') { addObject('katex'); return }
     if (['text','code','drawing','ai','paragraph'].includes(kind)) {
@@ -297,15 +290,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   function chooseImage(object?: FloatingObject) {
     const anchor = object ? object.anchorId : anchorId()
     if (!doc || (!object && anchor === undefined)) return
-    imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id, kind: 'image' }
-    setImageError('')
-    imageInput.current!.click()
-  }
-
-  function chooseWidgetScreenshot(object?: FloatingObject) {
-    const anchor = object ? object.anchorId : anchorId()
-    if (!doc || (!object && anchor === undefined)) return
-    imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id, kind: 'widget' }
+    imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id }
     setImageError('')
     imageInput.current!.click()
   }
@@ -321,7 +306,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       const sources = await Promise.all(files.map(readImage))
       if (generation !== imageGeneration.current || latest.current?.id !== target.documentId) return
       if (target.objectId) {
-        updateObject(target.objectId, target.kind === 'widget' ? { screenshot: sources[0] } : { src: sources[0] })
+        updateObject(target.objectId, { src: sources[0] })
         return
       }
       const current = latest.current!
@@ -331,8 +316,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       const objects: FloatingObject[] = sources.map((src, index) => {
         const base = { id: crypto.randomUUID(), anchorId: anchor, x: position?.x ?? 0,
           y: position?.y ?? 0, width, placement: position ? 'float' as const : 'flow' as const, centered: !position, alt: files[index].name.replace(/\.[^.]+$/, '') }
-        return target.kind === 'widget' ? { ...base, kind: 'html', height: 220, html: DEFAULT_WIDGET_HTML, screenshot: src }
-          : { ...base, kind: 'image', src }
+        return { ...base, kind: 'image', src }
       })
       actions.current?.insert(objects)
     } catch (error) { if (generation === imageGeneration.current) setImageError((error as Error).message) }
@@ -585,7 +569,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
                   onPlacement={placement => actions.current?.placement(placement)}
                   onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
-                  maxWidth={Math.max(16, selectedObject.placement === 'flow' ? doc.width - doc.margins.left - doc.margins.right - 2 : doc.width - (actions.current?.segmentContext()?.geometry[selectedObject.id]?.x ?? selectedObject.x) - 2)} onWidgetRun={runWidget} onReplaceScreenshot={object => chooseWidgetScreenshot(object)}
+                  maxWidth={Math.max(16, selectedObject.placement === 'flow' ? doc.width - doc.margins.left - doc.margins.right - 2 : doc.width - (actions.current?.segmentContext()?.geometry[selectedObject.id]?.x ?? selectedObject.x) - 2)} onWidgetRun={runWidget}
+                  onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   onRevise={() => { setTool(null); reserveSelection() }} />
                 : tool ? <div className="context-inspector">
@@ -615,7 +600,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={setMainEditor} onActive={setActiveEditor}
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()))}
-        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId, kind: 'image' }, position)}
+        onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId }, position)}
         onContextMenu={handleCanvasContextMenu} onDrawingEdit={editDrawing} />
       {editable && <DocumentNotes key={`notes:${doc.id}`} value={doc.notes ?? ''}
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}

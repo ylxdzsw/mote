@@ -46,9 +46,16 @@ WantedBy=multi-user.target
 # SQLite/WAL and backups are private and InaccessiblePaths in every worker.
 # Workers see only their own task bind mount inside an otherwise empty tasks dir.
 # Task candidates and Mu sessions persist until explicit task deletion (no TTL).
-# Gate /api/documents, /api/settings, /api/indexing and /api/ai through the authenticated Unix-socket
+# Gate /api/documents, /api/settings, /api/indexing, /api/widgets and /api/ai through the authenticated Unix-socket
 # Nginx boundary. Public routes: GET /api/shared/:token and narrowly scoped
 # /api/agent/:token[/resource] (access_log off). No direct TCP in production.
 # Builtin workers get a task-only HTTP Unix socket, never the private API socket.
 # Configure client_max_body_size 128m and no-store for API responses at the proxy.
 # Backups are manual only; do not schedule them or publish data/backups.
+
+# Owner-requested widget screenshots use separate DynamicUser services with a
+# minimal root, private network/PID namespaces, Chromium sandbox, and checked
+# public IPv4 CONNECT proxy. They require the systemd isolation properties used
+# in server/widget-screenshot.mjs and the installed Chromium/public trust store.
+# Fake mode returns PNG fixtures without launching a browser. No new persistent
+# service or capture storage directory is required.

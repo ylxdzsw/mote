@@ -39,14 +39,18 @@ async function unitEmpty(unit, env) {
   catch (error) { return error.code === 'ENOENT' }
 }
 
-export async function stopWorkerUnit(unit, env) {
+export async function stopWorkerUnit(unit, env, { immediate = false } = {}) {
   if (!/^moted-[0-9a-f-]+-\d+$/i.test(unit)) throw new Error('invalid worker unit')
-  await systemctl(['kill', '--kill-who=all', '--signal=TERM', unit], env).catch(() => {})
-  await delay(250)
+  if (!immediate) {
+    await systemctl(['kill', '--kill-who=all', '--signal=TERM', unit], env).catch(() => {})
+    await delay(250)
+  }
   await systemctl(['kill', '--kill-who=all', '--signal=KILL', unit], env).catch(() => {})
   await systemctl(['stop', '--job-mode=replace-irreversibly', unit], env).catch(() => {})
   // Failure is bounded, but must keep later generations fenced off.
-  await confirmStopped(() => unitEmpty(unit, env))
+  if (immediate) {
+    if (!await unitEmpty(unit, env)) throw new Error('Worker cleanup could not be confirmed')
+  } else await confirmStopped(() => unitEmpty(unit, env))
 }
 
 export async function stopWorkerProcessGroup(pid) {
@@ -82,7 +86,7 @@ function wait(ms, signal) {
 
 function textOf(node) { return (node?.content ?? []).filter(child => child.type === 'text').map(child => child.text || '').join('') }
 
-function fakePng(width, height) {
+export function fakePng(width, height) {
   const chunk = (type, bytes) => {
     const data = Buffer.concat([Buffer.from(type), bytes]); let crc = 0xffffffff
     for (const byte of data) { crc ^= byte; for (let i = 0; i < 8; i++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0) }

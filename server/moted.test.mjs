@@ -11,6 +11,14 @@ import { agentRequest, submitResult } from './submit.mjs'
 import { pathToFileURL } from 'node:url'
 import { validateCandidate, validateDocument, validateRequest } from './validation.mjs'
 import { validateDelivery } from './agent-protocol.mjs'
+import { WidgetScreenshots, widgetInput, publicIPv4, publicAddress, resourceHost, resourceBroker } from './widget-screenshot.mjs'
+import { widgetHarness } from './widget-harness.mjs'
+import { runInNewContext } from 'node:vm'
+import { inflateSync } from 'node:zlib'
+import net from 'node:net'
+import http from 'node:http'
+import { Resolver } from 'node:dns/promises'
+import { PassThrough } from 'node:stream'
 
 const png = 'data:image/png;base64,iVBORw0KGgo='
 const svg = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg"></svg>')}`
@@ -797,4 +805,149 @@ test('switch and submission operations are idempotent, CAS serialized, durable, 
   assert.equal((await fetch(endpoint(restarted, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 200)
   assert.equal((await get(restarted, id)).status, 404)
   assert.equal((await fetch(endpoint(restarted, base))).status, 404)
+})
+
+function screenshotBytes(result) { return Buffer.from(result.screenshot.split(',')[1], 'base64') }
+function firstPixel(png) {
+  const chunks = []
+  for (let at = 8; at < png.length;) { const size = png.readUInt32BE(at); if (png.toString('ascii', at + 4, at + 8) === 'IDAT') chunks.push(png.subarray(at + 8, at + 8 + size)); at += size + 12 }
+  // At the first pixel, all PNG predictors have zero neighbors.
+  return [...inflateSync(Buffer.concat(chunks)).subarray(1, 4)]
+}
+
+test('widget harness preserves literal source, script boundaries and native dimensions', async () => {
+  const html = `<p>$& $' $\` __MOTE_CANDIDATE_HTML__ frame.srcdoc = Number(params.get('width') || 690)</p><script>window.literal = '</script><script>literal'</script>`
+  const template = await readFile(new URL('./preview-harness.html', import.meta.url), 'utf8')
+  const harness = widgetHarness(template, { html, width: 321, height: 123 })
+  assert.equal(harness.split('</script>').length, 2)
+  const frame = {}
+  runInNewContext(harness.match(/<script>([\s\S]*)<\/script>/)[1], { document: { querySelector: () => frame }, URLSearchParams, location: { search: '' } })
+  assert.equal(frame.width, 321); assert.equal(frame.height, 123)
+  assert.equal(frame.srcdoc.slice(frame.srcdoc.indexOf('</head>') + 7), html)
+})
+
+test('widget dimensions, bytes and public destination policy are bounded', async () => {
+  assert.deepEqual(widgetInput({ html: '', width: 100.4, height: 20.6 }), { html: '', width: 100, height: 21 })
+  for (const width of [0, -1, NaN, Infinity, '100', 2049]) assert.throws(() => widgetInput({ html: '', width, height: 100 }))
+  assert.throws(() => widgetInput({ html: '', width: 2048, height: 2048 }), { status: 413 })
+  assert.throws(() => widgetInput({ html: 'é'.repeat(524289), width: 100, height: 100 }), { status: 413 })
+  for (const address of ['0.0.0.0', '10.1.2.3', '100.64.0.1', '127.0.0.1', '169.254.169.254', '172.16.0.1', '192.0.0.1', '192.0.2.1', '192.88.99.1', '192.168.1.1', '198.18.0.1', '198.51.100.1', '203.0.113.1', '224.0.0.1', '255.255.255.255', '::1', '::ffff:8.8.8.8', '2001:4860:4860::8888']) assert.equal(publicIPv4(address), false, address)
+  assert.equal(publicIPv4('8.8.8.8'), true)
+  for (const authority of ['example.org:80', 'example.org:444', 'user@example.org:443', '[::1]:443', 'example.org/path:443', 'example.org:443?x']) assert.throws(() => resourceHost(authority))
+  for (const authority of ['2130706433:443', '0x7f000001:443', '127.1:443']) assert.equal(resourceHost(authority), '127.0.0.1')
+  await assert.rejects(publicAddress('fixture.test', { resolve4: async () => ['8.8.8.8', '10.0.0.1'] }))
+})
+
+test('widget broker pins numeric destinations and rejects rebinding, redirects and own addresses', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'mote-widget-broker-test-'))
+  const socket = path.join(directory, 'broker.sock'), connect = net.connect.bind(net)
+  const destinations = []; let answers = ['93.184.216.34']
+  t.mock.method(Resolver.prototype, 'resolve4', async () => answers)
+  t.mock.method(net, 'connect', options => {
+    destinations.push(options)
+    const stream = new PassThrough(); stream.setTimeout = () => stream
+    process.nextTick(() => stream.emit('connect')); return stream
+  })
+  const close = await resourceBroker(socket, new AbortController().signal)
+  t.after(async () => { await close(); await (await import('node:fs/promises')).rm(directory, { recursive: true, force: true }) })
+  const tunnel = authority => new Promise((resolve, reject) => {
+    let reply = ''
+    const client = connect(socket)
+    client.on('error', reject)
+    client.on('connect', () => client.write(`CONNECT ${authority} HTTP/1.1\r\nHost: ${authority}\r\n\r\n`))
+    client.on('data', chunk => { reply += chunk; client.destroy() })
+    client.on('close', () => resolve(reply))
+  })
+  assert.match(await tunnel('fixture.test:443'), /200 Connection Established/)
+  assert.deepEqual(destinations, [{ host: '93.184.216.34', port: 443, family: 4 }])
+  answers = ['127.0.0.1']
+  assert.equal(await tunnel('fixture.test:443'), '')
+  for (const authority of ['127.0.0.1:443', '169.254.169.254:443', '[::1]:443', 'example.org:80']) assert.equal(await tunnel(authority), '')
+  const own = Object.values(os.networkInterfaces()).flat().find(item => publicIPv4(item.address))?.address
+  if (own) { answers = [own]; assert.equal(await tunnel('own.test:443'), '') }
+  assert.equal(destinations.length, 1)
+})
+
+test('widget screenshot API is exact-Origin, bounded, deterministic fake PNG and no-store', async t => {
+  const value = await app(); t.after(() => value.close())
+  const route = '/api/widgets/screenshot', body = { html: '<script>throw new Error("not executed in fake mode")</script>', width: 100.4, height: 50.6 }
+  for (const origin of ['', 'https://untrusted.example', 'http://localhost:5173.evil']) assert.equal((await post(value, body, route, origin)).status, 403)
+  assert.equal((await fetch(endpoint(value, route), { headers: { origin: 'http://localhost:5173' } })).status, 404)
+  const response = await post(value, body, route)
+  assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store')
+  const result = await response.json(), png = screenshotBytes(result)
+  assert.equal(png.readUInt32BE(16), 200); assert.equal(png.readUInt32BE(20), 102)
+  assert.deepEqual(await (await post(value, body, route)).json(), result)
+  assert.equal((await post(value, { ...body, width: -1 }, route)).status, 400)
+  assert.equal((await post(value, { ...body, html: 'a'.repeat(1024 * 1024 + 1) }, route)).status, 413)
+  assert.equal((await post(value, { ...body, extra: 'a'.repeat(2 * 1024 * 1024) }, route)).status, 413)
+})
+
+test('widget capture has no queue, cancels active work and keeps errors capture-specific', async () => {
+  const service = new WidgetScreenshots({})
+  service.run = async (_input, controller) => new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(new Error('stopped')), { once: true }))
+  const input = async () => ({ html: '', width: 100, height: 100 })
+  const first = service.capture(input), second = service.capture(input)
+  const results = Promise.allSettled([first, second])
+  await assert.rejects(service.capture(input), { status: 429 })
+  await service.shutdown()
+  for (const result of await results) { assert.equal(result.status, 'rejected'); assert.equal(result.reason.status, 422); assert.match(result.reason.message, /canceled/) }
+  assert.equal(service.active.size, 0)
+  await assert.rejects(service.capture(input), { status: 422 })
+  const failing = new WidgetScreenshots({})
+  failing.run = async () => { throw new Error('fixture failure') }
+  await assert.rejects(failing.capture(input), { status: 422, message: 'Widget capture failed' })
+})
+
+test('widget deadline is a capture-specific error and an aborted completion cannot succeed', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const service = new WidgetScreenshots({})
+  service.run = async (_input, controller) => new Promise(resolve => controller.signal.addEventListener('abort', () => resolve(Buffer.alloc(24)), { once: true }))
+  const result = service.capture(async () => ({ html: '', width: 100, height: 100 }))
+  const rejected = assert.rejects(result, { status: 422, message: 'Widget capture timed out' })
+  await Promise.resolve()
+  t.mock.timers.tick(25000)
+  await rejected
+  assert.equal(service.active.size, 0)
+})
+
+test('widget HTTP disconnect cancels body parsing and active capture and releases its slot', async t => {
+  const value = await app({ env: { MOTED_FAKE_RUNNER: '0' } }); t.after(() => value.close())
+  let started
+  const running = new Promise(resolve => { started = resolve })
+  value.screenshots.run = async (_input, controller) => new Promise((_, reject) => { started(); controller.signal.addEventListener('abort', () => reject(new Error('disconnected')), { once: true }) })
+  const controller = new AbortController()
+  const request = fetch(endpoint(value, '/api/widgets/screenshot'), { method: 'POST', headers: { origin: 'https://mote.ylxdzsw.com', 'content-type': 'application/json' }, body: JSON.stringify({ html: '', width: 100, height: 100 }), signal: controller.signal })
+  const rejected = assert.rejects(request)
+  await running; controller.abort(); await rejected
+  for (let i = 0; value.screenshots.active.size && i < 50; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(value.screenshots.active.size, 0)
+  const upload = http.request(endpoint(value, '/api/widgets/screenshot'), { method: 'POST', headers: { origin: 'https://mote.ylxdzsw.com', 'content-length': 10000 } })
+  upload.on('error', () => {}); upload.write('{'); t.after(() => upload.destroy())
+  for (let i = 0; !value.screenshots.active.size && i < 50; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(value.screenshots.active.size, 1)
+  upload.destroy()
+  for (let i = 0; value.screenshots.active.size && i < 50; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(value.screenshots.active.size, 0)
+})
+
+test('real widget capture loads CDN in opaque sandbox, preserves literals and blocks host-network resources', { skip: process.env.MOTED_TEST_WIDGET_CAPTURE !== '1', timeout: 40000 }, async t => {
+  const mask = process.umask(0o007); t.after(() => process.umask(mask))
+  const service = new WidgetScreenshots({}); t.after(() => service.shutdown())
+  let hits = 0
+  const trap = http.createServer((_request, response) => { hits++; response.end('private fixture') })
+  await new Promise(resolve => trap.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => trap.close(resolve)))
+  const literal = "$& $' $` __MOTE_CANDIDATE_HTML__ frame.srcdoc = Number(params.get('width') || 690)"
+  const html = `<style>body{background:red}</style><div id="literal">${literal}</div><script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script><script>
+    const expected = ${JSON.stringify(literal)};
+    let opaque = false; try { parent.document.body.innerHTML = 'escape' } catch { opaque = true }
+    const port = ${trap.address().port};
+    Promise.allSettled(['http://127.0.0.1:'+port, 'https://127.0.0.1:'+port, 'https://[::1]:'+port, 'https://2130706433', 'https://169.254.169.254', 'https://localhost'].map(url => fetch(url, {mode:'no-cors'}))).then(results => {
+      document.body.style.background = opaque && typeof _ === 'function' && document.querySelector('#literal').textContent === expected && results.slice(1).every(r => r.status === 'rejected') ? 'green' : 'red';
+      document.querySelector('#literal').remove();
+    });
+  </script>`
+  const png = screenshotBytes(await service.capture(async () => ({ html, width: 320, height: 160 })))
+  assert.equal(png.readUInt32BE(16), 640); assert.equal(png.readUInt32BE(20), 320)
+  assert.deepEqual(firstPixel(png), [0, 128, 0]); assert.equal(hits, 0)
 })

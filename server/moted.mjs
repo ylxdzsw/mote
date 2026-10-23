@@ -10,6 +10,7 @@ import { cloudApi } from './cloud-api.mjs'
 import { storagePaths } from './storage-paths.mjs'
 import { AGENT_PROTOCOL, TOKEN, counter, fingerprint, operationId, validateDelivery } from './agent-protocol.mjs'
 import { localDelivery } from './submit.mjs'
+import { WidgetScreenshots, WIDGET_BODY_LIMIT } from './widget-screenshot.mjs'
 
 const SERVER_ROOT = path.dirname(fileURLToPath(import.meta.url))
 const DURABLE_EXPIRY = 253402300799999
@@ -61,10 +62,10 @@ function safeError(error) { return (error instanceof Error ? error.message : Str
 function allowedOrigin(env, origin) { return origin === PROD_ORIGIN || (env.MOTED_FAKE_RUNNER === '1' && origin === env.MOTED_DEV_ORIGIN) }
 function settled(promise, ms) { return new Promise(resolve => { const timer = setTimeout(() => resolve(false), ms); promise.then(() => { clearTimeout(timer); resolve(true) }, () => { clearTimeout(timer); resolve(true) }) }) }
 
-async function readBody(request) {
-  if (Number(request.headers['content-length']) > MAX_BODY) { request.resume(); throw new HttpError(413, 'request body is too large') }
+async function readBody(request, limit = MAX_BODY) {
+  if (Number(request.headers['content-length']) > limit) { request.resume(); throw new HttpError(413, 'request body is too large') }
   const chunks = []; let size = 0
-  for await (const chunk of request.iterator({ destroyOnReturn: false })) { size += chunk.length; if (size > MAX_BODY) { request.resume(); throw new HttpError(413, 'request body is too large') }; chunks.push(chunk) }
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) { size += chunk.length; if (size > limit) { request.resume(); throw new HttpError(413, 'request body is too large') }; chunks.push(chunk) }
   if (!chunks.length) throw new HttpError(400, 'request body is required')
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch { throw new HttpError(400, 'request body must be JSON') }
 }
@@ -749,11 +750,28 @@ export async function createMotedServer(options = {}) {
   const indexer = new DocumentIndexer(manager, options.indexing)
   manager.indexer = indexer
   try { await manager.init(); await indexer.init() } catch (error) { await indexer.shutdown(); await manager.shutdown(); store.close(); throw error }
+  const screenshots = new WidgetScreenshots(manager.env)
   const server = http.createServer(async (request, response) => {
     const origin = request.headers.origin
     try {
       const url = new URL(request.url, 'http://moted.local')
       if (url.pathname.startsWith('/api/agent/')) { await manager.agentApi(request, response); return }
+      if (url.pathname === '/api/widgets/screenshot') {
+        if (!allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
+        if (request.method !== 'POST') throw new HttpError(404, 'not found')
+        const client = new AbortController()
+        const disconnected = () => { if (!response.writableFinished) client.abort() }
+        response.once('close', disconnected)
+        try {
+          const result = await screenshots.capture(async signal => {
+            const abort = () => request.destroy()
+            signal.addEventListener('abort', abort, { once: true })
+            try { signal.throwIfAborted(); return await readBody(request, WIDGET_BODY_LIMIT) }
+            finally { signal.removeEventListener('abort', abort) }
+          }, client.signal)
+          send(response, 200, result, origin, manager.env); return
+        } finally { response.removeListener('close', disconnected) }
+      }
       if (url.pathname === '/api/settings') {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
         if (!['GET', 'PUT'].includes(request.method)) throw new HttpError(404, 'not found')
@@ -804,7 +822,7 @@ export async function createMotedServer(options = {}) {
     } catch (error) { const status = error instanceof HttpError ? error.status : 500; send(response, status, { error: status === 500 ? 'internal server error' : safeError(error), ...(error instanceof HttpError && error.current !== undefined ? { current: error.current } : {}) }, origin, manager.env) }
   })
   let closing
-  return { manager, store, indexer, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { await Promise.all([indexer.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
+  return { manager, store, indexer, screenshots, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { await Promise.all([screenshots.shutdown(), indexer.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

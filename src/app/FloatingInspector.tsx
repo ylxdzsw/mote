@@ -8,6 +8,8 @@ import { PaletteControl } from '../theme/PaletteControl'
 import { ContextHeading, InspectorField, InspectorGroup, InspectorHelp, InspectorRow, TypographyPreview } from './Inspector'
 import { PanelIcon } from './PanelIcon'
 import { codeLanguages } from '../document/code'
+import { WIDGET_SCREENSHOT_PLACEHOLDER } from '../document/widget'
+import type { ScreenshotStatus } from './useWidgetScreenshot'
 
 interface Props {
   object: FloatingObject
@@ -33,7 +35,9 @@ interface Props {
   tableControls: ReactNode
   onTheme: (className: string) => void
   onWidgetRun: (id: string) => void
-  onReplaceScreenshot: (object: FloatingHTMLWidget) => void
+  onUpdateScreenshot: (object: FloatingHTMLWidget) => void
+  screenshotStatus: ScreenshotStatus | null
+  screenshotOffline: boolean
   onReplaceImage: () => void
   onDrawingEdit: () => void
   onRevise?: () => void
@@ -42,7 +46,7 @@ interface Props {
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'KaTeX' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onReplaceScreenshot, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -100,7 +104,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         </select></label>
         <button onClick={() => onTheme('code')}>Code style…</button>
       </InspectorGroup>}
-      {widget && <HTMLWidgetControls value={widget} onChange={onChange} imageLoading={imageLoading} onReplaceScreenshot={onReplaceScreenshot}
+      {widget && <HTMLWidgetControls value={widget} onChange={onChange} screenshotStatus={screenshotStatus} screenshotOffline={screenshotOffline} onUpdateScreenshot={onUpdateScreenshot}
         onRun={() => onWidgetRun(widget.id)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {object.kind === 'image' && <InspectorGroup title="Content">
         <label className="inspector-field">Description
@@ -220,14 +224,15 @@ function KaTeXControls({ value, onChange, onTheme, onHistoryBegin, onHistoryEnd 
   </InspectorGroup>
 }
 
-function HTMLWidgetControls({ value, onChange, imageLoading, onReplaceScreenshot, onRun, onHistoryBegin, onHistoryEnd }: {
-  value: FloatingHTMLWidget; onChange: (patch: FloatingPatch) => void; imageLoading: boolean
-  onReplaceScreenshot: (object: FloatingHTMLWidget) => void; onRun: () => void
+function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffline, onUpdateScreenshot, onRun, onHistoryBegin, onHistoryEnd }: {
+  value: FloatingHTMLWidget; onChange: (patch: FloatingPatch) => void; screenshotStatus: ScreenshotStatus | null; screenshotOffline: boolean
+  onUpdateScreenshot: (object: FloatingHTMLWidget) => void; onRun: () => void
   onHistoryBegin: (name: string) => void; onHistoryEnd: () => void
 }) {
   const [editorId, setEditorId] = useState<string | null>(null)
   useEffect(() => { if (editorId !== value.id) setEditorId(null) }, [editorId, value.id])
   const editorOpen = editorId === value.id
+  const status = screenshotStatus?.objectId === value.id ? screenshotStatus : null
 
   return <>
     <InspectorGroup title="Content">
@@ -236,14 +241,18 @@ function HTMLWidgetControls({ value, onChange, imageLoading, onReplaceScreenshot
     <InspectorGroup title="Screenshot">
       <div className="inspector-field">
         <div className="widget-preview"><img src={value.screenshot} alt={value.alt} /></div>
-        <button disabled={imageLoading} onClick={() => onReplaceScreenshot(value)}>{imageLoading ? 'Opening screenshot…' : 'Replace screenshot…'}</button>
+        {value.screenshot === WIDGET_SCREENSHOT_PLACEHOLDER && <p className="hint">No screenshot yet.</p>}
+        <button disabled={screenshotOffline || screenshotStatus?.pending} aria-busy={status?.pending || undefined}
+          onClick={() => onUpdateScreenshot(value)}>{status?.pending ? 'Capturing…' : 'Update screenshot'}</button>
+        <p className="hint">Captures a fresh run of the saved code for the minimap and PNG export, not its current interaction state.</p>
+        {screenshotOffline && <p className="hint">Reconnect to update the screenshot.</p>}
+        {status?.error && <p className="field-error" role="alert">{status.error}</p>}
       </div>
       <div className="inspector-field">
         <label className="inspector-field">Description
           <input type="text" value={value.alt} onFocus={() => onHistoryBegin(`html-widget-alt:${value.id}`)} onBlur={onHistoryEnd}
             onChange={event => onChange({ alt: event.target.value })} />
         </label>
-        <p className="hint">Used in the minimap and PNG export. Update manually when the widget changes.</p>
       </div>
     </InspectorGroup>
     {editorOpen && createPortal(<WidgetEditor widget={value} onChange={html => onChange({ html })} onRun={onRun}
@@ -256,7 +265,7 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
   switch (object.kind) {
     case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; the right border and corners resize with proportions intact. To crop or extend a side without stretching, drag the editor's edge handles. Pen widths stay in document pixels. Revise with AI can turn the sketch into a figure.</p></>
     case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. Syntax colors follow the document's Light or Dark appearance, independently of the palette hues.</p></>
-    case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. The screenshot is a manual preview, not a live capture.</p></>
+    case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. Update screenshot runs the saved code separately on the server; it does not restart the widget on this page. Refresh it after changing code or dimensions.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click the image to add or edit its caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Appearance → Style chooses Simple grid lines, Academic horizontal rules, or Business striped rows. Header row emphasizes the first row.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
     case 'katex': return <p>Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>

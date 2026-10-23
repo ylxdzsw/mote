@@ -25,9 +25,9 @@ export class RequestError extends Error {
 export const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 
 export async function requestJSON<T>(path: string, method: string, body: unknown, valid: (value: unknown) => boolean,
-  options: { probe?: boolean; signal?: AbortSignal } = {}): Promise<T> {
+  options: { probe?: boolean; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   if (state.offline && !options.probe) throw new RequestError(state.reason || 'Offline. Retry the connection to continue syncing.', 0)
-  const timeout = AbortSignal.timeout(15_000)
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? 15_000)
   const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout
   try {
     const response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal,
