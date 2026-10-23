@@ -569,7 +569,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
                   onPlacement={placement => actions.current?.placement(placement)}
                   onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
-                  maxWidth={Math.max(16, selectedObject.placement === 'flow' ? doc.width - doc.margins.left - doc.margins.right - 2 : doc.width - (actions.current?.segmentContext()?.geometry[selectedObject.id]?.x ?? selectedObject.x) - 2)} onWidgetRun={runWidget}
+                  onWidgetRun={runWidget}
                   onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   onRevise={() => { setTool(null); reserveSelection() }} />

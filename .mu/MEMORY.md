@@ -1562,3 +1562,8 @@ Owners expose one Add/Edit caption button; caption removal and document-wide Cap
 ## 2026-10-23 — Explicit document/workspace model configuration
 
 Removed the server-wide codex/gpt-5.6-luna default and Mu status lookup. New built-in tasks require a document override or workspace built-in model; indexing requires a workspace indexing or built-in model, including in fake development. Missing configuration returns an actionable client error rather than marking the workspace offline, and a rejected first request can be prepared again after settings changes. Existing task/session model choices remain pinned to preserve unresolved work. External handoff still needs no model. No saved documents or workspace settings are rewritten.
+
+
+## 2026-10-23 — Object sizing stays on the canvas
+
+Removed object Width/Height fields from Context in favor of existing border and handle dragging. Layout retains Flow centering and stacking actions; caption width controls remain separate. This reduces duplicate geometry controls without changing resizing, keyboard access, document geometry, or saved content.

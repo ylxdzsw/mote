@@ -30,7 +30,6 @@ interface Props {
   onHistoryBegin: (name: string) => void
   onHistoryEnd: () => void
   imageLoading: boolean
-  maxWidth: number
   textStyle?: string
   tableControls: ReactNode
   onTheme: (className: string) => void
@@ -46,7 +45,7 @@ interface Props {
 
 const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, maxWidth, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onRevise, reviseDisabled }: Props) {
   const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -142,15 +141,8 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       </InspectorGroup>}
     </>}
     <InspectorGroup title="Layout">
-      {count === 1 && <>
-        <div className={object.kind === 'drawing' || widget ? 'inspector-row' : undefined}>
-          <InspectorField label="Width"><NumberField label="Object width" value={object.width} min={object.kind === 'code' ? 120 : 16} max={Math.max(object.kind === 'code' ? 120 : 16, maxWidth)} onChange={width => onChange({ width })} /></InspectorField>
-          {(object.kind === 'drawing' || object.kind === 'html') && <InspectorField label="Height"><NumberField label="Object height" value={object.height} min={16} max={4000}
-            onChange={height => onChange(object.kind === 'drawing' ? { width: height * object.width / object.height } : { height })} /></InspectorField>}
-        </div>
-        {object.placement === 'flow' && <button aria-pressed={!!object.centered} title="Keep centered as the width changes; drag sideways to position freely"
-          onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>}
-      </>}
+      {count === 1 && object.placement === 'flow' && <button aria-pressed={!!object.centered} title="Keep centered as the width changes; drag sideways to position freely"
+        onClick={() => { if (!object.centered) onChange({ centered: true }) }}>Center in text column</button>}
       <InspectorRow><button onClick={onFront}>Bring to front</button><button onClick={onBack}>Send to back</button></InspectorRow>
     </InspectorGroup>
     {count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'math' : undefined} onTheme={onTheme} />}
