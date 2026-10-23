@@ -169,7 +169,10 @@ nosniff, and noindex; source helpers download as inert text attachments.
   assets?:{relativeName:PNG_data_URL}}`. Result-root `screenshotPath` or
   `screenshotPaths` names keys in that map, **never server paths/URLs**. Embedded
   native images carry their own data URLs. The validator never executes HTML or
-  fetches caller-supplied URLs/files. PNGs are bounded and dimension-checked.
+  fetches caller-supplied URLs/files. Native rich text must match the supported
+  node grammar. PNGs are bounded and dimension-checked: an individual HTML
+  candidate uses the snapshot object's body width/height, excluding caption and
+  margin extents in `target.area`; segment widgets use their authored body sizes.
   A successful delivery only changes this task's candidate, not the document or
   task list. Its receipt is `{taskId,executorRevision,candidateRevision,
   status:'ready'}`. Candidate revision advances once; identical retry returns
@@ -257,3 +260,6 @@ node --experimental-sqlite --test server/moted.test.mjs server/cloud.test.mjs
 `server/check-result.mjs` remains a local validation convenience using the same
 delivery validator. It does not submit. `submit.mjs` is the portable delivery
 helper and accepts fixed operation/revision arguments for lost-response retries.
+It requires a successful delivery receipt with matching revisions; unrelated
+JSON or redirects are not acknowledgment. An unexpected reply is uncertain,
+not a reason to generate another operation ID or automatically rebase.

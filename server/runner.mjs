@@ -110,7 +110,7 @@ export async function fakeRunner(context) {
   if (context.target.kind === 'object') {
     candidate.object = structuredClone(document.floating.find(object => object.id === context.target.objectId))
     if (candidate.object?.kind === 'html') {
-      candidate.object.screenshot = `data:image/png;base64,${fakePng(Math.round(context.target.area.width), Math.round(context.target.area.height)).toString('base64')}`
+      candidate.object.screenshot = `data:image/png;base64,${fakePng(Math.round(candidate.object.width), Math.round(candidate.object.height)).toString('base64')}`
       candidate.object.html = '<button id="mote-fake-button" type="button">AI draft: 0</button><script>document.querySelector("button").addEventListener("click", event => { event.currentTarget.textContent = `AI draft: ${Number(event.currentTarget.textContent.split(\": \")[1] || 0) + 1}` })</script>'
     } else if (candidate.object?.kind === 'code') {
       candidate.object.source = `AI draft\n${candidate.object.source}`

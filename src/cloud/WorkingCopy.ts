@@ -30,6 +30,7 @@ export interface CopyState {
 }
 
 export class WorkingCopy {
+  preserveAssistant?: () => Promise<void>
   private listeners = new Set<() => void>()
   private saving: Promise<unknown> = Promise.resolve()
   private flight?: Promise<CloudDocument | null>
@@ -77,6 +78,7 @@ export class WorkingCopy {
     for (;;) {
       const generation = this.generation
       await this.saving
+      await this.preserveAssistant?.()
       if (generation === this.generation) return
     }
   }
@@ -164,6 +166,9 @@ export class WorkingCopy {
     } catch (error) { this.failure(error); return false }
   }
   async adopt(result: CloudDocument) {
+    const generation = this.generation
+    await this.preserveAssistant?.()
+    if (generation !== this.generation) throw new Error('The working copy changed while preserving local input. Retry with the current document.')
     const { document, ...incomingMeta } = result
     const meta = mergeDocumentMeta(this.state.record.meta, incomingMeta)
     initializeDocument(document)

@@ -44,6 +44,14 @@ export class AssistantState {
     this.record = { ...this.record, tasks, dirty: true }
     void this.save().catch(() => {}); this.emit()
   }
+  async flushLocal() {
+    for (;;) {
+      const record = this.record
+      if (this.localWarning) await this.save()
+      else await this.writes
+      if (record === this.record) return
+    }
+  }
   private adopt(remote: AssistantCloudState) {
     this.record = { ...this.record, revision: remote.revision, tasks: remote.tasks, dirty: false, pending: undefined }
   }

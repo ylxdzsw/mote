@@ -37,7 +37,8 @@ export function validateDelivery(raw, assets, document, target) {
   }
   if (candidate.object?.kind === 'html') {
     const value = candidate.screenshotPath === undefined ? candidate.object.screenshot : asset(candidate.screenshotPath)
-    candidate.object.screenshot = png(value, target.area.width, target.area.height, 'screenshot')
+    const original = document.floating.find(object => object.id === target.objectId)
+    candidate.object.screenshot = png(value, original.width, original.height, 'screenshot')
     delete candidate.screenshotPath
   }
   for (const object of candidate.segment?.floating ?? []) if (object.kind === 'html') {

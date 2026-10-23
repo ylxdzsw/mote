@@ -52,12 +52,24 @@ function themeLength(value, label, nonnegative = true) {
   if (nonnegative && Number(value.slice(0, -2)) < 0) throw new HttpError(400, `${label} must be nonnegative`)
 }
 
-function content(value, label = 'content', state = { count: 0, depth: 0 }, flowDepth = -1) {
+const DOCUMENT_CHILDREN = { main: ['paragraph', 'spacer', 'flow'], text: ['paragraph'], table: ['table'], caption: ['paragraph'] }
+const NODE_CHILDREN = { paragraph: ['text', 'hardBreak'], table: ['tableRow'], tableRow: ['tableCell'], tableCell: ['paragraph'] }
+
+function content(value, label = 'content', mode = 'text', allowed = ['doc'], state = { count: 0, depth: 0 }) {
   if (++state.count > MAX_NODES || state.depth > 100) throw new HttpError(413, 'document content is too large')
   const node = record(value, label)
   text(node.type, `${label}.type`, 64, true)
+  if (!allowed.includes(node.type)) throw new HttpError(400, `${label}.type ${node.type} is unsupported here; expected ${allowed.join(', ') || 'no child nodes'}`)
+  if ('content' in node && !Array.isArray(node.content)) throw new HttpError(400, `${label}.content must be an array`)
+  const children = node.content ?? []
+  const childTypes = node.type === 'doc' ? DOCUMENT_CHILDREN[mode] : NODE_CHILDREN[node.type] ?? []
+  if (['doc', 'table', 'tableRow', 'tableCell'].includes(node.type) && !children.length) throw new HttpError(400, `${label} requires child content`)
+  if ((node.type === 'tableCell' || node.type === 'doc' && ['table', 'caption'].includes(mode)) && children.length !== 1) throw new HttpError(400, `${label} requires exactly one ${childTypes[0]}`)
+  if (node.type === 'text') {
+    text(node.text, `${label}.text`)
+    if (!node.text.length) throw new HttpError(400, `${label}.text must not be empty`)
+  }
   if (node.type === 'flow') {
-    if (state.depth !== flowDepth) throw new HttpError(400, 'Flow nodes are only supported as top-level main blocks')
     const attrs = record(node.attrs, `${label}.attrs`)
     safeId(attrs.id, `${label}.attrs.id`); safeId(attrs.objectId, `${label}.attrs.objectId`)
     if (Object.keys(attrs).some(key => !['id', 'objectId'].includes(key)) || node.content?.length || node.text !== undefined || node.marks?.length) throw new HttpError(400, 'Flow blocks contain only id and objectId')
@@ -80,6 +92,7 @@ function content(value, label = 'content', state = { count: 0, depth: 0 }, flowD
   }
   if ('marks' in node) {
     if (!Array.isArray(node.marks)) throw new HttpError(400, `${label}.marks must be an array`)
+    if (node.marks.length && !['text', 'hardBreak'].includes(node.type)) throw new HttpError(400, `${label}.marks are only supported on inline content`)
     for (const [i, markValue] of node.marks.entries()) {
       const mark = record(markValue, `${label}.marks[${i}]`)
       if (!['bold', 'color', 'decoration'].includes(mark.type)) throw new HttpError(400, `${label}.marks[${i}] is unsupported`)
@@ -88,9 +101,8 @@ function content(value, label = 'content', state = { count: 0, depth: 0 }, flowD
     }
   }
   if ('content' in node) {
-    if (!Array.isArray(node.content)) throw new HttpError(400, `${label}.content must be an array`)
     const child = { count: state.count, depth: state.depth + 1 }
-    node.content.forEach((item, i) => content(item, `${label}.content[${i}]`, child, flowDepth))
+    children.forEach((item, i) => content(item, `${label}.content[${i}]`, mode, childTypes, child))
     state.count = child.count
   }
 }
@@ -107,7 +119,7 @@ function validateCaption(value, label) {
   if (Object.keys(attrs).length !== 1 || !Object.hasOwn(attrs, 'id')) throw new HttpError(400, `${label} paragraph attrs must contain only id`)
   safeId(attrs.id, `${label}.content.content[0].attrs.id`)
   if (paragraph.content !== undefined && !Array.isArray(paragraph.content)) throw new HttpError(400, `${label}.content.content[0].content must be an array`)
-  content(doc, `${label}.content`)
+  content(doc, `${label}.content`, 'caption')
   for (const [index, value] of (paragraph.content ?? []).entries()) {
     const node = record(value, `${label}.content.content[0].content[${index}]`)
     if (node.type === 'text') {
@@ -222,7 +234,7 @@ export function validateFloating(value, label = 'floating object', options = {})
   for (const key of ['style', 'headerRow']) if (key in object && kind !== 'table') throw new HttpError(400, `${label}.${key} is only supported on tables`)
   if ('style' in object && !['simple', 'academic', 'business'].includes(object.style)) throw new HttpError(400, `${label}.style must be simple, academic, or business`)
   if ('headerRow' in object && typeof object.headerRow !== 'boolean') throw new HttpError(400, `${label}.headerRow must be a boolean`)
-  if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`)
+  if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`, kind)
   if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object) throw new HttpError(400, `${label}.${key} is unsupported`) }
   if (kind === 'image') { embeddedImage(object.src, `${label}.src`); text(object.alt, `${label}.alt`, 4096) }
   else if (kind === 'katex') text(object.latex, `${label}.latex`)
@@ -303,7 +315,7 @@ export function validateDocument(value) {
   finite(document.width, 'document.width', Number.MIN_VALUE)
   const margins = record(document.margins, 'document.margins')
   for (const side of ['top', 'right', 'bottom', 'left']) finite(margins[side], `document.margins.${side}`, 0)
-  theme(document.theme); content(document.content, 'content', { count: 0, depth: 0 }, 1); if (document.content.type !== 'doc') throw new HttpError(400, 'document.content must be a doc node')
+  theme(document.theme); content(document.content, 'content', 'main')
   if (!Array.isArray(document.floating)) throw new HttpError(400, 'document.floating must be an array')
   const ids = new Set(); for (const [i, object] of document.floating.entries()) { if (ids.has(object?.id)) throw new HttpError(400, 'duplicate floating object ID'); validateFloating(object, `document.floating[${i}]`); ids.add(object.id) }
   validateFlowReferences(document.content.content ?? [], document.floating, 'document')
@@ -368,7 +380,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   const topIds = new Set()
   for (const [index, node] of payload.content.entries()) {
     if (!node || !['paragraph', 'spacer', 'flow'].includes(node.type)) throw new HttpError(400, 'candidate.segment.content must contain paragraphs, spacers, and Flow blocks')
-    content(node, `candidate.segment.content[${index}]`, { count: 0, depth: 0 }, 0)
+    content(node, `candidate.segment.content[${index}]`, 'main', DOCUMENT_CHILDREN.main)
     const attrs = record(node.attrs, `candidate.segment.content[${index}].attrs`)
     safeId(attrs.id, `candidate.segment.content[${index}].attrs.id`)
     if (topIds.has(attrs.id)) throw new HttpError(400, 'candidate.segment.content block IDs must be unique')
@@ -592,7 +604,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     palette({ ...document, content: { type: 'doc' }, floating: [candidateObject] })
   } else if (selectedTarget.kind === 'text') {
     if (!Array.isArray(candidate.content) || !candidate.content.length || candidate.content.length > 128) throw new HttpError(400, 'candidate.content is required')
-    candidate.content.forEach((node, i) => { if (node?.type !== 'paragraph') throw new HttpError(400, 'text candidates must contain paragraphs'); content(node, `candidate.content[${i}]`) }); output.content = candidate.content
+    candidate.content.forEach((node, i) => { if (node?.type !== 'paragraph') throw new HttpError(400, 'text candidates must contain paragraphs'); content(node, `candidate.content[${i}]`, 'text', ['paragraph']) }); output.content = candidate.content
     palette({ ...document, content: { type: 'doc', content: candidate.content }, floating: [] })
   } else {
     if (!candidate.segment) throw new HttpError(400, 'candidate.segment is required')

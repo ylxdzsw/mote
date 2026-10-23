@@ -731,14 +731,14 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   function accept(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!writable || !cloud || !task?.candidate || executorBusy(task) || workspaceReadBlocked(task) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
+    if (!writable || !cloud || !task?.candidate || !task.remoteMissing && (executorBusy(task) || workspaceReadBlocked(task)) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
     try {
       const next = candidateDocument(currentDoc.current, task, task.candidate, segmentContext?.())
       if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
       unrestricted(() => history.setDoc(next))
       markMutation(id)
       update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next }, preview: false, error: undefined })
-      if (task.submitted || task.requestSent) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
+      if (!task.remoteMissing && (task.submitted || task.requestSent)) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
         if (mounted.current) update(id, { error: `Agent access revocation is pending: ${(error as Error).message}` })
       })
       setNotice('Applied locally. The AI result is retained until the accepted document is saved to the cloud.')
@@ -820,7 +820,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
     cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,
     statusIssue: (id: string) => connection.offline ? { message: 'Offline · AI request retained. Waiting for reconnection to check the result.', paused: false } : statusIssues[id], checkStatus: (id: string) => checkStatusRef.current(id),
-    retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },
+    flushLocal: persistence.flushLocal, retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },
     discardArchive: (id: string) => persistence.engine.current?.discardArchive(id),
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }
 }

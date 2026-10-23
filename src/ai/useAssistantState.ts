@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { assistantRequest } from './api'
 import { AssistantState } from './cloudState'
 import { loadAssistantRecovery, loadTasks, saveAssistantRecovery } from './storage'
@@ -15,6 +15,7 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
   const engine = useRef<AssistantState | null>(null)
   const [retry, setRetry] = useState(0)
   const recoveredConnection = useRef(0)
+  const flushLocal = useCallback(async () => { await engine.current?.flushLocal() }, [])
   useEffect(() => {
     let active = true
     setLoaded(false); state.current = []; setTasks([]); engine.current = null
@@ -93,7 +94,7 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [])
-  return { tasks, state, loaded, engine,
+  return { tasks, state, loaded, engine, flushLocal,
     replace: (tasks: AITask[]) => engine.current?.replace(tasks),
     warning: error || engine.current?.localWarning || engine.current?.warning || (!cloud ? 'Open a cloud document to use the assistant.' : ''),
     conflict: engine.current?.conflict ?? null,

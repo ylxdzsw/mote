@@ -8,7 +8,8 @@ import { uiThemeVariables } from '../theme/ui'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
 import { FilesWindow } from './FilesWindow'
 import { WorkingCopy } from './WorkingCopy'
-import { deleteWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
+import { deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
+import { listAssistantRecoveries } from '../ai/storage'
 import './workspace.css'
 import { connectionSnapshot } from './connection'
 
@@ -64,7 +65,13 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const current = useRef({ copy, path })
   current.current = { copy, path }
 
-  const refreshRecovery = () => listWorkingCopies().then(rows => setRecoveries(rows.filter(row => row.dirty || row.pending))).catch(() => setNotice('Local recovery storage could not be read.'))
+  const refreshRecovery = () => Promise.all([listWorkingCopies(), listAssistantRecoveries().catch(() => {
+    setNotice('Assistant recovery storage could not be read. Document recovery is still available.')
+    return []
+  })]).then(([rows, assistants]) => {
+    const pending = new Set(assistants.filter(record => record.dirty || record.pending).map(record => record.workingCopyId))
+    setRecoveries(rows.filter(row => row.dirty || row.pending || row.pendingCreate || row.pendingPrivacy || pending.has(row.key)))
+  }).catch(() => setNotice('Local recovery storage could not be read.'))
   useEffect(() => {
     void loadDraft().then(setLegacy).catch(() => {})
     void refreshRecovery()
@@ -96,7 +103,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         let local = await loadWorkingCopy(key)
         if (!local) {
           const draft = (await listWorkingCopies()).find(record => record.meta.id === id && record.draft)
-          if (draft) local = { ...draft, key, session }
+          if (draft) local = await forkWorkingCopy(draft, session)
         }
         if (!active) return
         const [cloudResult, privacyResult] = local?.draft ? [] : await Promise.allSettled([
@@ -149,20 +156,21 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   }, [id, retry])
 
   async function navigate(next: string, reload = false, draft?: WorkingRecord) {
-    if (next === id && copy && !reload) { setFilesOpen(false); return }
+    if (next === id && copy && !reload) { setFilesOpen(false); return true }
     const request = ++navigation.current
     if (copy) {
       if (!connectionSnapshot().offline) await copy.sync()
       try { await copy.flushLocal() }
-      catch { setNotice('Local saving failed. Keep this document open and retry before switching.'); return }
+      catch { setNotice('Local saving failed. Keep this document open and retry before switching.'); return false }
       if (copy.getSnapshot().record.dirty) setNotice('Changes to the previous document remain on this device. Open Local recovery to find them.')
     }
-    if (request !== navigation.current) return
-    if (draft) await saveWorkingCopy(draft)
+    if (request !== navigation.current) return false
+    if (draft) await forkWorkingCopy(draft, await workingSession())
     const path = next ? `/d/${next}` : '/'
     history.pushState(null, '', path); onPath(path)
     if (next === id) setRetry(value => value + 1)
     await refreshRecovery()
+    return true
   }
   async function newDocument() {
     const document = initializeDocument(createBlankDocument()), session = await workingSession(), now = Date.now()
@@ -180,14 +188,12 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     try {
       const session = await workingSession(), key = `${session}:${record.meta.id}`
       if (copy?.getSnapshot().record.key === record.key) { setRecoveryOpen(false); return }
-      if (copy?.getSnapshot().record.key === key && copy.getSnapshot().record.dirty) {
-        setNotice('Open this recovery in a new tab so it does not replace the current unsynced working copy.'); return
+      if (copy?.getSnapshot().record.key === key) {
+        setNotice('Open this recovery in a new tab so it does not replace the current working copy or assistant input.'); return
       }
       const existing = await loadWorkingCopy(key)
-      if (existing?.dirty && existing.key !== record.key) { setNotice('This tab already has pending changes for that document. Open a new tab to recover this copy.'); return }
-      await saveWorkingCopy({ ...record, key, session })
-      setRecoveryOpen(false)
-      await navigate(record.meta.id, true)
+      if (existing && (existing.dirty || existing.pending || existing.pendingCreate || existing.pendingPrivacy) && existing.key !== record.key) { setNotice('This tab already has pending changes for that document. Open a new tab to recover this copy.'); return }
+      if (await navigate(record.meta.id, true, record)) setRecoveryOpen(false)
     } catch (error) { setNotice((error as Error).message) }
   }
 

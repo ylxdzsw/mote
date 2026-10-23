@@ -93,6 +93,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
     { documentId: cloud.record.meta.id, sync: () => copy.sync(true), workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
+  useLayoutEffect(() => {
+    copy.preserveAssistant = assistant.flushLocal
+    return () => { copy.preserveAssistant = undefined }
+  }, [copy, assistant.flushLocal])
   const latest = useRef(doc)
   latest.current = doc
   const [mode, setMode] = useState<'edit' | 'read'>('edit')

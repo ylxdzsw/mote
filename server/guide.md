@@ -85,7 +85,7 @@ The downloadable `preview.mjs` and `preview-harness.html` helpers reproduce Mote
 node preview.mjs output/candidate.html output/harness.html
 ```
 
-Open the local harness with `?width=WIDTH&height=HEIGHT`, set the browser viewport to exactly that size, test the promised interactions, and capture `output/screenshot.png`. Use rounded target `area.width` × `area.height` for an object; for a segment, capture each HTML object at its own rounded width × height. Capture only the figure, without surrounding browser chrome. The helper safely embeds closing script tags and applies zero default widget margins. Candidate delivery never runs the HTML or generates screenshots for you. The owner-only Update screenshot action is separate from this agent protocol; agents must still deliver their own PNGs at the dimensions specified here.
+Open the local harness with `?width=WIDTH&height=HEIGHT`, set the browser viewport to exactly that size, test the promised interactions, and capture `output/screenshot.png`. For an object target, use the snapshot object's rounded body `width` × `height`, including when converting a Drawing or new placeholder to HTML; do not use `target.area`, which can include captions and margins. For a segment, capture each HTML object at its own rounded width × height. Capture only the widget body, without its caption, margins, or surrounding browser chrome. The helper safely embeds closing script tags and applies zero default widget margins. Candidate delivery never runs the HTML or generates screenshots for you. The owner-only Update screenshot action is separate from this agent protocol; agents must still deliver their own PNGs at the dimensions specified here.
 
 ## Output contract
 
@@ -155,7 +155,7 @@ operation=$(node -e 'console.log(require("node:crypto").randomUUID())')
 node submit.mjs "$AGENT_URL" output EXECUTOR_REVISION CANDIDATE_REVISION "$operation"
 ```
 
-Replace the revision placeholders with the manifest's integer values. For builtin Unix transport also set `MOTED_AGENT_SOCKET` to the supplied task-only socket. The helper loads only bounded regular local files inside output (no symlinks), uploads their actual bytes, and prints the server's acknowledgment. It does not execute HTML. After an uncertain network failure, retry with exactly the same operation UUID, revisions, candidate, and PNG bytes; do not automatically rebase on the latest candidateRevision.
+Replace the revision placeholders with the manifest's integer values. For builtin Unix transport also set `MOTED_AGENT_SOCKET` to the supplied task-only socket. The helper loads only bounded regular local files inside output (no symlinks), uploads their actual bytes, and prints the validated delivery receipt. It does not execute HTML. An unexpected response is not confirmation of delivery. After an uncertain response or network failure, retry with exactly the same operation UUID, revisions, candidate, and PNG bytes; do not automatically rebase on the latest candidateRevision.
 
 Or POST JSON directly to the manifest's `submit` path:
 

@@ -31,7 +31,11 @@ export function agentRequest(url, { socketPath, body } = {}) {
       const chunks = []
       response.on('data', chunk => chunks.push(chunk)); response.on('error', reject)
       response.on('end', () => {
-        try { const body = JSON.parse(Buffer.concat(chunks)); if (response.statusCode >= 400) { const error = new Error(body.error || `HTTP ${response.statusCode}`); error.status = response.statusCode; error.current = body.current; reject(error) } else resolve(body) } catch (error) { reject(error) }
+        try {
+          const body = JSON.parse(Buffer.concat(chunks))
+          if (response.statusCode !== 200) { const error = new Error(body?.error || `HTTP ${response.statusCode}`); error.status = response.statusCode; error.current = body?.current; reject(error) }
+          else resolve(body)
+        } catch (error) { reject(error) }
       })
     })
     request.setTimeout(120000, () => request.destroy(new Error('Agent request timed out')))
@@ -42,7 +46,12 @@ export function agentRequest(url, { socketPath, body } = {}) {
 export async function submitResult(context, operationId = randomUUID()) {
   const { url, socketPath, executorRevision, candidateRevision } = context.agent
   const delivery = await localDelivery(context.outputDir)
-  return agentRequest(`${url}/submit`, { socketPath, body: { operationId, executorRevision, candidateRevision, ...delivery } })
+  const receipt = await agentRequest(`${url}/submit`, { socketPath, body: { operationId, executorRevision, candidateRevision, ...delivery } })
+  if (receipt?.status !== 'ready' || typeof receipt.taskId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(receipt.taskId)
+    || (context.taskId !== undefined && receipt.taskId !== context.taskId)
+    || !Number.isSafeInteger(receipt.executorRevision) || receipt.executorRevision < 0 || receipt.executorRevision !== executorRevision
+    || !Number.isSafeInteger(receipt.candidateRevision) || receipt.candidateRevision < 1 || receipt.candidateRevision !== candidateRevision + 1) throw new Error('Invalid submission receipt')
+  return receipt
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

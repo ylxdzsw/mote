@@ -59,7 +59,7 @@ async function writeImmutable(file, value) { await writeAtomic(file, value, 0o44
 async function jsonFile(file, max, label) { return JSON.parse((await regular(file, max, label)).toString('utf8')) }
 
 function safeError(error) { return (error instanceof Error ? error.message : String(error)).replace(/[\r\n\t]+/g, ' ').slice(0, 512) || 'AI task failed' }
-function allowedOrigin(env, origin) { return origin === PROD_ORIGIN || (env.MOTED_FAKE_RUNNER === '1' && origin === env.MOTED_DEV_ORIGIN) }
+function allowedOrigin(env, origin) { return typeof origin === 'string' && (origin === PROD_ORIGIN || (env.MOTED_FAKE_RUNNER === '1' && origin === env.MOTED_DEV_ORIGIN)) }
 function settled(promise, ms) { return new Promise(resolve => { const timer = setTimeout(() => resolve(false), ms); promise.then(() => { clearTimeout(timer); resolve(true) }, () => { clearTimeout(timer); resolve(true) }) }) }
 
 async function readBody(request, limit = MAX_BODY) {
@@ -698,11 +698,15 @@ Keep the operation UUID and payload unchanged when retrying after a lost respons
     if ([...task.executions].some(current => current.cleanupFailed)) throw new HttpError(503, 'Worker cleanup is unconfirmed; service recovery is required before another built-in run.')
     const model = task.meta.model || await this.resolveModel()
     if (!model) throw new HttpError(400, 'Choose a model in Settings → Document or Settings → Workspace before generating.')
+    const next = { ...task.meta, model, prompt, generation: task.generation + 1,
+      status: 'queued', progress: task.executions.size ? 'Waiting for previous worker cleanup' : 'Queued revision', feedback: task.meta.error,
+      attempt: Math.max(Number(task.meta.attempt || 0), task.transcript.maxAttempt) + 1 }
+    delete next.builtinToken; delete next.unit; delete next.error
+    await this.persist(task, next)
+    task.meta = next
     this.invalidateRun(task)
-    task.meta.model = model; task.meta.prompt = prompt; task.meta.status = 'queued'; task.meta.progress = task.executions.size ? 'Waiting for previous worker cleanup' : 'Queued revision'; task.meta.feedback = task.meta.error; delete task.meta.error
-    task.meta.attempt = Math.max(Number(task.meta.attempt || 0), task.transcript.maxAttempt) + 1
-    await task.transcript.append(task.meta.attempt, 'request', prompt).catch(() => {})
-    await this.persist(task); this.queue.push(task); this.schedule(); return this.view(task)
+    await task.transcript.append(next.attempt, 'request', prompt).catch(() => {})
+    this.queue.push(task); this.schedule(); return this.view(task)
   }
 
   async resolveModel() {

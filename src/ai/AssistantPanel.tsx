@@ -155,7 +155,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           <button type="button" aria-pressed={task.preview} onClick={() => assistant.update(task.id, { preview: true })}>Preview</button>
         </div>}
         <div className="ai-actions ai-review-actions">
-          {!inactive && <button className="ai-primary" type="button" disabled={busy || executorBusy || workspaceReadBlocked} onClick={() => assistant.accept(task.id)}>Accept <PanelIcon name="check" /></button>}
+          {!inactive && <button className="ai-primary" type="button" disabled={busy || !task.remoteMissing && (executorBusy || workspaceReadBlocked)} onClick={() => assistant.accept(task.id)}>Accept <PanelIcon name="check" /></button>}
           <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>
         </div>
       </section>}

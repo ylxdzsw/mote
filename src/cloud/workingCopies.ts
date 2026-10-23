@@ -1,5 +1,6 @@
 import type { MoteDocument } from '../document/model'
 import type { DocumentMeta } from './api'
+import { loadAssistantRecovery, saveAssistantRecovery } from '../ai/storage'
 
 export interface PendingSave {
   operationId: string
@@ -41,6 +42,21 @@ export const listWorkingCopies = () => transaction<WorkingRecord[]>(false, store
 export const loadWorkingCopy = (key: string) => transaction<WorkingRecord | undefined>(false, store => store.get(key))
 export const saveWorkingCopy = (copy: WorkingRecord) => transaction(true, store => store.put(copy))
 export const deleteWorkingCopy = (key: string) => transaction(true, store => store.delete(key))
+
+export async function forkWorkingCopy(record: WorkingRecord, session: string) {
+  const key = `${session}:${record.meta.id}`
+  if (key !== record.key) {
+    const existing = await loadAssistantRecovery(key, record.meta.id)
+    if (existing && (existing.dirty || existing.pending || existing.archives.length)) {
+      throw new Error('This tab already has local assistant work for that document. Open a new tab to recover this copy.')
+    }
+    const assistant = await loadAssistantRecovery(record.key, record.meta.id)
+    if (assistant) await saveAssistantRecovery({ ...assistant, workingCopyId: key })
+  }
+  const fork = { ...record, key, session }
+  await saveWorkingCopy(fork)
+  return fork
+}
 
 let session: Promise<string> | undefined
 export function workingSession() {

@@ -31,6 +31,14 @@ export async function loadAssistantRecovery(workingCopyId: string, documentId: s
     tx.onabort = tx.onerror = () => reject(tx.error)
   })
 }
+export async function listAssistantRecoveries(): Promise<AssistantRecovery[]> {
+  const db = await open()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('workingCopies'), request = tx.objectStore('workingCopies').getAll()
+    tx.oncomplete = () => resolve(request.result)
+    tx.onabort = tx.onerror = () => reject(tx.error)
+  })
+}
 export async function saveAssistantRecovery(record: AssistantRecovery) {
   const db = await open()
   return new Promise<void>((resolve, reject) => {
