@@ -1,6 +1,6 @@
 .floating-note:is(.floating-katex, .floating-html) { padding: 0; border: 0; border-radius: 0; background: transparent; }
-.sheet.is-editing .floating-note:is(.floating-katex, .floating-html):hover { outline: 1px solid var(--ui-border); }
-.sheet.is-editing .floating-note:is(.floating-katex, .floating-html).is-selected { outline: 1px solid var(--ui-accent-border); }
+.sheet.is-editing .floating-note.floating-katex:hover { outline: 1px solid var(--ui-border); }
+.sheet.is-editing .floating-note.floating-katex.is-selected { outline: 1px solid var(--ui-accent-border); }
 .math-content { min-height: 24px; color: var(--math-color); font-size: var(--math-size); }
 .math-content .katex-display { margin: 0; }
 .math-content .katex { font-size: 1em; }

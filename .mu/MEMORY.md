@@ -1540,3 +1540,7 @@ User requested that Code objects always follow the document Light/Dark appearanc
 ## 2026-10-22 — Drawing resizing is proportional; editor crops/extends
 
 User requested that drawings never stretch non-uniformly on the page. Corner drags, keyboard corner resizing, and the Context Height field now derive the other dimension from the current ratio (Shift-square applies only to widgets). Changing proportions happens in the drawing editor: four edge handles crop or extend one side, translating strokes/labels by the left/top delta and shifting object x/y so content stays in place on the page (Float y clamps at 0 unless Flow-anchored; centered Flow keeps centering). `patchFloating` treats a patch that supplies strokes/labels with new bounds as already expressed in the new coordinates, so only bare width/height patches scale. Off-bounds content is kept (clipped by the SVG viewport), so extending back recovers it. The background UI is a Transparent/Solid segmented control with swatches; the saved schema stays `background: 'gray6' | null`, so validation and the agent guide are unchanged.
+
+## 2026-10-23 — Widget outlines exclude owned captions
+
+HTML widgets now use the same separate body/caption hover and selection outlines as tables. Legacy embed outline rules were drawing an additional box around the entire composition; those rules now apply only to formulas. Caption ownership, composition geometry, resize handles, and widget interaction are unchanged.
