@@ -3,7 +3,7 @@ import type { CreationTool } from '../canvas/DocumentCanvas'
 
 export interface LaunchpadPoint { x: number; y: number }
 
-function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: LaunchpadPoint | null, expanded = false): CSSProperties {
+function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: LaunchpadPoint | null): CSSProperties {
   const [position, setPosition] = useState({ left: 12, top: 12 })
   useLayoutEffect(() => {
     if (!point || !ref.current) return
@@ -12,7 +12,7 @@ function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: Launchpa
       left: Math.max(12, Math.min(point.x, window.innerWidth - width - 12)),
       top: Math.max(12, Math.min(point.y, window.innerHeight - height - 12)),
     })
-  }, [point, expanded])
+  }, [point])
   return { position: 'fixed', zIndex: 120, ...position }
 }
 
@@ -36,10 +36,6 @@ const TILES: TileEntry[] = [
   { kind: 'table',     label: 'Table',      icon: <Icon path="M3 10h18M3 15h18M11 4v16" rect="x:3 y:4 width:18 height:16 rx:1" /> },
   { kind: 'drawing',   label: 'Drawing',    icon: <Icon path="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /> },
   { kind: 'ai',        label: 'AI object',  icon: <Icon path="M12 3H3v18h18v-9M6 17l4-5 4 5m1-11 1.2 3.8L23 6l-3.8 1.2L18 11l-1.2-3.8L13 6l3.8-1.2Z" /> },
-]
-
-// Additional native kinds and their creation tools.
-const MORE_TILES: TileEntry[] = [
   { kind: 'code',      label: 'Code',       icon: <Icon path="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" /> },
   { kind: 'katex',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
@@ -55,10 +51,9 @@ interface Props {
 
 export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
-  const [more, setMore] = useState(false)
   const origin = point ?? anchor ?? null
   const open = !!origin
-  const style = usePopupPosition(ref, origin, more)
+  const style = usePopupPosition(ref, origin)
 
   useEffect(() => {
     if (!open) return
@@ -77,9 +72,6 @@ export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
       if (document.activeElement === document.body || menu?.contains(document.activeElement)) previous?.focus({ preventScroll: true })
     }
   }, [open])
-
-  useEffect(() => { if (!open) setMore(false) }, [open])
-  useEffect(() => { if (more) ref.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')[TILES.length]?.focus({ preventScroll: true }) }, [more])
 
   if (!open || !origin) return null
 
@@ -102,23 +94,17 @@ export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
     items[Math.max(0, Math.min(items.length - 1, next))]?.focus()
   }
 
-  const choose = (kind: string) => { setMore(false); onChoose(kind) }
-
   return <div ref={ref} className="launchpad" role="menu" aria-label="Add to the page" style={style} onKeyDown={navigate}>
     <div className="launchpad-header">
       <span>Add to the page</span>
       <button aria-label="Close" className="launchpad-close" onClick={onClose}>×</button>
     </div>
     <div className="launchpad-grid">
-      {[...TILES, ...(more ? MORE_TILES : [])].map(tile =>
+      {TILES.map(tile =>
         <button key={String(tile.kind)} role="menuitem" className="launchpad-tile" tabIndex={-1}
-            onClick={() => choose(String(tile.kind))}>
+            onClick={() => onChoose(String(tile.kind))}>
             {tile.icon}<span>{tile.label}</span>
           </button>)}
-      {!more && <button role="menuitem" className="launchpad-tile" tabIndex={-1}
-        aria-expanded={false} onClick={() => setMore(true)}>
-        <Icon path="M12 5v.01M12 12v.01M12 19v.01" /><span>More</span>
-      </button>}
     </div>
     <p className="launchpad-hint">Choose a tool, then place · Esc cancels</p>
   </div>

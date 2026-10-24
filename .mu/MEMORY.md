@@ -1620,3 +1620,8 @@ The desktop density pass had measured control boxes without consistently budgeti
 Added Subheading between Heading and Body in the shared paragraph menu and document theme controls. It is always available for main text and text boxes, not enabled per document, and adds local semantic structure without nested containers, numbering, or folding. The preset is 1.125em, weight 600, 1.5em line height, 1em before, and 0.5em after; typeface and color follow Defaults. Subheadings deliberately add no minimap bookmark or label: navigation remains Title/Heading only.
 
 The optional `theme.blocks.subheading` uses the preset when absent, without rewriting existing themes or changing pristine blank-document detection. An explicit override object follows the ordinary Defaults inheritance and class-reset behavior. Native/HTML interchange, paragraph clipboard, shared rendering, and agent segment validation accept the new semantic class; the agent guide describes its local-only navigation role.
+
+
+## 2026-10-24 — All launchpad tools visible
+
+Removed the launchpad’s More step: Paragraph remains first, and Code, Formula, and HTML widget now appear immediately after the other tools in the existing two-column grid. Header Add and canvas right-click share this always-expanded list. This supersedes the October 21 expansion decision, removing an extra click without changing creation, keyboard navigation, or placement behavior.
