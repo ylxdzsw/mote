@@ -103,7 +103,7 @@ function checkTheme(value: unknown): void {
   finite(defaults.size, 'theme.defaults.size', Number.MIN_VALUE)
   const blocks = isRecord(theme.blocks) ? theme.blocks : undefined
   for (const name of themeBlockClasses) {
-    if (name === 'math' && (!blocks || !(name in blocks))) continue
+    if ((name === 'math' || name === 'subheading') && (!blocks || !(name in blocks))) continue
     themeStyle(record(blocks?.[name], `theme.blocks.${name}`), `theme.blocks.${name}`)
   }
 }

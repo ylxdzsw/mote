@@ -193,7 +193,7 @@ function theme(value) {
   themeLength(defaults.letterSpacing, 'theme.defaults.letterSpacing', false)
   text(defaults.color, 'theme.defaults.color', 128, true)
   const blocks = record(valueObject.blocks, 'theme.blocks')
-  for (const name of ['title', 'heading', 'body', 'caption', 'code', 'list', 'table', 'math']) {
+  for (const name of ['title', 'heading', 'subheading', 'body', 'caption', 'code', 'list', 'table', 'math']) {
     const style = record(blocks[name] ?? {}, `theme.blocks.${name}`)
     if ('background' in style) throw new HttpError(400, `theme.blocks.${name}.background is unsupported`)
     if (style.family !== undefined && !['sans', 'serif', 'mono'].includes(style.family)) throw new HttpError(400, 'invalid theme family')
@@ -386,7 +386,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     if (topIds.has(attrs.id)) throw new HttpError(400, 'candidate.segment.content block IDs must be unique')
     topIds.add(attrs.id)
     if (node.type === 'spacer') finite(attrs.height, `candidate.segment.content[${index}].attrs.height`, 0)
-    if (node.type === 'paragraph' && attrs.semantic !== undefined && !['title', 'heading', 'body', 'caption', 'list'].includes(attrs.semantic)) throw new HttpError(400, 'candidate.segment paragraph semantic is unsupported')
+    if (node.type === 'paragraph' && attrs.semantic !== undefined && !['title', 'heading', 'subheading', 'body', 'caption', 'list'].includes(attrs.semantic)) throw new HttpError(400, 'candidate.segment paragraph semantic is unsupported')
   }
   const nodeIds = new Set()
   for (const node of payload.content) segmentNodeIds(node, nodeIds)

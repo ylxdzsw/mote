@@ -1614,3 +1614,9 @@ The redesign retains the existing shell geometry, task/action homes, document ty
 ## 2026-10-24 — Focus-aware compact spacing
 
 The desktop density pass had measured control boxes without consistently budgeting their painted focus rings. Files search left no visible clearance from its header divider, the first file row's outside outline was clipped, and several joined controls and tabs let outlines cross neighbouring boundaries. Search now leaves space for its outside ring; compact list/menu rows, split actions, toolbar buttons, and tabs keep focus inside their own targets. Tab padding preserves readable labels. Numeric focus surrounds the complete field rather than cutting through its unit, palette-pair spacing accommodates both selected and keyboard-focused swatches, and UI scroll margins retain outlines when keyboard navigation reveals a control at a scroll boundary. Control heights, authored document geometry, and native keyboard/editing behavior remain unchanged.
+
+## 2026-10-24 — Optional Subheading class
+
+Added Subheading between Heading and Body in the shared paragraph menu and document theme controls. It is always available for main text and text boxes, not enabled per document, and adds local semantic structure without nested containers, numbering, or folding. The preset is 1.125em, weight 600, 1.5em line height, 1em before, and 0.5em after; typeface and color follow Defaults. Subheadings deliberately add no minimap bookmark or label: navigation remains Title/Heading only.
+
+The optional `theme.blocks.subheading` uses the preset when absent, without rewriting existing themes or changing pristine blank-document detection. An explicit override object follows the ordinary Defaults inheritance and class-reset behavior. Native/HTML interchange, paragraph clipboard, shared rendering, and agent segment validation accept the new semantic class; the agent guide describes its local-only navigation role.

@@ -8,7 +8,7 @@ import attentionScreenshot from './examples/attention.png?inline'
 import motionHTML from './examples/motion.html?raw'
 import motionScreenshot from './examples/motion.png?inline'
 
-export const blockClasses = ['title', 'heading', 'body', 'caption', 'list'] as const
+export const blockClasses = ['title', 'heading', 'subheading', 'body', 'caption', 'list'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'math', 'code'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
@@ -26,6 +26,10 @@ export interface BlockStyle {
   letterSpacing: ThemeLength
 }
 
+export const defaultSubheadingStyle: Partial<BlockStyle> = {
+  size: '1.125em', weight: 600, lineHeight: '1.5em', spaceBefore: '1em', spaceAfter: '0.5em',
+}
+
 export const boxDecorationKinds = ['left', 'box'] as const
 // `color` is a pair: a family ID or `gray4` (Gray 4 border, Gray 5 background).
 export type BoxDecoration = { kind: typeof boxDecorationKinds[number]; color: string }
@@ -37,7 +41,7 @@ export interface Theme {
   autospace?: boolean
   flow?: { spaceBefore?: ThemeLength; spaceAfter?: ThemeLength }
   defaults: Omit<BlockStyle, 'size'> & { size: number }
-  blocks: Record<ThemeBlockClass, Partial<BlockStyle>>
+  blocks: Record<Exclude<ThemeBlockClass, 'subheading'>, Partial<BlockStyle>> & { subheading?: Partial<BlockStyle> }
 }
 
 export const defaultTheme: Theme = {

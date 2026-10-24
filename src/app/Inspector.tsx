@@ -20,6 +20,7 @@ function TIcon({ name }: { name: TIconName }) {
   const paths: Record<TIconName, React.ReactNode> = {
     body: bodyPath,
     heading: <path d="M6 5v14M18 5v14M6 12h12" />,
+    subheading: <path d="M4 7v10M12 7v10M4 12h8M16 12h4M16 16h4" />,
     title: <path d="M4 8V4h16v4M12 4v13M8 17h8M5 21h14" />,
     caption: <><rect x="4" y="4" width="16" height="9" rx="1" /><path d="M7 17h10M9 20h6" /></>,
     list: <><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4 6h.01M4 12h.01M4 18h.01" strokeWidth="3" /></>,

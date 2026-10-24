@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type ThemeLength } from '../document/model'
+import { defaultSubheadingStyle, themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
 import { paletteColor, paletteEntries, pageColor } from './palette'
 import { PaletteControl, PaletteEditor } from './PaletteControl'
@@ -8,6 +8,10 @@ import { CodeView } from '../canvas/CodeView'
 
 export function pixels(value: ThemeLength, base: number) {
   return typeof value === 'number' ? value : parseFloat(value) * (value.endsWith('em') ? base : 1)
+}
+
+function blockOverrides(theme: Theme, name: ThemeBlockClass) {
+  return theme.blocks[name] ?? (name === 'subheading' ? defaultSubheadingStyle : {})
 }
 
 export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
@@ -26,7 +30,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
     variables[`--palette-${entry.id}-surface`] = soft
   }
   for (const name of themeBlockClasses) {
-    const style = { ...theme.defaults, ...(theme.blocks[name] ?? {}) }
+    const style = { ...theme.defaults, ...blockOverrides(theme, name) }
     if (name === 'math') {
       variables[`--${name}-size`] = `${pixels(style.size, theme.defaults.size)}px`
       variables[`--${name}-color`] = paletteColor(theme, style.color)
@@ -80,7 +84,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
   const isMath = selected === 'math'
   const isCode = selected === 'code'
   const isParagraphBlock = isBlock && !isMath && !isCode
-  const styles = defaults ? theme.defaults : isFlow ? theme.flow ?? {} : isBlock ? theme.blocks[selected as ThemeBlockClass] ?? {} : {}
+  const styles = defaults ? theme.defaults : isFlow ? theme.flow ?? {} : isBlock ? blockOverrides(theme, selected as ThemeBlockClass) : {}
   const bodyStyle = { ...theme.defaults, ...(theme.blocks.body ?? {}) }
   const resolved = isFlow
     ? { ...theme.defaults, spaceBefore: 0, spaceAfter: bodyStyle.spaceAfter, ...styles }
