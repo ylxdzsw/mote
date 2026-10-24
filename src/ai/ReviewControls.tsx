@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, type CSSProperties } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import type { AITask } from './types'
 
@@ -50,10 +50,10 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
   return root
 }
 
-export function ReviewControls({ task, review }: { task: AITask; review: AIReview }) {
+export function ReviewControls({ task, review, style }: { task: AITask; review: AIReview; style: CSSProperties }) {
   const root = useRef<HTMLDivElement>(null), latest = useRef(review)
   latest.current = review
   const key = reviewKey(task)
   useLayoutEffect(() => { root.current!.replaceChildren(reviewControls(task, () => latest.current)) }, [key])
-  return <div className="ai-object-review" ref={root} />
+  return <div className="ai-object-review" ref={root} style={style} />
 }

@@ -33,7 +33,7 @@ import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
 import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
-import type { AIReview } from '../ai/ReviewControls'
+import { ReviewControls, type AIReview } from '../ai/ReviewControls'
 
 export type CreationTool = 'paragraph' | 'text' | 'code' | 'drawing' | 'ai' | null
 export interface CanvasActions {
@@ -877,7 +877,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           return <FloatingObjectView key={note.id} note={note} inFlow={inFlow} geometry={inFlow ? { ...box, x: box.x - doc.margins.left } : box} editable={editable} locked={lockedIds.has(note.id) || !!segment} sizeLocked={sizeLocked(note.id) || !!segment} selected={segment ? activeSegmentId === segment.id : selectedIds.includes(note.id) || creating?.id === note.id}
             captionSelected={selectedIds.length === 1 && selectedCaptionId === note.id} captionResizable={!segment}
             contentActive={segment ? activeSegmentId === segment.id && note.kind === 'html' : selectedIds.length === 1 && selectedIds[0] === note.id && !manipulating}
-            aiReview={canvasReview} aiTask={editable ? segment ?? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
+            aiTask={editable ? segment ?? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
             defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.floating.indexOf(original)}
             onBegin={(part, event, caption) => begin(note.id, part, event, caption)} onActive={(editor, caption = false) => {
@@ -910,7 +910,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           event.preventDefault(); event.stopPropagation()
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
         }}
-        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en'), '--ai-page-width': `${doc.width - 2}px`, '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en'), '--canvas-ui-layer': layoutDoc.floating.length + 1, '--margin-top': `${doc.margins.top}px`, '--margin-right': `${doc.margins.right}px`, '--margin-bottom': `${doc.margins.bottom}px`, '--margin-left': `${doc.margins.left}px`, width: doc.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
@@ -928,6 +928,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
             return createPortal(renderObject(original, true), mount, original.id)
           }
           return renderObject(original)
+        })}
+        {editable && canvasReview?.tasks.map(task => {
+          if (task.target.kind !== 'object' || !selectedIds.includes(task.target.objectId)) return null
+          const box = geometry[task.target.objectId]
+          if (!box) return null
+          return <ReviewControls key={task.id} task={task} review={canvasReview}
+            style={{ left: Math.max(0, Math.min(box.x, pageWidth() - 300)), top: box.y + box.height, maxWidth: pageWidth() }} />
         })}
         {imagePlacement.preview}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}

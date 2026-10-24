@@ -1625,3 +1625,7 @@ The optional `theme.blocks.subheading` uses the preset when absent, without rewr
 ## 2026-10-24 — All launchpad tools visible
 
 Removed the launchpad’s More step: Paragraph remains first, and Code, Formula, and HTML widget now appear immediately after the other tools in the existing two-column grid. Header Add and canvas right-click share this always-expanded list. This supersedes the October 21 expansion decision, removing an extra click without changing creation, keyboard navigation, or placement behavior.
+
+## 2026-10-24 — Reservation controls above document objects
+
+Reservation actions could be occluded because their small fixed z-index values competed with the growing document object order; individual object actions were also trapped inside their owner's stacking context. Main-text/segment review controls and reservation markers now share a canvas UI layer above the current rendered object count, including candidate objects. Object review controls mount directly on the sheet using measured Flow/Float geometry, below the complete composition including captions. Placement, space, and marquee feedback use the same layer. This preserves authored stacking and iframe DOM order rather than temporarily raising selected content, and keeps review controls out of reading and exports.

@@ -9,7 +9,6 @@ import { CodeView } from './CodeView'
 import { DrawingView } from './DrawingView'
 import { pixels } from '../theme/ThemePanel'
 import { paletteCSS } from '../theme/palette'
-import { ReviewControls, type AIReview } from '../ai/ReviewControls'
 import type { AITask } from '../ai/types'
 
 export type DragPart = 'move' | 'caption-width' | 'width' | 'nw' | 'ne' | 'sw' | 'se'
@@ -25,11 +24,11 @@ interface Props {
   onKey: (event: React.KeyboardEvent, caption?: boolean) => void
   widgetRun: number; staticWidgets: boolean; order: number
   locked?: boolean; sizeLocked?: boolean; restoreWidgetRevision?: number
-  aiTask?: AITask; aiReview?: AIReview
+  aiTask?: AITask
   inFlow?: boolean
 }
 
-export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, captionSelected = false, captionResizable = true, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, aiReview, inFlow = false }: Props) {
+export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, captionSelected = false, captionResizable = true, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, inFlow = false }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind ?? 'text'
   const footprint = layoutBounds({ ...box, margins: note.margins })
@@ -70,9 +69,9 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
   return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
     data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-placement={note.placement} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
     data-table-style={note.kind === 'table' ? note.style ?? 'simple' : undefined} data-table-header={note.kind === 'table' && note.headerRow ? '' : undefined}
-    style={{ ...textStyle, '--ai-object-x': `${box.x}px`, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
+    style={{ ...textStyle, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
       marginTop: inFlow ? note.margins?.top : undefined, marginBottom: inFlow ? note.margins?.bottom : undefined,
-      width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.height : box.height) : undefined } as React.CSSProperties & { '--ai-object-x': string }}
+      width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.height : box.height) : undefined }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`} aria-describedby={captionVisible ? `${note.id}-caption` : undefined}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null) }}
     onKeyDown={event => { if (event.target === event.currentTarget || (event.target as HTMLElement).matches('[data-floating-control]')) onKey(event) }}
@@ -99,7 +98,6 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       : 'content' in note ? <TextEditor content={note.content} editable={editable && contentActive && !captionSelected && !locked} table={kind === 'table'}
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onReady={value => { editor.current = value }} /> : null}
-    {editable && selected && aiTask && aiTask.target.kind !== 'segment' && aiReview && <ReviewControls task={aiTask} review={aiReview} />}
     {editable && selected && !locked && note.kind === 'drawing' && onDrawingEdit && <button className="drawing-edit-button" aria-label="Edit drawing" title="Edit drawing"
       onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onDrawingEdit() }}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /></svg>
