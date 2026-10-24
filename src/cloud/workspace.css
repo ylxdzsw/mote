@@ -1,15 +1,27 @@
 .cloud-home { text-align: center; }
+.workspace-overlays { display: contents; font-family: var(--ui-font-family, Inter, ui-sans-serif, system-ui, sans-serif); font-size: var(--ui-font-size); color: var(--ui-ink); }
 .cloud-notice { position: fixed; z-index: 20; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: min(680px, calc(100vw - 24px)); padding: 10px 14px; background: var(--ui-surface); color: var(--ui-ink); border: 1px solid var(--ui-border); border-radius: 8px; box-shadow: 0 4px 20px var(--ui-shadow); font-size: 12px; }
 .cloud-notice button { margin-left: 8px; }
-.cloud-local-recovery { width: min(680px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; background: var(--ui-surface); color: var(--ui-ink); padding: 24px; border: 1px solid var(--ui-border); border-radius: 10px; }
+.cloud-local-recovery { width: min(640px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; overscroll-behavior: contain; background: var(--ui-surface); color: var(--ui-ink); padding: 16px; border: 1px solid var(--ui-border); border-radius: 6px; font-size: var(--ui-font-size); line-height: 1.45; }
 .cloud-local-recovery::backdrop { background: var(--ui-backdrop); }
-.cloud-local-recovery p { color: var(--ui-muted); font-size: 13px; line-height: 1.5; }
-.cloud-local-recovery > div { padding: 12px 0; border-bottom: 1px solid var(--ui-border); }
-.cloud-local-recovery time { display: block; font-size: 12px; color: var(--ui-muted); margin: 5px 0; }
+.cloud-local-recovery h2 { margin: 0 0 8px; font-size: 14px; line-height: 1.35; }
+.cloud-local-recovery p { margin: 6px 0 10px; color: var(--ui-muted); font-size: var(--ui-font-size); line-height: 1.5; }
+.cloud-local-recovery p[role="alert"] { padding: 8px 10px; border: 1px solid var(--ui-error-border); border-radius: var(--ui-control-radius); background: var(--ui-error-surface); color: var(--ui-error-text); }
+.cloud-local-recovery > div { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 2px 8px; padding: 8px 0; border-bottom: 1px solid var(--ui-border); }
+.cloud-local-recovery > div > strong, .cloud-local-recovery > div > time { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+.cloud-local-recovery > div > strong { font-weight: 550; }
+.cloud-local-recovery time { display: block; font-size: var(--ui-label-size); color: var(--ui-muted); }
+.cloud-local-recovery > div > button { grid-row: 1 / 3; min-height: var(--ui-control-height); padding: 3px 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); font-size: var(--ui-font-size); }
+.cloud-local-recovery > div > button:first-of-type { border-color: var(--ui-accent); background: var(--ui-accent); color: var(--ui-on-accent); }
+.cloud-local-recovery > div > button:first-of-type:hover:not(:disabled) { border-color: var(--ui-accent-hover); background: var(--ui-accent-hover); }
+.cloud-local-recovery > div > button:last-of-type { color: var(--ui-error-text); }
+.cloud-local-recovery > button:last-child { display: block; min-height: var(--ui-control-height); margin: 12px 0 0 auto; padding: 3px 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); }
 .cloud-sync-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; padding: 8px 16px; background: var(--ui-surface); border-bottom: 1px solid var(--ui-border); }
 .cloud-sync-actions p { margin: 0; flex: 1 1 300px; }
 .cloud-sync-actions button, .cloud-sync-actions a { border: 1px solid var(--ui-border); border-radius: 5px; padding: 6px 9px; color: inherit; text-decoration: none; }
 @media (max-width: 767px) {
+  .cloud-local-recovery { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 12px; }
+  .cloud-local-recovery > div > button, .cloud-local-recovery > button:last-child { min-height: 44px; }
   .app-header.cloud-header { position: relative; inset: auto; height: 50px; background: var(--ui-surface); pointer-events: auto; border-bottom-color: var(--ui-border); }
   .cloud-header > .save-status, .cloud-header > .header-actions { display: none; }
   .app-header.cloud-header > .document-switch { display: flex; }

@@ -42,6 +42,8 @@ Distinguish navigation from intent to edit. Context/Assistant is the user’s wo
 
 Start with a clear heading, a useful grouping of controls, and a recognizable next action. Use alignment, spacing, weight, and subtle dividers before adding more containers or colors. Compact controls should still be readable and easy to target; density is useful when it reduces travel without hiding meaning.
 
+Editing is a desktop workbench, not a touch-first form. Use the shared control-height, radius, type, and panel-spacing tokens. Prefer aligned label/value rows for scalar properties, paired rows for related numbers, and content-sized supporting actions. Keep full-width writing surfaces for prompts, descriptions, and source. Gain density by reducing padding and redundant framing, not by shrinking labels into fine print. Segmented choices should have usable targets inside their outer border, not just a large surrounding container.
+
 Reuse the existing sans-serif UI typography and outline icon vocabulary. Document typography remains theme-driven. Use stronger accent treatment for the main action or selected state and quieter treatment for supporting actions. Flat icons work for familiar header actions with tooltips and accessible names; less familiar choices benefit from visible words. Destructive styling belongs to the destructive action, without making an entire panel alarming.
 
 Choose controls that explain the decision: tabs for related views, a segmented choice for a small set of mutually exclusive modes, a checkbox for permission, a select for a longer list. These are useful precedents, not a requirement to fit every future choice into the same shape.
@@ -51,6 +53,8 @@ Choose controls that explain the decision: tabs for related views, a segmented c
 Use the existing `--ui-*` roles and [theme derivation](../src/theme/ui.ts), rather than inventing a palette for each feature. Common roles include `--ui-surface`, `--ui-surface-raised`, `--ui-ink`, `--ui-muted`, `--ui-border`, `--ui-accent`, and the hover/selected/focus and semantic-status variants.
 
 UI accents follow the document Primary hue with controlled tones and readable contrast; Secondary colors document content. The saved Light/Dark mode controls both the fixed page surface and the interface. Main surfaces follow the page background, while surrounding workspace tones stay achromatic. Keep error, warning, and success meanings distinguishable. Check selected-plus-hover and keyboard focus as well as the idle state, in both Light and Dark appearance.
+
+Workspace overlays such as Files and Local recovery inherit the active working copy's theme even when mounted outside the editor shell. With no open document, they use the default interface appearance.
 
 Keep document colors and UI colors conceptually separate. Authored marks and object decorations use document palette references; the interface uses readable UI roles. Swatches and previews should show the authored result faithfully. Improving chrome contrast should not silently recolor the user's content.
 
@@ -65,6 +69,8 @@ Quiet feedback must still be truthful. Local saving is not cloud synchronization
 ## Make the same design usable across inputs and sizes
 
 Keyboard focus, accessible names, selected/disabled states, and focus restoration are part of the component. Prefer native button, input, radio, and dialog behavior where it fits. Color and hover alone should not carry essential meaning. Tooltips complement visible state and accessible descriptions.
+
+Account for the painted focus ring, not only the control's border box. Leave clearance from dividers and adjacent controls; use inset rings for tightly joined buttons, tabs, and list rows, with enough internal padding to keep the ring off the label. Compound numeric fields highlight the complete field while identifying a focused unit selector separately. Check keyboard focus at both ends of scrolling regions, since an otherwise well-spaced outline can be clipped when a control is scrolled into view.
 
 At compact desktop sizes, preserve the user's task and action hierarchy. Let lists or panel contents scroll, keep critical actions reachable in short windows, and truncate long names with a way to inspect them. Mobile follows Mote's reading-only boundary; it should remain a considered reading/navigation experience. Keep document wrapping and spatial geometry independent of view zoom.
 

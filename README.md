@@ -22,6 +22,12 @@ npm run preview -- --host 127.0.0.1
 npm run test:ai # Essential Flow model, reservation, and fake-backend checks; no model calls
 ```
 
+### Desktop interface
+
+Editing uses a compact document workbench: 28px standard controls, 12px UI text with 11px secondary labels, aligned property rows, and flat sections rather than stacked cards. The 50px title bar and stable 288px / 268px Context–Assistant lane keep the document in place. Settings, Files, Share/export, creation menus, and drawing/source editors use the same control scale. Prompts and source editors retain useful writing space; page-layout and typography explanations sit in contextual disclosures.
+
+Interface density does not change document typography, geometry, or zoom. Light/Dark appearance and the Primary hue apply throughout, including Files and Local recovery. Below 768px, Mote remains reading-only; Files and reading navigation retain larger touch targets.
+
 ## AI assistant
 
 Select content, open **Assistant**, and choose **Reserve for Assistant**. Context contains properties, not reservation creation. Reserving locks the selected content but does not generate anything or grant external access; the request field opens next. An unsent draft offers **Cancel reservation**. A gutter segment selection generates a native composed section: an empty segment inserts at that point; a nonempty segment replaces its paragraphs, explicit spaces, Flow blocks, and owned objects. Without a segment selection, revision replaces all paragraphs touched by a text selection, or the whole paragraph at the caret (including an empty line). **Add → AI object** arms a drawing tool for a new floating area. The **Assistant** tab contains the request and review workflow; multiple reservations have their own session tabs. Describe a research, writing, formula, diagram, table, or interactive-object task and choose **Preview candidate**. **Settings → Document → Layout → Mu model** accepts an optional raw Mu model reference; blank inherits the workspace default. Explicit overrides belong to the document and round-trip through `.mote` files; credentials do not.

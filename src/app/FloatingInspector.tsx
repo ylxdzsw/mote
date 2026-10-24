@@ -57,7 +57,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     const ownerSelectionLabel = object.kind === 'image' ? 'Select image' : object.kind === 'table' ? 'Select table' : 'Select widget'
     return <div className="context-inspector floating-inspector">
       <ContextHeading title={reserved ? 'Caption · Reserved for AI' : 'Caption'} actions={!reserved && <button className="icon-action delete-action" aria-label="Remove caption" title="Remove caption" onClick={() => onChange({ caption: null })}><PanelIcon name="trash" /></button>} />
-      <InspectorRow>{reserved && onOpenTask && <button onClick={onOpenTask}>Open AI task</button>}{!reserved && <button onClick={onCaption}>Edit caption</button>}<button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
+      <InspectorRow>{reserved && onOpenTask && <button className="inspector-primary" onClick={onOpenTask}>Open AI task</button>}{!reserved && <button onClick={onCaption}>Edit caption</button>}<button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
       <InspectorGroup title="Layout">
         <InspectorField label="Width">
           <NumberField label="Caption width" value={object.caption.width ?? object.width} min={16} max={captionMaxWidth} onChange={onCaptionWidth} />
@@ -91,11 +91,11 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
             <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
           </label>)}
         </div>
-        {reserved && onOpenTask && <button onClick={onOpenTask}>Open AI task</button>}
+        {reserved && onOpenTask && <button className="inspector-primary" onClick={onOpenTask}>Open AI task</button>}
       </div>
       {!reserved && <>
       {object.kind === 'drawing' && <button onClick={onDrawingEdit}>Edit drawing…</button>}
-      {object.kind === 'code' && <label className="inspector-field">Language<select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
+      {object.kind === 'code' && <label className="inspector-field inspector-field-native"><span className="field-heading">Language</span><select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
           {!codeLanguages.some(language => language.value === object.language) && <option value={object.language}>{object.language || 'Plain text'}</option>}
           {codeLanguages.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
         </select></label>}
@@ -103,16 +103,16 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         onRun={() => onWidgetRun(widget.id)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {object.kind === 'image' && <InspectorGroup title="Content">
         <button disabled={imageLoading} onClick={onReplaceImage}>{imageLoading ? 'Opening image…' : 'Replace image…'}</button>
-        <label className="inspector-field">Description
-          <input type="text" value={object.alt} onFocus={() => onHistoryBegin(`description:${object.id}`)} onBlur={onHistoryEnd}
+        <InspectorField label="Description" layout="stack">
+          <input aria-label="Description" type="text" value={object.alt} onFocus={() => onHistoryBegin(`description:${object.id}`)} onBlur={onHistoryEnd}
             onChange={event => onChange({ alt: event.target.value })} />
-        </label>
+        </InspectorField>
       </InspectorGroup>}
       {katex && <KaTeXControls value={katex} onChange={onChange} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
       {object.kind === 'table' && tableControls}
       {supportsCaption(object) && <button onClick={onCaption}>{object.caption ? 'Edit caption' : 'Add caption'}</button>}
       {object.kind === 'table' && <InspectorGroup title="Appearance">
-        <InspectorField label="Style">
+        <InspectorField label="Style" className="inspector-field-segmented">
           <div className="placement-options decoration-options" role="radiogroup" aria-label="Table style">
             {tableStyles.map(style => <label key={style}>
               <input type="radio" name={tableStyleId} value={style} checked={(object.style ?? 'simple') === style} onChange={() => onChange({ style })} />
@@ -126,7 +126,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         </label>
       </InspectorGroup>}
       {text && <InspectorGroup title="Appearance">
-        <InspectorField label="Border">
+        <InspectorField label="Border" className="inspector-field-segmented">
           <div className="placement-options decoration-options" role="radiogroup" aria-label="Text box border">
             {(['none', 'left', 'box'] as const).map(kind => <label key={kind}>
               <input type="radio" name={decorationId} value={kind} checked={(object.decoration?.kind ?? 'none') === kind}
@@ -135,7 +135,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
             </label>)}
           </div>
         </InspectorField>
-        {object.decoration && <InspectorField label="Color">
+        {object.decoration && <InspectorField label="Color" layout="stack">
           <PaletteControl theme={theme} label="Text box color" value={object.decoration.color} pairs
             onFocus={() => onHistoryBegin('floating-decoration-color')} onBlur={onHistoryEnd}
             onChange={color => color && onChange({ decoration: { ...object.decoration!, color } })} />
@@ -167,7 +167,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
 function ObjectMargins({ object, onChange }: { object: FloatingObject; onChange: (margins: NonNullable<FloatingObject['margins']>) => void }) {
   const sides = ['top', 'right', 'bottom', 'left'] as const
   const margins = object.margins ?? { top: 0, right: 0, bottom: 0, left: 0 }
-  return <div className="inspector-field object-margin-fieldset">
+  return <div className="inspector-field inspector-field-stack object-margin-fieldset">
     <div className="field-heading">Margins</div>
     <div className="object-margins">
       {sides.map(side => <label key={side}>
@@ -191,11 +191,11 @@ function TextPadding({ value, base, onChange }: { value: ThemeLength; base: numb
 }
 
 function KaTeXControls({ value, onChange, onHistoryBegin, onHistoryEnd }: { value: FloatingKaTeX; onChange: (patch: FloatingPatch) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
-  return <label className="inspector-field">LaTeX
-    <textarea className="embed-source" title="LaTeX without delimiters" rows={3} spellCheck={false} value={value.latex}
+  return <InspectorField label="LaTeX" layout="stack">
+    <textarea className="embed-source" aria-label="LaTeX" title="LaTeX without delimiters" rows={3} spellCheck={false} value={value.latex}
       onFocus={() => onHistoryBegin(`katex-source:${value.id}`)} onBlur={onHistoryEnd}
       onChange={event => onChange({ latex: event.target.value })} />
-  </label>
+  </InspectorField>
 }
 
 function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffline, onUpdateScreenshot, onRun, onHistoryBegin, onHistoryEnd }: {
@@ -221,10 +221,10 @@ function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffli
         <summary>Screenshot details</summary>
         <div>
           <div className="widget-preview"><img src={value.screenshot} alt={value.alt} /></div>
-          <label className="inspector-field">Description
-            <input type="text" value={value.alt} onFocus={() => onHistoryBegin(`html-widget-alt:${value.id}`)} onBlur={onHistoryEnd}
+          <InspectorField label="Description" layout="stack">
+            <input aria-label="Description" type="text" value={value.alt} onFocus={() => onHistoryBegin(`html-widget-alt:${value.id}`)} onBlur={onHistoryEnd}
               onChange={event => onChange({ alt: event.target.value })} />
-          </label>
+          </InspectorField>
         </div>
       </details>
     </InspectorGroup>

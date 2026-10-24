@@ -143,8 +143,10 @@ export function InspectorGroup({ title, actions, children }: { title: string; ac
   </section>
 }
 
-export function InspectorField({ label, children }: { label: string; children: ReactNode }) {
-  return <div className="inspector-field" role="group" aria-label={label}><div className="field-heading">{label}</div>{children}</div>
+export function InspectorField({ label, children, layout = 'row', className }: { label: string; children: ReactNode; layout?: 'row' | 'stack'; className?: string }) {
+  return <div className={`inspector-field${layout === 'stack' ? ' inspector-field-stack' : ''}${className ? ` ${className}` : ''}`} role="group" aria-label={label}>
+    <div className="field-heading">{label}</div><div className="inspector-field-control">{children}</div>
+  </div>
 }
 
 export function InspectorRow({ children }: { children: ReactNode }) {

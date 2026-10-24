@@ -158,10 +158,8 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
     {palette ? <PaletteEditor theme={theme} onChange={onChange} /> : <section className="panel-section class-properties" key={selected}>
       <h2>{classLabel(selected)}</h2>
       <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isFlow ? 'Spacing for every Flow object. Space before defaults to 0; Space after follows Body.' : isCode ? 'Every code object uses monospace typography. Syntax colors follow the document appearance.' : isMath ? 'Math follows Defaults except for size and color overrides.' : 'Every paragraph with this meaning follows this style.'}</p>
-      {(defaults || isParagraphBlock || isMath || isCode || isFlow) && <p className="hint">1em = Defaults font size ({theme.defaults.size}px){isMath ? '.' : isFlow ? ', used to resolve spacing.' : ', including spacing and line height. × line height follows the local font size.'}</p>}
       {(defaults || isParagraphBlock) && <>
         {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
-        <p className="hint">{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>
         {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
       {(isMath || isCode) && length('size', 'Font size', 1, 512, .5)}
@@ -171,7 +169,6 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {
           history.boundary(); onChange({ ...theme, autospace: event.target.checked })
         }} /> Mixed-script spacing</label>
-        <p className="hint">Adds a small visual gap between Chinese and English letters or numbers where supported. Does not change your text; Code stays literal.</p>
       </>}
       {(defaults || isParagraphBlock || isCode) && <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
@@ -194,6 +191,11 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
           onChange(updated)
         } else onChange({ ...theme, blocks: { ...theme.blocks, [selected as ThemeBlockClass]: {} } })
       }}>Reset class overrides</button>}
+      <details className="settings-help"><summary>Typography details</summary>
+        <p>1em = Defaults font size ({theme.defaults.size}px). × line height follows the local font size.</p>
+        {(defaults || isParagraphBlock) && <p>{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>}
+        {defaults && <p>Mixed-script spacing adds a small gap between Chinese and English letters or numbers where supported. It does not change your text; Code stays literal.</p>}
+      </details>
     </section>}
   </>
 }

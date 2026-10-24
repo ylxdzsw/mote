@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ReadDocument } from '../canvas/ReadDocument'
 import { initializeDocument } from '../document/initialize'
 import { createBlankDocument, createDocument, type MoteDocument } from '../document/model'
@@ -203,6 +203,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       {!!error && <button onClick={() => setRetry(value => value + 1)}>Retry</button>}
       <button onClick={() => setFilesOpen(true)}>Files</button>
     </main>}
+    <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
     <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} onOpen={next => void navigate(next)} onNew={newDocument}
       onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
@@ -219,7 +220,17 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         }}>Discard</button></div>)}
       <button onClick={() => setRecoveryOpen(false)}>Close</button>
     </LocalRecovery>}
+    </WorkspaceOverlays>
   </>
+}
+
+const noSubscription = () => () => {}
+const noSnapshot = () => undefined
+function WorkspaceOverlays({ copy, children }: { copy?: WorkingCopy; children: ReactNode }) {
+  const state = useSyncExternalStore(copy?.subscribe ?? noSubscription, copy?.getSnapshot ?? noSnapshot)
+  const theme = state?.record.document.theme, language = state?.record.document.language
+  const style = useMemo(() => theme && uiThemeVariables(theme, language ?? 'en'), [theme, language])
+  return <div className="workspace-overlays" style={style}>{children}</div>
 }
 
 function LocalRecovery({ children, onClose }: { children: ReactNode; onClose: () => void }) {

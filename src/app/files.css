@@ -1,20 +1,30 @@
 .document-files { display: block; }
-.document-files p { font-size: 12px; line-height: 1.65; color: var(--ui-muted); margin: 8px 0 16px; }
-.export-filename { display: grid; gap: 7px; font-size: 12px; }
-.export-filename input { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-surface-raised); color: inherit; }
+.document-files p { margin: 5px 0 8px; color: var(--ui-muted); font-size: var(--ui-font-size); line-height: 1.45; }
+.export-filename { display: grid; grid-template-columns: 80px minmax(0, 1fr); align-items: center; gap: 12px; color: var(--ui-muted); font-size: var(--ui-label-size); }
+.export-filename input { width: 100%; min-width: 0; min-height: var(--ui-control-height); padding: 3px 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface-raised); color: var(--ui-ink); font-size: var(--ui-font-size); }
 .export-filename input[aria-invalid=true] { border-color: var(--ui-error-border); }
-.export-formats { display: grid; gap: 10px; margin-top: 18px; }
-.export-png { border: 1px solid var(--ui-border); border-radius: 7px; }
-.export-format { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; padding: 15px; text-align: left; border: 1px solid var(--ui-border); border-radius: 7px; }
-.export-png .export-format { border: 0; border-radius: 6px 6px 0 0; }
+.export-filename + p { margin: 4px 0 8px 92px; font-size: var(--ui-label-size); }
+.export-formats { display: grid; gap: 4px; margin-top: 10px; }
+.export-png { border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); }
+.export-format { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 42px; padding: 5px 9px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); text-align: left; }
+.export-png .export-format { border: 0; border-radius: 0; }
 .export-format:focus-visible { outline-offset: -3px; }
-.export-format-copy { display: grid; gap: 5px; min-width: 0; }
-.export-format-copy strong { font-size: 13px; font-weight: 600; }
-.export-format-copy small { margin-left: 5px; font-size: 11px; font-weight: 400; color: var(--ui-muted); }
-.export-format-copy > span { font-size: 12px; color: var(--ui-muted); line-height: 1.5; }
+.export-format-copy { display: grid; gap: 2px; min-width: 0; }
+.export-format-copy strong { font-size: var(--ui-font-size); font-weight: 600; }
+.export-format-copy small { margin-left: 4px; font-size: var(--ui-label-size); font-weight: 400; color: var(--ui-muted); }
+.export-format-copy > span { font-size: var(--ui-label-size); color: var(--ui-muted); line-height: 1.4; }
 .export-format > .panel-icon { flex: none; color: var(--ui-muted); }
 .export-format:hover:not(:disabled) > .panel-icon { color: var(--ui-accent); }
-.export-resolution { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 15px; padding: 10px 0 12px; border-top: 1px solid var(--ui-border); font-size: 12px; color: var(--ui-muted); }
-.export-resolution select { min-width: 0; padding: 6px 8px; border: 1px solid var(--ui-border); border-radius: 5px; background: var(--ui-surface-raised); color: var(--ui-ink); font: inherit; }
-.document-files .files-status { margin: 16px 0 0; }
-.document-files .error { color: var(--ui-error); }
+.export-resolution { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 9px; padding: 5px 0 7px; border-top: 1px solid var(--ui-border); font-size: var(--ui-label-size); color: var(--ui-muted); }
+.export-resolution select { min-width: 0; min-height: var(--ui-control-height); padding: 2px 7px; border-radius: var(--ui-control-radius); background: var(--ui-surface-raised); color: var(--ui-ink); font: var(--ui-font-size)/1.25 var(--ui-font-family, Inter, ui-sans-serif, system-ui, sans-serif); }
+.document-files .files-status { margin: 8px 0 0; }
+.document-files .files-status:empty { display: none; }
+.document-files .error { margin: 8px 0 0; padding: 8px 10px; border: 1px solid var(--ui-error-border); border-radius: var(--ui-control-radius); background: var(--ui-error-surface); color: var(--ui-error-text); overflow-wrap: anywhere; }
+
+@media (max-width: 767px) {
+  .export-filename { grid-template-columns: 72px minmax(0, 1fr); gap: 8px; }
+  .export-filename input { min-height: 44px; font-size: 16px; }
+  .export-filename + p { margin-left: 80px; }
+  .export-format { min-height: 54px; padding: 7px 9px; }
+  .export-resolution select { min-height: 44px; font-size: 16px; }
+}

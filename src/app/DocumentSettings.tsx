@@ -41,21 +41,13 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
       </section>}
       {tab === 'layout' ? <section className="panel-section layout-properties">
         <h2>Page</h2>
-        <div className="paired-fields">
-          <div>
-            <div className="style-field"><div className="field-heading">Document width</div>
-              <NumberField label="Document width" value={doc.width} min={Math.max(320, doc.margins.left + doc.margins.right + 120)} max={2400}
-                onChange={width => onChange({ ...doc, width })} /></div>
-            <p className="hint">A continuous page, as tall as your content.</p>
-          </div>
-          <div>
-            <div className="style-field"><div className="field-heading">Text language</div>
-              <select aria-label="Text language" value={doc.language ?? 'en'} onChange={event => {
-                history.boundary(); onChange({ ...doc, language: event.target.value as DocumentLanguage })
-              }}><option value="en">English</option><option value="zh-Hans">Simplified Chinese</option></select>
-            </div>
-            <p className="hint">For document text, not the interface. Mixed English and Chinese are supported.</p>
-          </div>
+        <div className="style-field"><div className="field-heading">Document width</div>
+          <NumberField label="Document width" value={doc.width} min={Math.max(320, doc.margins.left + doc.margins.right + 120)} max={2400}
+            onChange={width => onChange({ ...doc, width })} /></div>
+        <div className="style-field"><div className="field-heading">Text language</div>
+          <select aria-label="Text language" value={doc.language ?? 'en'} onChange={event => {
+            history.boundary(); onChange({ ...doc, language: event.target.value as DocumentLanguage })
+          }}><option value="en">English</option><option value="zh-Hans">Simplified Chinese</option></select>
         </div>
         <h2 className="subheading">Margins</h2>
         <div className="paired-fields">
@@ -80,15 +72,18 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
             onChange({ ...doc, margins: { ...doc.margins, left: value, right: value } })
           }
         }} /> Link left and right</label>
-        <p className="hint">Top precedes the main text; bottom follows the last text or floating object.</p>
-        <p className="hint">At least 120px stays available for main text. Floating objects keep their document-space positions; narrower pages can leave them outside the page.</p>
+        <details className="settings-help"><summary>Page layout details</summary>
+          <p>The page grows with its content. Text language applies to the document, not the interface; mixed English and Chinese are supported.</p>
+          <p>Top margin precedes the main text; bottom follows the last text or floating object. At least 120px stays available for main text.</p>
+          <p>Floating objects keep their positions. Narrowing the page can leave them outside its edges.</p>
+        </details>
         <h2 className="subheading">AI assistant</h2>
-        <div className="style-field"><div className="field-heading">Mu model (optional)</div>
+        <div className="style-field"><div className="field-heading">Mu model</div>
           <input type="text" maxLength={256} spellCheck={false} autoComplete="off" aria-label="AI assistant Mu model"
             value={doc.aiModel ?? ''} placeholder="Workspace default" onFocus={() => history.begin('document-ai-model')} onBlur={history.boundary}
             onChange={event => onChange({ ...doc, aiModel: event.target.value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '') })} />
         </div>
-        <p className="hint">Leave blank to use the workspace default; set a model here or in Workspace settings before generating. AI runs only when you explicitly request generation, and the full document is sent to the selected Mu model.</p>
+        <p className="hint">Blank uses the workspace default. Generation is explicit and sends the full document to the selected model.</p>
       </section> : <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} /></div>}
     </div>
   </div>

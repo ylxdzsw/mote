@@ -173,7 +173,7 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft,
   return <dialog ref={dialog} className="cloud-dialog cloud-share" aria-labelledby={titleId} aria-describedby={tab === 'link' ? `${titleId}-hint` : undefined}
     aria-busy={!!busy || shareLoading || fileBusy}
     onCancel={event => { event.preventDefault(); closeDialog() }} onKeyDown={event => event.stopPropagation()}>
-    <header className="cloud-heading"><h1 id={titleId}>Share — {name}</h1>
+    <header className="cloud-heading"><h1 id={titleId} title={`Share — ${name}`}>Share — {name}</h1>
       <button type="button" className="cloud-button cloud-close" aria-label="Close share dialog" disabled={!!busy || fileBusy} onClick={closeDialog}>×</button>
     </header>
     <div className="cloud-body">

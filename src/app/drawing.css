@@ -1,40 +1,41 @@
-.drawing-editor { position: fixed; inset: 12px; width: calc(100vw - 24px); height: calc(100dvh - 24px); max-width: none; max-height: none; margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 18px; color: var(--ui-ink); background: var(--ui-shell); box-shadow: 0 16px 80px var(--ui-shadow-strong); font: 13px/1.4 var(--ui-font-family, ui-sans-serif, system-ui, sans-serif); }
-.drawing-editor[open] { display: grid; grid-template-rows: 60px minmax(0, 1fr) auto; }
+.drawing-editor { position: fixed; inset: 12px; width: calc(100vw - 24px); height: calc(100dvh - 24px); max-width: none; max-height: none; margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--ui-border); border-radius: 6px; color: var(--ui-ink); background: var(--ui-shell); box-shadow: 0 16px 80px var(--ui-shadow-strong); font: 12px/1.5 var(--ui-font-family, ui-sans-serif, system-ui, sans-serif); }
+.drawing-editor[open] { display: grid; grid-template-rows: 44px minmax(0, 1fr) auto; }
 .drawing-editor::backdrop { background: var(--ui-backdrop); }
-.drawing-editor-heading { display: flex; align-items: center; gap: 12px; padding: 12px 20px; }
-.drawing-editor-heading h1 { margin: 0; font-size: 15px; font-weight: 600; }
+.drawing-editor-heading { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
+.drawing-editor-heading h1 { margin: 0; font-size: 14px; font-weight: 600; }
 .drawing-editor-heading > span { color: var(--ui-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
-.drawing-editor .drawing-done { margin-left: auto; padding: 8px 18px; border-radius: 20px; color: var(--ui-on-accent); background: var(--ui-accent); font-weight: 600; }
+.drawing-editor .drawing-done { margin-left: auto; min-height: var(--ui-control-height); padding: 4px 12px; border-radius: var(--ui-control-radius); color: var(--ui-on-accent); background: var(--ui-accent); font-weight: 600; }
 .drawing-editor .drawing-done:hover { background: var(--ui-accent-hover); }
-.drawing-editor-area { position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; margin: 0 24px; }
+.drawing-editor-area { position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; margin: 8px 20px; }
 .drawing-editor-canvas { flex: none; overflow: hidden; touch-action: none; user-select: none; background: repeating-conic-gradient(var(--ui-surface) 0 25%, var(--ui-surface-muted) 0 50%) 0 0 / 16px 16px; box-shadow: 0 0 0 1px var(--ui-border), 0 6px 22px var(--ui-shadow); cursor: crosshair; }
 .drawing-editor-canvas.is-label { cursor: text; }
 .drawing-editor-canvas.is-eraser { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Ccircle cx='10' cy='10' r='8' stroke='white' stroke-width='3' fill='none'/%3E%3Ccircle cx='10' cy='10' r='8' stroke='%23555' fill='none'/%3E%3C/svg%3E") 10 10, crosshair; }
 .drawing-editor-canvas:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 4px; }
-.drawing-editor-footer { position: relative; z-index: 2; display: grid; justify-items: center; gap: 10px; padding: 12px 16px 18px; }
+.drawing-editor-footer { position: relative; z-index: 2; display: grid; justify-items: center; gap: 6px; padding: 8px 16px 12px; }
 .drawing-editor-hint { margin: 0; min-height: 16px; color: var(--ui-faint); font-size: 11px; text-align: center; }
-.drawing-tools { position: relative; display: flex; align-items: center; gap: 5px; padding: 8px 12px; border: 1px solid var(--ui-border); border-radius: 36px; background: color-mix(in srgb, var(--ui-surface-raised) 88%, transparent); backdrop-filter: blur(16px) saturate(1.15); box-shadow: 0 5px 20px var(--ui-shadow); }
-.drawing-tools .drawing-tool { display: grid; place-items: center; flex: none; width: 40px; height: 40px; padding: 0; border-radius: 50%; color: var(--ui-muted); }
-.drawing-tool > svg { width: 21px; height: 21px; }
+.drawing-tools { position: relative; display: flex; align-items: center; gap: 3px; padding: 4px 6px; border: 1px solid var(--ui-border); border-radius: 4px; background: var(--ui-surface-raised); box-shadow: 0 2px 8px var(--ui-shadow); }
+.drawing-tools .drawing-tool { display: grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0; border-radius: var(--ui-control-radius); color: var(--ui-muted); }
+.drawing-tool > svg { width: 16px; height: 16px; }
 .drawing-tools .drawing-tool[aria-pressed='true'], .drawing-tools .drawing-tool[aria-expanded='true'] { color: var(--ui-accent); background: var(--ui-accent-soft); }
-.drawing-tool-divider { width: 1px; height: 25px; margin: 0 5px; background: var(--ui-border); }
-.drawing-color-button > span { width: 23px; height: 23px; border: 1px solid var(--ui-border-strong); border-radius: 50%; box-shadow: inset 0 0 0 2px var(--ui-surface-raised); }
-.drawing-width { display: grid; gap: 3px; width: 135px; padding: 0 9px; font-size: 10px; color: var(--ui-muted); }
+.drawing-tool:focus-visible { outline-offset: -2px; }
+.drawing-tool-divider { width: 1px; height: 20px; margin: 0 4px; background: var(--ui-border); }
+.drawing-color-button > span { width: 18px; height: 18px; border: 1px solid var(--ui-border-strong); border-radius: 3px; box-shadow: inset 0 0 0 2px var(--ui-surface-raised); }
+.drawing-width { display: grid; gap: 0; width: 128px; padding: 0 8px; font-size: 11px; color: var(--ui-muted); }
 .drawing-width > span { display: flex; justify-content: space-between; gap: 8px; }
 .drawing-width output { font-variant-numeric: tabular-nums; }
 .drawing-width input[type='range'] { display: block; width: 100%; height: 18px; margin: 0; }
-.drawing-popover { position: absolute; z-index: 2; bottom: calc(100% + 12px); right: 0; width: 280px; max-height: calc(100dvh - 180px); overflow: auto; padding: 16px; border: 1px solid var(--ui-border); border-radius: 14px; background: var(--ui-surface-raised); color: var(--ui-ink); box-shadow: 0 8px 32px var(--ui-shadow-strong); }
-.drawing-popover.is-color { left: 120px; right: auto; width: 240px; }
-.drawing-popover strong { display: block; margin-bottom: 10px; font-size: 12px; }
+.drawing-popover { position: absolute; z-index: 2; bottom: calc(100% + 6px); right: 0; width: 280px; max-height: calc(100dvh - 180px); overflow: auto; padding: 12px; border: 1px solid var(--ui-border); border-radius: 4px; background: var(--ui-surface-raised); color: var(--ui-ink); box-shadow: 0 8px 32px var(--ui-shadow-strong); }
+.drawing-popover.is-color { left: 90px; right: auto; width: 240px; }
+.drawing-popover strong { display: block; margin-bottom: 8px; font-size: 12px; }
 .drawing-popover p { margin: 10px 0; color: var(--ui-muted); font-size: 11px; line-height: 1.6; }
-.drawing-popover > button { display: block; width: 100%; text-align: left; }
+.drawing-popover > button { display: block; width: 100%; min-height: var(--ui-control-height); text-align: left; }
 .drawing-popover-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .drawing-popover dl { display: grid; gap: 4px; margin: 0 0 12px; font-size: 11px; }
 .drawing-popover dt { margin-top: 8px; font-weight: 600; }
 .drawing-popover dd { margin: 0; color: var(--ui-muted); }
 .drawing-editor .drawing-danger { color: var(--ui-danger-action); }
-.drawing-label-editor { position: absolute; z-index: 1; width: 284px; padding: 10px; border: 1px solid var(--ui-border); border-radius: 12px; background: var(--ui-surface-raised); box-shadow: 0 5px 20px var(--ui-shadow-strong); }
-.drawing-label-editor > textarea { display: block; width: 100%; resize: none; padding: 5px 7px; border: 1px solid var(--ui-border); border-radius: 5px; color: var(--ui-ink); background: var(--ui-surface); font-family: inherit; font-size: 14px; line-height: 1.4; }
+.drawing-label-editor { position: absolute; z-index: 1; width: 284px; padding: 10px; border: 1px solid var(--ui-border); border-radius: 4px; background: var(--ui-surface-raised); box-shadow: 0 5px 20px var(--ui-shadow-strong); }
+.drawing-label-editor > textarea { display: block; width: 100%; resize: none; padding: 5px 7px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); color: var(--ui-ink); background: var(--ui-surface); font-family: inherit; font-size: 13px; line-height: 1.4; }
 .drawing-label-editor > p { margin: 7px 0 0; color: var(--ui-faint); font-size: 10px; }
 .drawing-label-editor > div { display: flex; justify-content: flex-end; gap: 4px; margin-top: 7px; font-size: 11px; }
 .drawing-label-editor .drawing-danger { margin-right: auto; }
@@ -60,10 +61,10 @@
 .drawing-crop-handle[data-side='right'] { right: -10px; }
 .drawing-crop-handle[data-side='top']::after, .drawing-crop-handle[data-side='bottom']::after { width: 28px; height: 6px; }
 .drawing-crop-handle[data-side='left']::after, .drawing-crop-handle[data-side='right']::after { width: 6px; height: 28px; }
-.drawing-background { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-bottom: 14px; padding: 3px; border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-surface); }
+.drawing-background { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin-bottom: 12px; padding: 1px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface); }
 .drawing-background label { position: relative; cursor: pointer; }
 .drawing-background input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-.drawing-background span { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 32px; border: 1px solid transparent; border-radius: 4px; color: var(--ui-muted); font-size: 11px; }
+.drawing-background span { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 24px; border: 1px solid transparent; border-radius: 2px; color: var(--ui-muted); font-size: 11px; }
 .drawing-background i { width: 14px; height: 14px; border: 1px solid var(--ui-border-strong); border-radius: 3px; background: repeating-conic-gradient(var(--ui-surface) 0 25%, var(--ui-border-strong) 0 50%) 0 0 / 7px 7px; }
 .drawing-background i[data-solid] { background: var(--palette-gray6); }
 .drawing-background input:hover + span { background: var(--ui-surface-hover); }

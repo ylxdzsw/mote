@@ -46,7 +46,7 @@ export function GlobalSettings({ settings, onChange, saveError, persist = true }
   saveError: boolean
   persist?: boolean
 }) {
-  return <section className="panel-section">
+  return <section className="panel-section browser-properties">
     <h2>Display</h2>
     <label>Minimap
       <select aria-label="Minimap visibility" value={settings.minimap}
