@@ -86,7 +86,9 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.current!.clientHeight : 1)
     const previous = wheelGesture.current
     const base = previous && event.timeStamp - previous.time < 250 ? previous.scale : scale
-    const next = Math.max(minScale, Math.min(3, base * Math.exp(-delta * .01)))
+    // Wheel ticks can report hundreds of pixels; cap each event while retaining fine trackpad input.
+    const step = Math.max(-50, Math.min(50, delta)) * .002
+    const next = Math.max(minScale, Math.min(3, base * Math.exp(-step)))
     zoomTo(next, { x: event.clientX, y: event.clientY }, true)
     // Accumulate unsnapped input so small trackpad deltas can leave the detent.
     wheelGesture.current = { scale: next, time: event.timeStamp }

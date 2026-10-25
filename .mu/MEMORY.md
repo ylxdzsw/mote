@@ -1629,3 +1629,9 @@ Removed the launchpad’s More step: Paragraph remains first, and Code, Formula,
 ## 2026-10-24 — Reservation controls above document objects
 
 Reservation actions could be occluded because their small fixed z-index values competed with the growing document object order; individual object actions were also trapped inside their owner's stacking context. Main-text/segment review controls and reservation markers now share a canvas UI layer above the current rendered object count, including candidate objects. Object review controls mount directly on the sheet using measured Flow/Float geometry, below the complete composition including captions. Placement, space, and marquee feedback use the same layer. This preserves authored stacking and iframe DOM order rather than temporarily raising selected content, and keeps review controls out of reading and exports.
+
+## 2026-10-24 — Bounded wheel zoom
+
+A Linux/Chrome wheel tick could turn 80% into roughly 239% because normalized scroll pixels fed an unbounded exponential at 0.01 per pixel. The shared zoom hook now uses 0.002 per pixel and caps normalized input at ±50 pixels per event (roughly a 10% relative step before existing snapping). Small trackpad inputs remain proportional and retain unsnapped accumulation through 100%/Auto detents. Touch-distance pinch, keyboard/preset zoom, focal anchoring, and saved geometry are unchanged.
+
+Production build/type checks and scoped isolated Chromium checks pass for pixel/line/page wheel units, large deltas in both directions, fine input, ordinary scrolling, escaping both nearby snap points, compact editing, in-app reading, and fresh mobile reading. These are dispatched browser gesture checks, not physical mouse/trackpad certification. No dependencies or regression suite added.
