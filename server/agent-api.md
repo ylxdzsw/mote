@@ -1,6 +1,6 @@
 # Portable reservation backend
 
-`guide.md` is the agent-independent authoring/delivery guide. It and the standalone
+`guide.md` is the transport-neutral authoring/delivery guide, read in full. It and the standalone
 submission/preview helpers are copied into each task's immutable input directory.
 The guide SHA-256 is the exact-version identifier in the manifest. This file is
 the private-client and operator contract, not part of the agent's instructions.
@@ -180,7 +180,9 @@ nosniff, and noindex; source helpers download as inert text attachments.
   the same envelope authorization. Neither route exists for an opted-out task.
 - Immutable `document.json`, `target.json`, optional `snapshot.png`, `guide.md`,
   `submit.mjs`, `preview.mjs`, `preview-harness.html`.
-- `instructions.md`: current explicit request and delivery instructions.
+- `instructions.md`: current explicit request and transport-specific input/delivery
+  instructions, selected by Mote from the authorized request scope. Agents do not
+  choose between executor-specific branches.
 - `candidate.json`: last complete validated candidate (404 if absent).
 - POST `submit`: `{operationId,executorRevision,candidateRevision,candidate,
   assets?:{relativeName:PNG_data_URL}}`. Result-root `screenshotPath` or
@@ -205,10 +207,18 @@ listener never accepts builtin tokens. It is not a relay to the general moted
 socket, and workers never receive that socket. Systemd additionally masks the
 general socket, private cloud database/backups, Nginx configuration, and siblings.
 
-Both executors share the instruction/resource/submission handler and validator.
-Builtin agents read via that transport or identical immutable local materials,
-and must actually POST a result. Supervisor filesystem pickup is removed. The
-fake runner also submits over this HTTP Unix socket. Tests with custom file
+Both executors share the resource/submission handler, pinned authoring guide,
+and validator. Mote selects separate instruction templates: built-in prompts
+point to immutable local inputs/helpers and the current run's absolute output
+directory, with concrete socket read/submission commands; external handoffs
+describe downloading resources and submitting from a local output directory,
+without server paths or socket instructions. The base handoff and instructions.md
+use the same selection as the worker prompt. The common guide has no executor
+branches and remains one fully loaded reference, not a set of optional fragments.
+Existing pinned guides are never rewritten by an instruction update or switch.
+
+Agents must actually POST a result; supervisor filesystem pickup is not delivery.
+The fake runner also submits over this HTTP Unix socket. Tests with custom file
 fixtures use an explicit helper adapter; production does not.
 
 One moted supervisor owns the filesystem task manager. Its per-task mutation
