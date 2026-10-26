@@ -7,6 +7,7 @@ import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
 import { FilesWindow } from './FilesWindow'
+import type { NewFileOptions } from './NewFileForm'
 import { WorkingCopy } from './WorkingCopy'
 import { deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
 import { listAssistantRecoveries } from '../ai/storage'
@@ -172,10 +173,17 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     await refreshRecovery()
     return true
   }
-  async function newDocument() {
-    const document = initializeDocument(createBlankDocument()), session = await workingSession(), now = Date.now()
-    await navigate(document.id, false, { key: `${session}:${document.id}`, session, document, dirty: false, draft: true, updatedAt: now,
-      meta: { id: document.id, name: 'Untitled', revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } })
+  async function newDocument(options: NewFileOptions) {
+    const document = initializeDocument(options.example ? createDocument() : createBlankDocument())
+    document.theme.mode = options.mode
+    document.language = options.language
+    const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
+    const retain = options.example || options.modified
+    const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, dirty: retain, draft: true, updatedAt: now,
+      draftDefaults: { mode: options.mode, language: options.language },
+      ...(retain ? { pendingCreate: { id: document.id, operationId: crypto.randomUUID(), name, document, private: options.private } } : {}),
+      meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } }
+    if (!await navigate(document.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
   }
   async function importLegacy() {
     if (!legacy) return

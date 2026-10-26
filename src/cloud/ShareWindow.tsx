@@ -37,7 +37,7 @@ function ShareDialog({ onClose, documentId, name, privateDocument: listedPrivate
   const doc = current?.record.document ?? loaded?.document
   const dirty = current?.record.dirty
   const draft = current?.record.draft
-  const privateDocument = current ? current.record.meta.private || current.privacy.pending?.private === true : loaded?.private ?? listedPrivate
+  const privateDocument = current ? current.record.meta.private || current.record.pendingCreate?.private === true || current.privacy.pending?.private === true : loaded?.private ?? listedPrivate
   const documentName = current?.record.meta.name ?? loaded?.name ?? name
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)

@@ -54,6 +54,12 @@ test('only a default single empty body paragraph is a pristine blank document', 
     assert.equal(isPristineBlankDocument(document), false)
   }
   assert.equal(isPristineBlankDocument(createDocument()), false)
+  const defaults = { mode: 'dark', language: 'zh-Hans' }
+  const remembered = { ...blank, language: defaults.language, theme: { ...blank.theme, mode: defaults.mode } }
+  assert.equal(isPristineBlankDocument(remembered, defaults), true)
+  assert.equal(isPristineBlankDocument({ ...remembered, language: 'en' }, defaults), false)
+  assert.equal(isPristineBlankDocument({ ...remembered, theme: { ...remembered.theme, mode: 'light' } }, defaults), false)
+  assert.equal(isPristineBlankDocument({ ...remembered, notes: 'Keep this' }, defaults), false)
 })
 
 test('centered captions contribute their overhang to movement and selection bounds', () => {

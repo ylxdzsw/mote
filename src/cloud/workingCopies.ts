@@ -1,4 +1,4 @@
-import type { MoteDocument } from '../document/model'
+import type { DocumentLanguage, MoteDocument } from '../document/model'
 import type { DocumentMeta } from './api'
 import { loadAssistantRecovery, saveAssistantRecovery } from '../ai/storage'
 
@@ -16,7 +16,8 @@ export interface WorkingRecord {
   updatedAt: number
   pending?: PendingSave
   draft?: boolean
-  pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument }
+  draftDefaults?: { mode: 'light' | 'dark'; language: DocumentLanguage }
+  pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument; private?: boolean }
   pendingPrivacy?: { private: boolean; basePrivacyRevision: number; baseShareRevision?: number; operationId: string }
 }
 

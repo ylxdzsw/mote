@@ -1,7 +1,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PanelIcon } from '../app/PanelIcon'
-import { createDocument, type MoteDocument } from '../document/model'
+import type { MoteDocument } from '../document/model'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
+import { NewFileForm, type NewFileOptions } from './NewFileForm'
 import { ShareWindow } from './ShareWindow'
 import type { WorkingCopy } from './WorkingCopy'
 import './cloud.css'
@@ -13,7 +14,7 @@ interface Props {
   onOpen: (id: string) => void
   currentId?: string
   copy?: WorkingCopy
-  onNew: () => Promise<void>
+  onNew: (options: NewFileOptions) => Promise<void>
   pending?: Record<string, string>
   onImportLocal?: () => Promise<void>
   hasLocalDraft?: boolean
@@ -48,6 +49,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const importTrigger = useRef<HTMLButtonElement>(null)
+  const newTrigger = useRef<HTMLButtonElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const returnFocus = useRef<string | null>(null)
@@ -62,6 +64,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
   const [sort, setSort] = useState('modified')
   const [selectedId, setSelectedId] = useState(currentId ?? '')
   const [action, setAction] = useState<'rename' | 'delete' | 'import' | null>(null)
+  const [newFile, setNewFile] = useState<boolean | null>(null)
   const [name, setName] = useState('')
   const [shareTarget, setShareTarget] = useState<DocumentMeta>()
   const visible = documents.filter(item => item.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()))
@@ -69,6 +72,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
   const selected = documents.find(item => item.id === selectedId)
   const recoveryCount = Object.keys(pending).length
   const mutating = !!busy && !['Loading files…', 'Refreshing files…'].includes(busy)
+  const creating = newFile !== null
 
   function focusFile(id: string, menu = false) {
     requestAnimationFrame(() => {
@@ -86,8 +90,15 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
 
   function dismiss() {
     if (mutating) return
-    if (action) finishAction()
+    if (creating) cancelNewFile()
+    else if (action) finishAction()
     else onClose()
+  }
+
+  function cancelNewFile() {
+    if (mutating || !creating) return
+    setNewFile(null)
+    requestAnimationFrame(() => newTrigger.current?.focus())
   }
 
   useEffect(() => {
@@ -123,8 +134,11 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
     setDocuments(current => mergeList(current, data.documents))
   }
 
-  async function run(label: string, task: () => Promise<void>) {
-    if (locked.current) return
+  async function run(label: string, task: () => Promise<void>, propagate = false) {
+    if (locked.current) {
+      if (propagate) throw new Error('Another Files operation is in progress.')
+      return
+    }
     locked.current = true
     setBusy(label); setError(''); setResult(''); setAuth(false)
     try { await task() }
@@ -137,10 +151,15 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
         catch (refreshError) { detail += ` The file list could not be refreshed: ${message(refreshError)}` }
       }
       if (active.current) setError(detail)
+      if (propagate) throw error
     } finally {
       locked.current = false
       if (active.current) setBusy('')
     }
+  }
+
+  async function runCreation(options: NewFileOptions) {
+    await run('Creating document…', () => onNew(options), true)
   }
 
   function openDocument(id: string) {
@@ -163,10 +182,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
   }
 
   function newDocument(example = false) {
-    void run('Creating document…', async () => {
-      if (example) await create(createDocument(), 'Example')
-      else await onNew()
-    })
+    setError(''); setResult(''); setNewFile(example)
   }
 
   function importFile(file: File) {
@@ -177,24 +193,26 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
     })
   }
 
-  return <><dialog ref={dialog} className="cloud-dialog cloud-files" aria-labelledby={titleId} aria-busy={!!busy}
+  return <><dialog ref={dialog} className={`cloud-dialog cloud-files${creating ? ' files-creating' : ''}`} aria-labelledby={titleId} aria-busy={!!busy}
     onCancel={event => { event.preventDefault(); dismiss() }} onKeyDown={event => {
       event.stopPropagation()
       if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); dismiss() }
     }}>
-    <header className="cloud-heading"><h1 id={titleId}>Files</h1>
+    <header className="cloud-heading"><h1 id={titleId}>{creating ? 'New file' : 'Files'}</h1>
       <div className="cloud-actions">
-        <button ref={importTrigger} type="button" className="cloud-button files-quiet" disabled={!!busy || !!action} onClick={() => setAction('import')}>Import</button>
-        <div className="files-new">
-          <button type="button" className="cloud-button" disabled={!!busy || !!action} onClick={() => newDocument()}><PanelIcon name="plus" />New</button>
-          <FilesMenu label="New document options" disabled={!!busy || !!action} icon="chevron">
-            <button type="button" role="menuitem" tabIndex={-1} onClick={() => newDocument(true)}>From example</button>
-          </FilesMenu>
-        </div>
-        <button type="button" className="cloud-button cloud-close" aria-label="Close files" disabled={mutating} onClick={onClose}><PanelIcon name="close" /></button>
+        {!creating && <>
+          <button ref={importTrigger} type="button" className="cloud-button files-quiet" disabled={!!busy || !!action} onClick={() => setAction('import')}>Import</button>
+          <div className="files-new">
+            <button ref={newTrigger} type="button" className="cloud-button" disabled={!!busy || !!action} onClick={() => newDocument()}><PanelIcon name="plus" />New</button>
+            <FilesMenu label="New document options" disabled={!!busy || !!action} icon="chevron">
+              <button type="button" role="menuitem" tabIndex={-1} onClick={() => newDocument(true)}>From example</button>
+            </FilesMenu>
+          </div>
+        </>}
+        <button type="button" className="cloud-button cloud-close" aria-label={creating ? 'Cancel new file' : 'Close files'} disabled={mutating} onClick={creating ? cancelNewFile : onClose}><PanelIcon name="close" /></button>
       </div>
     </header>
-    <div className="files-search">
+    <div className="files-search" hidden={creating}>
       <input ref={search} autoFocus type="search" aria-label="Search documents" placeholder="Search documents…" value={filter} disabled={!!action || mutating}
         onKeyDown={navigateFiles} onChange={event => setFilter(event.target.value)} />
       <div className="files-list-heading">
@@ -204,7 +222,10 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
         </select>
       </div>
     </div>
-    <div ref={list} className="files-scroll">
+    <div className="files-new-view" hidden={!creating}>
+      {creating && <NewFileForm example={newFile === true} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
+    </div>
+    <div ref={list} className="files-scroll" hidden={creating}>
       <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or Mote-exported HTML" onChange={event => {
         const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file)
       }} />
@@ -265,20 +286,20 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
           }) }}>Delete document</button></div>
       </section>}
     </div>
-    <footer className="cloud-feedback files-footer">
-      {hasLocalDraft && onImportLocal && <div className="files-legacy">
+    <footer className={`cloud-feedback files-footer${creating ? ' files-footer-create' : ''}`} hidden={creating && !busy && !result && !error && !auth}>
+      {!creating && hasLocalDraft && onImportLocal && <div className="files-legacy">
         <span>A draft from this browser is available.</span>
         <button type="button" className="cloud-button files-quiet" disabled={!!busy || !!action} onClick={() => { void run('Importing local draft…', async () => {
           await onImportLocal(); if (active.current) { await refresh(); setResult('Local draft imported.') }
         }) }}>Import draft</button>
       </div>}
-      <div className="files-footer-actions">
+      {!creating && <div className="files-footer-actions">
         {onLocalRecovery && <button type="button" className={`cloud-button files-quiet${recoveryCount ? ' files-recovery-pending' : ''}`} disabled={mutating} onClick={onLocalRecovery}
           title={recoveryCount ? `${recoveryCount} documents with changes on this device` : 'Find unsynced working copies on this device'}>
           Local recovery{recoveryCount > 0 && <span className="files-count">{recoveryCount}</span>}
         </button>}
         <button type="button" className="cloud-button files-quiet files-refresh" aria-label="Refresh files" title="Refresh files" disabled={!!busy || !!action} onClick={() => { void run('Refreshing files…', refresh) }}><PanelIcon name="reset" /></button>
-      </div>
+      </div>}
       <p className="cloud-status" role="status">{busy || result}</p>
       {error && <p className="cloud-error" role="alert">{error}</p>}
       {auth && <a href="/" target="_blank" rel="noopener noreferrer">Sign in, then refresh Files</a>}

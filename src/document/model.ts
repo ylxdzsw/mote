@@ -186,16 +186,16 @@ export function createBlankDocument(): MoteDocument {
     content: { type: 'doc', content: [paragraph('')] }, floating: [] }
 }
 
-export function isPristineBlankDocument(document: MoteDocument) {
+export function isPristineBlankDocument(document: MoteDocument, defaults = { mode: defaultTheme.mode, language: 'en' as DocumentLanguage }) {
   const block = document.content.content?.[0]
   return document.floating.length === 0 && document.content.content?.length === 1 && block?.type === 'paragraph'
     && !block.content?.length && (!block.attrs?.semantic || block.attrs.semantic === 'body') && !block.attrs?.listLevel
     && !(typeof document.notes === 'string' ? document.notes.length : document.notes?.some(note => note.length))
-    && (!document.language || document.language === 'en') && !document.aiModel?.trim()
+    && (document.language ?? 'en') === defaults.language && !document.aiModel?.trim()
     && document.width === 960 && document.margins.top === 48 && document.margins.bottom === 48
     && document.margins.left === 32 && document.margins.right === 32
     && document.theme.autospace !== false
-    && JSON.stringify(document.theme, (key, value) => key === 'autospace' ? undefined : value) === JSON.stringify(defaultTheme)
+    && JSON.stringify(document.theme, (key, value) => key === 'autospace' ? undefined : value) === JSON.stringify({ ...defaultTheme, mode: defaults.mode })
 }
 
 export function createDocument(): MoteDocument {

@@ -86,7 +86,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const writable = true
   const [shareOpen, setShareOpen] = useState(false)
   const privateDocument = cloud.record.meta.private
-  const sharingBlocked = privateDocument || cloud.privacy.pending?.private === true
+  const creatingPrivate = cloud.record.pendingCreate?.private === true
+  const sharingBlocked = privateDocument || creatingPrivate || cloud.privacy.pending?.private === true
   const recentColors = useRecentColors(doc?.id ?? initial.id, doc?.theme ?? initial.theme)
   const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme, doc.language ?? 'en') : undefined, [doc?.theme, doc?.language])
   const actions = useRef<CanvasActions | null>(null)
@@ -168,6 +169,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   useEffect(() => {
     void copy.refreshPrivacy()
+    if (copy.getSnapshot().record.pendingCreate) void copy.sync()
     const timer = window.setInterval(() => {
       if (connectionSnapshot().offline) { void retryConnection(); return }
       void copy.refreshPrivacy()
@@ -542,14 +544,15 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         <div className="settings-document-heading">
           <p>Layout and theme for this document.</p>
           <button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
-            title={cloud.record.meta.private
+            title={creatingPrivate ? 'Private will be confirmed when this file is saved to the cloud.' : cloud.record.meta.private
               ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
               : 'Not private. Click to block public sharing and external agents. The built-in agent remains available.'}
-            disabled={cloud.privacy.busy || !!cloud.privacy.pending}
+            disabled={creatingPrivate || cloud.privacy.busy || !!cloud.privacy.pending}
             onClick={() => void copy.setPrivate(!cloud.record.meta.private, () => window.confirm(
               `Make "${cloud.record.meta.name}" private?\n\nThis will disable sharing and revoke the current link. Turning Private off will not restore it. External-agent access will also be revoked.`
             ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /><span>Private</span></button>
         </div>
+        {creatingPrivate && <p className="settings-dialog-note" role="status">Private is awaiting the first cloud save. Sharing and external agents are blocked. Use the sync indicator to retry.</p>}
         <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
           selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} privacy={cloud.privacy}
           onPrivacyRetry={() => void copy.retryPrivacy()}

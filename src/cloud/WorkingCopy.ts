@@ -66,7 +66,7 @@ export class WorkingCopy {
     if (document === this.state.record.document) return
     this.generation++
     const record = this.state.record
-    const dirty = !record.draft || !!record.pendingCreate || !!record.pendingPrivacy || !isPristineBlankDocument(document)
+    const dirty = !record.draft || !!record.pendingCreate || !!record.pendingPrivacy || !isPristineBlankDocument(document, record.draftDefaults)
     this.publish({ record: { ...record, document, dirty, updatedAt: Date.now() } })
     void this.persist().catch(() => {})
   }
@@ -103,7 +103,7 @@ export class WorkingCopy {
     if (this.state.conflict || this.state.deleted) return null
     const record = this.state.record
     // An explicit AI request retains its input, even when that input is blank.
-    if (record.draft && !retainDraft && !record.pendingCreate && !record.pendingPrivacy && isPristineBlankDocument(record.document)) return null
+    if (record.draft && !retainDraft && !record.pendingCreate && !record.pendingPrivacy && isPristineBlankDocument(record.document, record.draftDefaults)) return null
     this.flight = this.performSync().finally(() => { this.flight = undefined; this.publish({ syncing: false }) })
     return this.flight
   }
@@ -118,7 +118,7 @@ export class WorkingCopy {
         await this.persist()
         const result = await cloudRequest<CloudDocument>('/api/documents', 'POST', pendingCreate)
         const current = this.state.record, { document: _document, ...meta } = result
-        this.publish({ record: { ...current, meta: mergeDocumentMeta(current.meta, meta), draft: undefined, pendingCreate: undefined,
+        this.publish({ record: { ...current, meta: mergeDocumentMeta(current.meta, meta), draft: undefined, draftDefaults: undefined, pendingCreate: undefined,
           dirty: current.document !== pendingCreate.document } })
         await this.persist()
       }
@@ -285,7 +285,7 @@ export class WorkingCopy {
 
   setPrivate = async (value: boolean, confirmRevoke: () => boolean) => {
     const meta = this.state.record.meta
-    if (this.state.privacy.busy || this.state.privacy.pending || meta.private === value) return
+    if (this.state.privacy.busy || this.state.privacy.pending || this.state.record.pendingCreate?.private || meta.private === value) return
     let baseShareRevision = value ? 0 : undefined
     if (value && !this.state.record.draft) {
       this.publish({ privacy: { busy: true, error: '', message: 'Checking sharing status…' } })
@@ -337,7 +337,7 @@ export class WorkingCopy {
     if (this.flight) await this.flight
     try {
       const id = crypto.randomUUID(), document = { ...this.state.record.document, id }
-      const result = await cloudRequest<CloudDocument>('/api/documents', 'POST', { id, document, name, private: this.state.record.meta.private || this.state.privacy.pending?.private === true, operationId: id })
+      const result = await cloudRequest<CloudDocument>('/api/documents', 'POST', { id, document, name, private: this.state.record.meta.private || this.state.record.pendingCreate?.private === true || this.state.privacy.pending?.private === true, operationId: id })
       // The old local copy is deliberately kept as recovery until explicitly discarded.
       return result
     } catch (error) { this.failure(error); return null }
