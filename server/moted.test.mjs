@@ -691,7 +691,7 @@ test('unconfirmed worker cleanup stays fenced without requeue or unsafe artifact
 test('unavailable systemd cleanup probes have finite attempts with backoff', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mote-cleanup-test-'))
   const bin = path.join(root, 'systemctl'), log = path.join(root, 'calls')
-  await writeFile(bin, `#!/usr/bin/node\nrequire('node:fs').appendFileSync(${JSON.stringify(log)}, process.argv[2] + '\\n'); process.exit(1)\n`, { mode: 0o700 })
+  await writeFile(bin, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(log)}, process.argv[2] + '\\n'); process.exit(1)\n`, { mode: 0o700 })
   await assert.rejects(stopWorkerUnit(`moted-${crypto.randomUUID()}-0`, { MOTED_SYSTEMCTL: bin }), /cleanup could not be confirmed/)
   const calls = (await readFile(log, 'utf8')).trim().split('\n')
   assert.deepEqual(calls.slice(0, 3), ['kill', 'kill', 'stop'])
@@ -805,7 +805,7 @@ test('unsupported task startup cleans recorded workers without rewriting retaine
   const root = await mkdtemp(path.join(os.tmpdir(), 'mote-old-worker-test-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const bin = path.join(root, 'systemctl'), log = path.join(root, 'calls')
-  await writeFile(bin, String.raw`#!/usr/bin/node
+  await writeFile(bin, String.raw`#!${process.execPath}
 const args = process.argv.slice(2)
 require('node:fs').appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\n')
 if (args[0] === 'show') {

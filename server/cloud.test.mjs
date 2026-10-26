@@ -91,7 +91,7 @@ test('missing model ignores global defaults, starts no worker, and leaves cloud 
   const value = await app(t, { workspaceModel: '', env: { MOTED_MU_DEFAULT_MODEL: 'global/ignored' },
     runner: async () => assert.fail('missing configuration must not start a worker') })
   const bin = path.join(value.root, 'configured-mu'), marker = path.join(value.root, 'mu-called')
-  await writeFile(bin, `#!/usr/bin/node
+  await writeFile(bin, `#!${process.execPath}
 require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called'); console.log(JSON.stringify({model:{canonical:'mu/ignored'}}))
 `, { mode: 0o700 })
   value.manager.env.MOTED_MU_BIN = bin
