@@ -161,13 +161,7 @@ export function ContextHeading({ title, subtitle, actions }: { title: string; su
 }
 
 export function InspectorStyles({ semantic, onTheme }: { semantic?: string; onTheme: (name: string) => void }) {
-  return <details className="inspector-details">
-    <summary>Document styles</summary>
-    <div>
-      {semantic && <button title={`Changes ${classLabel(semantic)} typography throughout this document`} onClick={() => onTheme(semantic)}>{classLabel(semantic)} style… <PanelIcon name="sliders" /></button>}
-      <button onClick={() => onTheme('palette')}>Palette… <PanelIcon name="sliders" /></button>
-    </div>
-  </details>
+  return semantic ? <button title={`Changes ${classLabel(semantic)} typography throughout this document`} onClick={() => onTheme(semantic)}>{classLabel(semantic)} style… <PanelIcon name="sliders" /></button> : null
 }
 
 export function TextInspector({ semantic, listLevel, onTheme }: {
