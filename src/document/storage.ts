@@ -1,5 +1,3 @@
-import type { MoteDocument } from './model'
-
 let database: Promise<IDBDatabase> | undefined
 
 function openDatabase() {
@@ -11,7 +9,7 @@ function openDatabase() {
   }).catch(error => { database = undefined; throw error })
 }
 
-export async function loadDraft(): Promise<MoteDocument | undefined> {
+export async function loadDraft(): Promise<unknown> {
   const db = await openDatabase()
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('drafts')

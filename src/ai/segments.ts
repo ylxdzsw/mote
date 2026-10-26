@@ -110,7 +110,7 @@ export function resolveSegmentRange(doc: MoteDocument, target: SegmentTarget): S
 export function applySegmentCandidate(doc: MoteDocument, target: SegmentTarget, payload: SegmentClipboard | null, context: SegmentContext): MoteDocument {
   const range = resolveSegmentRange(doc, target)
   if (!range) throw new Error('The reserved segment is no longer available.')
-  const next = replaceSegment(doc, range, payload && !payload.content.length && !payload.floating.length ? null : payload, context.anchors, context.geometry)
+  const next = replaceSegment(doc, range, payload && !payload.content.length && !payload.objects.length ? null : payload, context.anchors, context.geometry)
   return initializeDocument(structuredClone(next))
 }
 

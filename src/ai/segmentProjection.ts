@@ -10,7 +10,7 @@ export interface SegmentPreview {
 }
 
 // Keep the real editor document intact. Only changed top-level chunks are
-// rendered by decoration widgets; floating candidates use the same projection.
+// rendered by decoration widgets; objects candidates use the same projection.
 export function projectSegments(doc: MoteDocument, tasks: AITask[], editor: Editor | null, context: SegmentContext) {
   const previews: SegmentPreview[] = [], owners = new Map<string, string>()
   let document = doc
@@ -23,8 +23,8 @@ export function projectSegments(doc: MoteDocument, tasks: AITask[], editor: Edit
     const next = candidateDocument(document, task, task.candidate, context)
     const oldBlocks = new Set(document.content.content!.map(node => node.attrs!.id))
     for (const block of next.content.content!) if (!oldBlocks.has(block.attrs!.id)) blockOwners[block.attrs!.id] = task.id
-    const oldObjects = new Set(document.floating.map(object => object.id))
-    for (const object of next.floating) if (!oldObjects.has(object.id)) owners.set(object.id, task.id)
+    const oldObjects = new Set(document.objects.map(object => object.id))
+    for (const object of next.objects) if (!oldObjects.has(object.id)) owners.set(object.id, task.id)
     document = next
   }
   const content = editor.schema.nodeFromJSON(document.content), originalIndices = new Map<string, number>()

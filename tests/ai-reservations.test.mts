@@ -1,17 +1,23 @@
-import test from 'node:test'
+import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
-import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } from '../src/ai/reservations.ts'
-import { patchFloating } from '../src/canvas/patchFloating.ts'
+import { createServer } from 'vite'
 import { Schema } from '@tiptap/pm/model'
 import type { MoteDocument, FloatingDrawing, FloatingHTMLWidget, FloatingObject } from '../src/document/model.ts'
 import type { AITask } from '../src/ai/types.ts'
 
+const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
+after(() => server.close())
+const { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } = await server.ssrLoadModule('/src/ai/reservations.ts')
+const { patchFloating } = await server.ssrLoadModule('/src/canvas/patchFloating.ts')
+const { createBlankDocument, patchObject } = await server.ssrLoadModule('/src/document/model.ts')
+
 const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
 const captionContent = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }, width: 240 }
-const object: FloatingHTMLWidget = { id: 'box', kind: 'html', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, placement: 'float', html: 'before', screenshot: 'png', alt: 'Figure', caption: captionContent }
-const doc = { id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, floating: [object] } as MoteDocument
-const textTask = { target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
-const objectTask = { target: { kind: 'object', objectId: 'box' } } as AITask
+const object: FloatingHTMLWidget = { id: 'box', kind: 'html', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, html: 'before', screenshot: 'png', alt: 'Figure', caption: captionContent }
+const doc = { ...createBlankDocument(), id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, objects: [object] } as MoteDocument
+const taskVersion = { protocol: 'mote-agent-v1', documentVersion: 1, snapshotDocument: doc }
+const textTask = { ...taskVersion, target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
+const objectTask = { ...taskVersion, target: { kind: 'object', objectId: 'box' } } as AITask
 
 test('partial selections expand to complete paragraphs without swallowing the next boundary', () => {
   const schema = new Schema({ nodes: { doc: { content: 'block+' }, paragraph: { group: 'block', content: 'text*', attrs: { id: {} } }, spacer: { group: 'block' }, flow: { group: 'block', attrs: { id: {}, objectId: {} } }, text: {} } })
@@ -29,47 +35,46 @@ test('partial selections expand to complete paragraphs without swallowing the ne
 })
 
 test('reservations allow unrelated edits and placement, but block content, size, and removal', () => {
-  assert.equal(permits([objectTask], doc, { ...doc, floating: [{ ...object, x: 90, y: 160, anchorId: 'c' }] }), true)
+  assert.equal(permits([objectTask], doc, { ...doc, objects: [patchObject(object, { x: 90, y: 160, anchorId: 'c' })] }), true)
   for (const patch of [{ width: 321 }, { html: 'after' }, { screenshot: 'other' }]) {
-    assert.equal(permits([objectTask], doc, { ...doc, floating: [{ ...object, ...patch }] }), false)
+    assert.equal(permits([objectTask], doc, { ...doc, objects: [patchObject(object, patch)] }), false)
   }
-  assert.equal(permits([objectTask], doc, { ...doc, floating: [] }), false)
+  assert.equal(permits([objectTask], doc, { ...doc, objects: [] }), false)
   assert.equal(permits([textTask], doc, { ...doc, content: { ...doc.content, content: [paragraph('a', 'edited'), ...doc.content.content!.slice(1)] } }), true)
 })
 
 test('drawing reservations lock strokes and labels while figure projection retains placement', () => {
-  const drawing: FloatingObject = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 320, height: 180, placement: 'float', background: null,
+  const drawing: FloatingObject = { id: 'box', kind: 'drawing', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, background: null,
     strokes: [{ points: [[1, 2], [3, 4]], color: 'gray1', width: 2 }], labels: [{ x: 5, y: 6, text: 'A', color: 'gray1', size: 16 }] }
-  const source = { ...doc, floating: [drawing] }
-  assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, x: 50 }] }), true)
+  const source = { ...doc, objects: [drawing] }
+  assert.equal(permits([objectTask], source, { ...source, objects: [patchObject(drawing, { x: 50 })] }), true)
   for (const patch of [{ strokes: [] }, { labels: [] }, { width: 500 }, { background: 'gray6' as const }]) {
-    assert.equal(permits([objectTask], source, { ...source, floating: [{ ...drawing, ...patch }] }), false)
+    assert.equal(permits([objectTask], source, { ...source, objects: [patchObject(drawing, patch)] }), false)
   }
   const projected = currentPlacement(object, drawing)
   assert.equal(projected.kind, 'html')
-  assert.equal(projected.width, drawing.width)
-  assert.equal('height' in projected && projected.height, drawing.height)
-  assert.equal(projected.placement, 'float')
-  assert.equal(projected.anchorId, 'a')
+  assert.equal(projected.layout.width, drawing.layout.width)
+  assert.equal(projected.layout.height, drawing.layout.height)
+  assert.deepEqual(projected.layout.placement, drawing.layout.placement)
 })
 
-const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', anchorId: 'a', x: 12, y: 20, width: 317, height: 179, placement: 'float', background: null,
+const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', layout: { width: 317, height: 179, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, background: null,
   strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'gray1', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'gray1', size: 16 }] }
 
 test('draft drawing reservations accept scaled positions without unlocking drawing content', () => {
   const task = { ...objectTask, documentId: doc.id, original: drawing, status: 'draft', submitted: false } as AITask
-  const source = { ...doc, floating: [drawing] }
+  const source = { ...doc, objects: [drawing] }
   let previous = source
   for (const [width, height] of [[431, 257], [703, 311], [317, 179]]) {
-    const resized = patchFloating(previous.floating[0], { width, height }) as FloatingDrawing
-    const next = { ...source, floating: [resized] }
+    const resized = patchFloating(previous.objects[0], { width, height }) as FloatingDrawing
+    const next = { ...source, objects: [resized] }
     assert.equal(permits([task], previous, next), true)
     assert.equal(inactiveTaskReason(task, next), null)
     previous = next
   }
   const resized = patchFloating(drawing, { width: 431, height: 257 }) as FloatingDrawing
   resized.strokes[0].points[0][0] += 1e-10
-  const next = { ...source, floating: [resized] }
+  const next = { ...source, objects: [resized] }
   assert.equal(permits([task], source, next), true)
   assert.equal(inactiveTaskReason(task, next), null)
   const edits: Array<(value: FloatingDrawing) => void> = [
@@ -82,7 +87,7 @@ test('draft drawing reservations accept scaled positions without unlocking drawi
   ]
   for (const edit of edits) {
     const changed = structuredClone(resized); edit(changed)
-    const after = { ...source, floating: [changed] }
+    const after = { ...source, objects: [changed] }
     assert.equal(permits([task], source, after), false)
     assert.notEqual(inactiveTaskReason(task, after), null)
   }
@@ -94,15 +99,15 @@ test('draft drawing reservations accept scaled positions without unlocking drawi
 })
 
 test('drawing candidate placement scales positions into target bounds while retaining pen and font sizes', () => {
-  const candidate: FloatingDrawing = { ...drawing, x: 999, y: 999, width: 100, height: 50,
+  const candidate: FloatingDrawing = { ...drawing, layout: { width: 100, height: 50, placement: { type: 'float', anchorId: 'a', x: 999, y: 999 } },
     strokes: [{ points: [[25, 10], [100, 50]], color: 'gray3', width: 3 }], labels: [{ x: 50, y: 25, text: 'B', color: 'gray1', size: 18 }] }
   const before = structuredClone(candidate)
-  for (const original of [{ ...drawing, width: 200, height: 150 }, { ...object, width: 200, height: 150 }]) {
+  for (const original of [patchObject(drawing, { width: 200, height: 150 }), patchObject(object, { width: 200, height: 150 })]) {
     const placed = currentPlacement(candidate, original) as FloatingDrawing
     assert.deepEqual(placed.strokes, [{ points: [[50, 30], [200, 150]], color: 'gray3', width: 3 }])
     assert.deepEqual(placed.labels, [{ x: 100, y: 75, text: 'B', color: 'gray1', size: 18 }])
-    assert.equal(placed.x, original.x); assert.equal(placed.y, original.y)
-    assert.equal(placed.width, 200); assert.equal(placed.height, 150)
+    assert.deepEqual(placed.layout.placement, original.layout.placement)
+    assert.equal(placed.layout.width, 200); assert.equal(placed.layout.height, 150)
     assert.deepEqual(currentPlacement(candidate, original), placed)
   }
   assert.deepEqual(candidate, before)
@@ -116,11 +121,11 @@ test('text boundary locks reject cross-range replacement, deletion, and interlea
   assert.equal(permitsEditor([textTask], 'main', doc.content, { type: 'doc', content: [paragraph('new'), ...doc.content.content!] }), true)
 })
 
-test('unsubmitted floating reservations allow size changes, but never content edits or uncertain submitted resizes', () => {
+test('unsubmitted object reservations allow size changes, but never content edits or uncertain submitted resizes', () => {
   const draft = { ...objectTask, status: 'draft', submitted: false } as AITask
-  const resized = { ...doc, floating: [{ ...object, width: 400, height: 220 }] }
+  const resized = { ...doc, objects: [patchObject(object, { width: 400, height: 220 })] }
   assert.equal(permits([draft], doc, resized), true)
-  assert.equal(permits([draft], doc, { ...doc, floating: [{ ...object, html: 'changed' }] }), false)
+  assert.equal(permits([draft], doc, { ...doc, objects: [{ ...object, html: 'changed' }] }), false)
   for (const patch of [{ status: 'preparing' }, { requestSent: true, status: 'error' }, { submitted: true, status: 'stopped' },
     { pendingExecutor: { executor: 'external', operationId: 'switch' } }]) {
     assert.equal(permits([{ ...draft, ...patch } as AITask], doc, resized), false)
@@ -133,31 +138,40 @@ test('released executor reservations retain their result without locking documen
   assert.equal(task.candidate?.summary, 'Retained')
 })
 
+test('unsupported task versions retain original recovery data without reserving V1 content', () => {
+  const task = { ...objectTask, protocol: 'mote-agent-v0', documentVersion: 0, documentId: doc.id,
+    original: object, candidate: { object, summary: 'Retained result' } } as AITask
+  const before = structuredClone(task)
+  assert.match(inactiveTaskReason(task, doc), /Unsupported task/)
+  assert.deepEqual(compatibleTasks([task], doc), [])
+  assert.deepEqual(task, before)
+})
+
 test('concurrent tasks reject overlap and accepted object preserves current geometry', () => {
   assert.equal(overlaps(textTask.target, { ...textTask.target, blockIds: ['c', 'd'] } as typeof textTask.target), true)
   assert.equal(overlaps(textTask.target, objectTask.target), false)
-  const moved = { ...object, x: 70, y: 80, anchorId: 'd' }
-  const candidate = { ...object, html: 'after', width: 999, x: 999 }
+  const moved = patchObject(object, { x: 70, y: 80, anchorId: 'd' })
+  const candidate = patchObject(object, { html: 'after', width: 999, x: 999 })
   const applied = currentPlacement(candidate, moved)
-  assert.equal(applied.x, 70); assert.equal(applied.y, 80); assert.equal(applied.width, 320)
-  assert.equal(applied.anchorId, 'd'); assert.equal('html' in applied && applied.html, 'after')
+  assert.deepEqual(applied.layout.placement, { type: 'float', x: 70, y: 80, anchorId: 'd' }); assert.equal(applied.layout.width, 320)
+  assert.equal('html' in applied && applied.html, 'after')
 })
 
 test('object reservations protect embedded captions and candidates preserve or explicitly remove them', () => {
   const changedCaption = { ...object, caption: structuredClone(captionContent) }
   changedCaption.caption!.content.content![0].content![0].text = 'Changed'
-  assert.equal(permits([objectTask], doc, { ...doc, floating: [changedCaption] }), false)
-  assert.equal(permits([objectTask], doc, { ...doc, floating: [{ ...object, caption: { ...object.caption!, width: 420 } }] }), true)
+  assert.equal(permits([objectTask], doc, { ...doc, objects: [changedCaption] }), false)
+  assert.equal(permits([objectTask], doc, { ...doc, objects: [{ ...object, caption: { ...object.caption!, width: 420 } }] }), true)
   const { caption: _removedCaption, ...withoutCaption } = object
-  assert.equal(permits([objectTask], doc, { ...doc, floating: [withoutCaption] as FloatingObject[] }), false)
+  assert.equal(permits([objectTask], doc, { ...doc, objects: [withoutCaption] as FloatingObject[] }), false)
   assert.equal(permitsEditor([objectTask], 'box:caption:caption-text', captionContent.content, changedCaption.caption?.content), false)
   assert.equal(permitsEditor([objectTask], 'box:caption:caption-text', captionContent.content, captionContent.content), true)
 
-  const moved = { ...object, x: 50, y: 80, anchorId: 'd' }
+  const moved = patchObject(object, { x: 50, y: 80, anchorId: 'd' })
   const { caption: _omitted, ...candidateWithoutCaption } = object
-  const candidate = { ...candidateWithoutCaption, html: 'after', x: 400 } as FloatingObject
+  const candidate = patchObject(candidateWithoutCaption, { html: 'after', x: 400 }) as FloatingObject
   const applied = currentPlacement(candidate, moved)
-  assert.equal(applied.x, 50); assert.equal(applied.y, 80)
+  assert.deepEqual(applied.layout.placement, { type: 'float', x: 50, y: 80, anchorId: 'd' })
   assert.deepEqual('caption' in applied && applied.caption, moved.caption)
 
   const candidateWithResizedCaption = { ...object, html: 'after', caption: { ...object.caption!, width: 600 } }
@@ -177,15 +191,15 @@ test('object reservations protect embedded captions and candidates preserve or e
 
 test('Flow revisions retain current placement and centering and protect the structural block', () => {
   const flow = { type: 'flow', attrs: { id: 'flow-block', objectId: 'box' } }
-  const original = { ...object, placement: 'flow', centered: true, anchorId: 'flow-block', x: 0, y: 0 } as FloatingObject
-  const source = { ...doc, content: { type: 'doc', content: [paragraph('a'), flow, paragraph('b')] }, floating: [original] }
-  const candidate = { ...object, centered: false }
+  const original = patchObject(object, { placement: 'flow', centered: true }) as FloatingObject
+  const source = { ...doc, content: { type: 'doc', content: [paragraph('a'), flow, paragraph('b')] }, objects: [original] }
+  const candidate = object
   const applied = currentPlacement(candidate, original)
-  assert.equal(applied.placement, 'flow'); assert.equal(applied.centered, true)
-  assert.equal(applied.anchorId, 'flow-block'); assert.equal(applied.y, 0)
-  assert.equal(currentPlacement({ ...candidate, centered: true }, object).centered, undefined)
-  assert.equal('centered' in currentPlacement({ ...candidate, centered: true }, object), false)
-  assert.equal(permits([objectTask], source, { ...source, floating: [{ ...original, centered: false, x: 24 }] }), true)
+  assert.deepEqual(applied.layout.placement, { type: 'flow', x: 'center' })
+  assert.equal('anchorId' in applied.layout.placement, false)
+  assert.equal('y' in applied.layout.placement, false)
+  assert.deepEqual(currentPlacement(original, object).layout.placement, object.layout.placement)
+  assert.equal(permits([objectTask], source, { ...source, objects: [patchObject(original, { centered: false, x: 24 })] }), true)
   assert.equal(permitsEditor([objectTask], 'main', source.content, { type: 'doc', content: [paragraph('a'), paragraph('b')] }), false)
   assert.equal(permitsEditor([objectTask], 'main', source.content, { type: 'doc', content: [flow, paragraph('a'), paragraph('b')] }), true)
 })
@@ -194,7 +208,7 @@ const segmentTarget = (range: { start: { index: number; offset: number }; end: {
   start: { blockId: blockIds[0] ?? 'b', offset: 0 }, end: { blockId: blockIds.at(-1) ?? 'a', offset: 0, after: true },
 }) => ({ kind: 'segment', range, blockIds, objectIds, area: { x: 0, y: 0, width: 100, height: 100 }, bookmarks })
 const segmentTask = (target: ReturnType<typeof segmentTarget>, blocks: ReturnType<typeof paragraph>[], objects: FloatingObject[] = []) => ({
-  id: 'segment-task', documentId: 'document', target, original: { version: 'V0', type: 'segment', content: structuredClone(blocks), floating: structuredClone(objects), geometry: {}, anchorTops: {}, originTop: 0 },
+  ...taskVersion, id: 'segment-task', documentId: 'document', target, original: { version: 1, type: 'segment', content: structuredClone(blocks), objects: structuredClone(objects), geometry: {}, anchorTops: {}, originTop: 0 },
   segmentOriginalBlocks: structuredClone(blocks), segmentOriginalObjects: structuredClone(objects), status: 'draft', submitted: false,
 } as unknown as AITask)
 
@@ -238,7 +252,7 @@ test('segment reservations overlap touched blocks, owned objects, and identical 
 })
 
 test('segment guards preserve outside edits and reject interleaving or owned composition moves', () => {
-  const base = { ...doc, floating: [], content: { ...doc.content, content: [paragraph('a'), paragraph('b'), paragraph('c')] } }
+  const base = { ...doc, objects: [], content: { ...doc.content, content: [paragraph('a'), paragraph('b'), paragraph('c')] } }
   const target = segmentTarget({ start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, ['a', 'b'], [], {
     start: { blockId: 'a', offset: 0 }, end: { blockId: 'b', offset: 0, after: true },
   })
@@ -246,27 +260,34 @@ test('segment guards preserve outside edits and reject interleaving or owned com
   assert.equal(permits([task], base, { ...base, content: { ...base.content, content: [paragraph('a'), paragraph('b'), paragraph('outside'), paragraph('c')] } }), true)
   assert.equal(permits([task], base, { ...base, content: { ...base.content, content: [paragraph('a'), paragraph('new'), paragraph('b'), paragraph('c')] } }), false)
 
-  const composition = { ...base, floating: [{ ...object, anchorId: 'a' }, { ...object, id: 'other', anchorId: 'a', x: 20 }] }
-  const compositionTarget = { ...target, objectIds: ['box', 'other'] }
-  const compositionTask = segmentTask(compositionTarget, [paragraph('a'), paragraph('b')], composition.floating)
-  assert.equal(permits([compositionTask], composition, { ...composition, floating: composition.floating.map(note => note.id === 'other' ? { ...note, x: 21 } : note) }), false)
+  const editorContent = { ...base.content, content: base.content.content.map(block => ({ ...block, attrs: { ...block.attrs, listLevel: 0 } })) }
+  const outsideEdit = structuredClone(editorContent)
+  outsideEdit.content[2].content[0].text = 'An unrelated editor change'
+  assert.equal(permitsEditor([task], 'main', editorContent, outsideEdit), true)
+  outsideEdit.content[0].content[0].text = 'Reserved content'
+  assert.equal(permitsEditor([task], 'main', editorContent, outsideEdit), false)
 
-  const single = { ...base, floating: [{ ...object, anchorId: 'a' }] }
+  const composition = { ...base, objects: [patchObject(object, { anchorId: 'a' }), { ...patchObject(object, { anchorId: 'a', x: 20 }), id: 'other' }] }
+  const compositionTarget = { ...target, objectIds: ['box', 'other'] }
+  const compositionTask = segmentTask(compositionTarget, [paragraph('a'), paragraph('b')], composition.objects)
+  assert.equal(permits([compositionTask], composition, { ...composition, objects: composition.objects.map(note => note.id === 'other' ? patchObject(note, { x: 21 }) : note) }), false)
+
+  const single = { ...base, objects: [patchObject(object, { anchorId: 'a' })] }
   const singleTarget = { ...target, objectIds: ['box'] }
-  const singleTask = segmentTask(singleTarget, [paragraph('a'), paragraph('b')], single.floating)
-  assert.equal(permits([singleTask], single, { ...single, floating: [{ ...single.floating[0], anchorId: 'c' }] }), false)
+  const singleTask = segmentTask(singleTarget, [paragraph('a'), paragraph('b')], single.objects)
+  assert.equal(permits([singleTask], single, { ...single, objects: [patchObject(single.objects[0], { anchorId: 'c' })] }), false)
 })
 
 test('segment ownership and reservation include the object caption automatically', () => {
-  const floating = [{ ...object, anchorId: 'a' }]
+  const objects = [patchObject(object, { anchorId: 'a' })]
   const target = segmentTarget({ start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, ['a', 'b'], ['box'])
-  const task = segmentTask(target, [paragraph('a'), paragraph('b')], floating)
-  const source = { ...doc, floating }
+  const task = segmentTask(target, [paragraph('a'), paragraph('b')], objects)
+  const source = { ...doc, objects }
   assert.equal(segmentReservationIntact(task, source), true)
-  const changed = structuredClone(floating[0])
+  const changed = structuredClone(objects[0])
   changed.caption!.content.content![0].content![0].text = 'Changed'
-  assert.equal(segmentReservationIntact(task, { ...source, floating: [changed] }), false)
-  const resizedCaption = { ...source, floating: [{ ...floating[0], caption: { ...floating[0].caption!, width: 400 } }] }
+  assert.equal(segmentReservationIntact(task, { ...source, objects: [changed] }), false)
+  const resizedCaption = { ...source, objects: [{ ...objects[0], caption: { ...objects[0].caption!, width: 400 } }] }
   assert.equal(segmentReservationIntact(task, resizedCaption), false)
   assert.equal(permits([task], source, resizedCaption), false)
   assert.equal(permitsEditor([task], 'box:caption:caption-text', captionContent.content, changed.caption?.content), false)
@@ -274,17 +295,17 @@ test('segment ownership and reservation include the object caption automatically
 
 test('a Flow segment reserves its block, object, anchored Floats, and captions together', () => {
   const flow = { type: 'flow', attrs: { id: 'flow-block', objectId: 'box' } }
-  const primary = { ...object, placement: 'flow', anchorId: 'flow-block', y: 0, centered: true } as FloatingObject
-  const floating = [primary, { ...object, id: 'detail', anchorId: 'flow-block', x: 10, y: 20 }]
-  const source = { ...doc, content: { type: 'doc', content: [paragraph('a'), flow, paragraph('d')] }, floating }
+  const primary = patchObject(object, { placement: 'flow', centered: true }) as FloatingObject
+  const objects = [primary, { ...patchObject(object, { anchorId: 'flow-block', x: 10, y: 20 }), id: 'detail' }]
+  const source = { ...doc, content: { type: 'doc', content: [paragraph('a'), flow, paragraph('d')] }, objects }
   const target = segmentTarget({ start: { index: 1, offset: 0 }, end: { index: 2, offset: 0 } }, ['flow-block'], ['box', 'detail'])
-  const task = segmentTask(target, [flow], floating)
+  const task = segmentTask(target, [flow], objects)
   assert.equal(segmentReservationIntact(task, source), true)
   assert.equal(overlaps(target, objectTask.target, source), true)
-  const changedOwner = structuredClone(floating[0])
+  const changedOwner = structuredClone(objects[0])
   if ('caption' in changedOwner && changedOwner.caption) changedOwner.caption.content.content![0].content![0].text = 'Changed'
-  assert.equal(permits([task], source, { ...source, floating: [changedOwner, floating[1]] }), false)
-  assert.equal(permits([task], source, { ...source, floating: floating.map(item => item.id === 'box' ? { ...item, centered: false } : item) }), false)
-  assert.equal(permits([task], source, { ...source, floating: floating.map(item => item.id === 'detail' ? { ...item, anchorId: 'd' } : item) }), false)
+  assert.equal(permits([task], source, { ...source, objects: [changedOwner, objects[1]] }), false)
+  assert.equal(permits([task], source, { ...source, objects: objects.map(item => item.id === 'box' ? patchObject(item, { centered: false }) : item) }), false)
+  assert.equal(permits([task], source, { ...source, objects: objects.map(item => item.id === 'detail' ? patchObject(item, { anchorId: 'd' }) : item) }), false)
   assert.equal(permitsEditor([task], 'main', source.content, { ...source.content, content: [paragraph('a'), paragraph('d')] }), false)
 })

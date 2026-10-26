@@ -4,92 +4,109 @@
 submission/preview helpers are copied into each task's immutable input directory.
 The guide SHA-256 is the exact-version identifier in the manifest. This file is
 the private-client and operator contract, not part of the agent's instructions.
+The document format is V1 (`format: 'mote', version: 1`); the distinct agent
+transport protocol is `mote-agent-v1`. See [FORMAT.md](../FORMAT.md) for the
+normative native schema.
 
 ## Native Flow and Float contract
 
-V0 keeps all object kinds in `document.floating`. Objects require
-`placement: 'flow' | 'float'` and may have `centered: boolean`; `textFlow` is
-unsupported. Each Flow has exactly one top-level main node
-`{type:'flow',attrs:{id: uniqueBlockId,objectId: objectId}}`, with the object’s
-`anchorId` equal to that block ID and `y:0`. Its `x` offsets the left text margin,
-or `centered:true` centers it within the text width. A Float anchored to a Flow
-block uses `x,y` relative to that Flow object’s top-left; other Floats use page
-`x` and nonnegative anchor-relative `y`. Flow-relative Float offsets may be negative.
-The optional `theme.flow` object is document-level Flow spacing, not a paragraph
-semantic: its optional `spaceBefore` and `spaceAfter` use nonnegative theme
-lengths (finite numbers or `px`/`em` strings). Omitted `spaceBefore` is 0;
-omitted `spaceAfter` follows the resolved Body `spaceAfter`. Every object kind
-may have optional `margins: {top,right,bottom,left}` with four signed finite
-document-pixel values; omission means zero. Margins affect layout footprint,
-not object dimensions. Clipboard and conversion operations retain them.
-Optional captions belong only to image, HTML, and table objects. They always
-appear below the owner, including tables, and use the document's Caption theme.
-The schema is `{content: JSONContent, width?: number}`: `content` is a doc with
-exactly one paragraph whose `attrs` contains only `id`; inline text and hard
-breaks use the shared bold, color, and decoration marks. An omitted width
-follows the owner's width; an explicit width is a finite positive document-pixel
-value that remains fixed when the owner is resized. Captions have no separate
-floating-object ID, x/y, or placement and cannot be detached. Previous V0
-bare-document captions and legacy `attachment` keys are rejected without
-migration. Intersecting Floats leave one main-text interval to their left; text
-does not continue to their right. They do not displace Flow blocks or objects.
+Cloud documents use the V1 `MoteDocument` directly in storage and on the wire.
+Native objects live in ordered `document.objects`; saved geometry is nested in
+each object's `layout`. There is no V0 runtime adapter, extension bag, or
+implicit conversion. Unknown fields and unsupported versions are rejected.
 
-Segment scope includes Flow blocks, their objects and built-in captions, and
-anchored Floats. A segment delivery may generate or replace these complete
-compositions; its Flow node/object references must be internal and one-to-one.
-Captions remain within the owning object's fields and are not separate
-`objectIds` or geometry entries. Main-text tasks accept paragraphs only and
-cannot cross Flow blocks. An individual object target treats margins as
-user-owned geometry: candidate margins are validated but normalized to the
-snapshot object's value (or omission), and acceptance rebinds the latest
-original value so changes made since submission survive. Section/segment
-candidates may author object margins. A single-object revision retains the
-current target placement, centered state, geometry, and existing caption when
-the candidate omits `caption`; an explicit empty `caption.content` paragraph
-clears it.
-Caption rich text belongs to the reservation, but width is user-owned: the
-frontend preserves its current value and the backend normalizes candidate width
-to the saved value (or omission when the saved width followed the owner). A
-caption added to an existing object follows the owner. It does not replace main
-nodes. A new single-object placeholder may remain Float. Indexing
-reads both placements and built-in captions from the same full native document
-and remains subject to the source’s current Private policy.
+Every Flow object has exactly one top-level main-content Flow atom
+`{type:'flow',attrs:{id:uniqueBlockId,objectId:objectId}}`. Its atom ID and
+object ID are distinct. The object saves
+`layout.placement:{type:'flow',x:number|'center'}`; it has no saved anchor ID,
+y, or `centered` flag. The Flow atom supplies its block position. Numeric x is
+an offset from the text-column left; `'center'` centers within the text width.
+A Float saves
+`layout.placement:{type:'float',anchorId:string|null,x:number,y:number}`.
+Its anchor is a main paragraph, spacer, Flow atom, or null for document top.
+Ordinary anchors use page x and nonnegative anchor-relative y. A Float anchored
+to a Flow block uses signed x/y from that Flow object's measured top-left.
+Intersecting Floats leave one main-text interval to their left; text does not
+continue to their right. Floats may overlap Flow objects and other Floats.
 
-Authorized task snapshots and workspace source reads may include internal
-`notes` (an ordered array of plain-text notes, or a string for one note). They
-are tentative user context, not published page content or automatic task
-instructions. Candidate writes cannot target or edit Notes. Public shares and
-HTML/PNG exports omit them; native `.mote` exports preserve them.
+`theme.flow` is document-level Flow spacing, not a paragraph semantic. Its
+optional `spaceBefore`/`spaceAfter` use `{value,unit:'px'|'em'}`; omission means
+Before 0 and After follows resolved Body `spaceAfter`. A layout may include
+signed `margins:{top,right,bottom,left}` in document pixels; omission means
+zero. Margins affect layout footprint, not object dimensions. Clipboard and
+conversion operations retain them. See FORMAT.md for theme lengths and exact
+object fields.
+
+Captions belong only to image, HTML, and table owners. Their exact shape is
+`{content:JSONContent,width?:number}` with a doc containing one paragraph whose
+attrs contain only `id`. Caption paragraphs use the shared inline marks and
+fixed Caption styling. Omitted width follows the owner; an explicit positive
+width in document pixels remains fixed on owner resize. Captions have no
+separate object ID, layout, x/y, or placement. A caption is part of its owner's
+reservation and composition.
+
+Segment scope includes Flow blocks, their objects and captions, and anchored
+Floats. Candidate segment data is a V1 transfer envelope:
+`{version:1,type:'segment',content:[...],objects:[...],geometry:{...},anchorTops:{...},originTop:number}`.
+It uses `objects`, never `floating`; object records use V1 `layout`. Geometry,
+anchor tops, and origin top are transfer-only data, not saved document fields.
+Flow references must be one-to-one and internal. Main-text tasks accept
+paragraphs only and cannot cross Flow blocks. Individual-object candidates
+retain target placement, layout dimensions, centering-as-`x:'center'`, and
+user-owned margins; backend normalization preserves the snapshot values and
+acceptance rebinds the latest values. Omitting an existing caption preserves
+it; an explicit empty caption paragraph clears it. Caption text is reserved,
+width is user-owned, and a new caption on an existing object follows its owner.
+Section candidates may author margins. A new single-object placeholder may be
+Float. Indexing reads captions and both placements from the same native V1
+document under the source's current Private policy.
+
+Internal Notes are `authoring.notes`, an ordered array of plain-text strings.
+Authorized task snapshots and workspace reads may include them as tentative
+user context, but candidates cannot target or edit them. Public shares and
+HTML exports omit the entire `authoring` object; native `.mote` exports retain
+it.
 
 ## Native fixed palette contract
 
-V0 requires `theme.mode` (`light` or `dark`), `theme.hue` (Primary), and
-`theme.secondaryHue` (Secondary). Each hue must be finite and in `[0, 360)`.
-The fixed color references are `primary`, `secondary`, `red`, `amber`, `green`,
-`blue`, `violet`, and `pink`, each also supporting `:soft`, plus the single-tone
-`gray1` through `gray6`. Every slot adapts to the document mode; Primary and
-Secondary also follow their theme hues. The page background follows the mode.
-Drawing `background` is `"gray6"` or `null`. Text-box `decoration.color` is a
-pair: a family ID or `gray4` (Gray 4 / Gray 5).
+`theme.appearance` contains `mode:'light'|'dark'`, `primaryHue`, and
+`secondaryHue`; both hues are finite degrees in `[0,360)`. Theme lengths use
+`{value,unit:'px'|'em'}`; line height can also use
+`{value,unit:'ratio'}`. `em` resolves against `theme.defaults.size`, while a
+ratio multiplies the resolved style font size. Full defaults and sparse
+`paragraphs`/`objects` overrides are described in FORMAT.md. Missing styles
+inherit defaults; there is no special implicit Subheading fallback. New
+creation seeds its Subheading style.
 
-Document validation rejects `theme.palette` and `theme.defaults.background`.
-Segment/clipboard payloads reject any `palette` field, including `[]`; fixed
-references adopt the destination theme without importing color definitions.
-Legacy fields and color references are rejected without migration. Code syntax
-colors follow the document mode; embedded images and widget source retain
-their independent colors.
+The fixed color references are `primary`, `secondary`, `red`, `amber`,
+`green`, `pink`, `blue`, and `violet`, each also supporting `:soft`, plus
+single-tone `gray1` through `gray6`. Every slot adapts to mode; Primary and
+Secondary follow the theme hues. The page background follows the mode. Drawing
+`background` is `"gray6"` or `null`. Text-box `decoration.color` is a pair:
+a family ID or `gray4` (Gray 4 / Gray 5).
+
+Inline rich text accepts only `bold`, fixed-palette `color`, Box `decoration`,
+and safe absolute HTTP(S) `link` marks. Link hrefs have no credentials or
+control characters and cannot be relative, `mailto:`, or `tel:`. Marks have
+exact attributes and cannot be duplicated. `theme.palette`, arbitrary raw
+colors, and custom color definitions are not part of V1. Clipboard/candidate
+payloads carry no palette definitions; fixed references adopt destination mode
+and hues.
 
 ## Private task API
 
-Existing authenticated `/api/ai/tasks` routes retain their exact-Origin check.
+New tasks pin both the V1 document snapshot and `mote-agent-v1` protocol. Existing cloud documents and unresolved AI state are preserved. Old task snapshots are not converted: any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation.
+
+Authenticated `/api/ai/tasks` routes retain their exact-Origin check.
 `RemoteTask` includes `executor: 'builtin' | 'external'`, `executorRevision`,
 `candidateRevision`, `workspaceRead`, `workspaceReadRevision`, and `released`. Counters start at zero; workspace reads default to false. `externalPath`
 appears only for a currently authorized external reservation. `waiting` means an
 external task awaits a candidate; a previous complete candidate may coexist.
 
 - **POST `/api/ai/tasks`** takes the validated snapshot body, `executor` (default
-  builtin), and an `operationId` UUID. Built-in creation uses the explicit `model`
-  (the client sends the document override) or the workspace built-in default.
+  builtin), and an `operationId` UUID. Built-in creation uses the explicit task-request `model`
+  (the client sources a document override from `authoring.aiModel`) or the
+  workspace built-in default.
   Without either, it returns 400 with Settings guidance and creates no task;
   the client may correct its settings and prepare a fresh request. Server/Mu
   defaults are never used. Existing task models remain pinned.
@@ -98,8 +115,8 @@ external task awaits a candidate; a previous complete candidate may coexist.
   that document's assistant state with matching ID, target, and baseRevision,
   without acceptance/release. Snapshot JSON must match the named saved revision.
   Identical task-ID/operation-ID/input retries return authoritative current state
-  without repeating work. A changed body or ID collision is 409. Operation IDs
-  remain optional only for legacy direct builtin fake-development tasks.
+  without repeating work. A changed body or ID collision is 409. Operation IDs are mandatory for cloud tasks; direct builtin fake-development
+  test calls may omit them.
 - **GET `/api/ai/tasks/:id`** is authoritative for executor/candidate revisions,
   status, retained candidate, release, and the current externalPath.
 - **POST `/api/ai/tasks/:id/executor`** takes
@@ -148,7 +165,7 @@ grants return 404 for all reads/submissions. Responses are no-store, no-referrer
 nosniff, and noindex; source helpers download as inert text attachments.
 
 - GET base: curl-readable Markdown handoff, instructions, and resource links.
-- GET `manifest.json`: `protocol:'mote-agent-v0'`, `taskId`, `executor`,
+- GET `manifest.json`: `protocol:'mote-agent-v1'`, `taskId`, `executor`,
   `executorRevision`, `candidateRevision`, `guideVersion`, `resources` keyed by
   filenames, and `instructions`, `candidate`, `submit` paths.
 - With confirmed `workspaceRead`, GET `workspace-index.md` supplies a filtered

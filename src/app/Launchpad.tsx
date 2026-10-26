@@ -17,7 +17,7 @@ function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: Launchpa
 }
 
 interface TileEntry {
-  kind: CreationTool | 'image' | 'table' | 'html' | 'katex'
+  kind: CreationTool | 'image' | 'table' | 'html' | 'formula'
   label: string
   icon: ReactElement
 }
@@ -37,7 +37,7 @@ const TILES: TileEntry[] = [
   { kind: 'drawing',   label: 'Drawing',    icon: <Icon path="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /> },
   { kind: 'ai',        label: 'AI object',  icon: <Icon path="M12 3H3v18h18v-9M6 17l4-5 4 5m1-11 1.2 3.8L23 6l-3.8 1.2L18 11l-1.2-3.8L13 6l3.8-1.2Z" /> },
   { kind: 'code',      label: 'Code',       icon: <Icon path="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" /> },
-  { kind: 'katex',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
+  { kind: 'formula',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
 ]
 

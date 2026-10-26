@@ -1,3 +1,4 @@
+import { canonicalEditorContent } from './canonical'
 import { Extension } from '@tiptap/core'
 import { Fragment, Slice } from '@tiptap/pm/model'
 import { Plugin, PluginKey, TextSelection, type EditorState } from '@tiptap/pm/state'
@@ -58,7 +59,7 @@ export function paragraphClipboard(history: RefObject<ReturnType<typeof useDocum
           else tr.delete(range.from + 1, range.to - 1)
           if (!history.current.guardEditor.current(historyId, doc.toJSON(), tr.doc.toJSON())) return true
         }
-        const content = source.content.content.map(node => ({ ...node.toJSON(), attrs: {
+        const content = source.content.content.map(node => canonicalEditorContent({ ...node.toJSON(), attrs: {
           ...node.attrs, id: node.attrs.id ?? crypto.randomUUID(),
           semantic: blockClasses.includes(node.attrs.semantic) ? node.attrs.semantic : 'body', listLevel: node.attrs.listLevel ?? 0,
         } }))

@@ -25,6 +25,7 @@ export type Candidate = CandidateBase & (
 )
 export type Executor = 'builtin' | 'external'
 export interface RemoteTask {
+  protocol?: string; documentVersion?: number
   id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error' | 'waiting'; progress: string
   error?: string; candidate?: Candidate; expiresAt?: number
   executor?: Executor; executorRevision?: number; candidateRevision?: number

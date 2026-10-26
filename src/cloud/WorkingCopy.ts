@@ -1,4 +1,5 @@
 import { isPristineBlankDocument, type MoteDocument } from '../document/model'
+import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type SharingState } from './api'
 import { saveWorkingCopy, type WorkingRecord } from './workingCopies'
@@ -110,6 +111,9 @@ export class WorkingCopy {
   private async performSync(): Promise<CloudDocument | null> {
     this.publish({ syncing: true, error: '', auth: false })
     try {
+      validateDocument(this.state.record.document)
+      if (this.state.record.pending) validateDocument(this.state.record.pending.document)
+      if (this.state.record.pendingCreate) validateDocument(this.state.record.pendingCreate.document)
       if (connectionSnapshot().offline && !await retryConnection()) return null
       if (this.state.record.draft) {
         const record = this.state.record
@@ -170,9 +174,9 @@ export class WorkingCopy {
     const generation = this.generation
     await this.preserveAssistant?.()
     if (generation !== this.generation) throw new Error('The working copy changed while preserving local input. Retry with the current document.')
-    const { document, ...incomingMeta } = result
+    const { document: saved, ...incomingMeta } = result
     const meta = mergeDocumentMeta(this.state.record.meta, incomingMeta)
-    initializeDocument(document)
+    const document = initializeDocument(saved)
     this.generation++
     this.publish({ record: { ...this.state.record, meta, document, dirty: false, pending: undefined, updatedAt: Date.now() },
       error: '', auth: false, conflict: undefined, deleted: false, epoch: this.state.epoch + 1 })

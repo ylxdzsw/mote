@@ -27,7 +27,7 @@ export function agentRequest(url, { socketPath, body } = {}) {
   if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('Agent URL must use HTTP(S)')
   const data = body === undefined ? undefined : JSON.stringify(body)
   return new Promise((resolve, reject) => {
-    const request = (endpoint.protocol === 'https:' ? https : http).request(endpoint, { socketPath, method: data === undefined ? 'GET' : 'POST', headers: { 'user-agent': 'Mote-agent/v0', ...(data === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }) } }, response => {
+    const request = (endpoint.protocol === 'https:' ? https : http).request(endpoint, { socketPath, method: data === undefined ? 'GET' : 'POST', headers: { 'user-agent': 'Mote-agent/v1', ...(data === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }) } }, response => {
       const chunks = []
       response.on('data', chunk => chunks.push(chunk)); response.on('error', reject)
       response.on('end', () => {

@@ -1,4 +1,4 @@
-export interface PaletteTheme { mode: 'light' | 'dark'; hue: number; secondaryHue: number }
+export interface PaletteTheme { appearance: { mode: 'light' | 'dark'; primaryHue: number; secondaryHue: number } }
 export interface PaletteEntry { id: string; name: string; strong: string; soft?: string }
 export const defaultHue: number
 export const defaultSecondaryHue: number

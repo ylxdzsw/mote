@@ -24,10 +24,10 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
     if (pos !== undefined && editor.isEditable) editor.view.dispatch(editor.state.tr.setNodeAttribute(pos, 'columns', value).setMeta('historyBoundary', true))
   }
   function resized(value: TableColumn[], index: number, delta: number) {
-    const pair = value[index].width + value[index + 1].width
+    const pair = value[index].weight + value[index + 1].weight
     const minimum = Math.min(40 / table.clientWidth, pair / 2)
-    const width = Math.max(minimum, Math.min(pair - minimum, value[index].width + delta))
-    return value.map((column, i) => i === index ? { ...column, width } : i === index + 1 ? { ...column, width: pair - width } : column)
+    const width = Math.max(minimum, Math.min(pair - minimum, value[index].weight + delta))
+    return value.map((column, i) => i === index ? { ...column, weight: width } : i === index + 1 ? { ...column, weight: pair - width } : column)
   }
   function finish(commitChange = false) {
     if (!drag) return
@@ -36,7 +36,7 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
     mode.disconnect()
     previous.handle.classList.remove('is-dragging')
     if (previous.handle.hasPointerCapture(previous.pointer)) previous.handle.releasePointerCapture(previous.pointer)
-    if (commitChange && previous.pending.some((column, index) => column.width !== previous.columns[index].width)) commit(previous.pending)
+    if (commitChange && previous.pending.some((column, index) => column.weight !== previous.columns[index].weight)) commit(previous.pending)
     paint(columns())
   }
   function paint(value: TableColumn[]) {
@@ -45,8 +45,8 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
     while (controls.children.length > value.length - 1) controls.lastChild!.remove()
     let left = 0
     value.forEach((column, index) => {
-      ;(colgroup.children[index] as HTMLElement).style.width = `${column.width * 100}%`
-      left += column.width
+      ;(colgroup.children[index] as HTMLElement).style.width = `${column.weight * 100}%`
+      left += column.weight
       if (index === value.length - 1) return
       let handle = controls.children[index] as HTMLDivElement | undefined
       if (!handle) {
@@ -88,8 +88,8 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
       handle.style.left = `${left * 100}%`
       handle.setAttribute('aria-valuemin', '0')
       handle.setAttribute('aria-valuemax', '100')
-      handle.setAttribute('aria-valuenow', String(Math.round(column.width * 100)))
-      handle.setAttribute('aria-valuetext', `Column ${index + 1}: ${Math.round(column.width * 100)}% of table width`)
+      handle.setAttribute('aria-valuenow', String(Math.round(column.weight * 100)))
+      handle.setAttribute('aria-valuetext', `Column ${index + 1}: ${Math.round(column.weight * 100)}% of table width`)
     })
   }
   const escape = (event: KeyboardEvent) => {

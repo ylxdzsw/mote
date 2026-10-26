@@ -28,7 +28,7 @@ async function settle(surface: HTMLElement) {
 export async function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Blob> {
   const tooLarge = `This document is too large for ${scale}× PNG export in this browser. ${scale === 2 ? 'Try 1× resolution, or export' : 'Export'} HTML or a .mote document instead.`
   const host = document.createElement('div')
-  host.style.cssText = `position:fixed;left:-100000px;top:0;width:${doc.width + 48}px;height:600px;pointer-events:none`
+  host.style.cssText = `position:fixed;left:-100000px;top:0;width:${doc.page.width + 48}px;height:600px;pointer-events:none`
   host.inert = true
   host.setAttribute('aria-hidden', 'true')
   document.body.append(host)
@@ -38,7 +38,7 @@ export async function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Bl
     await new Promise<void>(resolve => root.render(<ReadDocument initial={doc} onReady={resolve} staticWidgets initialScale={1} />))
     await settle(host)
     const source = host.querySelector<HTMLElement>('.stage .sheet')!
-    const width = Math.ceil(doc.width * scale), height = Math.ceil(source.getBoundingClientRect().height * scale)
+    const width = Math.ceil(doc.page.width * scale), height = Math.ceil(source.getBoundingClientRect().height * scale)
     if (width > 32767 || height > 32767 || width * height > 32_000_000) throw new Error(tooLarge)
     canvas = document.createElement('canvas')
     canvas.width = width; canvas.height = height

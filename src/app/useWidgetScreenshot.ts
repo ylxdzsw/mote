@@ -13,9 +13,9 @@ export function useWidgetScreenshot(history: ReturnType<typeof useDocumentHistor
 
   function matches(doc: MoteDocument | null) {
     const request = active.current
-    const current = doc?.floating.find(object => object.id === request?.object.id)
+    const current = doc?.objects.find(object => object.id === request?.object.id)
     return request && doc?.id === request.documentId && current?.kind === 'html'
-      && current.html === request.object.html && current.width === request.object.width && current.height === request.object.height
+      && current.html === request.object.html && current.layout.width === request.object.layout.width && current.layout.height === request.object.layout.height
       && current.screenshot === request.object.screenshot && latest.current.history.revision === request.revision
       && latest.current.editable && !latest.current.lockedIds.has(current.id)
   }
@@ -35,14 +35,14 @@ export function useWidgetScreenshot(history: ReturnType<typeof useDocumentHistor
     setStatus({ objectId: object.id, pending: true, error: '' })
     try {
       const result = await requestJSON<{ screenshot: string }>('/api/widgets/screenshot', 'POST',
-        { html: object.html, width: object.width, height: object.height },
+        { html: object.html, width: object.layout.width, height: object.layout.height },
         value => isRecord(value) && typeof value.screenshot === 'string' && value.screenshot.length <= 14 * 1024 * 1024
           && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value.screenshot),
         { signal: request.controller.signal, timeoutMs: 35_000 })
       if (active.current !== request || !matches(latest.current.history.doc)) return
       const currentHistory = latest.current.history
       currentHistory.boundary()
-      currentHistory.setDoc(doc => matches(doc) ? { ...doc!, floating: doc!.floating.map(current => current.id === object.id
+      currentHistory.setDoc(doc => matches(doc) ? { ...doc!, objects: doc!.objects.map(current => current.id === object.id
         ? { ...current, screenshot: result.screenshot } : current) } : doc)
       currentHistory.boundary()
     } catch (error) {

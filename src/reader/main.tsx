@@ -1,3 +1,4 @@
+import { initializeDocument } from '../document/initialize'
 import { StrictMode, useMemo } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ReadDocument } from '../canvas/ReadDocument'
@@ -9,7 +10,7 @@ import '../app/styles.css'
 function readDocument(): MoteDocument {
   const element = document.getElementById('mote-document')
   if (!element) throw new Error('Mote document payload is missing')
-  return JSON.parse(element.textContent ?? '') as MoteDocument
+  return initializeDocument(JSON.parse(element.textContent ?? ''))
 }
 
 function Reader({ initial }: { initial: MoteDocument }) {
@@ -22,4 +23,6 @@ function Reader({ initial }: { initial: MoteDocument }) {
   </div>
 }
 
-createRoot(document.getElementById('root')!).render(<StrictMode><Reader initial={readDocument()} /></StrictMode>)
+const root = createRoot(document.getElementById('root')!)
+try { root.render(<StrictMode><Reader initial={readDocument()} /></StrictMode>) }
+catch (error) { root.render(<main className="loading"><h1>Mote</h1><p role="alert">{error instanceof Error ? error.message : 'Unsupported document format'}. The embedded data has not been changed. Open a supported V1 document or retain this file for recovery.</p></main>) }

@@ -29,7 +29,7 @@ export function validatePaletteReferences(doc: MoteDocument) {
     if (!validPaletteReference(value)) fail(`unknown color ${value}`)
   }
   reference(doc.theme.defaults.color)
-  for (const style of Object.values(doc.theme.blocks)) if (style.color !== undefined) reference(style.color)
+  for (const style of Object.values({ ...doc.theme.paragraphs, ...doc.theme.objects })) if ('color' in style && style.color !== undefined) reference(style.color)
   const content = (node: JSONContent) => {
     for (const mark of node.marks ?? []) {
       if (mark.type === 'color') reference(mark.attrs?.color)
@@ -42,7 +42,7 @@ export function validatePaletteReferences(doc: MoteDocument) {
     node.content?.forEach(content)
   }
   content(doc.content)
-  for (const object of doc.floating) {
+  for (const object of doc.objects) {
     if (isText(object) && object.decoration) reference(object.decoration.color)
     if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) reference(item.color)
     if ('content' in object) content(object.content)

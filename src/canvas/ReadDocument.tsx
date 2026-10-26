@@ -21,6 +21,6 @@ export function ReadDocument({ initial, zoomHost = null, minimap = false, minima
     minimap={minimap} minimapSize={minimapSize} selectedIds={[]} tool={null} staticWidgets={staticWidgets} initialScale={initialScale}
     onSelect={noop} onToolChange={noop} onActions={onActions} onActive={noop} onMainReady={onReady}
     onMainChange={(content, merges) => setDoc(current => current && replaceMainContent(current, content, merges))}
-    onNoteChange={(id, patch) => setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id ? patchFloating(object, patch) : object) }))}
-    onFloatingChange={floating => setDoc(current => current && ({ ...current, floating }))} /></HistoryContext>
+    onNoteChange={(id, patch) => setDoc(current => current && ({ ...current, objects: current.objects.map(object => object.id === id ? patchFloating(object, patch) : object) }))}
+    onFloatingChange={objects => setDoc(current => current && ({ ...current, objects }))} /></HistoryContext>
 }

@@ -16,8 +16,6 @@ interface Props {
   copy?: WorkingCopy
   onNew: (options: NewFileOptions) => Promise<void>
   pending?: Record<string, string>
-  onImportLocal?: () => Promise<void>
-  hasLocalDraft?: boolean
   onLocalRecovery?: () => void
 }
 
@@ -44,7 +42,7 @@ export function FilesWindow({ open, ...props }: Props) {
   return open ? <FilesDialog {...props} /> : null
 }
 
-function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, onImportLocal, hasLocalDraft, onLocalRecovery }: Omit<Props, 'open'>) {
+function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, onLocalRecovery }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -287,12 +285,6 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
       </section>}
     </div>
     <footer className={`cloud-feedback files-footer${creating ? ' files-footer-create' : ''}`} hidden={creating && !busy && !result && !error && !auth}>
-      {!creating && hasLocalDraft && onImportLocal && <div className="files-legacy">
-        <span>A draft from this browser is available.</span>
-        <button type="button" className="cloud-button files-quiet" disabled={!!busy || !!action} onClick={() => { void run('Importing local draft…', async () => {
-          await onImportLocal(); if (active.current) { await refresh(); setResult('Local draft imported.') }
-        }) }}>Import draft</button>
-      </div>}
       {!creating && <div className="files-footer-actions">
         {onLocalRecovery && <button type="button" className={`cloud-button files-quiet${recoveryCount ? ' files-recovery-pending' : ''}`} disabled={mutating} onClick={onLocalRecovery}
           title={recoveryCount ? `${recoveryCount} documents with changes on this device` : 'Find unsynced working copies on this device'}>

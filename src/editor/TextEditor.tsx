@@ -1,3 +1,4 @@
+import { canonicalEditorContent } from './canonical'
 import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
@@ -99,8 +100,8 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         composition: editor.view.composing || composition !== undefined ? tailComposition.current ?? composition : undefined,
         group: typing ? `text:${historyId}` : undefined, normalize: transaction.getMeta('addToHistory') === false },
       () => {
-        if (pastedDocument) history.setDoc({ ...pastedDocument, content: editor.getJSON() })
-        else onChange(editor.getJSON(), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift'))
+        if (pastedDocument) history.setDoc({ ...pastedDocument, content: canonicalEditorContent(editor.getJSON()) })
+        else onChange(canonicalEditorContent(editor.getJSON()), spaceLayoutKey.getState(editor.state)?.merges, transaction.getMeta('spaceShift'))
       })
     },
   })

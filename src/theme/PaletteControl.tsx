@@ -55,18 +55,18 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
     <div className="style-field">
       <div className="field-heading">Appearance</div>
       <div className="placement-options" role="group" aria-label="Document appearance">
-        {(['light', 'dark'] as const).map(mode => <button key={mode} aria-pressed={theme.mode === mode}
-          onClick={() => { history.boundary(); onChange({ ...theme, mode }); history.boundary() }}>{mode === 'light' ? 'Light' : 'Dark'}</button>)}
+        {(['light', 'dark'] as const).map(mode => <button key={mode} aria-pressed={theme.appearance.mode === mode}
+          onClick={() => { history.boundary(); onChange({ ...theme, appearance: { ...theme.appearance, mode } }); history.boundary() }}>{mode === 'light' ? 'Light' : 'Dark'}</button>)}
       </div>
       <p className="hint">Applies to this document and the Mote interface.</p>
     </div>
-    {(['hue', 'secondaryHue'] as const).map((key, index) => <div className="theme-hue-field" key={key}>
-      <label className="theme-hue-label" htmlFor={`${id}-${key}`}>{index ? 'Secondary hue' : 'Primary hue'}<output>{theme[key]}°</output></label>
-      <input id={`${id}-${key}`} className="theme-hue" type="range" min="0" max="359" step="1" value={theme[key]}
+    {(['primaryHue', 'secondaryHue'] as const).map((key, index) => <div className="theme-hue-field" key={key}>
+      <label className="theme-hue-label" htmlFor={`${id}-${key}`}>{index ? 'Secondary hue' : 'Primary hue'}<output>{theme.appearance[key]}°</output></label>
+      <input id={`${id}-${key}`} className="theme-hue" type="range" min="0" max="359" step="1" value={theme.appearance[key]}
         onFocus={() => history.begin(key)} onBlur={history.boundary}
         onPointerDown={() => history.begin(key)} onPointerUp={history.boundary} onPointerCancel={history.boundary}
         onKeyUp={event => { if (event.key.startsWith('Arrow') || ['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) history.boundary() }}
-        onChange={event => { history.begin(key); onChange({ ...theme, [key]: Number(event.target.value) }) }} />
+        onChange={event => { history.begin(key); onChange({ ...theme, appearance: { ...theme.appearance, [key]: Number(event.target.value) } }) }} />
       <div className="palette-tone-preview" style={{ color: entries[index].strong }} aria-label={`${entries[index].name} preview`}>
         <span style={{ background: pageColor(theme) }}>Strong</span><span style={{ background: entries[index].soft }}>Strong on Soft</span>
       </div>

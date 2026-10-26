@@ -76,6 +76,6 @@ function validResponse(path: string, method: string, value: unknown) {
     && (value.share === null || isRecord(value.share) && typeof value.share.id === 'string' && typeof value.share.token === 'string')
   if (path === '/api/documents' && method === 'GET') return Array.isArray(value.documents) && value.documents.every(validMeta)
   if (!validMeta(value)) return false
-  // V0 content validation/recovery remains separate from the response envelope.
+  // Native content validation/recovery remains separate from the response envelope.
   return path.endsWith('/privacy') || method === 'PATCH' || isRecord(value.document)
 }

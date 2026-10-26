@@ -1,3 +1,4 @@
+import { publishDocument } from '../../shared/document.mjs'
 import bundle from 'virtual:mote-reader-bundle'
 import type { MoteDocument } from '../document/model'
 
@@ -16,7 +17,7 @@ function safeInline(value: string, tag: 'script' | 'style') {
 }
 
 export async function exportHtml(doc: MoteDocument): Promise<Blob> {
-  const { notes: _notes, ...published } = doc
+  const published = publishDocument(doc)
   const html = `<!doctype html>
 <html lang="en">
 <head>

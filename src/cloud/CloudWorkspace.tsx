@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ReadDocument } from '../canvas/ReadDocument'
+import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
-import { createBlankDocument, createDocument, type MoteDocument } from '../document/model'
+import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
@@ -10,9 +11,9 @@ import { FilesWindow } from './FilesWindow'
 import type { NewFileOptions } from './NewFileForm'
 import { WorkingCopy } from './WorkingCopy'
 import { deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
-import { listAssistantRecoveries } from '../ai/storage'
+import { loadAssistantRecovery, listAssistantRecoveries } from '../ai/storage'
 import './workspace.css'
-import { connectionSnapshot } from './connection'
+import { connectionSnapshot, isRecord, requestJSON } from './connection'
 
 export const loginURL = () => location.pathname
 const shareRequests = new Map<string, Promise<{ name: string; document: MoteDocument }>>()
@@ -34,7 +35,7 @@ function SharedPage({ token }: { token: string }) {
   useEffect(() => {
     let active = true
     void sharedDocument(token).then(value => { if (active) { setLoaded(value); document.title = `${value.name} · Mote` } },
-      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : 'This shared document could not be opened.') })
+      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1 document.` : 'This shared document could not be opened.') })
     return () => { active = false }
   }, [token])
   if (!loaded) return <main className="loading"><h1>Mote</h1><p role={error ? 'alert' : 'status'}>{error || 'Opening shared document…'}</p></main>
@@ -57,8 +58,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const [filesOpen, setFilesOpen] = useState(!id)
   const [loading, setLoading] = useState(!!id)
   const [error, setError] = useState('')
+  const [unopened, setUnopened] = useState<WorkingRecord>()
   const [retry, setRetry] = useState(0)
-  const [legacy, setLegacy] = useState<MoteDocument>()
+  const [legacy, setLegacy] = useState<unknown>()
   const [recoveries, setRecoveries] = useState<WorkingRecord[]>([])
   const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [notice, setNotice] = useState('')
@@ -71,7 +73,10 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     return []
   })]).then(([rows, assistants]) => {
     const pending = new Set(assistants.filter(record => record.dirty || record.pending).map(record => record.workingCopyId))
-    setRecoveries(rows.filter(row => row.dirty || row.pending || row.pendingCreate || row.pendingPrivacy || pending.has(row.key)))
+    setRecoveries(rows.filter(row => {
+      try { validateDocument(row.document) } catch { return true }
+      return row.dirty || row.pending || row.pendingCreate || row.pendingPrivacy || pending.has(row.key)
+    }))
   }).catch(() => setNotice('Local recovery storage could not be read.'))
   useEffect(() => {
     void loadDraft().then(setLegacy).catch(() => {})
@@ -96,7 +101,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
 
   useEffect(() => {
     let active = true
-    setError(''); setCopy(undefined); setLoading(!!id)
+    setError(''); setUnopened(undefined); setCopy(undefined); setLoading(!!id)
     if (!id) { setFilesOpen(true); return }
     async function open() {
       try {
@@ -129,15 +134,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
           if (privacy) local.meta = mergePrivacyMeta(local.meta, privacy)
         }
         try { local!.document = initializeDocument(local!.document) }
-        catch {
-          if (!window.confirm('This V0 document could not be opened. Reset it to the example? This replaces both the local working copy and the cloud document.')) throw new Error('The saved document has not been changed.')
-          if (!cloud) throw new Error('Connect to the server before resetting this document.')
-          const document = { ...createDocument(), id }
-          const reset = await cloudRequest<CloudDocument>(`/api/documents/${id}`, 'PUT', {
-            baseRevision: cloud.revision, document, operationId: crypto.randomUUID(),
-          })
-          const { document: next, ...meta } = reset
-          local = { key, session, meta: mergeDocumentMeta(local!.meta, meta), document: next, dirty: false, updatedAt: Date.now() }
+        catch (error) {
+          setUnopened(local)
+          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a recognized V1 file.`)
         }
         if (!active) return
         await saveWorkingCopy(local!)
@@ -175,7 +174,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   }
   async function newDocument(options: NewFileOptions) {
     const document = initializeDocument(options.example ? createDocument() : createBlankDocument())
-    document.theme.mode = options.mode
+    document.theme.appearance.mode = options.mode
     document.language = options.language
     const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
     const retain = options.example || options.modified
@@ -185,13 +184,22 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } }
     if (!await navigate(document.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
   }
-  async function importLegacy() {
-    if (!legacy) return
-    const document = initializeDocument(structuredClone(legacy)), id = crypto.randomUUID()
-    await cloudRequest('/api/documents', 'POST', { id, document: { ...document, id }, name: 'Imported local draft', operationId: id })
-    setLegacy(undefined)
-    await navigate(id)
+  async function downloadRecovery(record: WorkingRecord) {
+    const results = await Promise.allSettled([
+      loadAssistantRecovery(record.key, record.meta.id),
+      record.draft ? Promise.resolve(undefined) : requestJSON<{ revision: string; tasks: unknown[] }>(`/api/documents/${encodeURIComponent(record.meta.id)}/assistant`, 'GET', undefined,
+        value => isRecord(value) && typeof value.revision === 'string' && Array.isArray(value.tasks)),
+    ])
+    const [local, cloud] = results
+    const unavailable = results.flatMap((result, index) => result.status === 'rejected'
+      ? [`${index ? 'Cloud' : 'Local'} assistant recovery: ${result.reason instanceof Error ? result.reason.message : 'unavailable'}`] : [])
+    downloadJSON({ workingCopy: record,
+      ...(local.status === 'fulfilled' && local.value && { assistant: local.value }),
+      ...(cloud.status === 'fulfilled' && cloud.value && { cloudAssistant: cloud.value }),
+      ...(unavailable.length && { unavailable }) }, `mote-recovery-${record.meta.id}.json`)
+    if (unavailable.length) setNotice(`Working copy downloaded. ${unavailable.join(' ')} The retained data has not been changed.`)
   }
+
   async function recover(record: WorkingRecord) {
     try {
       const session = await workingSession(), key = `${session}:${record.meta.id}`
@@ -209,19 +217,22 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     {copy ? renderDocument(copy, () => { setFilesOpen(true); void refreshRecovery() }, next => void navigate(next)) : <main className="loading cloud-home"><h1>Mote</h1>
       <p>{loading ? 'Opening document…' : error || 'Your private document workspace.'}</p>
       {!!error && <button onClick={() => setRetry(value => value + 1)}>Retry</button>}
+      {unopened && <button onClick={() => void downloadRecovery(unopened)}>Download recovery</button>}
       <button onClick={() => setFilesOpen(true)}>Files</button>
     </main>}
     <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
     <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument}
       onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
-      hasLocalDraft={!!legacy} onImportLocal={importLegacy} pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
+      pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
     {recoveryOpen && <LocalRecovery onClose={() => setRecoveryOpen(false)}>
       <h2>Local recovery</h2><p>Independent working copies with changes not confirmed in the cloud. Recovering never merges versions.</p>
       {notice && <p role="alert">{notice}</p>}
       {recoveries.length === 0 && <p>No pending working copies.</p>}
+      {legacy !== undefined && <button onClick={() => downloadJSON(legacy, 'mote-local-draft.json')}>Download earlier local draft</button>}
       {recoveries.map(record => <div key={record.key}><strong>{record.meta.name}</strong><time>{new Date(record.updatedAt).toLocaleString()}</time>
         <button onClick={() => void recover(record)}>Open working copy</button>
+        <button onClick={() => void downloadRecovery(record)}>Download recovery</button>
         <button onClick={() => {
           if (record.key === copy?.getSnapshot().record.key) { setNotice('Use Discard local changes in the open document.'); return }
           if (window.confirm('Permanently discard this local working copy?')) void deleteWorkingCopy(record.key).then(refreshRecovery)
@@ -245,4 +256,11 @@ function LocalRecovery({ children, onClose }: { children: ReactNode; onClose: ()
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close() }, [])
   return <dialog ref={dialog} className="cloud-local-recovery" aria-label="Local recovery" onCancel={event => { event.preventDefault(); onClose() }}>{children}</dialog>
+}
+
+function downloadJSON(value: unknown, name: string) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
+  const link = document.createElement('a')
+  link.href = url; link.download = name; link.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }

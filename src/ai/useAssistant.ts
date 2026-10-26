@@ -1,3 +1,4 @@
+import { validateObject, validateContent } from '../../shared/document.mjs'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
@@ -19,6 +20,7 @@ import { extensions } from '../editor/extensions'
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
 
 function creationBody(task: AITask) {
+  if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1 || task.snapshotDocument?.version !== 1) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
   if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
   return { ...task.creation, id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
     baseRevision: task.baseRevision, target: task.target, workspaceRead: task.workspaceRead ?? false }
@@ -37,25 +39,28 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 }
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = task.candidate, context?: SegmentContext): MoteDocument {
+  if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
   return memoizedCandidate(doc, candidate, task.id, task.target.kind === 'segment' ? context : undefined, () => {
     const target = task.target
     let result: MoteDocument
     if (target.kind === 'object') {
-      const original = doc.floating.find(object => object.id === target.objectId)
+      const original = doc.objects.find(object => object.id === target.objectId)
       if (!original || !candidate.object || candidate.content || candidate.segment) throw new Error('The candidate must deliver exactly one floating object.')
+      validateObject(candidate.object)
       if (candidate.object.id !== target.objectId) throw new Error('A revision must retain the target object ID.')
-      if (!target.isNew && original.kind !== 'drawing' && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new Error('A revision must retain the object kind.')
-      result = { ...doc, floating: doc.floating.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
+      if (!target.isNew && original.kind !== 'drawing' && candidate.object.kind !== original.kind) throw new Error('A revision must retain the object kind.')
+      result = { ...doc, objects: doc.objects.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
     } else if (target.kind === 'text') {
       if (!candidate.content?.length || candidate.object || candidate.segment || candidate.content.some(node => node.type !== 'paragraph')) throw new Error('The candidate must deliver paragraphs.')
+      validateContent({ type: 'doc', content: candidate.content })
       const blocks = doc.content.content!, first = blocks.findIndex(node => node.attrs?.id === target.blockIds[0])
       if (first < 0 || !reservedText(doc.content, target.blockIds)) throw new Error('The reserved text is no longer available.')
       const content = candidate.content.map((node, index) => ({ ...node, attrs: { ...node.attrs,
         id: target.blockIds[index] ?? crypto.randomUUID() } }))
       result = replaceMainContent(doc, { ...doc.content, content: [...blocks.slice(0, first), ...content, ...blocks.slice(first + target.blockIds.length)] })
     } else {
-      if (!candidate.segment || candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one V0 segment.')
+      if (!candidate.segment || candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one V1 segment.')
       if (!context) throw new Error('Segment geometry is not available for this preview.')
       result = applySegmentCandidate(doc, target, candidate.segment, context)
     }
@@ -215,7 +220,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     if (!externalBlocked) return
     for (const task of state.current) {
-      if (task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
+      if (task.protocol === 'mote-agent-v1' && task.documentVersion === 1 && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
         rejectPrivateExternalDraft(task.id)
       }
     }
@@ -230,7 +235,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     let active = true, pending = false, authPaused = false
     const failures = new Map<string, number>(), paused = new Set<string>(), nextAt = new Map<string, number>(), requested = new Set<string>()
     const authPausedTasks = new Set<string>()
-    const awaitingResult = (task: AITask) => (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
+    const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && task.documentVersion === 1 && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
       && !task.acceptance && !task.remoteMissing
       && (task.submitted || task.requestSent)
     function setIssue(id: string, value?: { message: string; paused: boolean }) {
@@ -345,15 +350,15 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     let original: FloatingObject | JSONContent[] | SegmentClipboard
     let segmentOriginalBlocks: JSONContent[] | undefined
     let segmentOriginalObjects: FloatingObject[] | undefined
-    if (target.kind === 'object') original = structuredClone(snapshot.floating.find(object => object.id === target.objectId)!)
+    if (target.kind === 'object') original = structuredClone(snapshot.objects.find(object => object.id === target.objectId)!)
     else if (target.kind === 'text') original = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
     else {
       const context = segmentContext?.() ?? { anchors: [], geometry: {} }
       original = copySegment(snapshot, target.range, context.anchors, context.geometry)
       segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
-      segmentOriginalObjects = structuredClone(snapshot.floating.filter(object => target.objectIds.includes(object.id)))
+      segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => target.objectIds.includes(object.id)))
     }
-    const task: AITask = { id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
+    const task: AITask = { protocol: 'mote-agent-v1', documentVersion: 1, id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
       original,
       snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false,
       workspaceRead: false, workspaceReadRevision: 0 }
@@ -391,7 +396,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     // not the dimensions from when the reservation was first drawn.
     if (!task.submitted && !task.requestSent && task.target.kind === 'object') {
       const objectId = task.target.objectId
-      task = { ...task, original: structuredClone(currentDoc.current.floating.find(object => object.id === objectId)!) }
+      task = { ...task, original: structuredClone(currentDoc.current.objects.find(object => object.id === objectId)!) }
       update(id, { original: task.original })
     }
     const run = Symbol()
@@ -438,16 +443,16 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         const context = segmentContext?.()
         if (target.kind === 'object') {
           const objectId = target.objectId
-          original = structuredClone(snapshotDocument.floating.find(object => object.id === objectId)!)
+          original = structuredClone(snapshotDocument.objects.find(object => object.id === objectId)!)
           target = { ...target, area: objectArea(objectId) }
         } else if (target.kind === 'segment') {
           const range = resolveSegmentRange(snapshotDocument, target)
           if (!range || !context) throw new Error('The reserved segment geometry is not available. Retry after the document finishes rendering.')
-          target = makeSegmentTarget(snapshotDocument, range, { ...target.area, width: snapshotDocument.width })
+          target = makeSegmentTarget(snapshotDocument, range, { ...target.area, width: snapshotDocument.page.width })
           original = copySegment(snapshotDocument, range, context.anchors, context.geometry)
           const { blockIds, objectIds } = target
           segmentOriginalBlocks = structuredClone(snapshotDocument.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
-          segmentOriginalObjects = structuredClone(snapshotDocument.floating.filter(object => objectIds.includes(object.id)))
+          segmentOriginalObjects = structuredClone(snapshotDocument.objects.filter(object => objectIds.includes(object.id)))
         } else {
           const node = getSchema(extensions(true)).nodeFromJSON(snapshotDocument.content)
           const { blockIds } = target
@@ -459,8 +464,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const selection = paragraphSelection(node, from, to)
           if (!selection || !sameContent(selection.blockIds, blockIds)) throw new Error('The selected paragraphs changed. Start a new request for the current selection.')
           const first = context?.anchors.find(anchor => anchor.id === blockIds[0]), last = context?.anchors.find(anchor => anchor.id === blockIds.at(-1))
-          const area = first && last ? { x: snapshotDocument.margins.left, y: first.top,
-            width: snapshotDocument.width - snapshotDocument.margins.left - snapshotDocument.margins.right,
+          const area = first && last ? { x: snapshotDocument.page.margins.left, y: first.top,
+            width: snapshotDocument.page.width - snapshotDocument.page.margins.left - snapshotDocument.page.margins.right,
             height: (last.bottom ?? last.top) - first.top } : target.area
           target = { ...target, ...selection, area }
           original = structuredClone(snapshotDocument.content.content!.filter(block => blockIds.includes(block.attrs?.id)))
@@ -474,7 +479,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
         })
         if (!preparing()) return
-        const model = snapshotDocument.aiModel?.trim()
+        const model = snapshotDocument.authoring?.aiModel?.trim()
         const creation = { executor, operationId: task.pendingExecutor?.operationId ?? task.id, prompt,
           ...(model ? { model } : {}), snapshot }
         if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
@@ -534,7 +539,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (task.pendingExecutor && task.pendingExecutor.executor !== executor) return
     if (!task.submitted && !task.requestSent && !task.pendingExecutor && task.target.kind === 'object') {
       const objectId = task.target.objectId
-      task = { ...task, original: structuredClone(currentDoc.current.floating.find(object => object.id === objectId)!) }
+      task = { ...task, original: structuredClone(currentDoc.current.objects.find(object => object.id === objectId)!) }
       update(id, { original: task.original })
     }
     const pending = task.pendingExecutor ?? { executor, operationId: crypto.randomUUID(), baseExecutorRevision: task.submitted ? task.executorRevision ?? 0 : undefined }
@@ -721,7 +726,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (target.kind === 'segment') return
     unrestricted(() => history.setDoc(doc => {
       if (!doc) return doc
-      if (target.kind === 'object' && target.isNew) return { ...doc, floating: withoutObject(target.objectId) ?? doc.floating.filter(object => object.id !== target.objectId) }
+      if (target.kind === 'object' && target.isNew) return { ...doc, objects: withoutObject(target.objectId) ?? doc.objects.filter(object => object.id !== target.objectId) }
       if (target.kind === 'text' && target.insert) {
         const content = doc.content.content!.filter(node => !target.blockIds.includes(node.attrs?.id))
         return replaceMainContent(doc, { ...doc.content, content: content.length ? content : [paragraph('')] })
@@ -766,16 +771,15 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     // Parent effects first copy the committed history document into its sync
     // controller. Calling sync during this hook's effect would save the old doc.
     const timer = window.setTimeout(() => {
-      for (const task of allTasks) if (task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
+      for (const task of allTasks) if (task.protocol === 'mote-agent-v1' && task.documentVersion === 1 && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
         acceptanceAttempts.current.add(task.id); void syncAcceptance(task.id)
       }
     }, 0)
     return () => window.clearTimeout(timer)
   }, [allTasks, cloud?.workingCopyId])
-  function abandonAll() { for (const task of [...state.current]) if (task.documentId === currentDoc.current.id) forget(task.id) }
-  function deleteObjects(floating: FloatingObject[]) {
-    const removed = activeTasks().filter(task => task.target.kind === 'object' && !floating.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
-    const next = reconcileObjectDeletions(currentDoc.current, floating, segmentContext?.())
+  function deleteObjects(objects: FloatingObject[]) {
+    const removed = activeTasks().filter(task => task.target.kind === 'object' && !objects.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
+    const next = reconcileObjectDeletions(currentDoc.current, objects, segmentContext?.())
     if (!permits(activeTasks().filter(task => !removed.includes(task)), currentDoc.current, next)) {
       setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return false
     }
@@ -787,7 +791,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     const task = state.current.find(task => task.id === id)
     if (!writable || !task || inactiveReason(task)) return
     if (task.target.kind === 'object') {
-      deleteObjects(withoutObject(task.target.objectId) ?? currentDoc.current.floating.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
+      deleteObjects(withoutObject(task.target.objectId) ?? currentDoc.current.objects.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
       return
     }
     if (task.target.kind === 'segment') {
@@ -811,7 +815,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
-  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, abandonAll, runs, deleteObjects, deleteTarget, missingRemote,
+  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, runs, deleteObjects, deleteTarget, missingRemote,
     switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
     workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,
     workspaceReadWorking: (id: string) => !!workspaceReadOperations[id],

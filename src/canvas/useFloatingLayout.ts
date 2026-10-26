@@ -1,3 +1,4 @@
+import { patchObject, objectX, objectY, objectAnchorId } from '../document/model'
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
 import { supportsCaption, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
@@ -33,9 +34,10 @@ function blockIds(element: HTMLElement, fallback?: string) {
 function previewObjects(objects: FloatingObject[], preview: FloatingPreviews, anchors: Anchor[], columnLeft: number) {
   return objects.map(note => {
     const moving = preview[note.id]
-    const object = { ...note, ...moving } as FloatingObject
-    if (moving?.x !== undefined) object.x = moving.x - (object.placement === 'flow'
-      ? columnLeft : anchors.find(anchor => anchor.id === object.anchorId)?.left ?? 0)
+    const { top: _top, ...patch } = moving ?? {}
+    const object = patchObject(note, patch)
+    if (moving?.x !== undefined && moving.centered !== true) object.layout.placement.x = moving.x - (object.layout.placement.type === 'flow'
+      ? columnLeft : anchors.find(anchor => anchor.id === objectAnchorId(object))?.left ?? 0)
     return object
   })
 }
@@ -74,12 +76,12 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     const mutations = new MutationObserver(schedule)
     mutations.observe(editor.view.dom, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-id', 'data-object-id', 'data-ai-block', 'class'] })
     function measure(override = preview) {
-      const floating = shiftSpaceObjects(doc.floating, spaceLayoutKey.getState(editor!.state)?.shift)
+      const objects = shiftSpaceObjects(doc.objects, spaceLayoutKey.getState(editor!.state)?.shift, doc.content)
       const rect = surface.getBoundingClientRect()
       const scale = rect.width / nativeSize(surface).width
       const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
       const localLeft = (element: Element) => (element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft
-      const column = { left: doc.margins.left, width: surface.clientWidth - doc.margins.left - doc.margins.right }
+      const column = { left: doc.page.margins.left, width: surface.clientWidth - doc.page.margins.left - doc.page.margins.right }
       const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
       const notes = new Map<string, HTMLElement>()
@@ -101,15 +103,15 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const flowMounts: Record<string, HTMLElement> = {}
       const obstacles = new Map<string, Obstacle>()
       const activate = (note: FloatingObject, anchorTop: number, anchorLeft = 0) => {
-        if (note.placement === 'flow') return
+        if (note.layout.placement.type === 'flow') return
         const moving = override[note.id]
-        const top = moving?.top ?? anchorTop + note.y
-        const left = moving?.x ?? anchorLeft + note.x
-        const width = moving?.width ?? note.width
+        const top = moving?.top ?? anchorTop + objectY(note)
+        const left = moving?.x ?? anchorLeft + objectX(note)
+        const width = moving?.width ?? note.layout.width
         tops[note.id] = top
         const height = heights.get(note.id) ?? 0
         const caption = moving?.caption ?? (supportsCaption(note) ? note.caption : undefined)
-        const bounds = layoutBounds({ x: left, y: top, width, height, captionWidth: caption?.width, margins: moving?.margins ?? note.margins })
+        const bounds = layoutBounds({ x: left, y: top, width, height, captionWidth: caption?.width, margins: moving?.margins ?? note.layout.margins })
         if (bounds.width > 0 && bounds.height > 0) obstacles.set(note.id, {
           left: bounds.x - gap, right: bounds.x + bounds.width + gap,
           top: Math.max(anchorTop, bounds.y - gap), bottom: bounds.y + bounds.height + gap,
@@ -117,7 +119,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         else obstacles.delete(note.id)
       }
       // A dragged object has a fixed document-space position until release.
-      for (const note of floating) if (note.anchorId === null || override[note.id]?.top !== undefined) activate(note, 0)
+      for (const note of objects) if (objectAnchorId(note) === null || override[note.id]?.top !== undefined) activate(note, 0)
       const originalIds: string[] = []
       editor!.state.doc.forEach(node => originalIds.push(node.attrs.id))
       const blocks: VisibleBlock[] = []
@@ -164,7 +166,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           const mount = element.querySelector<HTMLElement>('[data-flow-mount]')!
           flowMounts[id] = mount
           elements.add(mount)
-          const object = floating.find(note => note.id === id)
+          const object = objects.find(note => note.id === id)
           const target = notes.get(id)
           if (target && mount.contains(target)) {
             top = localTop(target)
@@ -178,7 +180,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         // Resolve aliases for removed original blocks, but prefer the visible candidate.
         anchors.push(...ids.toReversed().map(id => ({ id, top, ...(left === undefined ? {} : { left }) })))
         elements.add(element)
-        for (const note of floating) if (note.anchorId !== null && ids.includes(note.anchorId) && override[note.id]?.top === undefined) activate(note, top, left)
+        for (const note of objects) if (objectAnchorId(note) !== null && ids.includes(objectAnchorId(note, doc.content)!) && override[note.id]?.top === undefined) activate(note, top, left)
         if (!paragraph) continue
         const content = element.firstElementChild as HTMLElement
         elements.add(content)
@@ -200,23 +202,23 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       }
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
-      const objects = previewObjects(floating, override, anchors, column.left)
-      const geometry = resolveGeometry(objects, sizes, tops, anchors, column)
+      const projectedObjects = previewObjects(objects, override, anchors, column.left)
+      const geometry = resolveGeometry(projectedObjects, sizes, tops, anchors, column)
       // Only unused side margins may collapse in reading; retain every on-page object.
-      let left = doc.margins.left, right = doc.width - doc.margins.right
-      for (const note of objects) {
+      let left = doc.page.margins.left, right = doc.page.width - doc.page.margins.right
+      for (const note of projectedObjects) {
         const bounds = extentBounds(geometry[note.id])
         const start = bounds.x + surface.clientLeft, end = bounds.x + bounds.width + surface.clientLeft
-        if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
+        if (end > 0 && start < doc.page.width) { left = Math.min(left, start); right = Math.max(right, end) }
       }
       // Display math can extend beyond its author-sized box on either side.
       surface.querySelectorAll<HTMLElement>('.katex-html > .katex-base, .katex-html > .katex-tag').forEach(element => {
         const box = element.getBoundingClientRect()
         const start = (box.left - rect.left) / scale, end = (box.right - rect.left) / scale
-        if (end > 0 && start < doc.width) { left = Math.min(left, start); right = Math.max(right, end) }
+        if (end > 0 && start < doc.page.width) { left = Math.min(left, start); right = Math.max(right, end) }
       })
-      const sideInsets = { left: Math.max(0, left), right: Math.max(0, doc.width - right) }
-      const values = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...objects.map(note => visualBottom(geometry[note.id]))) + doc.margins.bottom + surface.clientTop * 2 }
+      const sideInsets = { left: Math.max(0, left), right: Math.max(0, doc.page.width - right) }
+      const values = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...projectedObjects.map(note => visualBottom(geometry[note.id]))) + doc.page.margins.bottom + surface.clientTop * 2 }
       const next = { ...values, flowMounts }
       setLayout(previous => {
         const { flowMounts: previousMounts, ...previousValues } = previous
@@ -246,10 +248,10 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
     return { x: placement.x - (anchor?.left ?? 0), y: Math.max(0, placement.top - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
   }
 
-  const objects = previewObjects(shiftSpaceObjects(doc.floating, editor ? spaceLayoutKey.getState(editor.state)?.shift : null), preview, layout.anchors, doc.margins.left)
-  const tops = Object.fromEntries(objects.map(note => [note.id, note.placement === 'flow'
+  const objects = previewObjects(shiftSpaceObjects(doc.objects, editor ? spaceLayoutKey.getState(editor.state)?.shift : null, doc.content), preview, layout.anchors, doc.page.margins.left)
+  const tops = Object.fromEntries(objects.map(note => [note.id, note.layout.placement.type === 'flow'
     ? layout.tops[note.id] ?? 0
-    : preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === note.anchorId)?.top ?? 0) + note.y]))
-  const geometry = resolveGeometry(objects, layout.geometry, tops, layout.anchors, { left: doc.margins.left, width: (sheet.current?.clientWidth ?? doc.width - 2) - doc.margins.left - doc.margins.right })
+    : preview[note.id]?.top ?? (layout.anchors.find(anchor => anchor.id === objectAnchorId(note))?.top ?? 0) + objectY(note)]))
+  const geometry = resolveGeometry(objects, layout.geometry, tops, layout.anchors, { left: doc.page.margins.left, width: (sheet.current?.clientWidth ?? doc.page.width - 2) - doc.page.margins.left - doc.page.margins.right })
   return { ...layout, tops, geometry, reflow, attach }
 }

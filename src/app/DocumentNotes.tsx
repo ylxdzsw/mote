@@ -5,7 +5,7 @@ import { PanelIcon } from './PanelIcon'
 import { useViewSettings } from './GlobalSettings'
 
 export function DocumentNotes({ value, onFocus }: {
-  value: string | string[]; onFocus: () => void
+  value: string[]; onFocus: () => void
 }) {
   const history = useHistory()
   const { settings, update: onSettings, saveError } = useViewSettings(['notesOpen', 'notesHeight'])
@@ -13,7 +13,7 @@ export function DocumentNotes({ value, onFocus }: {
   const toggle = useRef<HTMLButtonElement>(null)
   const tabs = useRef<HTMLDivElement>(null)
   const [selected, setSelected] = useState(0)
-  const notes = typeof value === 'string' ? [value] : value
+  const notes = value
   const active = Math.min(selected, notes.length - 1)
   const drag = useRef<{ y: number; height: number } | null>(null)
   const [dragHeight, setDragHeight] = useState<number | null>(null)
@@ -52,7 +52,7 @@ export function DocumentNotes({ value, onFocus }: {
   }
   function removeNote(index: number) {
     history.boundary()
-    history.setDoc(doc => doc && { ...doc, notes: notes.filter((_, at) => at !== index) })
+    history.setDoc(doc => doc && { ...doc, authoring: { ...doc.authoring, notes: notes.filter((_, at) => at !== index) } })
     const next = Math.max(0, Math.min(active - (index < active ? 1 : 0), notes.length - 2))
     selectNote(next)
     requestAnimationFrame(() => {
@@ -115,7 +115,7 @@ export function DocumentNotes({ value, onFocus }: {
         </div>
         <button className="notes-add" aria-label="Add note" title="Add note" onClick={() => {
           history.boundary()
-          history.setDoc(doc => doc && { ...doc, notes: [...notes, ''] })
+          history.setDoc(doc => doc && { ...doc, authoring: { ...doc.authoring, notes: [...notes, ''] } })
           selectNote(notes.length)
           focusInput()
         }}><PanelIcon name="plus" /></button>
@@ -126,7 +126,7 @@ export function DocumentNotes({ value, onFocus }: {
       aria-labelledby={settings.notesOpen && active >= 0 ? `document-note-tab-${active}` : undefined} data-source-viewport hidden={!settings.notesOpen}>
       {active >= 0 ? <SourceEditor source={notes[active]} editorId={`document-notes-${active}`} canEdit label={`Note ${active + 1}`} inputId="document-notes-input"
         placeholder="Outlines, spare paragraphs, plans…" onActive={onFocus}
-        onChange={text => history.setDoc(doc => doc && { ...doc, notes: notes.map((note, index) => index === active ? text : note) })}
+        onChange={text => history.setDoc(doc => doc && { ...doc, authoring: { ...doc.authoring, notes: notes.map((note, index) => index === active ? text : note) } })}
         onEscape={() => { onSettings({ ...settings, notesOpen: false }); toggle.current?.focus() }} />
         : <p className="notes-empty">Use + to add a note.</p>}
     </div>

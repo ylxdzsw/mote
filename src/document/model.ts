@@ -9,68 +9,53 @@ import motionHTML from './examples/motion.html?raw'
 import motionScreenshot from './examples/motion.png?inline'
 
 export const blockClasses = ['title', 'heading', 'subheading', 'body', 'caption', 'list'] as const
-export const themeBlockClasses = [...blockClasses, 'table', 'math', 'code'] as const
+export const themeBlockClasses = [...blockClasses, 'table', 'formula', 'code'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
 
-export type ThemeLength = number | `${number}px` | `${number}em`
-
+export interface ThemeLength { value: number; unit: 'px' | 'em' }
+export type LineHeight = ThemeLength | { value: number; unit: 'ratio' }
 export interface BlockStyle {
   size: ThemeLength
   color: string
   family: 'sans' | 'serif' | 'mono'
   weight: number
-  lineHeight: ThemeLength
+  lineHeight: LineHeight
   spaceBefore: ThemeLength
   spaceAfter: ThemeLength
   letterSpacing: ThemeLength
 }
-
+export const em = (value: number): ThemeLength => ({ value, unit: 'em' })
+export const px = (value: number): ThemeLength => ({ value, unit: 'px' })
 export const defaultSubheadingStyle: Partial<BlockStyle> = {
-  size: '1.125em', weight: 600, lineHeight: '1.5em', spaceBefore: '2em', spaceAfter: '0.5em',
+  size: em(1.125), weight: 600, lineHeight: em(1.5), spaceBefore: em(2), spaceAfter: em(.5),
 }
-
 export const boxDecorationKinds = ['left', 'box'] as const
-// `color` is a pair: a family ID or `gray4` (Gray 4 border, Gray 5 background).
 export type BoxDecoration = { kind: typeof boxDecorationKinds[number]; color: string }
-
 export interface Theme {
-  mode: 'light' | 'dark'
-  hue: number
-  secondaryHue: number
-  autospace?: boolean
-  flow?: { spaceBefore?: ThemeLength; spaceAfter?: ThemeLength }
+  appearance: { mode: 'light' | 'dark'; primaryHue: number; secondaryHue: number }
+  autospace: boolean
+  flow: { spaceBefore?: ThemeLength; spaceAfter?: ThemeLength }
   defaults: Omit<BlockStyle, 'size'> & { size: number }
-  blocks: Record<Exclude<ThemeBlockClass, 'subheading'>, Partial<BlockStyle>> & { subheading?: Partial<BlockStyle> }
+  paragraphs: Partial<Record<BlockClass, Partial<BlockStyle>>>
+  objects: { table?: Partial<BlockStyle>; code?: Partial<Pick<BlockStyle, 'size' | 'weight' | 'lineHeight' | 'letterSpacing'>>; formula?: Partial<Pick<BlockStyle, 'size' | 'color'>> }
 }
-
 export const defaultTheme: Theme = {
-  mode: 'light',
-  hue: defaultHue,
-  secondaryHue: defaultSecondaryHue,
-  defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
-  blocks: {
-    title: { size: '3em', color: 'gray2', family: 'serif', lineHeight: '3.5em' },
-    heading: { size: '1.5em', color: 'gray2', lineHeight: '2em', spaceBefore: '2.5em', spaceAfter: '0.75em' },
-    body: { size: '1em' },
-    table: { size: '1em' },
-    math: {},
-    caption: { size: '0.75em', color: 'gray3', lineHeight: '1.25em' },
-    code: { size: '0.875em', family: 'mono', lineHeight: '1.375em' },
-    list: { size: '1em', spaceAfter: '0.375em' },
+  appearance: { mode: 'light', primaryHue: defaultHue, secondaryHue: defaultSecondaryHue }, autospace: true, flow: {},
+  defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: em(1.5), spaceBefore: em(0), spaceAfter: em(1), letterSpacing: em(0) },
+  paragraphs: {
+    title: { size: em(3), color: 'gray2', family: 'serif', lineHeight: em(3.5) },
+    heading: { size: em(1.5), color: 'gray2', lineHeight: em(2), spaceBefore: em(2.5), spaceAfter: em(.75) },
+    subheading: defaultSubheadingStyle,
+    body: { size: em(1) }, caption: { size: em(.75), color: 'gray3', lineHeight: em(1.25) },
+    list: { size: em(1), spaceAfter: em(.375) },
   },
+  objects: { table: { size: em(1) }, formula: {}, code: { size: em(.875), lineHeight: em(1.375) } },
 }
-
-interface FloatingGeometry {
-  id: string
-  anchorId: string | null
-  x: number
-  y: number
-  width: number
-  placement: 'flow' | 'float'
-  centered?: boolean
-  margins?: { top: number; right: number; bottom: number; left: number }
-}
+export type Margins = { top: number; right: number; bottom: number; left: number }
+export type ObjectPlacement = { type: 'flow'; x: number | 'center' } | { type: 'float'; anchorId: string | null; x: number; y: number }
+export interface ObjectLayout { width: number; height?: number; margins?: Margins; placement: ObjectPlacement }
+interface FloatingGeometry<L extends ObjectLayout = ObjectLayout & { height?: never }> { id: string; layout: L }
 
 export interface Caption {
   content: JSONContent
@@ -78,9 +63,9 @@ export interface Caption {
 }
 
 export interface FloatingText extends FloatingGeometry {
-  kind?: 'text'
+  kind: 'text'
   content: JSONContent
-  decoration?: BoxDecoration | null
+  decoration?: BoxDecoration
   padding?: ThemeLength
 }
 
@@ -102,16 +87,16 @@ export interface FloatingImage extends FloatingGeometry {
   caption?: Caption
 }
 
-export interface FloatingDrawing extends FloatingGeometry {
+export interface FloatingDrawing extends FloatingGeometry<ObjectLayout & { height: number }> {
   kind: 'drawing'
-  height: number
+  layout: ObjectLayout & { height: number }
   strokes: Array<{ points: [number, number][]; color: string; width: number }>
   labels: Array<{ x: number; y: number; text: string; color: string; size: number }>
   background: 'gray6' | null
 }
 
-export interface FloatingKaTeX extends FloatingGeometry {
-  kind: 'katex'
+export interface FloatingFormula extends FloatingGeometry {
+  kind: 'formula'
   latex: string
 }
 
@@ -121,20 +106,20 @@ export interface FloatingCode extends FloatingGeometry {
   language: string
 }
 
-export interface FloatingHTMLWidget extends FloatingGeometry {
+export interface FloatingHTMLWidget extends FloatingGeometry<ObjectLayout & { height: number }> {
   kind: 'html'
   html: string
   screenshot: string
   alt: string
-  height: number
+  layout: ObjectLayout & { height: number }
   caption?: Caption
 }
-export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingKaTeX | FloatingHTMLWidget | FloatingCode
+export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingFormula | FloatingHTMLWidget | FloatingCode
 export type FloatingKind = NonNullable<FloatingObject['kind']>
-export const isText = (object: FloatingObject): object is FloatingText => !object.kind || object.kind === 'text'
+export const isText = (object: FloatingObject): object is FloatingText => object.kind === 'text'
 export const supportsCaption = (object: FloatingObject): object is FloatingImage | FloatingHTMLWidget | FloatingTable =>
   object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
-export type FloatingPatch = Partial<Omit<FloatingGeometry, 'id'>> & {
+export type FloatingPatch = Partial<{ anchorId: string | null; x: number; y: number; width: number; placement: 'flow' | 'float'; centered: boolean; margins: Margins }> & {
   content?: JSONContent; src?: string; alt?: string; height?: number
   caption?: Caption | null
   latex?: string; html?: string; screenshot?: string
@@ -152,69 +137,89 @@ export function captionContent(text = ''): JSONContent {
 export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
-  version: 'V0'
+  format: 'mote'
+  version: 1
   id: string
-  language?: DocumentLanguage
-  aiModel?: string
-  notes?: string | string[]
-  width: number
-  margins: { top: number; right: number; bottom: number; left: number }
+  language: DocumentLanguage
+  page: { width: number; margins: Margins }
   theme: Theme
   content: JSONContent
-  floating: FloatingObject[]
+  objects: FloatingObject[]
+  authoring?: { notes: string[]; aiModel?: string }
+}
+
+// Geometry commands are transient; native objects store only layout.
+export function objectX(object: FloatingObject): number { return object.layout.placement.x === 'center' ? 0 : object.layout.placement.x }
+export function objectY(object: FloatingObject): number { return object.layout.placement.type === 'float' ? object.layout.placement.y : 0 }
+export function objectAnchorId(object: FloatingObject, content?: JSONContent): string | null {
+  return object.layout.placement.type === 'float' ? object.layout.placement.anchorId
+    : content?.content?.find(block => block.type === 'flow' && block.attrs?.objectId === object.id)?.attrs?.id ?? null
+}
+export function patchObject<T extends FloatingObject>(object: T, patch: FloatingPatch): T {
+  const { width, height, margins, placement, centered, anchorId, x, y, caption, decoration, ...body } = patch
+  const old = object.layout.placement
+  const type = placement ?? old.type
+  const position: ObjectPlacement = type === 'flow'
+    ? { type, x: centered === true ? 'center' : centered === false ? x ?? objectX(object) : x ?? old.x }
+    : { type, anchorId: anchorId === undefined ? objectAnchorId(object) : anchorId, x: x ?? objectX(object), y: y ?? objectY(object) }
+  const next = { ...object, ...body, layout: { ...object.layout, placement: position,
+    ...(width !== undefined && { width }), ...(height !== undefined && { height }), ...(margins !== undefined && { margins }) } } as T
+  if (caption !== undefined && supportsCaption(next)) { if (caption === null) delete next.caption; else next.caption = caption }
+  if (decoration !== undefined && isText(next)) { if (decoration === null) delete next.decoration; else next.decoration = decoration }
+  return next
 }
 
 export function paragraph(text: string, semantic: BlockClass = 'body'): JSONContent {
   return {
     type: 'paragraph',
-    attrs: { id: crypto.randomUUID(), semantic },
+    attrs: { id: crypto.randomUUID(), semantic, ...(semantic === 'list' && { listLevel: 0 }) },
     content: text ? [{ type: 'text', text }] : [],
   }
 }
 
 export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
   return { type: 'doc', content: [{ type: 'table', content: rows.map(row => ({
-    type: 'tableRow', content: row.map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', content: text ? [{ type: 'text', text }] : [] }] })),
+    type: 'tableRow', content: row.map(text => ({ type: 'tableCell', content: [{ type: 'paragraph', attrs: { id: crypto.randomUUID() }, content: text ? [{ type: 'text', text }] : [] }] })),
   })) }] }
 }
 
 const landscape = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360"><rect width="600" height="360" fill="#e8ecdf"/><circle cx="450" cy="86" r="40" fill="#d9b678"/><path d="M0 238Q145 76 320 224T600 164V360H0Z" fill="#9aaa89"/><path d="M0 292Q156 196 340 278T600 228V360H0Z" fill="#54725b"/><path d="M240 360Q410 290 330 238" fill="none" stroke="#eee5c9" stroke-width="20"/><path d="M95 285V150m0 70q-65-8-53-54 53 7 53 54m0-26q59-4 49-49-49 6-49 49" fill="#35543e" stroke="#35543e" stroke-width="5"/></svg>')}`
 
 export function createBlankDocument(): MoteDocument {
-  return { version: 'V0', id: crypto.randomUUID(), width: 960,
-    margins: { top: 48, right: 32, bottom: 48, left: 32 }, theme: structuredClone(defaultTheme),
-    content: { type: 'doc', content: [paragraph('')] }, floating: [] }
+  return { format: 'mote', version: 1, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+    margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
+    content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }
 
-export function isPristineBlankDocument(document: MoteDocument, defaults = { mode: defaultTheme.mode, language: 'en' as DocumentLanguage }) {
+export function isPristineBlankDocument(document: MoteDocument, defaults = { mode: defaultTheme.appearance.mode, language: 'en' as DocumentLanguage }) {
   const block = document.content.content?.[0]
-  return document.floating.length === 0 && document.content.content?.length === 1 && block?.type === 'paragraph'
+  return document.objects.length === 0 && document.content.content?.length === 1 && block?.type === 'paragraph'
     && !block.content?.length && (!block.attrs?.semantic || block.attrs.semantic === 'body') && !block.attrs?.listLevel
-    && !(typeof document.notes === 'string' ? document.notes.length : document.notes?.some(note => note.length))
-    && (document.language ?? 'en') === defaults.language && !document.aiModel?.trim()
-    && document.width === 960 && document.margins.top === 48 && document.margins.bottom === 48
-    && document.margins.left === 32 && document.margins.right === 32
+    && !document.authoring?.notes.some(note => note.length)
+    && (document.language ?? 'en') === defaults.language && !document.authoring?.aiModel?.trim()
+    && document.page.width === 960 && document.page.margins.top === 48 && document.page.margins.bottom === 48
+    && document.page.margins.left === 32 && document.page.margins.right === 32
     && document.theme.autospace !== false
-    && JSON.stringify(document.theme, (key, value) => key === 'autospace' ? undefined : value) === JSON.stringify({ ...defaultTheme, mode: defaults.mode })
+    && JSON.stringify(document.theme) === JSON.stringify({ ...defaultTheme, appearance: { ...defaultTheme.appearance, mode: defaults.mode } })
 }
 
 export function createDocument(): MoteDocument {
-  const floating: FloatingObject[] = []
+  const objects: FloatingObject[] = []
   const flow = (object: FloatingObject): JSONContent => {
     const id = crypto.randomUUID()
-    floating.push({ ...object, placement: 'flow', anchorId: id, y: 0 })
+    objects.push(patchObject(object, { placement: 'flow' }))
     return { type: 'flow', attrs: { id, objectId: object.id } }
   }
-  const base = (width: number) => ({ id: crypto.randomUUID(), anchorId: null, x: 0, y: 0, width, placement: 'flow' as const, centered: true })
+  const base = (width: number) => ({ id: crypto.randomUUID(), layout: { width, placement: { type: 'flow' as const, x: 'center' as const } } })
   const image = flow({ ...base(600), kind: 'image', src: landscape, alt: 'A winding path between green hills beneath a golden sun.' })
-  const imageObject = floating.find(object => object.id === image.attrs!.objectId)!
+  const imageObject = objects.find(object => object.id === image.attrs!.objectId)!
   if (supportsCaption(imageObject)) imageObject.caption = { content: captionContent('A path worth following. This caption stays with the image, and the next paragraph follows both.') }
-  floating.push({ ...base(210), placement: 'float', kind: 'text', anchorId: image.attrs!.id, x: 400, y: 36,
+  objects.push({ ...base(210), kind: 'text', layout: { width: 210, placement: { type: 'float', anchorId: image.attrs!.id, x: 400, y: 36 } },
     decoration: { kind: 'box', color: 'primary' },
     content: { type: 'doc', content: [paragraph('A thought on the landscape', 'caption'), paragraph('Move the image: this note follows in both directions.', 'caption')] } })
   const alongside = paragraph('Some thoughts belong beside the main thread. A Float can sit anywhere on the page while the main text uses the space to its left. It can also overlap a figure or another Float. The figure itself keeps its own place in the document.')
-  floating.push({ ...base(260), placement: 'float', centered: false, anchorId: alongside.attrs!.id, x: 628, y: 8,
-    padding: '1em', decoration: { kind: 'left', color: 'secondary' },
+  objects.push({ ...base(260), kind: 'text', layout: { width: 260, placement: { type: 'float', anchorId: alongside.attrs!.id, x: 628, y: 8 } },
+    padding: em(1), decoration: { kind: 'left', color: 'secondary' },
     content: { type: 'doc', content: [paragraph('A different angle', 'heading'), paragraph('Keep a question close to the passage that inspired it. 灵感随行。', 'caption')] } })
   const table = flow({ ...base(894), kind: 'table', style: 'academic', headerRow: true, content: tableContent([
     ['Content', 'Placement', 'What moves with it'],
@@ -222,19 +227,19 @@ export function createDocument(): MoteDocument {
     ['Side note or annotation', 'Float — positioned on the page', 'Its own text content'],
     ['A composed section', 'Select it in the left gutter', 'Text, spaces, and owned objects'],
   ]), caption: { content: captionContent('A compact comparison of Flow, Float, and the objects that travel together.') } })
-  const drawing = flow({ ...base(640), kind: 'drawing', height: 220, background: null,
+  const drawing = flow({ ...base(640), kind: 'drawing', layout: { ...base(640).layout, height: 220 }, background: null,
     strokes: [
       { color: 'primary', width: 3, points: [[44, 155], [63, 126], [89, 145], [119, 98], [147, 116], [177, 65], [207, 92], [242, 48], [270, 74]] },
       { color: 'secondary', width: 3, points: [[340, 125], [366, 102], [396, 108], [424, 72], [457, 86], [485, 52], [521, 63], [557, 36]] },
       { color: 'gray3', width: 2, points: [[295, 102], [324, 102], [316, 94], [324, 102], [316, 110]] },
     ], labels: [{ x: 48, y: 190, text: 'Sketch the thought', color: 'gray2', size: 18 }, { x: 356, y: 190, text: 'Refine it with Assistant', color: 'gray2', size: 18 }] })
-  const formula = flow({ ...base(800), kind: 'katex', latex: exampleMath.trim() })
+  const formula = flow({ ...base(800), kind: 'formula', latex: exampleMath.trim() })
   const code = flow({ ...base(760), kind: 'code', language: 'javascript',
     source: '// Give each thought a place.\nconst workspace = {\n  write: "Follow the thread",\n  flow: "Make room for a figure",\n  float: "Keep a question nearby",\n}\nconsole.log(workspace.flow)' })
-  const attention = flow({ ...base(780), kind: 'html', height: 400, html: attentionHTML, screenshot: attentionScreenshot,
+  const attention = flow({ ...base(780), kind: 'html', layout: { ...base(780).layout, height: 400 }, html: attentionHTML, screenshot: attentionScreenshot,
     alt: 'A week of attention: interactive reading, writing, and exploring chart with a measure selector.',
     caption: { content: captionContent('A week of attention, with a measure selector for exploring the chart.') } })
-  const motion = flow({ ...base(780), kind: 'html', height: 400, html: motionHTML, screenshot: motionScreenshot,
+  const motion = flow({ ...base(780), kind: 'html', layout: { ...base(780).layout, height: 400 }, html: motionHTML, screenshot: motionScreenshot,
     alt: 'Ideas in motion: animated ranking of five ideas by reader votes, with play, pause, and next-pass controls.',
     caption: { content: captionContent('Five ideas trade places as votes arrive.') } })
   return {
@@ -277,13 +282,13 @@ export function createDocument(): MoteDocument {
       paragraph('The title opens Files. Changes save locally and sync to the cloud; click the sync indicator or press Ctrl/⌘S to sync now. Settings brings document typography, workspace preferences, and browser settings together.'),
       paragraph('Use Share to create a reading link or export .mote, standalone HTML, or a high-resolution PNG. A Private document still allows local export. Assistant is available in its own tab beside Context.'),
       paragraph('Keep what helps you think. Leave a little room for what comes next.', 'caption'),
-    ] }, floating,
+    ] }, objects,
   }
 }
 
-export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift | null): FloatingObject[] {
+export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift | null, content?: JSONContent): FloatingObject[] {
   if (!shift) return objects
-  const flowAnchors = new Set(objects.filter(object => object.placement === 'flow').map(object => object.anchorId))
+  const flowAnchors = new Set(objects.filter(object => object.layout.placement.type === 'flow').map(object => objectAnchorId(object, content)))
   // Later anchors already move with the text flow; only earlier anchors need offsets.
   function move<T extends { anchorId: string | null; y: number }>(point: T): T {
     const anchor = shift!.anchors.find(anchor => anchor.id === point.anchorId)
@@ -292,7 +297,7 @@ export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift 
     if (removed && point.anchorId === removed.id) return { ...point, anchorId: removed.anchorId, y: y + removed.offset }
     return y === point.y ? point : { ...point, y }
   }
-  return objects.map(object => object.placement === 'flow' || flowAnchors.has(object.anchorId) ? object : move(object))
+  return objects.map(object => object.layout.placement.type === 'flow' || flowAnchors.has(objectAnchorId(object)) ? object : patchObject(object, move({ anchorId: objectAnchorId(object), y: objectY(object) })))
 }
 
 // Keep notes when their anchor is removed: prefer the nearest surviving predecessor.
@@ -308,14 +313,14 @@ export function replaceMainContent(doc: MoteDocument, content: JSONContent, merg
     return { anchorId: merge?.anchorId ?? survivingAnchor(point.anchorId), y: Math.max(0, point.y + (merge?.offset ?? 0)) }
   }
   const reconciled = reconcileFlowContent(doc, content, geometry)
-  const floating = shiftSpaceObjects(reconciled.floating, shift).map(note => {
-    if (note.placement === 'flow') return note
-    if (reconciled.floating.some(object => object.placement === 'flow' && object.anchorId === note.anchorId)) return note
-    const { anchorId, y } = remap(note)
-    if (anchorId !== note.anchorId && reconciled.floating.some(object => object.placement === 'flow' && object.anchorId === anchorId)) {
-      return { ...note, ...placementAtPoint(reconciled, objectPagePosition(doc, note, geometry), anchorId, geometry) }
+  const objects = shiftSpaceObjects(reconciled.objects, shift, content).map(note => {
+    if (note.layout.placement.type === 'flow') return note
+    if (reconciled.objects.some(object => object.layout.placement.type === 'flow' && objectAnchorId(object, content) === objectAnchorId(note))) return note
+    const { anchorId, y } = remap({ anchorId: objectAnchorId(note), y: objectY(note) })
+    if (anchorId !== objectAnchorId(note) && reconciled.objects.some(object => object.layout.placement.type === 'flow' && objectAnchorId(object, content) === anchorId)) {
+      return patchObject(note, placementAtPoint(reconciled, objectPagePosition(doc, note, geometry), anchorId, geometry))
     }
-    return anchorId === note.anchorId && y === note.y ? note : { ...note, anchorId, y }
+    return anchorId === objectAnchorId(note) && y === objectY(note) ? note : patchObject(note, { anchorId, y })
   })
-  return { ...doc, content, floating }
+  return { ...doc, content, objects }
 }

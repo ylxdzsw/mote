@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { isText, supportsCaption, tableStyles, type FloatingObject, type FloatingKaTeX, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
+import { isText, supportsCaption, tableStyles, type FloatingObject, type FloatingFormula, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
@@ -43,10 +43,10 @@ interface Props {
   onOpenTask?: () => void
 }
 
-export const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'katex' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
+export const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'formula' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
 export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, reserved, onOpenTask }: Props) {
-  const katex = object.kind === 'katex' ? object as FloatingKaTeX : null
+  const katex = object.kind === 'formula' ? object as FloatingFormula : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
   const placementId = useId()
@@ -60,9 +60,9 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       <InspectorRow>{reserved && onOpenTask && <button className="inspector-primary" onClick={onOpenTask}>Open AI task</button>}{!reserved && <button onClick={onCaption}>Edit caption</button>}<button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
       <InspectorGroup title="Layout">
         <InspectorField label="Width">
-          <NumberField label="Caption width" value={object.caption.width ?? object.width} min={16} max={captionMaxWidth} onChange={onCaptionWidth} />
+          <NumberField label="Caption width" value={object.caption.width ?? object.layout.width} min={16} max={captionMaxWidth} onChange={onCaptionWidth} />
           <label className="inspector-check" title="Follow the owner's width instead of keeping a fixed caption width">
-            <input type="checkbox" checked={object.caption.width === undefined} onChange={event => onCaptionWidth(event.target.checked ? null : object.width)} />
+            <input type="checkbox" checked={object.caption.width === undefined} onChange={event => onCaptionWidth(event.target.checked ? null : object.layout.width)} />
             <span>Match object width</span>
           </label>
         </InspectorField>
@@ -86,7 +86,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       <div className="inspector-stack">
         <div className="placement-options" role="radiogroup" aria-label="Object placement">
           {(['flow', 'float'] as const).map(placement => <label key={placement} title={placement === 'flow' ? 'Between text blocks, in the document flow' : 'Position freely; main text stays to its left'}>
-            <input type="radio" name={placementId} value={placement} checked={object.placement === placement}
+            <input type="radio" name={placementId} value={placement} checked={object.layout.placement.type === placement}
               onChange={() => onPlacement(placement)} />
             <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
           </label>)}
@@ -140,7 +140,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
             onFocus={() => onHistoryBegin('floating-decoration-color')} onBlur={onHistoryEnd}
             onChange={color => color && onChange({ decoration: { ...object.decoration!, color } })} />
         </InspectorField>}
-        <TextPadding value={object.padding ?? (object.decoration ? '0.75em' : 0)} base={defaultFontSize} onChange={padding => onChange({ padding })} />
+        <TextPadding value={object.padding ?? ({ value: object.decoration ? .75 : 0, unit: 'em' })} base={defaultFontSize} onChange={padding => onChange({ padding })} />
       </InspectorGroup>}
       </>}
     </>}
@@ -150,10 +150,10 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     </>}>
       {count === 1 && <ObjectMargins object={object} onChange={margins => onChange({ margins })} />}
     </InspectorGroup>
-    {!reserved && count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'math' : undefined} onTheme={onTheme} />}
-    <InspectorHelp key={count > 1 ? 'group' : object.kind ?? 'text'}>
+    {!reserved && count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'formula' : undefined} onTheme={onTheme} />}
+    <InspectorHelp key={count > 1 ? 'group' : object.kind}>
       {reserved ? <p>Content and size stay reserved for the active AI task. Placement and margins remain user-controlled.</p> : <FloatingHelp object={object} count={count} />}
-      {!reserved && count === 1 && <p>{object.placement === 'flow'
+      {!reserved && count === 1 && <p>{object.layout.placement.type === 'flow'
         ? 'Drag sideways to position; snap to the center. Drag up or down to move between document blocks.'
         : 'Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.'}</p>}
       {!reserved && <>
@@ -164,9 +164,9 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
   </div>
 }
 
-function ObjectMargins({ object, onChange }: { object: FloatingObject; onChange: (margins: NonNullable<FloatingObject['margins']>) => void }) {
+function ObjectMargins({ object, onChange }: { object: FloatingObject; onChange: (margins: NonNullable<FloatingObject['layout']['margins']>) => void }) {
   const sides = ['top', 'right', 'bottom', 'left'] as const
-  const margins = object.margins ?? { top: 0, right: 0, bottom: 0, left: 0 }
+  const margins = object.layout.margins ?? { top: 0, right: 0, bottom: 0, left: 0 }
   return <div className="inspector-field inspector-field-stack object-margin-fieldset">
     <div className="field-heading">Margins</div>
     <div className="object-margins">
@@ -180,16 +180,16 @@ function ObjectMargins({ object, onChange }: { object: FloatingObject; onChange:
 }
 
 function TextPadding({ value, base, onChange }: { value: ThemeLength; base: number; onChange: (value: ThemeLength) => void }) {
-  const unit = typeof value === 'string' && value.endsWith('em') ? 'em' : 'px'
+  const unit = value.unit
   return <InspectorField label="Padding">
-    <NumberField label="Padding" value={typeof value === 'number' ? value : parseFloat(value)} min={0} max={2000 / (unit === 'em' ? base : 1)}
+    <NumberField label="Padding" value={value.value} min={0} max={2000 / (unit === 'em' ? base : 1)}
       step={unit === 'em' ? .025 : 1} unit={unit} units={['em', 'px']}
-      onChange={next => onChange(`${next}${unit}`)}
-      onUnitChange={nextUnit => onChange(`${Number((pixels(value, base) / (nextUnit === 'em' ? base : 1)).toFixed(6))}${nextUnit as 'em' | 'px'}`)} />
+      onChange={next => onChange({ value: next, unit })}
+      onUnitChange={nextUnit => onChange({ value: Number((pixels(value, base) / (nextUnit === 'em' ? base : 1)).toFixed(6)), unit: nextUnit as 'em' | 'px' })} />
   </InspectorField>
 }
 
-function KaTeXControls({ value, onChange, onHistoryBegin, onHistoryEnd }: { value: FloatingKaTeX; onChange: (patch: FloatingPatch) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
+function KaTeXControls({ value, onChange, onHistoryBegin, onHistoryEnd }: { value: FloatingFormula; onChange: (patch: FloatingPatch) => void; onHistoryBegin: (name: string) => void; onHistoryEnd: () => void }) {
   return <InspectorField label="LaTeX" layout="stack">
     <textarea className="embed-source" aria-label="LaTeX" title="LaTeX without delimiters" rows={3} spellCheck={false} value={value.latex}
       onFocus={() => onHistoryBegin(`katex-source:${value.id}`)} onBlur={onHistoryEnd}
@@ -240,7 +240,7 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>The saved screenshot is used for the minimap and PNG export, not the widget’s current interaction state.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. Update screenshot runs the saved code separately on the server; it does not restart the widget on this page. Refresh it after changing code or dimensions.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click the image to add or edit its caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Appearance → Style chooses Simple grid lines, Academic horizontal rules, or Business striped rows. Header row emphasizes the first row.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>
-    case 'katex': return <p>Enter LaTeX without delimiters. Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
+    case 'formula': return <p>Enter LaTeX without delimiters. Drag the formula or its top, left, or bottom border to move it. The right border changes its width; height follows its content. Long formulas do not wrap automatically. Math style applies to every formula.</p>
     default: return <><p>Select the box, then click or drag inside to edit text. Click elsewhere to deselect and drag its interior to move. The top, left, and bottom borders always move it; the right border resizes.</p><p>Padding applies to all sides; em follows the default font size.</p><p>Paragraph styles are document-wide. Tab turns Body paragraphs into list items; Shift+Tab outdents.</p></>
   }
 }

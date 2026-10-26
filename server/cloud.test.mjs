@@ -13,10 +13,10 @@ import { MAX_BODY } from './validation.mjs'
 const origin = 'http://localhost:5173'
 const image = 'data:image/png;base64,iVBORw0KGgo='
 function document(id = randomUUID(), value = 'Hello') {
-  return { id, version: 'V0', width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 },
-    theme: { mode: 'light', hue: 145, secondaryHue: 260, defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' }, blocks: {} },
+  return { id, format: 'mote', version: 1, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
+    theme: { appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true, defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } }, paragraphs: {}, objects: {}, flow: {} },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text: value }] }] },
-    floating: [{ id: 'image-1', kind: 'image', src: image, alt: 'test', anchorId: 'block-1', x: 0, y: 0, width: 100, placement: 'float' }],
+    objects: [{ id: 'image-1', kind: 'image', src: image, alt: 'test', layout: { width: 100, placement: { type: 'float', anchorId: 'block-1', x: 0, y: 0 } } }],
   }
 }
 async function app(t, options = {}) {
@@ -319,29 +319,29 @@ test('legacy snapshot links are revoked during the single-latest transition with
   assert.equal(restarted.store.db.prepare("SELECT count(*) AS n FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(original.id).n, 1)
 })
 
-test('Notes round-trip through saves, validate as text or multiple notes, affect retries, and stay out of public shares', async t => {
+test('Notes round-trip through saves, validate as a notes array, affect retries, and stay out of public shares', async t => {
   const value = await app(t), doc = document()
-  doc.notes = 'Outline and unverified plan'
+  doc.authoring = { notes: ['Outline and unverified plan'], aiModel: 'private/model' }
   const original = await create(value, doc), base = `documents/${original.id}`
-  assert.equal((await value.call('GET', base)).body.document.notes, doc.notes)
+  assert.deepEqual((await value.call('GET', base)).body.document.authoring.notes, doc.authoring.notes)
   const latest = (await shareMutation(value, doc.id, 0, 'enable')).body.share
 
-  const updatedDocument = { ...original.document, notes: ['Updated working notes', 'Another outline', ''] }
+  const updatedDocument = { ...original.document, authoring: { notes: ['Updated working notes', 'Another outline', ''] } }
   const operation = { baseRevision: original.revision, document: updatedDocument, operationId: randomUUID() }
   const saved = await value.call('PUT', base, operation)
   assert.equal(saved.status, 200)
-  assert.deepEqual(saved.body.document.notes, updatedDocument.notes)
-  assert.deepEqual((await value.call('GET', base)).body.document.notes, updatedDocument.notes)
-  assert.equal((await value.call('PUT', base, { ...operation, document: { ...updatedDocument, notes: 'Different retry input' } })).status, 409)
+  assert.deepEqual(saved.body.document.authoring.notes, updatedDocument.authoring.notes)
+  assert.deepEqual((await value.call('GET', base)).body.document.authoring.notes, updatedDocument.authoring.notes)
+  assert.equal((await value.call('PUT', base, { ...operation, document: { ...updatedDocument, authoring: { notes: ['Different retry input'] } } })).status, 409)
   for (const notes of [null, 1, { text: 'not plain text' }, ['Valid note', null], [1], [['Nested note']]]) {
     assert.equal((await value.call('PUT', base, {
-      baseRevision: saved.body.revision, document: { ...updatedDocument, notes }, operationId: randomUUID(),
+      baseRevision: saved.body.revision, document: { ...updatedDocument, authoring: { notes } }, operationId: randomUUID(),
     })).status, 400)
   }
 
   const publicLatest = await value.call('GET', `shared/${latest.token}`)
-  const { notes: _updatedNotes, ...publicUpdated } = updatedDocument
-  assert.equal(Object.hasOwn(publicLatest.body.document, 'notes'), false)
+  const { authoring: _authoring, ...publicUpdated } = updatedDocument
+  assert.equal(Object.hasOwn(publicLatest.body.document, 'authoring'), false)
   assert.deepEqual(publicLatest.body.document, publicUpdated)
 })
 
@@ -363,7 +363,7 @@ test('assistant state CAS and retries are independent, inert, and hydrated', asy
   assert.equal(value.store.db.prepare('SELECT body FROM revisions LIMIT 1').get().body.includes(image), false)
 })
 
-test('save validates V0, reads preserve unreadable old JSON, and all mutations enforce exact Origin', async t => {
+test('save validates V1, reads preserve unreadable old JSON, and all mutations enforce exact Origin', async t => {
   const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
   const invalid = save(original, 'Bad'); invalid.document.version = 'bad'
   assert.equal((await value.call('PUT', base, invalid)).status, 400)
@@ -371,10 +371,27 @@ test('save validates V0, reads preserve unreadable old JSON, and all mutations e
   assert.equal((await value.call('PUT', `${base}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() }, { origin: 'https://mote.ylxdzsw.com.evil.test' })).status, 403)
   assert.equal((await value.call('PATCH', base, { name: 'Bad origin' }, { origin: '' })).status, 403)
   assert.equal((await value.call('DELETE', base, { baseRevision: original.revision }, { origin: 'null' })).status, 403)
-  const old = { ...original.document, version: 'old-unreadable' }
+  const link = (await shareMutation(value, original.id, 0, 'enable')).body.share
+  const assistantOperation = { baseRevision: '0', tasks: [{ id: randomUUID(), candidate: { summary: 'Retained candidate' } }], operationId: randomUUID() }
+  const assistant = await value.call('PUT', `${base}/assistant`, assistantOperation)
+  assert.equal(assistant.status, 200)
+  const old = { version: 'V0', id: original.id, floating: [], notes: 'Retain original bytes' }
   value.store.db.prepare('UPDATE revisions SET body=? WHERE revision=?').run(value.store.pack(old), original.revision)
   assert.deepEqual((await value.call('GET', base)).body.document, old)
-  assert.equal((await value.call('PUT', base, save(original, 'Explicit reset'))).status, 200)
+  assert.equal((await value.call('PUT', base, save(original, 'Unsupported replacement'))).status, 400)
+  assert.equal((await value.call('GET', `shared/${link.token}`)).status, 400)
+  assert.equal((await shareMutation(value, original.id, 1, 'replace')).status, 400)
+  assert.deepEqual((await value.call('GET', base)).body.document, old)
+  assert.throws(() => value.store.workspaceDocument(original.id, original.id), { status: 400 })
+  const removal = { baseRevision: assistant.body.revision, tasks: [], operationId: randomUUID() }
+  const exactRemoval = JSON.stringify(removal)
+  assert.equal((await value.call('PUT', `${base}/assistant`, removal)).status, 400)
+  assert.equal((await value.call('PUT', `${base}/assistant`, removal)).status, 400)
+  assert.equal(JSON.stringify(removal), exactRemoval)
+  assert.deepEqual((await value.call('PUT', `${base}/assistant`, assistantOperation)).body, assistant.body)
+  assert.equal((await value.call('PUT', `${base}/assistant`, { ...assistantOperation, tasks: [] })).status, 409)
+  assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, assistant.body)
+  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM task_revocations WHERE documentId=?').get(original.id).n, 0)
   assert.equal(MAX_BODY, 128 * 1024 * 1024)
 })
 

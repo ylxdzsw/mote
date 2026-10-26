@@ -1,3 +1,4 @@
+import { objectX, objectY } from '../document/model'
 import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { FloatingDrawing, FloatingPatch, Theme } from '../document/model'
 import { useHistory } from '../document/history'
@@ -25,7 +26,7 @@ const sideKeys: Record<Side, [string, string]> = { top: ['ArrowUp', 'ArrowDown']
 
 // Positive amounts extend a side, negative amounts cut it; content keeps its document-pixel size.
 function cropped(drawing: FloatingDrawing, crop: Crop): FloatingDrawing {
-  return { ...drawing, width: drawing.width + crop.left + crop.right, height: drawing.height + crop.top + crop.bottom,
+  return { ...drawing, layout: { ...drawing.layout, width: drawing.layout.width + crop.left + crop.right, height: drawing.layout.height + crop.top + crop.bottom },
     strokes: drawing.strokes.map(stroke => ({ ...stroke, points: stroke.points.map(([x, y]) => [x + crop.left, y + crop.top]) })),
     labels: drawing.labels.map(label => ({ ...label, x: label.x + crop.left, y: label.y + crop.top })) }
 }
@@ -67,7 +68,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
   const [morePage, setMorePage] = useState<'options' | 'clear' | 'help'>('options')
   const [limitMessage, setLimitMessage] = useState('')
   const [crop, setCrop] = useState<{ pointer: number; side: Side; start: number; scale: number; crop: Crop } | null>(null)
-  const fit = (target: FloatingDrawing) => Math.min(areaSize.width / target.width, areaSize.height / target.height)
+  const fit = (target: FloatingDrawing) => Math.min(areaSize.width / target.layout.width, areaSize.height / target.layout.height)
   const shown = crop ? cropped(drawing, crop.crop) : preview ?? drawing
   // Keep the zoom steady while cropping; shrink only when extended bounds no longer fit.
   const scale = crop ? Math.min(crop.scale, fit(shown)) : fit(drawing)
@@ -91,7 +92,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
     }
   }, [])
 
-  useEffect(() => { cancelGesture() }, [drawing.width, drawing.height])
+  useEffect(() => { cancelGesture() }, [drawing.layout.width, drawing.layout.height])
   useEffect(() => { cancelGesture(); setLabelDraft(null) }, [history.revision])
   useEffect(() => { if (labelDraft) { labelInput.current?.focus(); labelInput.current?.select() } }, [labelDraft])
   useEffect(() => {
@@ -121,7 +122,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
   function bounded(side: Side, amount: number): Crop {
     const crop = { top: 0, right: 0, bottom: 0, left: 0, [side]: amount }
     const horizontal = side === 'left' || side === 'right'
-    const size = horizontal ? drawing.width : drawing.height
+    const size = horizontal ? drawing.layout.width : drawing.layout.height
     crop[side] = Math.round(Math.max(16 - size, Math.min((horizontal ? maxWidth : 4000) - size, amount)))
     return crop
   }
@@ -130,10 +131,10 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
     if (!crop.top && !crop.right && !crop.bottom && !crop.left) return
     const next = cropped(drawing, crop)
     // Keep the remaining content in place on the page.
-    const x = Math.max(0, Math.min(maxWidth - next.width, drawing.x - crop.left))
-    const position = drawing.placement === 'flow' ? drawing.centered ? {} : { x }
-      : { x, y: signedY ? drawing.y - crop.top : Math.max(0, drawing.y - crop.top) }
-    commit({ width: next.width, height: next.height, strokes: next.strokes, labels: next.labels, ...position })
+    const x = Math.max(0, Math.min(maxWidth - next.layout.width, objectX(drawing) - crop.left))
+    const position = drawing.layout.placement.type === 'flow' ? (drawing.layout.placement.x === 'center') ? {} : { x }
+      : { x, y: signedY ? objectY(drawing) - crop.top : Math.max(0, objectY(drawing) - crop.top) }
+    commit({ width: next.layout.width, height: next.layout.height, strokes: next.strokes, labels: next.labels, ...position })
   }
 
   function startCrop(side: Side, event: PointerEvent<HTMLButtonElement>) {
@@ -213,7 +214,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
   }
 
   function position(event: { clientX: number; clientY: number }): DrawingPoint {
-    return drawingPoint(event.clientX, event.clientY, canvas.current!.getBoundingClientRect(), drawing.width, drawing.height)
+    return drawingPoint(event.clientX, event.clientY, canvas.current!.getBoundingClientRect(), drawing.layout.width, drawing.layout.height)
   }
 
   function showGesture() {
@@ -233,7 +234,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
       }
       active.stroke.points.push(point)
     } else {
-      const radius = 8 * drawing.width / canvas.current!.getBoundingClientRect().width
+      const radius = 8 * drawing.layout.width / canvas.current!.getBoundingClientRect().width
       active.base.strokes.forEach((stroke, index) => {
         if (!active.erased.has(index) && drawingStrokeHit(stroke.points, active.last, point, radius + stroke.width / 2)) active.erased.add(index)
       })
@@ -306,7 +307,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
       const next = ({ p: 'pen', e: 'eraser', l: 'label' } as const)[key as 'p' | 'e' | 'l']
       if (next) { event.preventDefault(); cancelGesture(); setTool(next) }
       else if (key === 'enter' && target === canvas.current && tool === 'label') {
-        event.preventDefault(); editLabel(null, { x: drawing.width / 2, y: drawing.height / 2, text: '', color, size: 20 })
+        event.preventDefault(); editLabel(null, { x: drawing.layout.width / 2, y: drawing.layout.height / 2, text: '', color, size: 20 })
       }
     }
   }
@@ -319,11 +320,11 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
     }} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()} onContextMenu={event => event.stopPropagation()}>
     <header className="drawing-editor-heading">
       <h1 id={`${id}-title`}>Drawing</h1>
-      <span>{Math.round(shown.width)} × {Math.round(shown.height)}</span>
+      <span>{Math.round(shown.layout.width)} × {Math.round(shown.layout.height)}</span>
       <button className="drawing-done" title="Done (Escape)" onClick={() => close(true)}>Done</button>
     </header>
     <div ref={area} className="drawing-editor-area">
-      <div className={`drawing-editor-frame${crop ? ' is-cropping' : ''}`} style={{ width: shown.width * scale, height: shown.height * scale,
+      <div className={`drawing-editor-frame${crop ? ' is-cropping' : ''}`} style={{ width: shown.layout.width * scale, height: shown.layout.height * scale,
         // The area centers the frame; offset it so the edge opposite the dragged side stays put.
         translate: crop ? `${(crop.crop.right - crop.crop.left) * scale / 2}px ${(crop.crop.bottom - crop.crop.top) * scale / 2}px` : undefined }}>
         <div ref={canvas} className={`drawing-editor-canvas is-${tool}`} tabIndex={0} role="group" aria-label="Drawing canvas"
@@ -341,7 +342,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, onChange, onC
           onKeyDown={event => cropKey(side, event)} />)}
       </div>
       {labelDraft && <div className="drawing-label-editor" role="group" aria-label={labelDraft.index === null ? 'New label' : 'Edit label'}
-        style={{ left: `clamp(8px, ${(areaSize.width - drawing.width * scale) / 2 + labelDraft.label.x * scale}px, calc(100% - 292px))`, top: `clamp(8px, ${(areaSize.height - drawing.height * scale) / 2 + labelDraft.label.y * scale}px, calc(100% - 164px))` }}>
+        style={{ left: `clamp(8px, ${(areaSize.width - drawing.layout.width * scale) / 2 + labelDraft.label.x * scale}px, calc(100% - 292px))`, top: `clamp(8px, ${(areaSize.height - drawing.layout.height * scale) / 2 + labelDraft.label.y * scale}px, calc(100% - 164px))` }}>
         <textarea ref={labelInput} aria-label="Label text" aria-describedby={`${id}-label-hint ${id}-hint`} defaultValue={labelDraft.label.text} maxLength={limits.text} rows={3} placeholder="Type a label…"
           onInput={event => setLimitMessage(event.currentTarget.value.length >= limits.text ? 'Label limit reached (4,096 characters). Shorten the text to add more.' : '')} />
         <p id={`${id}-label-hint`}>Enter to save · Shift+Enter for a new line</p>

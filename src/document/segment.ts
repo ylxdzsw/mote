@@ -1,8 +1,8 @@
+import { patchObject, objectX, objectY, objectAnchorId } from './model'
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument } from './model'
-import { defaultTheme, supportsCaption } from './model'
-import { initializeDocument } from './initialize'
-import { validateDocument } from './validate'
+import { supportsCaption } from './model'
+import { validateComposition } from '../../shared/document.mjs'
 import type { Geometries } from '../canvas/floatingGeometry'
 
 export const SEGMENT_MIME = 'application/x-mote-segment+json'
@@ -18,10 +18,10 @@ export interface SegmentRange {
 }
 
 export interface SegmentClipboard {
-  version: 'V0'
+  version: 1
   type: 'segment'
   content: JSONContent[]
-  floating: FloatingObject[]
+  objects: FloatingObject[]
   geometry: Geometries
   anchorTops: Record<string, number>
   originTop: number
@@ -167,19 +167,19 @@ function pointInSelectedRange(place: AnchorPlace, blocks: JSONContent[], selecte
   return anchorIsSelected(place.anchorId, place.y, blocks, selected)
 }
 
-function objectAnchorPlace(object: FloatingObject): AnchorPlace {
-  return { anchorId: object.anchorId, y: object.y }
+function objectAnchorPlace(object: FloatingObject, blocks: JSONContent[]): AnchorPlace {
+  return { anchorId: objectAnchorId(object, { type: 'doc', content: blocks }), y: objectY(object) }
 }
 
 function objectBaseIncluded(object: FloatingObject, blocks: JSONContent[], selected: SelectedSegment, range: SegmentRange) {
-  return pointInSelectedRange(objectAnchorPlace(object), blocks, selected, range)
+  return pointInSelectedRange(objectAnchorPlace(object, blocks), blocks, selected, range)
 }
 
 function selectedObjectSet(doc: MoteDocument, range: SegmentRange): Set<string> {
   const blocks = blocksOf(doc)
   const selected = selectedSegment(blocks, range)
   const ids = new Set<string>()
-  for (const object of doc.floating) if (objectBaseIncluded(object, blocks, selected, range)) ids.add(object.id)
+  for (const object of doc.objects) if (objectBaseIncluded(object, blocks, selected, range)) ids.add(object.id)
   return ids
 }
 
@@ -195,8 +195,7 @@ function transformCopiedObject(object: FloatingObject, blocks: JSONContent[], se
     const slice = block && spacerSliceFor(block, selected)
     return slice ? { anchorId: id, y: Math.max(0, y - slice.start) } : { anchorId: id, y }
   }
-  Object.assign(result, shiftAnchor(result.anchorId, result.y))
-  return result
+  return result.layout.placement.type === 'flow' ? result : patchObject(result, shiftAnchor(objectAnchorId(result), objectY(result)))
 }
 
 export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: readonly { id: string; top: number }[], geometry: Geometries): SegmentClipboard {
@@ -218,10 +217,10 @@ export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: rea
     content.push(block)
   }
   const selectedIds = selectedObjectSet(doc, canonical)
-  const floating = doc.floating.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, blocks, selected))
+  const objects = doc.objects.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, blocks, selected))
   const selectedGeometry: Geometries = {}
-  for (const object of floating) if (geometry[object.id]) selectedGeometry[object.id] = clone(geometry[object.id])
-  return { version: 'V0', type: 'segment', content, floating, geometry: selectedGeometry, anchorTops, originTop }
+  for (const object of objects) if (geometry[object.id]) selectedGeometry[object.id] = clone(geometry[object.id])
+  return { version: 1, type: 'segment', content, objects, geometry: selectedGeometry, anchorTops, originTop }
 }
 
 export function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
@@ -293,11 +292,8 @@ function remapRetainedObject(object: FloatingObject, selected: SelectedSegment, 
     if (selected.blockIds.has(id)) return undefined
     return applyAlias({ anchorId: id, y }, aliases)
   }
-  const mapped = mapExisting(result.anchorId, result.y)
-  if (mapped) Object.assign(result, mapped)
-  else Object.assign(result, fallbackGeometry(result, geometry, resultAnchors))
-
-  return result
+  const mapped = mapExisting(objectAnchorId(result), objectY(result))
+  return result.layout.placement.type === 'flow' ? result : patchObject(result, mapped ?? fallbackGeometry(result, geometry, resultAnchors))
 }
 
 export function validateGeometry(geometry: unknown): asserts geometry is Geometries {
@@ -331,27 +327,17 @@ function validatePayloadMappings(payload: SegmentClipboard) {
   for (const id of Object.keys(anchorTops)) if (!safe(id) || !blockIds.has(id)) throw new Error('Invalid segment anchor mapping')
 }
 
-function payloadCandidate(payload: SegmentClipboard): MoteDocument {
-  return {
-    version: 'V0', id: 'segment', width: 1, margins: { top: 0, right: 0, bottom: 0, left: 0 },
-    theme: clone(defaultTheme),
-    content: { type: 'doc', content: clone(payload.content) }, floating: clone(payload.floating),
-  }
-}
-
 function validateClipboard(value: unknown): asserts value is SegmentClipboard {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Mote segment')
   const payload = value as Partial<SegmentClipboard>
-  if (payload.version !== 'V0' || payload.type !== 'segment') throw new Error('Unsupported Mote segment version')
-  if ('palette' in payload || !Array.isArray(payload.content) || !Array.isArray(payload.floating)) throw new Error('Invalid Mote segment contents')
+  if (payload.version !== 1 || payload.type !== 'segment') throw new Error('Unsupported Mote segment version')
+  if (Object.keys(payload).some(key => !['version', 'type', 'content', 'objects', 'geometry', 'anchorTops', 'originTop'].includes(key)) || !Array.isArray(payload.content) || !Array.isArray(payload.objects)) throw new Error('Invalid Mote segment contents')
   if (typeof payload.originTop !== 'number' || !Number.isFinite(payload.originTop) || !payload.anchorTops || typeof payload.anchorTops !== 'object' || Array.isArray(payload.anchorTops)) throw new Error('Invalid Mote segment anchors')
   for (const value of Object.values(payload.anchorTops as Record<string, unknown>)) if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Invalid Mote segment anchor top')
   validateGeometry(payload.geometry)
   validatePayloadMappings(payload as SegmentClipboard)
   try {
-    const candidate = payloadCandidate(payload as SegmentClipboard)
-    validateDocument(candidate)
-    initializeDocument(candidate)
+    validateComposition(payload.content, payload.objects, { allowEmpty: true })
   } catch (error) {
     throw new Error(`Invalid Mote segment: ${error instanceof Error ? error.message : 'document content'}`)
   }
@@ -366,9 +352,7 @@ export function parseSegment(text: string): SegmentClipboard {
   let value: unknown
   try { value = JSON.parse(text) } catch { throw new Error('Invalid Mote segment JSON') }
   validateClipboard(value)
-  const candidate = payloadCandidate(value)
-  initializeDocument(candidate)
-  return { ...clone(value), content: clone(candidate.content.content ?? []), floating: clone(candidate.floating) }
+  return clone(value)
 }
 
 function sourcePayloadAnchorTop(payload: SegmentClipboard, id: string | null) {
@@ -404,7 +388,7 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
   const payload = copySegment(doc, canonical, anchors, geometry)
   const used = new Set<string>()
   collectNodeIds(doc.content, used)
-  for (const object of doc.floating) { used.add(object.id); collectObjectNodeIds(object, used) }
+  for (const object of doc.objects) { used.add(object.id); collectObjectNodeIds(object, used) }
   let position = 0
   // Split only the source and destination spaces. Ordinary blocks keep their IDs.
   const pieces = blocks.flatMap(block => {
@@ -429,26 +413,26 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
     return piece ? applyAlias({ anchorId: blockId(piece.block)!, y: point.y - piece.offset }, aliases) : point
   }
   const mapMoved = (point: FloatingObject, absoluteY?: number) => {
-    const piece = moving.find(piece => piece.originalId === point.anchorId)
-    if (piece) return applyAlias({ anchorId: blockId(piece.block)!, y: point.y }, aliases)
-    const offset = (absoluteY ?? sourcePayloadAnchorTop(payload, point.anchorId) + point.y) - payload.originTop
+    const piece = moving.find(piece => piece.originalId === objectAnchorId(point))
+    if (piece) return applyAlias({ anchorId: blockId(piece.block)!, y: objectY(point) }, aliases)
+    const offset = (absoluteY ?? sourcePayloadAnchorTop(payload, objectAnchorId(point)) + objectY(point)) - payload.originTop
     // Objects above the moved segment need a preceding anchor instead of clamping to its top.
     const first: JSONContent = moving[0].block
-    const flow = first.type === 'flow' ? doc.floating.find(object => object.id === first.attrs?.objectId) : undefined
+    const flow = first.type === 'flow' ? doc.objects.find(object => object.id === first.attrs?.objectId) : undefined
     const origin = flow && geometry[flow.id]
     const mapped = offset < 0 ? absoluteToAnchor({ x: 0, y: Math.max(0, insertionTop + offset) }, prefixAnchors)
-      : origin ? { anchorId: blockId(first)!, x: (geometry[point.id]?.x ?? point.x) - origin.x, y: offset + payload.originTop - origin.y }
+      : origin ? { anchorId: blockId(first)!, x: (geometry[point.id]?.x ?? objectX(point)) - origin.x, y: offset + payload.originTop - origin.y }
       : { anchorId: blockId(first)!, y: offset }
     return applyAlias(mapped, aliases)
   }
-  const movedObjects = new Map(payload.floating.map(object => [object.id, object]))
-  const floating = doc.floating.map(original => {
+  const movedObjects = new Map(payload.objects.map(object => [object.id, object]))
+  const objects = doc.objects.map(original => {
     const moved = movedObjects.get(original.id), object = moved ?? original
-    const next = { ...object, ...(moved ? mapMoved(object, geometry[object.id]?.y) : mapRetained(object)) }
+    const next = object.layout.placement.type === 'flow' ? object : patchObject(object, moved ? mapMoved(object, geometry[object.id]?.y) : mapRetained({ anchorId: objectAnchorId(object), y: objectY(object) }))
     return next
   })
   const insertion = at < start ? at : at - (end - start)
-  return { doc: { ...doc, content: { ...doc.content, content }, floating },
+  return { doc: { ...doc, content: { ...doc.content, content }, objects },
     range: { start: segmentPointAt(content, insertion), end: segmentPointAt(content, insertion + end - start) } }
 }
 
@@ -461,7 +445,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   const insertionTop = topAtPoint(canonical.start, oldBlocks, anchors)
   const used = new Set<string>()
   for (const block of oldBlocks) collectNodeIds(block, used)
-  for (const object of doc.floating) {
+  for (const object of doc.objects) {
     used.add(object.id)
     collectObjectNodeIds(object, used)
   }
@@ -518,26 +502,23 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
     return [{ id: alias?.anchorId ?? id, top }]
   }).filter((anchor, index, all) => all.findIndex(other => other.id === anchor.id) === index)
 
-  const retained = doc.floating.filter(object => !selectedIds.has(object.id)).map(object => remapRetainedObject(object, selected, parts, aliases, geometry, resultAnchors))
+  const retained = doc.objects.filter(object => !selectedIds.has(object.id)).map(object => remapRetainedObject(object, selected, parts, aliases, geometry, resultAnchors))
   if (payload) {
-    for (const object of payload.floating) {
+    for (const object of payload.objects) {
       const nextId = freshId(used)
       payloadObjectMap.set(object.id, nextId)
     }
     for (const block of payloadBlocks) if (block.type === 'flow') block.attrs = { ...block.attrs, objectId: payloadObjectMap.get(block.attrs!.objectId)! }
-    for (const object of payload.floating) {
-      const next = clone(object)
+    for (const object of payload.objects) {
+      let next = clone(object)
       next.id = payloadObjectMap.get(object.id)!
-      const sourceAnchor = object.anchorId
+      const sourceAnchor = objectAnchorId(object)
       const rawAnchor = sourceAnchor === null ? undefined : payloadBlockMap.get(sourceAnchor)
       const translated = (point: { x: number; y: number }) => ({ x: point.x,
         ...absoluteToAnchor({ x: point.x, y: Math.max(0, insertionTop + point.y - payload.originTop) }, resultAnchors) })
-      const mapped = rawAnchor ? applyAlias({ anchorId: rawAnchor, y: object.y }, aliases)
-        : translated(payload.geometry[object.id] ?? { x: object.x, y: object.y + sourcePayloadAnchorTop(payload, sourceAnchor) })
-      const mappedAnchor = mapped.anchorId
-      next.anchorId = mappedAnchor
-      next.y = mapped.y
-      if ('x' in mapped) next.x = mapped.x as number
+      const mapped = rawAnchor ? applyAlias({ anchorId: rawAnchor, y: objectY(object) }, aliases)
+        : translated(payload.geometry[object.id] ?? { x: objectX(object), y: objectY(object) + sourcePayloadAnchorTop(payload, sourceAnchor) })
+      if (next.layout.placement.type === 'float') next = patchObject(next, mapped)
       if ('content' in next) next.content = freshNode(next.content, used)
       if (supportsCaption(next) && next.caption) next.caption = { ...next.caption, content: freshNode(next.caption.content, used) }
       retained.push(next)
@@ -545,7 +526,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   }
 
   const content = postBlocks.length ? { ...clone(doc.content), content: postBlocks } : { ...clone(doc.content), content: [{ type: 'paragraph', attrs: { id: freshId(used), semantic: 'body' }, content: [] }] }
-  return { ...doc, content, floating: retained }
+  return { ...doc, content, objects: retained }
 }
 
 function nodeText(node: JSONContent): string {

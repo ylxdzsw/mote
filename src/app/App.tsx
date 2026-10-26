@@ -1,3 +1,4 @@
+import { objectAnchorId } from '../document/model'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type React from 'react'
 import { createPortal } from 'react-dom'
@@ -7,7 +8,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { createDocument, replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { DEFAULT_WIDGET_HTML, WIDGET_SCREENSHOT_PLACEHOLDER } from '../document/widget'
@@ -123,12 +124,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [widgetRuns, setWidgetRuns] = useState<Record<string, number>>({})
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
   const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
-  const selectedObject = doc?.floating.find(object => object.id === selectedIds[0])
+  const selectedObject = doc?.objects.find(object => object.id === selectedIds[0])
   const selectedObjectTask = selectedIds.length === 1 && selectedObject
     ? assistant.tasks.find(task => task.target.kind === 'object' && task.target.objectId === selectedObject.id)
     : undefined
   const [drawingId, setDrawingId] = useState<string | null>(null)
-  const drawing = doc?.floating.find(object => object.id === drawingId)
+  const drawing = doc?.objects.find(object => object.id === drawingId)
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string } | null>(null)
   const [imageError, setImageError] = useState('')
@@ -160,10 +161,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
 
   useEffect(() => {
-    if (selectedIds.some(id => !doc?.floating.some(object => object.id === id))) {
-      setSelectedIds(ids => ids.filter(id => doc?.floating.some(object => object.id === id))); setActiveEditor(null)
+    if (selectedIds.some(id => !doc?.objects.some(object => object.id === id))) {
+      setSelectedIds(ids => ids.filter(id => doc?.objects.some(object => object.id === id))); setActiveEditor(null)
     }
-  }, [doc?.floating, selectedIds, mainEditor])
+  }, [doc?.objects, selectedIds, mainEditor])
 
   useLayoutEffect(() => { if (doc) copy.update(doc) }, [doc, copy])
 
@@ -221,7 +222,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     editor: activeEditor,
     selector: () => {
       // Include focus-only editor changes, especially the null editor for images.
-      const editor = activeEditor
+      const editor = activeEditor?.isDestroyed ? null : activeEditor
       const caption = isCaptionEditor(editor)
       const rect = editor && !caption && isInTable(editor.state) ? selectedRect(editor.state) : null
       return {
@@ -244,22 +245,22 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     return block.attrs.id as string
   }
 
-  function addObject(kind: 'table' | 'katex' | 'html', columns = 2, rows = 2) {
+  function addObject(kind: 'table' | 'formula' | 'html', columns = 2, rows = 2) {
     const anchor = anchorId()
     if (!doc || anchor === undefined) return
-    const width = kind === 'table' ? doc.width - doc.margins.left - doc.margins.right - 2 : Math.min(340, doc.width - doc.margins.left - doc.margins.right - 2)
-    const base = { id: crypto.randomUUID(), anchorId: anchor, x: 0, y: 0, width, placement: 'flow' as const, centered: true }
-    const object: FloatingObject = kind === 'katex' ? { ...base, kind, latex: 'E = mc^2' }
-      : kind === 'html' ? { ...base, kind, height: 220, html: DEFAULT_WIDGET_HTML, screenshot: WIDGET_SCREENSHOT_PLACEHOLDER, alt: '' }
+    const width = kind === 'table' ? doc.page.width - doc.page.margins.left - doc.page.margins.right - 2 : Math.min(340, doc.page.width - doc.page.margins.left - doc.page.margins.right - 2)
+    const base = { id: crypto.randomUUID(), layout: { width, placement: { type: 'flow' as const, x: 'center' as const } } }
+    const object: FloatingObject = kind === 'formula' ? { ...base, kind, latex: 'E = mc^2' }
+      : kind === 'html' ? { ...base, kind, layout: { ...base.layout, height: 220 }, html: DEFAULT_WIDGET_HTML, screenshot: WIDGET_SCREENSHOT_PLACEHOLDER, alt: '' }
       : { ...base, kind, content: tableContent(Array.from({ length: rows }, () => Array(columns).fill(''))) }
     actions.current?.insert([object])
   }
 
-  function updateFloating(floating: FloatingObject[]) { setDoc(current => current && reconcileObjectDeletions(current, floating, actions.current?.segmentContext())) }
+  function updateFloating(objects: FloatingObject[]) { setDoc(current => current && reconcileObjectDeletions(current, objects, actions.current?.segmentContext())) }
 
   function updateObject(id: string, patch: FloatingPatch) {
-    setDoc(current => current && ({ ...current, floating: current.floating.map(object => object.id === id
-      ? patchFloating(object, patch.x === undefined ? constrainCaptionResize(object, patch, actions.current?.segmentContext()?.geometry[id], current.width - 2) : patch) : object) }))
+    setDoc(current => current && ({ ...current, objects: current.objects.map(object => object.id === id
+      ? patchFloating(object, patch.x === undefined ? constrainCaptionResize(object, patch, actions.current?.segmentContext()?.geometry[id], current.page.width - 2) : patch) : object) }))
   }
 
   function editDrawing(id: string) {
@@ -273,7 +274,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   function reorder(front: boolean) {
     if (selectedIds.length < 1) return
-    setDoc(current => { if (!current) return current; const chosen = current.floating.filter(object => selectedIds.includes(object.id)); const rest = current.floating.filter(object => !selectedIds.includes(object.id)); return { ...current, floating: front ? [...rest, ...chosen] : [...chosen, ...rest] } })
+    setDoc(current => { if (!current) return current; const chosen = current.objects.filter(object => selectedIds.includes(object.id)); const rest = current.objects.filter(object => !selectedIds.includes(object.id)); return { ...current, objects: front ? [...rest, ...chosen] : [...chosen, ...rest] } })
   }
 
   function handleCanvasContextMenu(point: { x: number; y: number }) {
@@ -289,7 +290,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (kind === 'image') { chooseImage(); return }
     if (kind === 'html') { addObject('html'); return }
     if (kind === 'table') { addObject('table'); return }
-    if (kind === 'katex') { addObject('katex'); return }
+    if (kind === 'formula') { addObject('formula'); return }
     if (['text','code','drawing','ai','paragraph'].includes(kind)) {
       setTool(kind as CreationTool)
       setSelectedIds([])
@@ -297,7 +298,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
 
   function chooseImage(object?: FloatingObject) {
-    const anchor = object ? object.anchorId : anchorId()
+    const anchor = object ? objectAnchorId(object, doc!.content) : anchorId()
     if (!doc || (!object && anchor === undefined)) return
     imageTarget.current = { documentId: doc.id, anchorId: anchor === undefined ? null : anchor, objectId: object?.id }
     setImageError('')
@@ -321,10 +322,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       const current = latest.current!
       const anchor = target.anchorId === null || current.content.content!.some(node => node.attrs?.id === target.anchorId)
         ? target.anchorId : null
-      const width = Math.min(340, current.width - current.margins.left - current.margins.right)
+      const width = Math.min(340, current.page.width - current.page.margins.left - current.page.margins.right)
       const objects: FloatingObject[] = sources.map((src, index) => {
-        const base = { id: crypto.randomUUID(), anchorId: anchor, x: position?.x ?? 0,
-          y: position?.y ?? 0, width, placement: position ? 'float' as const : 'flow' as const, centered: !position, alt: files[index].name.replace(/\.[^.]+$/, '') }
+        const base = { id: crypto.randomUUID(), layout: { width, placement: position ? { type: 'float' as const, anchorId: anchor, x: position.x, y: position.y } : { type: 'flow' as const, x: 'center' as const } }, alt: files[index].name.replace(/\.[^.]+$/, '') }
         return { ...base, kind: 'image', src }
       })
       actions.current?.insert(objects)
@@ -353,12 +353,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   function measuredArea(element: Element | null): Area {
     const sheet = document.querySelector<HTMLElement>('.workspace > .canvas-pane .sheet')
-    if (!element || !sheet) return { x: doc!.margins.left, y: doc!.margins.top, width: doc!.width - doc!.margins.left - doc!.margins.right, height: 24 }
+    if (!element || !sheet) return { x: doc!.page.margins.left, y: doc!.page.margins.top, width: doc!.page.width - doc!.page.margins.left - doc!.page.margins.right, height: 24 }
     const origin = sheet.getBoundingClientRect(), rect = element.getBoundingClientRect(), scale = origin.width / sheet.offsetWidth
     const caption = element.querySelector('.object-caption')?.getBoundingClientRect()
-    const object = doc!.floating.find(object => object.id === element.getAttribute('data-note-id'))
+    const object = doc!.objects.find(object => object.id === element.getAttribute('data-note-id'))
     if (object) return extentBounds({ x: (rect.left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop,
-      width: rect.width / scale, height: rect.height / scale, captionWidth: caption ? caption.width / scale : undefined, margins: object.margins })
+      width: rect.width / scale, height: rect.height / scale, captionWidth: caption ? caption.width / scale : undefined, margins: object.layout.margins })
     const left = Math.min(rect.left, caption?.left ?? rect.left), right = Math.max(rect.right, caption?.right ?? rect.right)
     return { x: (left - origin.left) / scale - sheet.clientLeft, y: (rect.top - origin.top) / scale - sheet.clientTop, width: (right - left) / scale, height: rect.height / scale }
   }
@@ -414,7 +414,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
   function createAIArea(object: FloatingObject, area: Area) {
     if (!doc) return
-    const next = { ...doc, floating: [...doc.floating, object] }
+    const next = { ...doc, objects: [...doc.objects, object] }
     setDoc(next); focusRequest(assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next))
   }
   function createAISegment(range: SegmentRange, area: Area) {
@@ -487,13 +487,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
             onClick={() => setShareOpen(true)}><PanelIcon name="share" /></button>
           <button className="header-icon-btn" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
             onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen) }}><PanelIcon name="settings" /></button>
-          <button className="header-icon-btn" aria-label="Reset to example" title="Reset to example" aria-haspopup="dialog" onClick={() => {
-            if (!window.confirm('Reset this document to the example? This replaces the local working copy and syncs the replacement to the cloud. Undo history will be cleared.')) return
-            assistant.abandonAll()
-            const replacement = { ...createDocument(), id: doc.id }
-            copy.replaceLocal(replacement)
-            void copy.sync()
-          }}><PanelIcon name="reset" /></button>
         </>}
         {!mobile && <button className="read-button" aria-label={mode === 'edit' ? 'Read document' : 'Edit document'} aria-pressed={mode === 'read'}
           onClick={() => setMode(mode === 'edit' ? 'read' : 'edit')}><PanelIcon name={mode === 'edit' ? 'book' : 'edit'} /><span>{mode === 'edit' ? 'Read' : 'Edit'}</span></button>}
@@ -597,7 +590,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
               </div> : <>
                 {selectedObject ? <FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
-                  captionMaxWidth={doc.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
+                  captionMaxWidth={doc.page.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
                   onCaption={() => actions.current?.caption()}
                   textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
                   tableControls={isCaptionEditor(activeEditor) ? null : <TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
@@ -631,7 +624,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
           toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: assistant.openTask, deleteTarget: assistant.deleteTarget }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
-        widgetRuns={Object.fromEntries(doc.floating.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => {
+        widgetRuns={Object.fromEntries(doc.objects.map(object => [object.id, (widgetRuns[object.id] ?? 0) + (assistant.runs[object.id] ?? 0)]))} tool={tool} onToolChange={setTool} selectedIds={selectedIds} onSelect={ids => {
           setSelectedIds(ids)
         }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
@@ -639,13 +632,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId }, position)}
         onContextMenu={handleCanvasContextMenu} onDrawingEdit={editDrawing} />
-      {editable && <DocumentNotes key={`notes:${doc.id}`} value={doc.notes ?? ''}
+      {editable && <DocumentNotes key={`notes:${doc.id}`} value={doc.authoring?.notes ?? []}
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
     {editable && drawing?.kind === 'drawing' && !assistant.lockedIds.has(drawing.id) && createPortal(
       <DrawingEditor key={drawing.id} drawing={drawing} theme={doc.theme}
-        maxWidth={drawing.placement === 'flow' ? doc.width - doc.margins.left - doc.margins.right : doc.width}
-        signedY={doc.content.content!.some(node => node.type === 'flow' && node.attrs?.id === drawing.anchorId)} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
+        maxWidth={drawing.layout.placement.type === 'flow' ? doc.page.width - doc.page.margins.left - doc.page.margins.right : doc.page.width}
+        signedY={doc.content.content!.some(node => node.type === 'flow' && node.attrs?.id === objectAnchorId(drawing, doc.content))} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
       document.querySelector('.app')!)}
     {editable && <Launchpad
       point={launchpadPoint}

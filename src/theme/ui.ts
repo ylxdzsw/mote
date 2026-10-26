@@ -21,9 +21,9 @@ function segmentCursor(accent: string) {
 
 export function uiThemeVariables(theme: Theme, language: 'en' | 'zh-Hans' = 'en'): CSSProperties {
   const page = pageColor(theme)
-  const dark = theme.mode === 'dark'
+  const dark = theme.appearance.mode === 'dark'
   const endpoint = dark ? '#ffffff' : '#000000'
-  const tone = (light: number, night: number, chroma: number) => oklchHex(dark ? night : light, chroma, theme.hue)
+  const tone = (light: number, night: number, chroma: number) => oklchHex(dark ? night : light, chroma, theme.appearance.primaryHue)
   const readable = (color: string, backgrounds: string[]) => toward(color, endpoint, value => backgrounds.every(bg => contrastRatio(value, bg) >= 4.5))
   // Main chrome shares the page background; control tones still follow the hue.
   const panel = page, raised = dark ? tone(1, .24, .004) : '#ffffff'
@@ -55,7 +55,7 @@ export function uiThemeVariables(theme: Theme, language: 'en' | 'zh-Hans' = 'en'
 
   return {
     colorScheme: dark ? 'dark' : 'light',
-    '--ui-hue': String(theme.hue),
+    '--ui-hue': String(theme.appearance.primaryHue),
     '--ui-shell': canvas,
     '--ui-canvas': canvas,
     '--ui-gutter': canvas,

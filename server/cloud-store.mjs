@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { HttpError, UUID, record, text, validateDocument } from './validation.mjs'
+import { HttpError, UUID, record, text, validateDocument, publishDocument } from './validation.mjs'
 import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
@@ -167,7 +167,7 @@ export class CloudStore {
   }
   envelope(row, token = row.revision) {
     const saved = this.saved(row.id, token)
-    // Deliberately no V0 validation on reads: older JSON must reach the reset UI.
+    // Owner reads retain raw unsupported records for recovery; load boundaries reject them without rewriting storage.
     return { ...metadata(row), revision: token, document: this.unpack(saved.body) }
   }
   workspaceDocument(ownDocumentId, sourceId, token) {
@@ -178,7 +178,7 @@ export class CloudStore {
     let saved
     try { saved = token === undefined ? this.saved(sourceId, row.revision) : this.saved(sourceId, revision(token, 'revision')) }
     catch { throw new HttpError(404, 'document not found') }
-    return { ...metadata(row), revision: saved.revision, document: this.unpack(saved.body) }
+    return { ...metadata(row), revision: saved.revision, document: validateDocument(this.unpack(saved.body)) }
   }
   indexDocuments() {
     return this.db.prepare(`SELECT d.id,d.name,d.revision,r.createdAt,d.private,
@@ -411,6 +411,7 @@ export class CloudStore {
       const row = this.row(id); const retry = this.retry(id, 'put', body)
       if (retry.response) return retry.response
       this.compare(row, body.baseRevision)
+      validateDocument(this.unpack(this.saved(id, row.revision).body))
       const document = this.document(body.document, id); const time = now(); const token = randomUUID()
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
@@ -478,6 +479,7 @@ export class CloudStore {
       if (current.revision !== baseRevision) throw new HttpError(409, 'share revision conflict', current)
       if (document.private && body.action !== 'disable') throw new HttpError(403, 'Private documents cannot be shared; turn off Private to create a new share link')
 
+      if (body.action !== 'disable') validateDocument(this.unpack(this.saved(id, document.revision).body))
       const previous = this.db.prepare("SELECT id FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
       if (body.action === 'enable' && previous) throw new HttpError(409, 'share is already enabled', current)
       if (body.action === 'replace' && !previous) throw new HttpError(409, 'share is not enabled', current)
@@ -505,8 +507,7 @@ export class CloudStore {
       JOIN revisions r ON r.documentId=d.id AND r.revision=d.revision
       WHERE s.token=? AND s.mode='latest' AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(token)
     if (!row) throw new HttpError(404, 'share not found')
-    const document = this.unpack(row.body)
-    delete document.notes
+    const document = publishDocument(this.unpack(row.body))
     return { name: row.name, revision: row.revision, document }
   }
 
@@ -517,6 +518,7 @@ export class CloudStore {
       const row = this.row(id); const retry = this.retry(id, 'assistant', body)
       if (retry.response) return retry.response
       if (row.assistantRevision !== revision(body.baseRevision)) throw new HttpError(409, 'assistant revision conflict', this.assistant(id))
+      validateDocument(this.unpack(this.saved(id, row.revision).body))
       if (!Array.isArray(body.tasks)) throw new HttpError(400, 'tasks must be an array')
       const ids = new Set()
       for (const value of body.tasks) { const task = record(value, 'task'); uuid(task.id, 'task.id'); if (ids.has(task.id)) throw new HttpError(400, 'duplicate task id'); ids.add(task.id) }

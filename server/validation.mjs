@@ -1,5 +1,4 @@
-import { boxColorIds, validPaletteReference } from '../shared/palette.mjs'
-import { validLinkHref } from '../shared/links.mjs'
+import { DocumentFormatError, validateDocument as nativeDocument, validateObject, validateContent, validateComposition, publishDocument as nativePublish } from '../shared/document.mjs'
 
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -9,7 +8,6 @@ export const MAX_RESULT = 8 * 1024 * 1024
 export const MAX_SCREENSHOT = 10 * 1024 * 1024
 const MAX_NODES = 100000
 const MAX_STRING = 8 * 1024 * 1024
-const SAFE_LANGUAGE = /^[A-Za-z0-9][A-Za-z0-9_+.-]{0,63}$/
 const DANGEROUS = new Set(['__proto__', 'constructor', 'prototype'])
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
@@ -38,322 +36,30 @@ export function safeId(value, label) {
   return value
 }
 
-function rejectLegacyAttachments(value, label, seen = new WeakSet()) {
-  if (!value || typeof value !== 'object' || seen.has(value)) return
-  seen.add(value)
-  for (const [key, child] of Object.entries(value)) {
-    if (key === 'attachment') throw new HttpError(400, `${label} contains an unsupported legacy attachment field`)
-    rejectLegacyAttachments(child, label, seen)
+function native(check) {
+  try { return check() } catch (error) {
+    if (error instanceof DocumentFormatError) throw new HttpError(400, error.message)
+    throw error
   }
 }
 
-function themeLength(value, label, nonnegative = true) {
-  if (typeof value === 'number') return finite(value, label, nonnegative ? 0 : undefined)
-  if (typeof value !== 'string' || !/^-?(?:\d+(?:\.\d*)?|\.\d+)(?:px|em)$/.test(value) || !Number.isFinite(parseFloat(value))) throw new HttpError(400, `${label} must be a finite theme length`)
-  if (nonnegative && Number(value.slice(0, -2)) < 0) throw new HttpError(400, `${label} must be nonnegative`)
-}
+export function validateDocument(value) { return native(() => nativeDocument(value)) }
+export function publishDocument(value) { return native(() => nativePublish(value)) }
+export function validateNativeObject(value, options = {}) { return native(() => validateObject(value, options)) }
+function composition(blocks, objects, options = {}) { return native(() => validateComposition(blocks, objects, options)) }
+function content(value, mode = 'main') { return native(() => validateContent(value, mode)) }
 
-const DOCUMENT_CHILDREN = { main: ['paragraph', 'spacer', 'flow'], text: ['paragraph'], table: ['table'], caption: ['paragraph'] }
-const NODE_CHILDREN = { paragraph: ['text', 'hardBreak'], table: ['tableRow'], tableRow: ['tableCell'], tableCell: ['paragraph'] }
-
-function content(value, label = 'content', mode = 'text', allowed = ['doc'], state = { count: 0, depth: 0 }) {
-  if (++state.count > MAX_NODES || state.depth > 100) throw new HttpError(413, 'document content is too large')
-  const node = record(value, label)
-  text(node.type, `${label}.type`, 64, true)
-  if (!allowed.includes(node.type)) throw new HttpError(400, `${label}.type ${node.type} is unsupported here; expected ${allowed.join(', ') || 'no child nodes'}`)
-  if ('content' in node && !Array.isArray(node.content)) throw new HttpError(400, `${label}.content must be an array`)
-  const children = node.content ?? []
-  const childTypes = node.type === 'doc' ? DOCUMENT_CHILDREN[mode] : NODE_CHILDREN[node.type] ?? []
-  if (['doc', 'table', 'tableRow', 'tableCell'].includes(node.type) && !children.length) throw new HttpError(400, `${label} requires child content`)
-  if ((node.type === 'tableCell' || node.type === 'doc' && ['table', 'caption'].includes(mode)) && children.length !== 1) throw new HttpError(400, `${label} requires exactly one ${childTypes[0]}`)
-  if (node.type === 'text') {
-    text(node.text, `${label}.text`)
-    if (!node.text.length) throw new HttpError(400, `${label}.text must not be empty`)
-  }
-  if (node.type === 'flow') {
-    const attrs = record(node.attrs, `${label}.attrs`)
-    safeId(attrs.id, `${label}.attrs.id`); safeId(attrs.objectId, `${label}.attrs.objectId`)
-    if (Object.keys(attrs).some(key => !['id', 'objectId'].includes(key)) || node.content?.length || node.text !== undefined || node.marks?.length) throw new HttpError(400, 'Flow blocks contain only id and objectId')
-  }
-  if ('text' in node) text(node.text, `${label}.text`)
-  if ('attrs' in node && node.attrs != null) {
-    const attrs = record(node.attrs, `${label}.attrs`)
-    if (node.type === 'paragraph' && attrs.semantic === 'code') throw new HttpError(400, `${label}.attrs.semantic code paragraphs are unsupported`)
-    if ('id' in attrs) safeId(attrs.id, `${label}.attrs.id`)
-    if ('height' in attrs) finite(attrs.height, `${label}.attrs.height`, 0)
-    if ('listLevel' in attrs) { finite(attrs.listLevel, `${label}.attrs.listLevel`, 0); if (!Number.isInteger(attrs.listLevel)) throw new HttpError(400, `${label}.attrs.listLevel must be an integer`) }
-    if ('columns' in attrs) {
-      if (!Array.isArray(attrs.columns)) throw new HttpError(400, `${label}.attrs.columns must be an array`)
-      for (const [i, item] of attrs.columns.entries()) {
-        const column = record(item, `${label}.attrs.columns[${i}]`)
-        finite(column.width, `${label}.attrs.columns[${i}].width`, Number.MIN_VALUE)
-        if (!['left', 'center', 'right'].includes(column.align)) throw new HttpError(400, `${label}.attrs.columns[${i}].align is unsupported`)
-      }
-    }
-  }
-  if ('marks' in node) {
-    if (!Array.isArray(node.marks)) throw new HttpError(400, `${label}.marks must be an array`)
-    if (node.marks.length && !['text', 'hardBreak'].includes(node.type)) throw new HttpError(400, `${label}.marks are only supported on inline content`)
-    for (const [i, markValue] of node.marks.entries()) {
-      const mark = record(markValue, `${label}.marks[${i}]`)
-      if (!['bold', 'color', 'decoration', 'link'].includes(mark.type)) throw new HttpError(400, `${label}.marks[${i}] is unsupported`)
-      if (mark.type === 'color') text(record(mark.attrs, `${label}.marks[${i}].attrs`).color, 'mark color', 128, true)
-      if (mark.type === 'decoration' && record(mark.attrs, `${label}.marks[${i}].attrs`).decoration !== 'box') throw new HttpError(400, 'unsupported decoration')
-      if (mark.type === 'link') {
-        const attrs = record(mark.attrs, `${label}.marks[${i}].attrs`)
-        if (Object.keys(mark).some(key => !['type', 'attrs'].includes(key)) || Object.keys(attrs).length !== 1 || !validLinkHref(attrs.href)) throw new HttpError(400, 'unsupported link destination')
-      }
-    }
-  }
-  if ('content' in node) {
-    const child = { count: state.count, depth: state.depth + 1 }
-    children.forEach((item, i) => content(item, `${label}.content[${i}]`, mode, childTypes, child))
-    state.count = child.count
-  }
-}
-
-function validateCaption(value, label) {
-  const caption = record(value, label)
-  if (!Object.hasOwn(caption, 'content') || Object.keys(caption).some(key => !['content', 'width'].includes(key))) throw new HttpError(400, `${label} must contain content and optional width`)
-  if (Object.hasOwn(caption, 'width')) finite(caption.width, `${label}.width`, Number.MIN_VALUE)
-  const doc = record(caption.content, `${label}.content`)
-  if (doc.type !== 'doc' || Object.keys(doc).some(key => !['type', 'content'].includes(key)) || !Array.isArray(doc.content) || doc.content.length !== 1) throw new HttpError(400, `${label}.content must contain exactly one paragraph`)
-  const paragraph = record(doc.content[0], `${label}.content.content[0]`)
-  if (paragraph.type !== 'paragraph' || Object.keys(paragraph).some(key => !['type', 'attrs', 'content'].includes(key))) throw new HttpError(400, `${label} must contain exactly one paragraph`)
-  const attrs = record(paragraph.attrs, `${label}.content.content[0].attrs`)
-  if (Object.keys(attrs).length !== 1 || !Object.hasOwn(attrs, 'id')) throw new HttpError(400, `${label} paragraph attrs must contain only id`)
-  safeId(attrs.id, `${label}.content.content[0].attrs.id`)
-  if (paragraph.content !== undefined && !Array.isArray(paragraph.content)) throw new HttpError(400, `${label}.content.content[0].content must be an array`)
-  content(doc, `${label}.content`, 'caption')
-  for (const [index, value] of (paragraph.content ?? []).entries()) {
-    const node = record(value, `${label}.content.content[0].content[${index}]`)
-    if (node.type === 'text') {
-      if (!Object.hasOwn(node, 'text') || Object.keys(node).some(key => !['type', 'text', 'marks'].includes(key))) throw new HttpError(400, `${label} supports only inline text and hard breaks`)
-    } else if (node.type === 'hardBreak') {
-      if (Object.keys(node).some(key => !['type', 'marks'].includes(key))) throw new HttpError(400, `${label} supports only inline text and hard breaks`)
-    } else throw new HttpError(400, `${label} supports only inline text and hard breaks`)
-    for (const [markIndex, markValue] of (node.marks ?? []).entries()) {
-      const mark = record(markValue, `${label}.content.content[0].content[${index}].marks[${markIndex}]`)
-      const allowed = mark.type === 'bold' ? ['type'] : ['type', 'attrs']
-      if (Object.keys(mark).some(key => !allowed.includes(key))) throw new HttpError(400, `${label} uses an unsupported mark shape`)
-      if (mark.type !== 'bold') {
-        const markAttrs = record(mark.attrs, `${label}.content.content[0].content[${index}].marks[${markIndex}].attrs`)
-        const attr = mark.type === 'link' ? 'href' : mark.type === 'color' ? 'color' : 'decoration'
-        if (Object.keys(markAttrs).length !== 1 || !Object.hasOwn(markAttrs, attr)) throw new HttpError(400, `${label} uses an unsupported mark shape`)
-      }
-    }
-  }
-}
-
-function embeddedImage(value, label) {
-  text(value, label, Math.ceil(MAX_SCREENSHOT * 4 / 3) + 1024, true)
-  const comma = value.indexOf(',')
-  const match = /^data:(image\/(?:svg\+xml|png|jpeg|webp|gif|avif))(?:;[^,]*)?,/i.exec(value)
-  if (comma < 0 || !match) throw new HttpError(400, `${label} must be an embedded image data URL`)
-  const header = value.slice(5, comma)
-  const payload = value.slice(comma + 1)
-  let bytes
-  try { bytes = /(?:^|;)base64(?:;|$)/i.test(header) ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8') } catch { throw new HttpError(400, `${label} contains unreadable image data`) }
-  if (bytes.length > MAX_SCREENSHOT) throw new HttpError(400, `${label} is too large`)
-  if (match[1].toLowerCase() === 'image/png' && !PNG.equals(bytes.subarray(0, 8))) throw new HttpError(400, `${label} is not a PNG`)
-  if (match[1].toLowerCase() === 'image/svg+xml' && /<\s*(?:script|iframe|object|embed|foreignObject)\b|\bon[a-z]+\s*=|@import|<!\s*(?:doctype|entity)\b|\b(?:href|src)\s*=\s*(?:"(?!#)|'(?!#)|(?!["'#]))|url\(\s*["']?(?:https?:|ftp:|\/\/|javascript:|data:)/i.test(bytes.toString('utf8'))) throw new HttpError(400, `${label} contains unsafe SVG content`)
-}
-
-function palette(document) {
-  const ref = (value, label) => {
-    if (!validPaletteReference(value)) throw new HttpError(400, `${label} references an unknown palette color`)
-  }
-  ref(document.theme.defaults.color, 'theme.defaults.color')
-  for (const style of Object.values(document.theme.blocks)) if (style.color !== undefined) ref(style.color, 'theme block color')
-  const visit = node => {
-    for (const mark of node.marks ?? []) if (mark.type === 'color') ref(record(mark.attrs, 'mark.attrs').color, 'mark color')
-    node.content?.forEach(visit)
-  }
-  visit(document.content)
-  for (const object of document.floating) {
-    if (object.decoration) ref(object.decoration.color, 'decoration color')
-    if (object.content) visit(object.content)
-    if (object.caption) visit(object.caption.content)
-    if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) ref(item.color, 'drawing color')
-  }
-}
-
-function theme(value) {
-  const valueObject = record(value, 'theme')
-  if (!['light', 'dark'].includes(valueObject.mode)) throw new HttpError(400, 'theme.mode must be light or dark')
-  for (const key of ['hue', 'secondaryHue']) if (finite(valueObject[key], `theme.${key}`, 0) >= 360) throw new HttpError(400, `theme.${key} must be less than 360`)
-  if ('palette' in valueObject) throw new HttpError(400, 'theme.palette is unsupported')
-  if (valueObject.autospace !== undefined && typeof valueObject.autospace !== 'boolean') throw new HttpError(400, 'theme.autospace must be a boolean')
-  if ('flow' in valueObject) {
-    const flow = record(valueObject.flow, 'theme.flow')
-    if (Object.keys(flow).some(key => !['spaceBefore', 'spaceAfter'].includes(key))) throw new HttpError(400, 'theme.flow contains an unsupported property')
-    for (const key of ['spaceBefore', 'spaceAfter']) if (flow[key] !== undefined) themeLength(flow[key], `theme.flow.${key}`)
-  }
-  const defaults = record(valueObject.defaults, 'theme.defaults')
-  if ('background' in defaults) throw new HttpError(400, 'theme.defaults.background is unsupported')
-  for (const key of ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) if (!(key in defaults)) throw new HttpError(400, `theme.defaults.${key} is missing`)
-  if (!['sans', 'serif', 'mono'].includes(defaults.family)) throw new HttpError(400, 'invalid default family')
-  finite(defaults.size, 'theme.defaults.size', Number.MIN_VALUE)
-  for (const key of ['lineHeight', 'spaceBefore', 'spaceAfter']) themeLength(defaults[key], `theme.defaults.${key}`)
-  themeLength(defaults.letterSpacing, 'theme.defaults.letterSpacing', false)
-  text(defaults.color, 'theme.defaults.color', 128, true)
-  const blocks = record(valueObject.blocks, 'theme.blocks')
-  for (const name of ['title', 'heading', 'subheading', 'body', 'caption', 'code', 'list', 'table', 'math']) {
-    const style = record(blocks[name] ?? {}, `theme.blocks.${name}`)
-    if ('background' in style) throw new HttpError(400, `theme.blocks.${name}.background is unsupported`)
-    if (style.family !== undefined && !['sans', 'serif', 'mono'].includes(style.family)) throw new HttpError(400, 'invalid theme family')
-    for (const key of ['size', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']) if (style[key] !== undefined) themeLength(style[key], `theme.blocks.${name}.${key}`, key !== 'letterSpacing')
-    if (style.color !== undefined) text(style.color, 'theme block color', 128, true)
-    if (style.weight !== undefined) finite(style.weight, 'theme block weight')
-  }
-}
-
-export function validateFloating(value, label = 'floating object', options = {}) {
-  rejectLegacyAttachments(value, label)
-  const object = record(value, label)
-  safeId(object.id, `${label}.id`)
-  if (object.anchorId !== null) safeId(object.anchorId, `${label}.anchorId`)
-  finite(object.x, `${label}.x`); finite(object.y, `${label}.y`); finite(object.width, `${label}.width`, 0)
-  if ('textFlow' in object || !['flow', 'float'].includes(object.placement)) throw new HttpError(400, 'invalid object placement')
-  if (object.centered !== undefined && typeof object.centered !== 'boolean') throw new HttpError(400, 'centered must be a boolean')
-  if ('margins' in object) {
-    const margins = record(object.margins, `${label}.margins`)
-    const sides = ['top', 'right', 'bottom', 'left']
-    if (Object.keys(margins).some(side => !sides.includes(side)) || sides.some(side => !Object.hasOwn(margins, side))) throw new HttpError(400, `${label}.margins must contain top, right, bottom, and left`)
-    for (const side of sides) finite(margins[side], `${label}.margins.${side}`)
-  }
-  if (object.placement === 'flow' && (object.anchorId === null || object.y !== 0)) throw new HttpError(400, 'Flow objects require their block anchor and y=0')
-  const kind = object.kind ?? 'text'
-  if ('decoration' in object) {
-    if (kind !== 'text') throw new HttpError(400, `${label}.decoration is only supported on text boxes`)
-    if (object.decoration !== null) {
-      const decoration = record(object.decoration, `${label}.decoration`)
-      if (!['left', 'box'].includes(decoration.kind)) throw new HttpError(400, `${label}.decoration.kind is unsupported`)
-      if (!boxColorIds.includes(decoration.color)) throw new HttpError(400, `${label}.decoration.color must be a color pair`)
-    }
-  }
-  if ('caption' in object) {
-    if (!['image', 'html', 'table'].includes(kind)) throw new HttpError(400, `${label}.caption is only supported on image, html, and table objects`)
-    validateCaption(object.caption, `${label}.caption`)
-  }
-  for (const key of ['style', 'headerRow']) if (key in object && kind !== 'table') throw new HttpError(400, `${label}.${key} is only supported on tables`)
-  if ('style' in object && !['simple', 'academic', 'business'].includes(object.style)) throw new HttpError(400, `${label}.style must be simple, academic, or business`)
-  if ('headerRow' in object && typeof object.headerRow !== 'boolean') throw new HttpError(400, `${label}.headerRow must be a boolean`)
-  if (['text', 'table'].includes(kind)) content(object.content, `${label}.content`, kind)
-  if (kind === 'text') { if (object.padding !== undefined) themeLength(object.padding, `${label}.padding`); for (const key of ['background', 'borderColor']) if (key in object) throw new HttpError(400, `${label}.${key} is unsupported`) }
-  if (kind === 'image') { embeddedImage(object.src, `${label}.src`); text(object.alt, `${label}.alt`, 4096) }
-  else if (kind === 'katex') text(object.latex, `${label}.latex`)
-  else if (kind === 'html') { text(object.html, `${label}.html`); if (!(options.allowMissingScreenshot && object.screenshot === undefined)) embeddedImage(object.screenshot, `${label}.screenshot`); text(object.alt, `${label}.alt`, 4096); finite(object.height, `${label}.height`, Number.MIN_VALUE) }
-  else if (kind === 'code') {
-    text(object.source, `${label}.source`)
-    const language = text(object.language, `${label}.language`, 64, true)
-    if (!SAFE_LANGUAGE.test(language)) throw new HttpError(400, `${label}.language must be a safe identifier`)
-  }
-  else if (kind === 'drawing') {
-    finite(object.width, `${label}.width`, Number.MIN_VALUE)
-    finite(object.height, `${label}.height`, Number.MIN_VALUE)
-    if (object.background !== null && object.background !== 'gray6') throw new HttpError(400, `${label}.background must be gray6 or null`)
-    if (!Array.isArray(object.strokes) || object.strokes.length > 10000) throw new HttpError(400, `${label}.strokes must contain at most 10000 strokes`)
-    let points = 0
-    for (const [index, value] of object.strokes.entries()) {
-      const name = `${label}.strokes[${index}]`, stroke = record(value, name)
-      text(stroke.color, `${name}.color`, 128, true)
-      finite(stroke.width, `${name}.width`, Number.MIN_VALUE)
-      if (!Array.isArray(stroke.points) || !stroke.points.length || (points += stroke.points.length) > 100000) throw new HttpError(400, `${label} must contain at most 100000 points, with at least one per stroke`)
-      for (const point of stroke.points) {
-        if (!Array.isArray(point) || point.length !== 2) throw new HttpError(400, `${name}.points must contain coordinate pairs`)
-        finite(point[0], `${name}.point.x`); finite(point[1], `${name}.point.y`)
-      }
-    }
-    if (!Array.isArray(object.labels) || object.labels.length > 1000) throw new HttpError(400, `${label}.labels must contain at most 1000 labels`)
-    for (const [index, value] of object.labels.entries()) {
-      const name = `${label}.labels[${index}]`, item = record(value, name)
-      finite(item.x, `${name}.x`); finite(item.y, `${name}.y`)
-      finite(item.size, `${name}.size`, Number.MIN_VALUE)
-      text(item.color, `${name}.color`, 128, true)
-      text(item.text, `${name}.text`, 4096)
-    }
-  }
-  else if (!['text', 'table', 'image', 'katex', 'html', 'code', 'drawing'].includes(kind)) throw new HttpError(400, 'unsupported floating kind')
-  return object
-}
-
-function validateCaptionIds(blocks, objects, scope) {
-  const ids = new Set([...blocks.map(block => block.attrs?.id), ...objects.map(object => object.id)])
-  for (const object of objects) if (object.caption) {
-    const id = object.caption.content.content[0].attrs.id
-    if (ids.has(id)) throw new HttpError(400, `${scope} caption paragraph IDs must be unique and distinct from object and main block IDs`)
-    ids.add(id)
-  }
-}
-
-function validateFlowReferences(blocks, objects, scope) {
-  validateCaptionIds(blocks, objects, scope)
-  const byId = new Map(objects.map(object => [object.id, object]))
-  const blockIds = new Set(), flowAnchors = new Set(), flows = new Set()
-  for (const block of blocks) {
-    const id = block.attrs?.id
-    safeId(id, `${scope} block ID`)
-    if (blockIds.has(id) || byId.has(id)) throw new HttpError(400, `${scope} block IDs must be unique and distinct from object IDs`)
-    blockIds.add(id)
-    if (block.type !== 'flow') continue
-    const objectId = block.attrs.objectId, object = byId.get(objectId)
-    if (!object || object.placement !== 'flow' || object.anchorId !== id || object.y !== 0 || flows.has(objectId)) throw new HttpError(400, `${scope} Flow block must reference exactly one matching Flow object`)
-    flows.add(objectId)
-    flowAnchors.add(id)
-  }
-  for (const object of objects) {
-    if (object.placement === 'flow' && !flows.has(object.id)) throw new HttpError(400, `${scope} Flow object requires exactly one Flow block`)
-    if (object.anchorId !== null && !blockIds.has(object.anchorId)) throw new HttpError(400, `${scope} object anchor is outside its blocks`)
-    if (!flowAnchors.has(object.anchorId) && object.y < 0) throw new HttpError(400, `${scope} object y must be nonnegative outside a Flow anchor`)
-  }
-}
-
-export function validateDocument(value) {
-  rejectLegacyAttachments(value, 'document')
-  const document = record(value, 'document')
-  if (document.version !== 'V0') throw new HttpError(400, 'document.version must be V0')
-  safeId(document.id, 'document.id')
-  if (document.language !== undefined && !['en', 'zh-Hans'].includes(document.language)) throw new HttpError(400, 'unsupported document language')
-  if (Array.isArray(document.notes)) document.notes.forEach((note, index) => text(note, `document.notes[${index}]`))
-  else if (document.notes !== undefined) text(document.notes, 'document.notes')
-  finite(document.width, 'document.width', Number.MIN_VALUE)
-  const margins = record(document.margins, 'document.margins')
-  for (const side of ['top', 'right', 'bottom', 'left']) finite(margins[side], `document.margins.${side}`, 0)
-  theme(document.theme); content(document.content, 'content', 'main')
-  if (!Array.isArray(document.floating)) throw new HttpError(400, 'document.floating must be an array')
-  const ids = new Set(); for (const [i, object] of document.floating.entries()) { if (ids.has(object?.id)) throw new HttpError(400, 'duplicate floating object ID'); validateFloating(object, `document.floating[${i}]`); ids.add(object.id) }
-  validateFlowReferences(document.content.content ?? [], document.floating, 'document')
-  palette(document)
-  return document
-}
-
-function segmentNodeIds(node, result = new Set()) {
-  if (node?.attrs?.id !== undefined) safeId(node.attrs.id, 'segment node ID')
-  if (node?.attrs?.id) result.add(node.attrs.id)
-  for (const child of node?.content ?? []) segmentNodeIds(child, result)
-  return result
-}
-
-function segmentPaletteReferences(node, result = new Set()) {
-  for (const mark of node?.marks ?? []) if (mark.type === 'color' && typeof mark.attrs?.color === 'string') result.add(mark.attrs.color)
-  for (const child of node?.content ?? []) segmentPaletteReferences(child, result)
-  return result
-}
-
-function segmentObjectPaletteReferences(object, result = new Set()) {
-  if (object.decoration) result.add(object.decoration.color)
-  if (object.kind === 'drawing') for (const item of [...object.strokes, ...object.labels]) result.add(item.color)
-  if ('content' in object) segmentPaletteReferences(object.content, result)
-  if ('caption' in object) segmentPaletteReferences(object.caption.content, result)
-  return result
+function objectAnchorId(document, object) {
+  return object.layout.placement.type === 'flow'
+    ? document.content.content.find(block => block.type === 'flow' && block.attrs.objectId === object.id)?.attrs.id
+    : object.layout.placement.anchorId
 }
 
 function validateSegmentGeometry(value, objectIds) {
   const geometry = record(value, 'candidate.segment.geometry')
   for (const [id, value] of Object.entries(geometry)) {
     safeId(id, 'candidate.segment.geometry ID')
-    if (!objectIds.has(id)) throw new HttpError(400, 'candidate.segment.geometry references an unknown floating object')
+    if (!objectIds.has(id)) throw new HttpError(400, 'candidate.segment.geometry references an unknown object')
     const box = record(value, `candidate.segment.geometry.${id}`)
     for (const key of ['x', 'y']) finite(box[key], `candidate.segment.geometry.${id}.${key}`)
     for (const key of ['width', 'height']) finite(box[key], `candidate.segment.geometry.${id}.${key}`, 0)
@@ -364,14 +70,14 @@ function validateSegmentGeometry(value, objectIds) {
 function segmentScreenshotPathMap(value, payload) {
   if (value === undefined) return new Map()
   const paths = record(value, 'candidate.screenshotPaths')
-  const objects = new Map(payload.floating.map(object => [object.id, object]))
+  const objects = new Map(payload.objects.map(object => [object.id, object]))
   const result = new Map()
   if (Object.keys(paths).length > 32) throw new HttpError(400, 'candidate.screenshotPaths has too many files')
   for (const [id, pathValue] of Object.entries(paths)) {
     safeId(id, 'candidate.screenshotPaths object ID')
     text(pathValue, `candidate.screenshotPaths.${id}`, 2048, true)
     const object = objects.get(id)
-    if (!object || (object.kind ?? 'text') !== 'html') throw new HttpError(400, 'candidate.screenshotPaths must reference HTML objects in the segment')
+    if (!object || object.kind !== 'html') throw new HttpError(400, 'candidate.screenshotPaths must reference HTML objects in the segment')
     result.set(id, pathValue)
   }
   return result
@@ -379,34 +85,16 @@ function segmentScreenshotPathMap(value, payload) {
 
 function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   const payload = record(value, 'candidate.segment')
-  if (payload.version !== 'V0' || payload.type !== 'segment') throw new HttpError(400, 'candidate.segment must be a V0 segment')
+  if (payload.version !== 1 || payload.type !== 'segment') throw new HttpError(400, 'candidate.segment must be a V1 segment')
   if (!Array.isArray(payload.content) || payload.content.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.content must be an array')
-  if (!Array.isArray(payload.floating) || payload.floating.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.floating must be an array')
-  const topIds = new Set()
-  for (const [index, node] of payload.content.entries()) {
-    if (!node || !['paragraph', 'spacer', 'flow'].includes(node.type)) throw new HttpError(400, 'candidate.segment.content must contain paragraphs, spacers, and Flow blocks')
-    content(node, `candidate.segment.content[${index}]`, 'main', DOCUMENT_CHILDREN.main)
-    const attrs = record(node.attrs, `candidate.segment.content[${index}].attrs`)
-    safeId(attrs.id, `candidate.segment.content[${index}].attrs.id`)
-    if (topIds.has(attrs.id)) throw new HttpError(400, 'candidate.segment.content block IDs must be unique')
-    topIds.add(attrs.id)
-    if (node.type === 'spacer') finite(attrs.height, `candidate.segment.content[${index}].attrs.height`, 0)
-    if (node.type === 'paragraph' && attrs.semantic !== undefined && !['title', 'heading', 'subheading', 'body', 'caption', 'list'].includes(attrs.semantic)) throw new HttpError(400, 'candidate.segment paragraph semantic is unsupported')
-  }
-  const nodeIds = new Set()
-  for (const node of payload.content) segmentNodeIds(node, nodeIds)
-  if ('palette' in payload) throw new HttpError(400, 'candidate.segment.palette is unsupported')
-  const objects = new Map()
+  if (!Array.isArray(payload.objects) || payload.objects.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.objects must be an array')
   const screenshotIds = options.screenshotIds ?? new Set()
-  for (const [index, value] of payload.floating.entries()) {
-    const object = record(value, `candidate.segment.floating[${index}]`)
-    if (objects.has(object.id)) throw new HttpError(400, 'candidate.segment floating object IDs must be unique')
-    validateFloating(object, `candidate.segment.floating[${index}]`, { allowMissingScreenshot: screenshotIds.has(object.id) })
-    objects.set(object.id, object)
-  }
+  composition(payload.content, payload.objects, { allowEmpty: true, allowMissingScreenshotIds: screenshotIds })
+  if (Object.keys(payload).some(key => !['version', 'type', 'content', 'objects', 'geometry', 'anchorTops', 'originTop'].includes(key))) throw new HttpError(400, 'candidate.segment contains an unsupported field')
+  const topIds = new Set(payload.content.map(node => node.attrs.id))
+  const objects = new Map(payload.objects.map(object => [object.id, object]))
   const objectIds = new Set(objects.keys())
-  validateFlowReferences(payload.content, [...objects.values()], 'candidate.segment')
-  const geometry = validateSegmentGeometry(payload.geometry, objectIds)
+  validateSegmentGeometry(payload.geometry, objectIds)
   const anchorTops = record(payload.anchorTops, 'candidate.segment.anchorTops')
   for (const [id, value] of Object.entries(anchorTops)) {
     safeId(id, 'candidate.segment.anchorTops ID')
@@ -414,18 +102,13 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
     finite(value, `candidate.segment.anchorTops.${id}`)
   }
   finite(payload.originTop, 'candidate.segment.originTop')
-  const references = new Set()
-  for (const node of payload.content) segmentPaletteReferences(node, references)
-  for (const object of objects.values()) segmentObjectPaletteReferences(object, references)
-  for (const reference of references) if (!validPaletteReference(reference)) throw new HttpError(400, 'candidate.segment references an unknown palette color')
-  for (const object of objects.values()) if (object.kind === 'html' && object.screenshot === undefined && !screenshotIds.has(object.id)) throw new HttpError(400, 'candidate.segment HTML objects need screenshots')
   const paths = segmentScreenshotPathMap(options.screenshotPaths, payload)
   if ([...screenshotIds].some(id => !paths.has(id))) throw new HttpError(400, 'candidate.screenshotPaths is incomplete')
   if (selectedTarget?.kind === 'segment') {
     const scope = segmentScope(document, selectedTarget)
     if (!scope) throw new HttpError(400, 'candidate.segment target scope is invalid')
   }
-  return { payload, paths, geometry, objects, nodeIds }
+  return { payload, paths }
 }
 
 function area(value, label) { const object = record(value, label); for (const key of ['x', 'y']) finite(object[key], `${label}.${key}`); for (const key of ['width', 'height']) finite(object[key], `${label}.${key}`, 0); return object }
@@ -497,7 +180,7 @@ function segmentPointSelected(anchorId, y, blocks, selected, range) {
 }
 
 function segmentOwnedObjects(document, blocks, range, selected) {
-  return new Set(document.floating.filter(object => segmentPointSelected(object.anchorId, object.y, blocks, selected, range)).map(object => object.id))
+  return new Set(document.objects.filter(object => segmentPointSelected(objectAnchorId(document, object), object.layout.placement.type === 'flow' ? 0 : object.layout.placement.y, blocks, selected, range)).map(object => object.id))
 }
 
 function segmentScope(document, value) {
@@ -524,7 +207,7 @@ function exactSegmentIds(values, expected, label) {
 
 function target(value, document) {
   const object = record(value, 'target')
-  if (object.kind === 'object') { safeId(object.objectId, 'target.objectId'); if (typeof object.isNew !== 'boolean') throw new HttpError(400, 'target.isNew must be boolean'); area(object.area, 'target.area'); if (!document.floating.some(item => item.id === object.objectId)) throw new HttpError(400, 'target object must be a document placeholder'); return object }
+  if (object.kind === 'object') { safeId(object.objectId, 'target.objectId'); if (typeof object.isNew !== 'boolean') throw new HttpError(400, 'target.isNew must be boolean'); area(object.area, 'target.area'); if (!document.objects.some(item => item.id === object.objectId)) throw new HttpError(400, 'target object must be a document placeholder'); return object }
   if (object.kind === 'text') {
     if (!Array.isArray(object.blockIds) || !object.blockIds.length || object.blockIds.length > 128) throw new HttpError(400, 'target.blockIds must be a non-empty array')
     const ids = new Set((document.content.content ?? []).filter(node => node.type === 'paragraph').map(node => node.attrs.id)); const unique = new Set(object.blockIds); if (unique.size !== object.blockIds.length) throw new HttpError(400, 'target.blockIds must be unique')
@@ -552,7 +235,6 @@ export function validatePngDataUrl(value, label = 'snapshot') {
 }
 
 export function validateRequest(value) {
-  rejectLegacyAttachments(value, 'request')
   const body = record(value, 'request')
   if (!UUID.test(body.id ?? '')) throw new HttpError(400, 'id must be a client-generated UUID')
   const document = validateDocument(body.document)
@@ -568,10 +250,7 @@ export function validateRequest(value) {
 }
 
 export function validateCandidate(value, document, selectedTarget, options = {}) {
-  rejectLegacyAttachments(document, 'document')
-  theme(document.theme)
-  rejectLegacyAttachments(selectedTarget, 'target')
-  rejectLegacyAttachments(value, 'candidate')
+  validateDocument(document)
   const result = record(value, 'result')
   const candidate = result.candidate === undefined ? result : record(result.candidate, 'result.candidate')
   const output = { summary: text(candidate.summary, 'candidate.summary', 4096, true) }
@@ -584,16 +263,16 @@ export function validateCandidate(value, document, selectedTarget, options = {})
   }
   if (selectedTarget.kind === 'object') {
     if (!candidate.object || candidate.object.id !== selectedTarget.objectId) throw new HttpError(400, 'candidate.object must retain target id')
-    const original = document.floating.find(item => item.id === selectedTarget.objectId)
-    if (!selectedTarget.isNew && original.kind !== 'drawing' && (candidate.object.kind ?? 'text') !== (original.kind ?? 'text')) throw new HttpError(400, 'candidate.object must retain target kind')
+    const original = document.objects.find(item => item.id === selectedTarget.objectId)
+    if (!selectedTarget.isNew && original.kind !== 'drawing' && candidate.object.kind !== original.kind) throw new HttpError(400, 'candidate.object must retain target kind')
     const hasScreenshotPath = candidate.screenshotPath !== undefined
-    let candidateObject = hasScreenshotPath && (candidate.object.kind ?? 'text') === 'html' ? { ...candidate.object } : candidate.object
+    let candidateObject = hasScreenshotPath && candidate.object.kind === 'html' ? { ...candidate.object } : candidate.object
     if (hasScreenshotPath) delete candidateObject.screenshot
     if (!selectedTarget.isNew && ['image', 'html', 'table'].includes(candidateObject.kind)) {
       const sameKind = candidateObject.kind === original.kind
       if (sameKind && original.caption !== undefined && !Object.hasOwn(candidateObject, 'caption')) candidateObject = { ...candidateObject, caption: structuredClone(original.caption) }
       if (Object.hasOwn(candidateObject, 'caption')) {
-        validateCaption(candidateObject.caption, 'candidate.object.caption')
+        validateNativeObject(candidateObject, { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
         const caption = { ...candidateObject.caption }
         const width = sameKind ? original.caption?.width : undefined
         if (width === undefined) delete caption.width
@@ -601,16 +280,18 @@ export function validateCandidate(value, document, selectedTarget, options = {})
         candidateObject = { ...candidateObject, caption }
       }
     }
-    validateFloating(candidateObject, 'candidate.object', { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
-    if (original.margins === undefined) delete candidateObject.margins
-    else candidateObject = { ...candidateObject, margins: structuredClone(original.margins) }
-    validateCaptionIds(document.content.content ?? [], document.floating.map(object => object.id === candidateObject.id ? candidateObject : object), 'candidate.object')
+    validateNativeObject(candidateObject, { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
+    candidateObject = { ...candidateObject, layout: { ...candidateObject.layout } }
+    if (original.layout.margins === undefined) delete candidateObject.layout.margins
+    else candidateObject.layout.margins = structuredClone(original.layout.margins)
+    composition(document.content.content, document.objects.map(object => object.id === candidateObject.id ? candidateObject : object), {
+      allowMissingScreenshotIds: hasScreenshotPath && options.allowScreenshotPath ? new Set([candidateObject.id]) : new Set(),
+    })
     output.object = candidateObject
-    palette({ ...document, content: { type: 'doc' }, floating: [candidateObject] })
   } else if (selectedTarget.kind === 'text') {
     if (!Array.isArray(candidate.content) || !candidate.content.length || candidate.content.length > 128) throw new HttpError(400, 'candidate.content is required')
-    candidate.content.forEach((node, i) => { if (node?.type !== 'paragraph') throw new HttpError(400, 'text candidates must contain paragraphs'); content(node, `candidate.content[${i}]`, 'text', ['paragraph']) }); output.content = candidate.content
-    palette({ ...document, content: { type: 'doc', content: candidate.content }, floating: [] })
+    content({ type: 'doc', content: candidate.content }, 'text')
+    output.content = candidate.content
   } else {
     if (!candidate.segment) throw new HttpError(400, 'candidate.segment is required')
     let screenshotPaths
@@ -623,7 +304,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     output.segment = checked.payload
     if (screenshotPaths !== undefined) output.screenshotPaths = Object.fromEntries(checked.paths)
   }
-  if (candidate.screenshotPath !== undefined) { if (selectedTarget.kind !== 'object' || (candidate.object?.kind ?? 'text') !== 'html') throw new HttpError(400, 'candidate.screenshotPath requires an HTML object'); output.screenshotPath = text(candidate.screenshotPath, 'candidate.screenshotPath', 2048, true) }
+  if (candidate.screenshotPath !== undefined) { if (selectedTarget.kind !== 'object' || candidate.object?.kind !== 'html') throw new HttpError(400, 'candidate.screenshotPath requires an HTML object'); output.screenshotPath = text(candidate.screenshotPath, 'candidate.screenshotPath', 2048, true) }
   if (candidate.screenshotPaths !== undefined && selectedTarget.kind !== 'segment') throw new HttpError(400, 'candidate.screenshotPaths requires a segment candidate')
   return output
 }

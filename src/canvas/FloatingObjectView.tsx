@@ -1,3 +1,4 @@
+import { objectAnchorId } from '../document/model'
 import { useRef, type PointerEvent } from 'react'
 import type { Editor } from '@tiptap/core'
 import { isText, supportsCaption, type FloatingObject, type FloatingPatch } from '../document/model'
@@ -30,11 +31,11 @@ interface Props {
 
 export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, captionSelected = false, captionResizable = true, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, inFlow = false }: Props) {
   const editor = useRef<Editor | null>(null)
-  const kind = note.kind ?? 'text'
-  const footprint = layoutBounds({ ...box, margins: note.margins })
+  const kind = note.kind
+  const footprint = layoutBounds({ ...box, margins: note.layout.margins })
   const decoration = isText(note) ? note.decoration : null
   const textStyle = isText(note) ? {
-    padding: pixels(note.padding ?? (decoration ? '0.75em' : 0), defaultFontSize),
+    padding: pixels(note.padding ?? ({ value: decoration ? .75 : 0, unit: 'em' }), defaultFontSize),
     ...(decoration && { backgroundColor: `var(--palette-${decoration.color}-soft)`, borderColor: paletteCSS(decoration.color),
       ...(decoration.kind === 'left' && { borderWidth: '0 0 0 4px' }) }),
   } : {}
@@ -43,7 +44,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
   const captionVisible = caption && (editable && captionSelected || caption.content.content?.[0]?.content?.some(node => node.text?.replace(/[\s\p{Default_Ignorable_Code_Point}]/gu, '')))
   const captionEditing = editable && captionSelected && contentActive && !locked
   const captionView = captionVisible && <div className={`object-caption ${captionSelected ? 'is-selected' : ''} ${captionEditing ? 'is-content-active' : ''}`} id={`${note.id}-caption`}
-    style={{ width: caption.width ?? note.width, marginLeft: (note.width - (caption.width ?? note.width)) / 2 }}
+    style={{ width: caption.width ?? note.layout.width, marginLeft: (note.layout.width - (caption.width ?? note.layout.width)) / 2 }}
     tabIndex={editable ? 0 : undefined} aria-label="Caption box" data-caption-owner={note.id}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null, true) }}
     onPointerDown={event => {
@@ -63,21 +64,21 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
     <TextEditor key={caption.content.content![0].attrs!.id} content={caption.content} caption editable={captionEditing} label="Caption" historyId={`${note.id}:caption:${caption.content.content![0].attrs!.id}`}
       onChange={content => onChange({ caption: { ...caption, content } })} onActive={editor => { if (editor?.isFocused) onActive(editor, true); else if (!editor && captionSelected) onActive(null, true) }} />
     {editable && captionResizable && <div className="caption-border-right" data-caption-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
-      aria-label="Resize caption width" aria-valuemin={16} aria-valuenow={Math.round(caption.width ?? note.width)}
+      aria-label="Resize caption width" aria-valuemin={16} aria-valuenow={Math.round(caption.width ?? note.layout.width)}
       onPointerDown={event => begin('caption-width', event, true)} onFocus={() => onActive(null, true)} />}
   </div>
   return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
-    data-note-id={note.id} data-anchor-id={note.anchorId ?? ''} data-placement={note.placement} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
+    data-note-id={note.id} data-anchor-id={objectAnchorId(note) ?? ''} data-placement={note.layout.placement.type} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
     data-table-style={note.kind === 'table' ? note.style ?? 'simple' : undefined} data-table-header={note.kind === 'table' && note.headerRow ? '' : undefined}
     style={{ ...textStyle, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
-      marginTop: inFlow ? note.margins?.top : undefined, marginBottom: inFlow ? note.margins?.bottom : undefined,
-      width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.height : box.height) : undefined }}
+      marginTop: inFlow ? note.layout.margins?.top : undefined, marginBottom: inFlow ? note.layout.margins?.bottom : undefined,
+      width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.layout.height : box.height) : undefined }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`} aria-describedby={captionVisible ? `${note.id}-caption` : undefined}
     onFocus={event => { if (editable && event.target === event.currentTarget) onActive(null) }}
     onKeyDown={event => { if (event.target === event.currentTarget || (event.target as HTMLElement).matches('[data-floating-control]')) onKey(event) }}
     onPointerDown={event => {
       if (!editable) return
-      if (locked || captionSelected || event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('object-body') || kind === 'image' || kind === 'katex' || kind === 'html') begin('move', event)
+      if (locked || captionSelected || event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('object-body') || kind === 'image' || kind === 'formula' || kind === 'html') begin('move', event)
     }}
     onDoubleClick={event => {
       if (!editable || locked) return
@@ -86,10 +87,10 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       if ('content' in note && event.target !== event.currentTarget) return
       if (note.kind === 'image') { event.preventDefault(); event.stopPropagation(); onCaption() }
     }}>
-    <div className="object-body" style={{ position: supportsCaption(note) ? 'relative' : undefined, height: note.kind === 'html' || note.kind === 'drawing' ? note.height : undefined }}>
+    <div className="object-body" style={{ position: supportsCaption(note) ? 'relative' : undefined, height: note.kind === 'html' || note.kind === 'drawing' ? note.layout.height : undefined }}>
     {note.kind === 'drawing' ? <DrawingView drawing={note} />
       : note.kind === 'image' ? <img src={note.src} alt={note.alt} draggable={false} />
-      : note.kind === 'katex' ? <MathView latex={note.latex} />
+      : note.kind === 'formula' ? <MathView latex={note.latex} />
       : note.kind === 'code' ? <CodeView note={note} editable={editable && contentActive && !locked} staticOnly={staticWidgets}
         onActive={() => onActive(null)} onBegin={event => begin('move', event)}
         onChange={source => onChange({ source })} />
@@ -109,7 +110,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       className={`object-handle handle-${part}`} data-floating-control={part} aria-label={`Resize ${kind} ${part}`} onPointerDown={event => begin(part, event)} />)}
     </div>
     {captionView}
-    {editable && selected && note.margins && Object.values(note.margins).some(Boolean) && <div className="object-layout-footprint" aria-hidden="true"
+    {editable && selected && note.layout.margins && Object.values(note.layout.margins).some(Boolean) && <div className="object-layout-footprint" aria-hidden="true"
       style={{ left: footprint.x - box.x, top: footprint.y - box.y, width: footprint.width, height: footprint.height }} />}
   </div>
 }

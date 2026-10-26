@@ -12,11 +12,11 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
   onPrivacyRetry: () => void; onPrivacyReconcile: () => void
 }) {
   const history = useHistory()
-  const [linked, setLinked] = useState(doc.margins.left === doc.margins.right)
+  const [linked, setLinked] = useState(doc.page.margins.left === doc.page.margins.right)
   function margin(side: 'left' | 'right', value: number) {
-    onChange({ ...doc, margins: { ...doc.margins, ...(linked ? { left: value, right: value } : { [side]: value }) } })
+    onChange({ ...doc, page: { ...doc.page, margins: { ...doc.page.margins, ...(linked ? { left: value, right: value } : { [side]: value }) } } })
   }
-  const available = doc.width - 120
+  const available = doc.page.width - 120
   return <div className="document-settings" id="document-settings">
     <div className="settings-tabs" role="tablist" aria-label="Document settings section">
       {(['layout', 'theme'] as const).map(name => <button key={name} role="tab" id={`${name}-tab`} aria-selected={tab === name}
@@ -42,8 +42,8 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
       {tab === 'layout' ? <section className="panel-section layout-properties">
         <h2>Page</h2>
         <div className="style-field"><div className="field-heading">Document width</div>
-          <NumberField label="Document width" value={doc.width} min={Math.max(320, doc.margins.left + doc.margins.right + 120)} max={2400}
-            onChange={width => onChange({ ...doc, width })} /></div>
+          <NumberField label="Document width" value={doc.page.width} min={Math.max(320, doc.page.margins.left + doc.page.margins.right + 120)} max={2400}
+            onChange={width => onChange({ ...doc, page: { ...doc.page, width } })} /></div>
         <div className="style-field"><div className="field-heading">Text language</div>
           <select aria-label="Text language" value={doc.language ?? 'en'} onChange={event => {
             history.boundary(); onChange({ ...doc, language: event.target.value as DocumentLanguage })
@@ -53,23 +53,23 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
         <div className="paired-fields">
           {(['top', 'bottom'] as const).map(side => <div className="style-field" key={side}>
             <div className="field-heading">{side === 'top' ? 'Top' : 'Bottom'}</div>
-            <NumberField label={`${side === 'top' ? 'Top' : 'Bottom'} margin`} value={doc.margins[side]}
-              min={0} max={2400} onChange={value => onChange({ ...doc, margins: { ...doc.margins, [side]: value } })} />
+            <NumberField label={`${side === 'top' ? 'Top' : 'Bottom'} margin`} value={doc.page.margins[side]}
+              min={0} max={2400} onChange={value => onChange({ ...doc, page: { ...doc.page, margins: { ...doc.page.margins, [side]: value } } })} />
           </div>)}
         </div>
         <div className="paired-fields">
           {(['left', 'right'] as const).map(side => <div className="style-field" key={side}>
             <div className="field-heading">{side === 'left' ? 'Left' : 'Right'}</div>
-            <NumberField label={`${side === 'left' ? 'Left' : 'Right'} margin`} value={doc.margins[side]}
-              min={0} max={linked ? available / 2 : available - doc.margins[side === 'left' ? 'right' : 'left']}
+            <NumberField label={`${side === 'left' ? 'Left' : 'Right'} margin`} value={doc.page.margins[side]}
+              min={0} max={linked ? available / 2 : available - doc.page.margins[side === 'left' ? 'right' : 'left']}
               onChange={value => margin(side, value)} />
           </div>)}
         </div>
         <label className="link-margins"><input type="checkbox" checked={linked} onChange={event => {
           history.boundary(); setLinked(event.target.checked)
           if (event.target.checked) {
-            const value = Math.min(doc.margins.left, available / 2)
-            onChange({ ...doc, margins: { ...doc.margins, left: value, right: value } })
+            const value = Math.min(doc.page.margins.left, available / 2)
+            onChange({ ...doc, page: { ...doc.page, margins: { ...doc.page.margins, left: value, right: value } } })
           }
         }} /> Link left and right</label>
         <details className="settings-help"><summary>Page layout details</summary>
@@ -80,8 +80,8 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
         <h2 className="subheading">AI assistant</h2>
         <div className="style-field"><div className="field-heading">Mu model</div>
           <input type="text" maxLength={256} spellCheck={false} autoComplete="off" aria-label="AI assistant Mu model"
-            value={doc.aiModel ?? ''} placeholder="Workspace default" onFocus={() => history.begin('document-ai-model')} onBlur={history.boundary}
-            onChange={event => onChange({ ...doc, aiModel: event.target.value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '') })} />
+            value={doc.authoring?.aiModel ?? ''} placeholder="Workspace default" onFocus={() => history.begin('document-ai-model')} onBlur={history.boundary}
+            onChange={event => onChange({ ...doc, authoring: { notes: [], ...doc.authoring, aiModel: event.target.value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '') } })} />
         </div>
         <p className="hint">Blank uses the workspace default. Generation is explicit and sends the full document to the selected model.</p>
       </section> : <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} /></div>}

@@ -11,15 +11,14 @@ const origin = 'http://localhost:5173'
 
 function document(id, text) {
   return {
-    id, version: 'V0', width: 960,
-    margins: { top: 48, right: 48, bottom: 48, left: 48 },
+    id, format: 'mote', version: 1, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
     theme: {
-      mode: 'light', hue: 145, secondaryHue: 260,
-      defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
-      blocks: {},
+      appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true,
+      defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } },
+      paragraphs: {}, objects: {}, flow: {},
     },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text }] }] },
-    floating: [],
+    objects: [],
   }
 }
 
@@ -78,7 +77,7 @@ async function socketGet(url, socketPath) {
 
 async function createDocument(value, name, { private: isPrivate = false } = {}) {
   const id = randomUUID(), doc = document(id, `${name} body`)
-  doc.notes = `${name} internal working notes`
+  doc.authoring = { notes: [`${name} internal working notes`] }
   const result = await value.call('POST', 'documents', { id, name, document: doc, private: isPrivate, operationId: randomUUID() })
   assert.equal(result.status, 201, JSON.stringify(result.body))
   return result.body
@@ -86,7 +85,7 @@ async function createDocument(value, name, { private: isPrivate = false } = {}) 
 
 async function saveDocument(value, envelope, text) {
   const doc = document(envelope.id, text)
-  doc.notes = envelope.document.notes
+  doc.authoring = envelope.document.authoring
   const result = await value.call('PUT', `documents/${envelope.id}`, {
     baseRevision: envelope.revision, document: doc, operationId: randomUUID(),
   })

@@ -14,15 +14,14 @@ import { extractNativeVisuals } from './index-visuals.mjs'
 
 function document(id, text = 'initial content') {
   return {
-    id, version: 'V0', width: 960,
-    margins: { top: 48, right: 48, bottom: 48, left: 48 },
+    id, format: 'mote', version: 1, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
     theme: {
-      mode: 'light', hue: 145, secondaryHue: 260,
-      defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
-      blocks: {},
+      appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true,
+      defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } },
+      paragraphs: {}, objects: {}, flow: {},
     },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text }] }] },
-    floating: [],
+    objects: [],
   }
 }
 
@@ -36,7 +35,7 @@ async function fixture(t) {
 async function addDocument(store, name, content = 'initial content', isPrivate = false, notes) {
   const id = randomUUID()
   const value = document(id, content)
-  if (notes !== undefined) value.notes = notes
+  if (notes !== undefined) value.authoring = { notes: [notes] }
   return store.create({ id, name, document: value, private: isPrivate, operationId: randomUUID() })
 }
 
@@ -97,8 +96,8 @@ test('visual extraction accepts only embedded native image fields and writes fix
   const jpeg = Buffer.from([255, 216, 255, 217])
   const documentPath = path.join(root, 'document.json')
   await writeFile(documentPath, JSON.stringify({
-    floating: [
-      { id: 'flow-image', kind: 'image', placement: 'flow', anchorId: 'image-block', x: 0, y: 0, src: `data:image/png;base64,${png.toString('base64')}` },
+    objects: [
+      { id: 'flow-image', kind: 'image', layout: { width: 100, placement: { type: 'flow', x: 0 } }, src: `data:image/png;base64,${png.toString('base64')}` },
       { kind: 'html', screenshot: `data:image/jpeg;base64,${jpeg.toString('base64')}`, html: '<script>not run</script>' },
       { kind: 'image', src: 'https://example.invalid/image.png', alt: '../../outside.png' },
     ],
@@ -117,13 +116,13 @@ test('drawing extraction generates bounded inert SVG with escaped labels and pal
   t.after(() => rm(root, { recursive: true, force: true }))
   const source = document('drawing-doc')
   source.content.content.push({ type: 'flow', attrs: { id: 'drawing-block', objectId: 'flow-drawing' } })
-  source.floating.push({ id: 'flow-drawing', kind: 'drawing', placement: 'flow', anchorId: 'drawing-block', x: 0, y: 0, width: 200, height: 100, background: 'gray6',
+  source.objects.push({ id: 'flow-drawing', kind: 'drawing', layout: { width: 200, height: 100, placement: { type: 'flow', x: 0 } }, background: 'gray6',
     strokes: [{ points: [[1, 2], [3, 4], [5, 6]], color: 'primary', width: 2.5 }],
     labels: [{ x: 5, y: 6, text: '<script>alert("x")</script>\nA & B', color: 'gray1', size: 16 }] })
-  source.floating.push({ ...source.floating[0], labels: [{ ...source.floating[0].labels[0], color: 'url(https://example.invalid)' }] })
+  source.objects.push({ ...source.objects[0], labels: [{ ...source.objects[0].labels[0], color: 'url(https://example.invalid)' }] })
   const input = path.join(root, 'document.json')
   for (const mode of ['light', 'dark']) {
-    source.theme.mode = mode
+    source.theme.appearance.mode = mode
     await writeFile(input, JSON.stringify(source))
     const result = await extractNativeVisuals(input, path.join(root, `output-${mode}`))
     assert.equal(result.paths.length, 1)
@@ -209,9 +208,9 @@ test('indexing debounces from the latest saved revision and passes the complete 
   await new Promise(resolve => setTimeout(resolve, 90))
   const latest = document(created.id, 'latest saved body')
   latest.content.content.push({ type: 'flow', attrs: { id: 'flow-block', objectId: 'flow-text' } })
-  latest.floating.push({ id: 'flow-text', kind: 'text', placement: 'flow', centered: true, anchorId: 'flow-block', x: 0, y: 0, width: 240,
+  latest.objects.push({ id: 'flow-text', kind: 'text', layout: { width: 240, placement: { type: 'flow', x: 'center' } },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'flow-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Flow content belongs in the index input' }] }] } })
-  latest.floating.push({ id: 'indexed-image', kind: 'image', placement: 'flow', anchorId: 'image-block', x: 0, y: 0, width: 180, src: 'data:image/png;base64,iVBORw0KGgo=', alt: 'Index figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'indexed-image-caption' }, content: [{ type: 'text', text: 'Caption belongs in the index input' }] }] } } })
+  latest.objects.push({ id: 'indexed-image', kind: 'image', layout: { width: 180, placement: { type: 'flow', x: 0 } }, src: 'data:image/png;base64,iVBORw0KGgo=', alt: 'Index figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'indexed-image-caption' }, content: [{ type: 'text', text: 'Caption belongs in the index input' }] }] } } })
   latest.content.content.push({ type: 'flow', attrs: { id: 'image-block', objectId: 'indexed-image' } })
   const saved = store.put(created.id, { baseRevision: created.revision, operationId: randomUUID(), document: latest })
   indexer.wake()
@@ -220,7 +219,7 @@ test('indexing debounces from the latest saved revision and passes the complete 
   await waitFor(() => indexer.status().ready === 1, 'debounced index completion')
   assert.equal(seen.length, 1)
   assert.deepEqual(seen[0], saved.document)
-  assert.equal(seen[0].floating.find(object => object.id === 'indexed-image').caption.content.content[0].content[0].text, 'Caption belongs in the index input')
+  assert.equal(seen[0].objects.find(object => object.id === 'indexed-image').caption.content.content[0].content[0].text, 'Caption belongs in the index input')
   assert.match(indexPrompt, /Read each object\.caption\.content as part of its owning table, image, or HTML widget/)
   assert.equal(inputMode, 0o755)
   assert.equal(nativeFileMode, 0o444)
@@ -233,14 +232,14 @@ test('indexing debounces from the latest saved revision and passes the complete 
   await waitFor(() => indexer.status().documents[0].status === 'ready' && indexer.status().documents[0].indexedRevision === identical.revision, 'fingerprint reuse')
   assert.equal(seen.length, 1, 'an unchanged complete-document fingerprint reuses the prior index')
   const notesOnly = store.put(created.id, {
-    baseRevision: identical.revision, operationId: randomUUID(), document: { ...identical.document, notes: 'Revised supporting notes' },
+    baseRevision: identical.revision, operationId: randomUUID(), document: { ...identical.document, authoring: { notes: ['Revised supporting notes'] } },
   })
   indexer.wake()
   await waitFor(() => indexer.status().documents[0].status === 'ready' && indexer.status().documents[0].indexedRevision === notesOnly.revision, 'notes-only index')
   assert.equal(seen.length, 2, 'a notes-only change has a distinct full-document fingerprint')
-  assert.equal(seen[1].notes, notesOnly.document.notes)
+  assert.deepEqual(seen[1].authoring, notesOnly.document.authoring)
   const editedDocument = document(created.id, 'another latest edit')
-  editedDocument.notes = notesOnly.document.notes
+  editedDocument.authoring = notesOnly.document.authoring
   const editedAgain = store.put(created.id, { baseRevision: notesOnly.revision, operationId: randomUUID(), document: editedDocument })
   indexer.wake()
   const staleCatalog = store.workspaceIndex(created.id)

@@ -105,7 +105,7 @@ export function useSegmentSelection(props: Props) {
       return [{ ...bounds, id }]
     })
     const top = boundaryY(current.start, 'start', blocks), bottom = equal(current) ? top : boundaryY(current.end, 'end', blocks)
-    const bands = equal(current) ? [] : [{ x: 0, y: top, width: doc.width - 2, height: bottom - top }]
+    const bands = equal(current) ? [] : [{ x: 0, y: top, width: doc.page.width - 2, height: bottom - top }]
     const next = { bands, objects, top, bottom }
     setPaint(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
   }
@@ -153,9 +153,9 @@ export function useSegmentSelection(props: Props) {
     if (!editable || !sheet.current || !(event.target as Element).matches('.sheet, .main-text, [data-spacer]')) return false
     const rect = sheet.current.getBoundingClientRect()
     const x = (event.clientX - rect.left) / scale - sheet.current.clientLeft
-    return x >= 0 && x < doc.margins.left && event.clientY >= rect.top && event.clientY < rect.bottom
+    return x >= 0 && x < doc.page.margins.left && event.clientY >= rect.top && event.clientY < rect.bottom
   }
-  useLayoutEffect(() => { setMarginHover(false) }, [props.editable, props.scale, props.doc.margins.left])
+  useLayoutEffect(() => { setMarginHover(false) }, [props.editable, props.scale, props.doc.page.margins.left])
   function begin(event: ReactPointerEvent) {
     const { editable, editor, stage, onStart } = live.current
     const target = (event.target as Element).closest<HTMLElement>('[data-segment-control]')
@@ -413,7 +413,7 @@ export function useSegmentSelection(props: Props) {
       const blocks = measure(), point = endpoint(y, alt, blocks)
       return { point, top: boundaryY(point, 'start', blocks) }
     },
-    selection: () => selected.current && { range: selected.current, area: { x: 0, y: paint.top, width: props.doc.width - 2, height: Math.max(0, paint.bottom - paint.top) } },
+    selection: () => selected.current && { range: selected.current, area: { x: 0, y: paint.top, width: props.doc.page.width - 2, height: Math.max(0, paint.bottom - paint.top) } },
     context: () => ({ anchors: snapshotAnchors(), geometry: live.current.geometry }),
   }
 }

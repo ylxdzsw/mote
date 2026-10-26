@@ -48,7 +48,7 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, sheet, ed
     const value = current.current
     if (!value) return
     const p = local(event), drag = gesture.current
-    if (!drag) { update({ ...value, point: bounded(snapped(p, event.altKey), value.image.width) }); return }
+    if (!drag) { update({ ...value, point: bounded(snapped(p, event.altKey), value.image.layout.width) }); return }
     if (!drag.moved && Math.hypot(p.x - drag.raw.x, p.y - drag.raw.y) * scale < 3) return
     drag.moved = true
     const end = snapped(p, event.altKey), west = end.x < drag.start.x, north = end.y < drag.start.y
@@ -58,7 +58,7 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, sheet, ed
     const vertical = north ? Math.max(0, drag.start.y - inset) * ratio + inset : Infinity
     const width = Math.min(pageWidth(), Math.max(36, Math.min(available, vertical, Math.max(Math.abs(end.x - drag.start.x), Math.max(0, Math.abs(end.y - drag.start.y) - inset) * ratio + inset))))
     const height = Math.max(0, width - inset) / ratio + inset
-    update({ ...value, image: { ...value.image, width }, point: bounded({ x: west ? drag.start.x - width : drag.start.x, y: north ? drag.start.y - height : drag.start.y }, width) })
+    update({ ...value, image: { ...value.image, layout: { ...value.image.layout, width } }, point: bounded({ x: west ? drag.start.x - width : drag.start.x, y: north ? drag.start.y - height : drag.start.y }, width) })
   }
   function commit(atOrigin = false) {
     const value = current.current
@@ -80,7 +80,7 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, sheet, ed
       if (!files.length || files.some(file => !file.type.startsWith('image/'))) return
       event.preventDefault(); event.stopImmediatePropagation()
       const caret = editor?.view.coordsAtPos(editor.state.selection.from)
-      const origin = insertion() ?? (caret ? local({ clientX: caret.left, clientY: caret.top }) : { x: doc.margins.left, y: doc.margins.top })
+      const origin = insertion() ?? (caret ? local({ clientX: caret.left, clientY: caret.top }) : { x: doc.page.margins.left, y: doc.page.margins.top })
       cancel(); onStart()
       if (files.length !== 1) { setNotice('Paste one image at a time, or drop multiple image files onto the document.'); return }
       stage.current!.focus({ preventScroll: true })
@@ -92,7 +92,7 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, sheet, ed
         if (generation.current !== token) return
         const width = Math.min(340, image.naturalWidth + 18, pageWidth())
         const point = bounded(origin, width)
-        update({ image: { id: crypto.randomUUID(), kind: 'image', src, alt: '', anchorId: null, x: point.x, y: point.y, width, placement: 'float' },
+        update({ image: { id: crypto.randomUUID(), kind: 'image', src, alt: '', layout: { width, placement: { type: 'float', anchorId: null, x: point.x, y: point.y } } },
           origin: point, point, ratio: image.naturalWidth / image.naturalHeight })
         setNotice('Click to place, or drag to size. Enter places at the insertion point. Escape cancels.')
         if (pointer.current && sheet.current!.contains(document.elementFromPoint(pointer.current.clientX, pointer.current.clientY))) follow(pointer.current)
@@ -157,5 +157,5 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, sheet, ed
     }
   })
   return { active: !!placement, notice, preview: placement && <div className="image-placement floating-image" aria-hidden="true"
-    style={{ left: placement.point.x, top: placement.point.y, width: placement.image.width }}><img src={placement.image.src} alt="" draggable={false} /></div> }
+    style={{ left: placement.point.x, top: placement.point.y, width: placement.image.layout.width }}><img src={placement.image.src} alt="" draggable={false} /></div> }
 }

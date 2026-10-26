@@ -40,7 +40,7 @@ function embeddedImage(value) {
 function drawingImage(object, theme) {
   const number = value => typeof value === 'number' && Number.isFinite(value)
   const positive = value => number(value) && value > 0
-  if (!positive(object.width) || !positive(object.height) || ![null, 'gray6'].includes(object.background)
+  if (!positive(object.layout?.width) || !positive(object.layout?.height) || ![null, 'gray6'].includes(object.background)
     || !Array.isArray(object.strokes) || object.strokes.length > 10000 || !Array.isArray(object.labels) || object.labels.length > 1000) return
   const colors = new Map()
   for (const entry of paletteEntries(theme)) {
@@ -48,7 +48,7 @@ function drawingImage(object, theme) {
     if (/^#[0-9a-f]{6}$/i.test(entry?.soft)) colors.set(`${entry.id}:soft`, entry.soft)
   }
   const escape = value => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[character])
-  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${object.width}" height="${object.height}" viewBox="0 0 ${object.width} ${object.height}">`]
+  const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${object.layout?.width}" height="${object.layout?.height}" viewBox="0 0 ${object.layout?.width} ${object.layout?.height}">`]
   if (object.background === 'gray6') parts.push(`<rect width="100%" height="100%" fill="${colors.get('gray6')}"/>`)
   let points = 0
   for (const stroke of object.strokes) {
@@ -98,7 +98,7 @@ export async function extractNativeVisuals(documentPath, outputDir) {
     else if (value && typeof value === 'object') for (const [childKey, child] of Object.entries(value)) visit(child, childKey)
   }
   visit(document, '')
-  for (const object of document.floating ?? []) if (object?.kind === 'drawing') {
+  for (const object of document.objects ?? []) if (object?.kind === 'drawing') {
     const image = drawingImage(object, document.theme)
     if (image) add(image)
     else skipped++

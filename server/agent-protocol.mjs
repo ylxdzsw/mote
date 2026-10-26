@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { HttpError, MAX_RESULT, MAX_SCREENSHOT, UUID, record, validateCandidate, validatePngDataUrl } from './validation.mjs'
 
-export const AGENT_PROTOCOL = 'mote-agent-v0'
+export const AGENT_PROTOCOL = 'mote-agent-v1'
 export const TOKEN = /^[A-Za-z0-9_-]{43}$/
 export function operationId(value) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, 'operationId must be a UUID'); return value }
 export function counter(value, label) { if (!Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative integer`); return value }
@@ -37,13 +37,13 @@ export function validateDelivery(raw, assets, document, target) {
   }
   if (candidate.object?.kind === 'html') {
     const value = candidate.screenshotPath === undefined ? candidate.object.screenshot : asset(candidate.screenshotPath)
-    const original = document.floating.find(object => object.id === target.objectId)
-    candidate.object.screenshot = png(value, original.width, original.height, 'screenshot')
+    const original = document.objects.find(object => object.id === target.objectId)
+    candidate.object.screenshot = png(value, original.layout.width, original.layout.height, 'screenshot')
     delete candidate.screenshotPath
   }
-  for (const object of candidate.segment?.floating ?? []) if (object.kind === 'html') {
+  for (const object of candidate.segment?.objects ?? []) if (object.kind === 'html') {
     const name = candidate.screenshotPaths?.[object.id]
-    object.screenshot = png(name === undefined ? object.screenshot : asset(name), object.width, object.height, `screenshot for ${object.id}`)
+    object.screenshot = png(name === undefined ? object.screenshot : asset(name), object.layout.width, object.layout.height, `screenshot for ${object.id}`)
   }
   delete candidate.screenshotPaths
   if (Object.keys(supplied).some(name => !used.has(name))) throw new HttpError(400, 'unused uploaded asset')

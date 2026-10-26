@@ -77,7 +77,6 @@
 .files-footer .files-refresh { width: 28px; margin-left: auto; }
 .files-footer .files-recovery-pending { color: var(--ui-warning-text); }
 .files-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding-inline: 4px; border: 1px solid currentColor; border-radius: 9px; font-size: 10px; }
-.files-legacy { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 10px; color: var(--ui-muted); padding-bottom: 6px; }
 .files-footer .cloud-status:not(:empty) { padding-top: 5px; }
 .files-footer a { display: inline-block; margin-top: 4px; color: var(--ui-accent); }
 

@@ -37,7 +37,7 @@ export const changeColumns = (remove = false): Command => (state, dispatch) => {
   const rect = selectedRect(state)
   const columns = tableColumns(rect.table)
   if (remove) columns.splice(rect.left, rect.right - rect.left)
-  else columns.splice(rect.right, 0, { width: 1 / columns.length, align: 'left' })
+  else columns.splice(rect.right, 0, { weight: 1 / columns.length, align: 'left' })
   return (remove ? deleteColumn : addColumnAfter)(state, dispatch && (tr => {
     tr.setNodeAttribute(rect.tableStart - 1, 'columns', normalizeColumns(columns)).setMeta('historyBoundary', true)
     dispatch(tr)
@@ -128,7 +128,7 @@ const Table = Node.create({
   isolating: true,
   addAttributes: () => ({ columns: { default: null, rendered: false } }),
   parseHTML: () => [{ tag: 'table' }],
-  renderHTML: ({ node }) => ['table', ['colgroup', ...tableColumns(node).map(column => ['col', { style: `width: ${column.width * 100}%` }])], ['tbody', 0]],
+  renderHTML: ({ node }) => ['table', ['colgroup', ...tableColumns(node).map(column => ['col', { style: `width: ${column.weight * 100}%` }])], ['tbody', 0]],
   addNodeView: () => tableView,
   extendNodeSchema(extension) {
     const roles: Record<string, string> = { table: 'table', tableRow: 'row', tableCell: 'cell' }

@@ -14,11 +14,11 @@ export function paragraphClipboardJSON(data: DataTransfer) {
 
 export function parseParagraphs(json: string) {
   const payload = parseSegment(json)
-  if (!payload.content.length || payload.floating.length || payload.content.some(node => node.type !== 'paragraph')) throw new Error('Invalid Mote paragraphs')
+  if (!payload.content.length || payload.objects.length || payload.content.some(node => node.type !== 'paragraph')) throw new Error('Invalid Mote paragraphs')
   return payload
 }
 
 export function copyParagraphs(doc: MoteDocument, content: JSONContent[]) {
-  return copySegment({ ...doc, content: { type: 'doc', content }, floating: [] },
+  return copySegment({ ...doc, content: { type: 'doc', content }, objects: [] },
     { start: { index: 0, offset: 0 }, end: { index: content.length, offset: 0 } }, [], {})
 }

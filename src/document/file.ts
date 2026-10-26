@@ -44,6 +44,7 @@ async function gunzip(data: Blob): Promise<string> {
 }
 
 export async function encodeMote(doc: MoteDocument): Promise<Blob> {
+  validateDocument(doc)
   let json: string
   try {
     json = JSON.stringify(doc)
@@ -75,11 +76,11 @@ function parseDocument(json: string): MoteDocument {
   let value: unknown
   try { value = JSON.parse(json) }
   catch { throw new MoteFileError('The document payload does not contain valid JSON.') }
-  validateDocument(value)
   try { return initializeDocument(value) }
   catch (error) {
+    if (error instanceof MoteFileError) throw error
     const detail = error instanceof Error && error.message ? `: ${error.message}` : ''
-    throw new MoteFileError(`The document content is not valid for V0${detail}`)
+    throw new MoteFileError(`The document content is not valid for V1${detail}`)
   }
 }
 

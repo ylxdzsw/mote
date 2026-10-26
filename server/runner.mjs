@@ -108,17 +108,18 @@ export async function fakeRunner(context) {
   transcript('stdout', `attempt ${context.attempt}: reading target\n`)
   await wait(delay, context.signal)
   if (context.target.kind === 'object') {
-    candidate.object = structuredClone(document.floating.find(object => object.id === context.target.objectId))
+    candidate.object = structuredClone(document.objects.find(object => object.id === context.target.objectId))
     if (candidate.object?.kind === 'html') {
-      candidate.object.screenshot = `data:image/png;base64,${fakePng(Math.round(candidate.object.width), Math.round(candidate.object.height)).toString('base64')}`
+      candidate.object.screenshot = `data:image/png;base64,${fakePng(Math.round(candidate.object.layout.width), Math.round(candidate.object.layout.height)).toString('base64')}`
       candidate.object.html = '<button id="mote-fake-button" type="button">AI draft: 0</button><script>document.querySelector("button").addEventListener("click", event => { event.currentTarget.textContent = `AI draft: ${Number(event.currentTarget.textContent.split(\": \")[1] || 0) + 1}` })</script>'
     } else if (candidate.object?.kind === 'code') {
       candidate.object.source = `AI draft\n${candidate.object.source}`
     } else if (candidate.object?.kind === 'drawing') {
-      const { id, anchorId, x, y, width, height, placement, centered } = candidate.object
+      const { id, layout } = candidate.object
+      const { width, height } = layout
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 480 320"><rect x="40" y="100" width="140" height="100" rx="12" fill="#e8eef7" stroke="#425f87" stroke-width="2"/><path d="M180 150h100m-12-8 12 8-12 8" fill="none" stroke="#425f87" stroke-width="2"/><rect x="280" y="100" width="160" height="100" rx="12" fill="#f6edde" stroke="#875a35" stroke-width="2"/><text x="110" y="156" text-anchor="middle" font-family="sans-serif" font-size="18">Sketch</text><text x="360" y="156" text-anchor="middle" font-family="sans-serif" font-size="18">AI figure</text></svg>`
-      candidate.object = { id, anchorId, x, y, width, placement, centered, kind: 'image', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'Fake sketch-to-figure candidate' }
-    } else if ((candidate.object?.kind ?? 'text') === 'text' && candidate.object.content?.content?.[0]) {
+      candidate.object = { id, layout: { width, placement: layout.placement, ...(layout.margins ? { margins: layout.margins } : {}) }, kind: 'image', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'Fake sketch-to-figure candidate' }
+    } else if (candidate.object?.kind === 'text' && candidate.object.content?.content?.[0]) {
       const first = candidate.object.content.content[0]
       candidate.object.content = { ...candidate.object.content, content: [{ ...first, content: [{ type: 'text', text: `AI draft: ${textOf(first) || 'generated note'}` }] }, ...candidate.object.content.content.slice(1)] }
     }
@@ -127,15 +128,15 @@ export async function fakeRunner(context) {
     const paragraphId = `${prefix}-paragraph`
     const flowId = `${prefix}-flow`
     const figureId = `${prefix}-figure`
-    const drawingWidth = Math.min(180, document.width - document.margins.left - document.margins.right)
-    const x = document.margins.left
+    const drawingWidth = Math.min(180, document.page.width - document.page.margins.left - document.page.margins.right)
+    const x = document.page.margins.left
     const content = [
       { type: 'paragraph', attrs: { id: paragraphId, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: a composed segment' }] },
       { type: 'flow', attrs: { id: flowId, objectId: figureId } },
     ]
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${drawingWidth}" height="64" viewBox="0 0 480 320"><rect x="40" y="70" width="400" height="180" rx="18" fill="#e8eef7" stroke="#425f87" stroke-width="5"/><path d="M90 205l90-80 70 55 78-65 62 90" fill="none" stroke="#425f87" stroke-width="9"/></svg>`
-    const figure = { id: figureId, kind: 'image', anchorId: flowId, x: 0, y: 0, width: drawingWidth, placement: 'flow', src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'AI figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `${prefix}-caption` }, content: [{ type: 'text', text: 'AI figure' }] }] } } }
-    candidate.segment = { version: 'V0', type: 'segment', content, floating: [figure], geometry: {
+    const figure = { id: figureId, kind: 'image', layout: { width: drawingWidth, placement: { type: 'flow', x: 0 } }, src: `data:image/svg+xml,${encodeURIComponent(svg)}`, alt: 'AI figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: `${prefix}-caption` }, content: [{ type: 'text', text: 'AI figure' }] }] } } }
+    candidate.segment = { version: 1, type: 'segment', content, objects: [figure], geometry: {
       [figureId]: { x, y: 28, width: drawingWidth, height: 64 },
     }, anchorTops: { [paragraphId]: 0, [flowId]: 28 }, originTop: 0 }
   } else {

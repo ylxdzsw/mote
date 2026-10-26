@@ -1,3 +1,5 @@
+import { objectY, objectAnchorId } from '../document/model'
+import { canonicalEditorContent } from '../editor/canonical'
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument } from '../document/model'
 import type { AITarget, AITask } from './types'
@@ -29,8 +31,8 @@ function sortedKeys(_key: string, value: unknown): unknown {
 }
 // Placement and margins belong to the user; content and size belong to the reserved task.
 export function objectContent(object: FloatingObject) {
-  const { x, y, anchorId, placement, centered, margins, ...content } = object
-  void x; void y; void anchorId; void placement; void centered; void margins
+  const { layout, ...body } = object
+  const content = { ...body, layout: { width: layout.width, ...(layout.height !== undefined && { height: layout.height }) } }
   if (supportsCaption(object) && object.caption) return { ...content, caption: { content: object.caption.content } }
   return content
 }
@@ -42,10 +44,10 @@ export function reservedObjectContent(task: AITask, object: FloatingObject) {
   // Normalize only positions: repeated resize arithmetic must not release a draft.
   // Ten decimal places tolerate subpixel rounding while keeping all other data exact.
   const coordinate = (value: number, extent: number) => Number((value / extent).toFixed(10))
-  return { ...content, width: undefined, height: undefined,
+  return { ...content, layout: {},
     ...(object.kind === 'drawing' && {
-      strokes: object.strokes.map(stroke => ({ ...stroke, points: stroke.points.map(([x, y]) => [coordinate(x, object.width), coordinate(y, object.height)]) })),
-      labels: object.labels.map(label => ({ ...label, x: coordinate(label.x, object.width), y: coordinate(label.y, object.height) })),
+      strokes: object.strokes.map(stroke => ({ ...stroke, points: stroke.points.map(([x, y]) => [coordinate(x, object.layout.width), coordinate(y, object.layout.height)]) })),
+      labels: object.labels.map(label => ({ ...label, x: coordinate(label.x, object.layout.width), y: coordinate(label.y, object.layout.height) })),
     }),
   }
 }
@@ -54,7 +56,7 @@ function segmentTarget(target: AITarget) {
   return target.kind === 'segment' ? target : null
 }
 
-function segmentDocument(doc: Pick<MoteDocument, 'content' | 'floating'>): MoteDocument {
+function segmentDocument(doc: Pick<MoteDocument, 'content' | 'objects'>): MoteDocument {
   return doc as MoteDocument
 }
 
@@ -114,13 +116,13 @@ function segmentObjectIds(doc: MoteDocument, range: SegmentRange) {
     const end = index === range.end.index ? range.end.offset : segmentBlockHeight(block)
     return y >= start && (y < end || end === segmentBlockHeight(block) && y >= segmentBlockHeight(block))
   }
-  for (const object of doc.floating) {
-    if (selectedAnchor(object.anchorId, object.y)) ids.add(object.id)
+  for (const object of doc.objects) {
+    if (selectedAnchor(objectAnchorId(object, doc.content), objectY(object))) ids.add(object.id)
   }
   return ids
 }
 
-function segmentBlocks(doc: Pick<MoteDocument, 'content' | 'floating'>, target: Extract<AITarget, { kind: 'segment' }>) {
+function segmentBlocks(doc: Pick<MoteDocument, 'content' | 'objects'>, target: Extract<AITarget, { kind: 'segment' }>) {
   const range = resolveSegmentRange(segmentDocument(doc), target)
   if (!range) return null
   const blocks = doc.content.content ?? [], ids = segmentBlockIds(segmentDocument(doc), range)
@@ -134,29 +136,25 @@ function segmentOriginalBlocks(task: AITask): JSONContent[] {
     ? (task.original as SegmentClipboard).content : []
 }
 
-function normalizedBlock(block: JSONContent) {
-  return { ...block, attrs: block.attrs ? { ...block.attrs, minSegmentHeight: undefined } : block.attrs }
-}
-
-function segmentMainIntact(task: AITask, content: JSONContent, floating: FloatingObject[] = []): boolean {
+function segmentMainIntact(task: AITask, content: JSONContent, objects: FloatingObject[] = []): boolean {
   const target = segmentTarget(task.target)
   if (!target) return true
-  const current = segmentBlocks({ content, floating }, target)
+  const current = segmentBlocks({ content, objects }, target)
   if (!current) return false
   const original = segmentOriginalBlocks(task)
   if (!target.blockIds.length) return true
   if (original.length !== current.blocks.length) return false
-  return current.blocks.every((block, index) => sameContent(normalizedBlock(block), normalizedBlock(original[index])))
+  return current.blocks.every((block, index) => sameContent(canonicalEditorContent(block), canonicalEditorContent(original[index])))
 }
 
 function segmentObjectsIntact(task: AITask, doc: MoteDocument, range: SegmentRange) {
   const target = segmentTarget(task.target)!
   const actualIds = [...segmentObjectIds(doc, range)]
   if (actualIds.length !== target.objectIds.length || actualIds.some(id => !target.objectIds.includes(id))) return false
-  const current = target.objectIds.map(id => doc.floating.find(object => object.id === id))
+  const current = target.objectIds.map(id => doc.objects.find(object => object.id === id))
   if (current.some(object => !object)) return false
   const original = task.segmentOriginalObjects ?? (task.original && !Array.isArray(task.original) && 'type' in task.original && task.original.type === 'segment'
-    ? (task.original as SegmentClipboard).floating : [])
+    ? (task.original as SegmentClipboard).objects : [])
   if (original.length !== current.length) return false
   return current.every((object, index) => {
     const source = original.find(candidate => candidate.id === target.objectIds[index]) ?? original[index]
@@ -169,7 +167,7 @@ export function segmentReservationIntact(task: AITask, doc: MoteDocument): boole
   const target = segmentTarget(task.target)
   if (!target || doc.id !== task.documentId) return false
   const current = segmentBlocks(doc, target)
-  return !!current && segmentMainIntact(task, doc.content, doc.floating)
+  return !!current && segmentMainIntact(task, doc.content, doc.objects)
     && segmentObjectsIntact(task, doc, current.range)
 }
 
@@ -178,16 +176,17 @@ export function reservedText(content: JSONContent, ids: string[]) {
   const first = blocks.findIndex(node => node.attrs?.id === ids[0])
   const found = blocks.slice(first, first + ids.length)
   if (first < 0 || found.some((node, i) => node.attrs?.id !== ids[i])) return null
-  return found.map(node => ({ ...node, attrs: { ...node.attrs, semantic: node.attrs?.semantic ?? 'body', listLevel: node.attrs?.listLevel ?? 0, minSegmentHeight: undefined } }))
+  return found.map(canonicalEditorContent)
 }
 
 export function inactiveTaskReason(task: AITask, doc: MoteDocument): string | null {
+  if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1 || task.snapshotDocument?.format !== 'mote' || task.snapshotDocument.version !== 1) return 'Unsupported task protocol or document version. The original request, snapshot, and result are retained for recovery. Create a new V1 reservation to generate.'
   if (task.documentId !== doc.id) return 'This task belongs to another document. Its request and result are retained for recovery.'
   if (task.acceptance) return 'Applied to a local working copy. The result is retained until that exact document is saved to the cloud; it does not lock this document.'
   if (task.released) return 'This reservation has been released. Its original input and result remain available for recovery, without document locks or agent access.'
   const target = task.target
   const intact = target.kind === 'object' ? (() => {
-    const object = doc.floating.find(object => object.id === target.objectId)
+    const object = doc.objects.find(object => object.id === target.objectId)
     return !!object && sameContent(reservedObjectContent(task, object), reservedObjectContent(task, task.original as FloatingObject))
   })() : target.kind === 'segment' ? segmentReservationIntact(task, doc)
     : !!reservedText(doc.content, target.blockIds) && sameContent(reservedText(doc.content, target.blockIds), reservedText({ type: 'doc', content: task.original as JSONContent[] }, target.blockIds))
@@ -250,8 +249,8 @@ export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocume
       return previous !== null && next !== null && sameContent(previous, next)
     }
     if (target.kind === 'segment') return segmentReservationIntact(task, before) && segmentReservationIntact(task, after)
-    const previous = before.floating.find(object => object.id === target.objectId)
-    const next = after.floating.find(object => object.id === target.objectId)
+    const previous = before.objects.find(object => object.id === target.objectId)
+    const next = after.objects.find(object => object.id === target.objectId)
     return !!previous && !!next && sameContent(reservedObjectContent(task, previous), reservedObjectContent(task, next))
   })
 }
@@ -270,12 +269,9 @@ export function permitsEditor(tasks: AITask[], historyId: string, before: JSONCo
 }
 
 export function currentPlacement(candidate: FloatingObject, original: FloatingObject): FloatingObject {
-  const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.width, ...('height' in original && { height: original.height }) }) : candidate
-  const result: FloatingObject = { ...resized, id: original.id, x: original.x, y: original.y, anchorId: original.anchorId, width: original.width, placement: original.placement, centered: original.centered }
-  if (original.centered === undefined) delete result.centered
-  if (original.margins === undefined) delete result.margins
-  else result.margins = { ...original.margins }
-  if ('height' in original && 'height' in result) result.height = original.height
+  const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.layout.width, ...(original.layout.height !== undefined && { height: original.layout.height }) }) : candidate
+  const result: FloatingObject = { ...resized, id: original.id, layout: { width: original.layout.width, placement: original.layout.placement, ...(original.layout.margins && { margins: { ...original.layout.margins } }),
+    ...((resized.kind === 'drawing' || resized.kind === 'html') && { height: original.layout.height ?? resized.layout.height }) } } as FloatingObject
   if (supportsCaption(result)) {
     const originalCaption = supportsCaption(original) ? original.caption : undefined
     if (result.caption === undefined && originalCaption) result.caption = originalCaption

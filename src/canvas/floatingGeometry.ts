@@ -1,8 +1,9 @@
+import { objectX, objectY, objectAnchorId } from '../document/model'
 import { supportsCaption, type FloatingObject, type FloatingPatch } from '../document/model'
 
 export interface Point { x: number; y: number }
 export interface Box extends Point { width: number; height: number }
-export interface Geometry extends Box { captionWidth?: number; margins?: FloatingObject['margins'] }
+export interface Geometry extends Box { captionWidth?: number; margins?: FloatingObject['layout']['margins'] }
 export type Geometries = Record<string, Geometry>
 export interface Anchor { id: string; top: number; left?: number }
 export const gridSize = 16
@@ -46,18 +47,18 @@ export function extentBounds(box: Geometry): Box {
 }
 
 export function flowX(object: FloatingObject, columnWidth: number) {
-  return object.centered ? (columnWidth - object.width + (object.margins?.left ?? 0) - (object.margins?.right ?? 0)) / 2 : object.x
+  return (object.layout.placement.x === 'center') ? (columnWidth - object.layout.width + (object.layout.margins?.left ?? 0) - (object.layout.margins?.right ?? 0)) / 2 : objectX(object)
 }
 
 export function constrainCaptionResize(object: FloatingObject, patch: FloatingPatch, box: Box | undefined, pageWidth: number): FloatingPatch {
-  if (!box || patch.width === undefined || !supportsCaption(object) || !object.caption?.width || object.placement === 'flow' && object.centered) return patch
+  if (!box || patch.width === undefined || !supportsCaption(object) || !object.caption?.width || object.layout.placement.type === 'flow' && (object.layout.placement.x === 'center')) return patch
   const captionWidth = object.caption.width
   const west = patch.x !== undefined && patch.x !== box.x
   const edge = west ? box.x + box.width : box.x
-  const left = object.margins?.left ?? 0, right = pageWidth - (object.margins?.right ?? 0)
+  const left = object.layout.margins?.left ?? 0, right = pageWidth - (object.layout.margins?.right ?? 0)
   const min = west ? 2 * edge - 2 * right + captionWidth : captionWidth + 2 * left - 2 * edge
   const max = west ? 2 * edge - captionWidth - 2 * left : 2 * right - captionWidth - 2 * edge
-  const width = Math.max(Math.max(1, Math.min(object.width, min)), Math.min(Math.max(object.width, max), patch.width))
+  const width = Math.max(Math.max(1, Math.min(object.layout.width, min)), Math.min(Math.max(object.layout.width, max), patch.width))
   return { ...patch, width, ...(west && { x: edge - width }) }
 }
 
@@ -80,13 +81,13 @@ export function anchorPoint(point: Point, anchors: Anchor[]): { x: number; y: nu
 export function resolveGeometry(objects: FloatingObject[], sizes: Record<string, { width: number; height: number }>, tops: Record<string, number>, anchors: Anchor[] = [], column = { left: 0, width: 0 }): Geometries {
   const result: Geometries = {}
   for (const object of objects) {
-    const x = object.placement === 'flow'
+    const x = object.layout.placement.type === 'flow'
       ? column.left + flowX(object, column.width)
-      : object.x + (anchors.find(anchor => anchor.id === object.anchorId)?.left ?? 0)
-    result[object.id] = { x, y: tops[object.id] ?? object.y, width: object.width,
-      ...(object.margins && { margins: object.margins }),
+      : objectX(object) + (anchors.find(anchor => anchor.id === objectAnchorId(object))?.left ?? 0)
+    result[object.id] = { x, y: tops[object.id] ?? objectY(object), width: object.layout.width,
+      ...(object.layout.margins && { margins: object.layout.margins }),
       ...(supportsCaption(object) && object.caption?.width !== undefined && { captionWidth: object.caption.width }),
-      height: sizes[object.id]?.height ?? (object.kind === 'html' || object.kind === 'drawing' ? object.height : 24) }
+      height: sizes[object.id]?.height ?? (object.kind === 'html' || object.kind === 'drawing' ? object.layout.height : 24) }
   }
   return result
 }

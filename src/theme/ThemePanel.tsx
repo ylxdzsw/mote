@@ -1,22 +1,28 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { defaultSubheadingStyle, themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type ThemeLength } from '../document/model'
+import { px, themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type LineHeight, type BlockClass, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
 import { paletteColor, paletteEntries, pageColor } from './palette'
 import { PaletteControl, PaletteEditor } from './PaletteControl'
 import { MathView } from '../canvas/MathView'
 import { CodeView } from '../canvas/CodeView'
 
-export function pixels(value: ThemeLength, base: number) {
-  return typeof value === 'number' ? value : parseFloat(value) * (value.endsWith('em') ? base : 1)
+export function pixels(value: ThemeLength | LineHeight | number, base: number, fontSize = base) {
+  return typeof value === 'number' ? value : value.value * (value.unit === 'em' ? base : value.unit === 'ratio' ? fontSize : 1)
 }
 
 function blockOverrides(theme: Theme, name: ThemeBlockClass) {
-  return theme.blocks[name] ?? (name === 'subheading' ? defaultSubheadingStyle : {})
+  return (name === 'table' || name === 'code' || name === 'formula' ? theme.objects[name] : theme.paragraphs[name]) ?? {}
+}
+
+function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme {
+  return name === 'table' || name === 'code' || name === 'formula'
+    ? { ...theme, objects: { ...theme.objects, [name]: style } }
+    : { ...theme, paragraphs: { ...theme.paragraphs, [name as BlockClass]: style } }
 }
 
 export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
   const neutralSoft = paletteColor(theme, 'gray5')
-  const body = { ...theme.defaults, ...(theme.blocks.body ?? {}) }
+  const body = { ...theme.defaults, ...(theme.paragraphs.body ?? {}) }
   const variables: Record<string, string> = {
     '--page-background': pageColor(theme),
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
@@ -31,9 +37,9 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
   }
   for (const name of themeBlockClasses) {
     const style = { ...theme.defaults, ...blockOverrides(theme, name) }
-    if (name === 'math') {
-      variables[`--${name}-size`] = `${pixels(style.size, theme.defaults.size)}px`
-      variables[`--${name}-color`] = paletteColor(theme, style.color)
+    if (name === 'formula') {
+      variables[`--${name === 'formula' ? 'math' : name}-size`] = `${pixels(style.size, theme.defaults.size)}px`
+      variables[`--${name === 'formula' ? 'math' : name}-color`] = paletteColor(theme, style.color)
       continue
     }
     variables[`--${name}-family`] = name === 'code' || style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace'
@@ -41,7 +47,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
       : `${language === 'en' ? 'Inter, "Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Liberation Sans", ' : ''}"Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", system-ui, sans-serif`
     if (name === 'code') variables['--code-family'] = variables['--code-family'].replace('"Microsoft YaHei", ', '')
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
-    variables[`--${name}-lineHeight`] = typeof style.lineHeight === 'number' ? String(style.lineHeight) : `${pixels(style.lineHeight, theme.defaults.size)}px`
+    variables[`--${name}-lineHeight`] = `${pixels(style.lineHeight, theme.defaults.size, pixels(style.size, theme.defaults.size))}px`
     variables[`--${name}-color`] = paletteColor(theme, style.color)
     variables[`--${name}-weight`] = String(style.weight)
   }
@@ -81,27 +87,27 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
   const palette = selected === 'palette'
   const isFlow = selected === 'flow'
   const isBlock = !defaults && !palette && themeBlockClasses.includes(selected as ThemeBlockClass)
-  const isMath = selected === 'math'
+  const isMath = selected === 'formula'
   const isCode = selected === 'code'
   const isParagraphBlock = isBlock && !isMath && !isCode
   const styles = defaults ? theme.defaults : isFlow ? theme.flow ?? {} : isBlock ? blockOverrides(theme, selected as ThemeBlockClass) : {}
-  const bodyStyle = { ...theme.defaults, ...(theme.blocks.body ?? {}) }
+  const bodyStyle = { ...theme.defaults, ...(theme.paragraphs.body ?? {}) }
   const resolved = isFlow
-    ? { ...theme.defaults, spaceBefore: 0, spaceAfter: bodyStyle.spaceAfter, ...styles }
+    ? { ...theme.defaults, spaceBefore: px(0), spaceAfter: bodyStyle.spaceAfter, ...styles }
     : { ...theme.defaults, ...styles }
-  const values = styles as Record<string, string | number | boolean | undefined>
+  const values = styles as Record<string, string | number | boolean | LineHeight | undefined>
 
-  function update(property: string, value?: string | number | boolean) {
+  function update(property: string, value?: string | number | boolean | LineHeight) {
     if (palette) return
-    const next = { ...styles } as Record<string, string | number | boolean>
+    const next = { ...styles } as Record<string, string | number | boolean | LineHeight>
     if (value === undefined) delete next[property]; else next[property] = value
     if (defaults) onChange({ ...theme, defaults: next as unknown as Theme['defaults'] })
     else if (isFlow) {
       const updated = { ...theme }
       if (Object.keys(next).length) updated.flow = next as Theme['flow']
-      else delete updated.flow
+      else updated.flow = {}
       onChange(updated)
-    } else onChange({ ...theme, blocks: { ...theme.blocks, [selected as ThemeBlockClass]: next } })
+    } else onChange(setOverrides(theme, selected as ThemeBlockClass, next))
   }
   function field(property: string, label: string, control: ReactNode) {
     const inherited = !defaults && values[property] === undefined
@@ -124,19 +130,19 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
     const value = resolved[property]
     const base = theme.defaults.size
     const fontSize = pixels(resolved.size, base)
-    const unit = typeof value === 'number' ? property === 'lineHeight' ? '×' : 'px' : value.endsWith('em') ? 'em' : 'px'
+    const unit = typeof value === 'number' ? 'px' : value.unit === 'ratio' ? '×' : value.unit
     const divisor = unit === 'em' ? base : unit === '×' ? fontSize : 1
-    return field(property, label, <NumberField label={label} value={typeof value === 'number' ? value : parseFloat(value)}
+    return field(property, label, <NumberField label={label} value={typeof value === 'number' ? value : value.value}
       min={min / divisor} max={max / divisor} step={unit === 'px' ? step : .025} unit={unit}
       units={property === 'lineHeight' ? ['em', 'px', '×'] : ['em', 'px']}
-      onChange={value => update(property, unit === '×' ? value : `${value}${unit}`)}
+      onChange={value => update(property, { value, unit: unit === '×' ? 'ratio' : unit })}
       onUnitChange={nextUnit => {
-        const absolute = unit === '×' ? Number(value) * fontSize : pixels(value, base)
+        const absolute = pixels(value, base, fontSize)
         const next = Number((absolute / (nextUnit === 'em' ? base : nextUnit === '×' ? fontSize : 1)).toFixed(6))
-        update(property, nextUnit === '×' ? next : `${next}${nextUnit}`)
+        update(property, { value: next, unit: nextUnit === '×' ? 'ratio' : nextUnit as 'em' | 'px' })
       }} />)
   }
-  function choose(property: string, label: string, choices: [string, string][], value: string, parse: (value: string) => string | number | boolean = value => value) {
+  function choose(property: string, label: string, choices: [string, string][], value: string, parse: (value: string) => string | number | boolean | LineHeight = value => value) {
     const inherited = choices.find(([choice]) => choice === String(resolved[property as keyof typeof resolved]))?.[1]
     return field(property, label, <select aria-label={label} value={value} onChange={event => {
       history.boundary(); update(property, event.target.value === 'inherit' ? undefined : parse(event.target.value))
@@ -153,7 +159,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
 
   return <>
     <nav className="theme-classes" aria-label="Theme classes">
-      {([['', ['defaults', 'palette']], ['Paragraphs', themeBlockClasses.filter(name => name !== 'math' && name !== 'code')], ['Objects', ['flow', 'math', 'code']]] as const).map(([label, names]) => <div key={label}>
+      {([['', ['defaults', 'palette']], ['Paragraphs', themeBlockClasses.filter(name => name !== 'formula' && name !== 'code' && name !== 'table')], ['Objects', ['flow', 'table', 'formula', 'code']]] as const).map(([label, names]) => <div key={label}>
         {label && <h3>{label}</h3>}
         <div className="class-buttons">{names.map(name => <button key={name} aria-pressed={selected === name}
           onClick={() => { history.boundary(); onSelect(name) }}>{classLabel(name)}</button>)}</div>
@@ -180,20 +186,20 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         {!isCode && <div className="paired-fields">{length('spaceBefore', 'Space before', 0, 2000)}{length('spaceAfter', 'Space after', 0, 2000)}</div>}
       </>}
       {isFlow && <div className="paired-fields">{length('spaceBefore', 'Space before', 0, 2000)}{length('spaceAfter', 'Space after', 0, 2000)}</div>}
-      <div className="theme-sample text-content" lang={language} data-mode={theme.mode} style={{ ...themeVariables(defaults ? { ...theme, blocks: { ...theme.blocks, body: {} } } : theme, language), background: pageColor(theme) }} aria-label="Style sample">
-        {selected === 'math' ? <MathView latex="E=mc^2" />
-          : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', anchorId: null, x: 0, y: 0, width: 300, placement: 'float', language: 'javascript', source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
+      <div className="theme-sample text-content" lang={language} data-mode={theme.appearance.mode} style={{ ...themeVariables(defaults ? { ...theme, paragraphs: { ...theme.paragraphs, body: {} } } : theme, language), background: pageColor(theme) }} aria-label="Style sample">
+        {selected === 'formula' ? <MathView latex="E=mc^2" />
+          : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', layout: { width: 300, placement: { type: 'float', anchorId: null, x: 0, y: 0 } }, language: 'javascript', source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
           : isFlow ? <><p>Text before</p><div title="Flow object" style={{ marginBlockStart: 'var(--flow-spaceBefore)', marginBlockEnd: 'var(--flow-spaceAfter)', border: '1px solid var(--ui-border)', borderRadius: 4, padding: 8, color: 'var(--ui-muted)' }}>Flow object</div><p>Text after</p></>
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
-          : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，保留V0草稿。</span></p>}
+          : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，留下思考空间。</span></p>}
       </div>
       {!defaults && <button disabled={!Object.keys(styles).length} onClick={() => {
         history.boundary()
         if (isFlow) {
           const updated = { ...theme }
-          delete updated.flow
+          updated.flow = {}
           onChange(updated)
-        } else onChange({ ...theme, blocks: { ...theme.blocks, [selected as ThemeBlockClass]: {} } })
+        } else onChange(setOverrides(theme, selected as ThemeBlockClass, {}))
       }}>Reset class overrides</button>}
       <details className="settings-help"><summary>Typography details</summary>
         <p>1em = Defaults font size ({theme.defaults.size}px). × line height follows the local font size.</p>

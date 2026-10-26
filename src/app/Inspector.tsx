@@ -250,8 +250,8 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     else chain.setMark('decoration', { decoration }).run()
   }
 
-  const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['blocks']
-  const inheritedColor = theme.blocks[paragraph]?.color ?? theme.defaults.color
+  const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['paragraphs'] | 'table'
+  const inheritedColor = (paragraph === 'table' ? theme.objects.table : theme.paragraphs[paragraph])?.color ?? theme.defaults.color
   const colorSwatch = selection.color === 'mixed' ? undefined : paletteColor(theme, selection.color ?? inheritedColor)
   const swatches = paletteSwatches(theme)
   return <div className="text-tools" ref={tools}>

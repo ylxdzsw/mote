@@ -26,8 +26,8 @@ export function useDocumentHistory(initial: MoteDocument) {
     const next = typeof update === 'function' ? update(s.doc) : update
     if (!next || next === s.doc) return
     if (s.doc && !guard.current(s.doc, next)) return
-    if (s.doc && next.id === s.doc.id && next.content === s.doc.content && next.floating === s.doc.floating
-      && next.width === s.doc.width && next.language === s.doc.language && next.aiModel === s.doc.aiModel && next.notes === s.doc.notes && JSON.stringify(next.margins) === JSON.stringify(s.doc.margins)
+    if (s.doc && next.id === s.doc.id && next.content === s.doc.content && next.objects === s.doc.objects
+      && next.page.width === s.doc.page.width && next.language === s.doc.language && next.authoring?.aiModel === s.doc.authoring?.aiModel && next.authoring?.notes === s.doc.authoring?.notes && JSON.stringify(next.page.margins) === JSON.stringify(s.doc.page.margins)
       && JSON.stringify(next.theme) === JSON.stringify(s.doc.theme)) {
       s.doc = next; render(next)
       return

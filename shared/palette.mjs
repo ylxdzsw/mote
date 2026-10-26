@@ -64,12 +64,12 @@ export function validPaletteReference(value) {
 export const boxColorIds = [...pairIds, 'gray4']
 
 export function pageColor(theme) {
-  return theme.mode === 'dark' ? '#181818' : '#ffffff'
+  return theme.appearance.mode === 'dark' ? '#181818' : '#ffffff'
 }
 
 export function paletteEntries(theme) {
-  const dark = theme.mode === 'dark'
-  const hues = { primary: theme.hue, secondary: theme.secondaryHue, ...fixedHues }
+  const dark = theme.appearance.mode === 'dark'
+  const hues = { primary: theme.appearance.primaryHue, secondary: theme.appearance.secondaryHue, ...fixedHues }
   return [
     ...Object.entries(hues).map(([id, hue]) => ({ id, name: id[0].toUpperCase() + id.slice(1),
       strong: oklchHex(dark ? .72 : .52, dark ? .19 : .21, hue),
