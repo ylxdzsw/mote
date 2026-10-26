@@ -13,14 +13,18 @@ export interface SegmentPreview {
 // rendered by decoration widgets; objects candidates use the same projection.
 export function projectSegments(doc: MoteDocument, tasks: AITask[], editor: Editor | null, context: SegmentContext) {
   const previews: SegmentPreview[] = [], owners = new Map<string, string>()
+  const failures: { taskId: string; error: unknown }[] = [], applied: AITask[] = []
   let document = doc
   const blockOwners: Record<string, string> = {}
-  if (!editor || !tasks.length) return { document: doc, previews, owners }
+  if (!editor || !tasks.length) return { document: doc, previews, owners, failures }
   const original = editor.schema.nodeFromJSON(doc.content), positions = [0]
   original.forEach(node => positions.push(positions.at(-1)! + node.nodeSize))
   for (const task of tasks) {
     if (task.target.kind !== 'segment' || !task.preview || !task.candidate?.segment) continue
-    const next = candidateDocument(document, task, task.candidate, context)
+    let next: MoteDocument
+    try { next = candidateDocument(document, task, task.candidate, context) }
+    catch (error) { failures.push({ taskId: task.id, error }); continue }
+    applied.push(task)
     const oldBlocks = new Set(document.content.content!.map(node => node.attrs!.id))
     for (const block of next.content.content!) if (!oldBlocks.has(block.attrs!.id)) blockOwners[block.attrs!.id] = task.id
     const oldObjects = new Set(document.objects.map(object => object.id))
@@ -35,7 +39,7 @@ export function projectSegments(doc: MoteDocument, tasks: AITask[], editor: Edit
     const replacement: JSONContent[] = []
     for (let i = newStart; i < newEnd; i++) replacement.push(content.child(i).toJSON())
     const ids = new Set(replacement.map(node => blockOwners[node.attrs!.id]).filter(Boolean))
-    for (const task of tasks) if (task.target.kind === 'segment') {
+    for (const task of applied) if (task.target.kind === 'segment') {
       const range = resolveSegmentRange(doc, task.target)
       if (range && range.start.index <= oldEnd && range.end.index >= oldStart) ids.add(task.id)
     }
@@ -49,5 +53,5 @@ export function projectSegments(doc: MoteDocument, tasks: AITask[], editor: Edit
     oldStart = oldIndex + 1; newStart = index + 1
   })
   add(original.childCount, content.childCount)
-  return { document, previews, owners }
+  return { document, previews, owners, failures }
 }

@@ -54,6 +54,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         const miniature = source.cloneNode(true) as HTMLDivElement
         miniature.className = 'sheet is-reading minimap-sheet'
         miniature.style.height = getComputedStyle(source).height
+        miniature.querySelectorAll('.ai-segment-borders').forEach(node => node.remove())
         miniature.querySelectorAll('[data-widget-live], [data-ai-controls], [data-code-copy], .drawing-edit-button, .code-editor, .floating-border-right, .caption-border-right, .space-hint, .document-tail-hint, .ProseMirror-gapcursor, .table-column-controls, .object-handle, .object-layout-footprint, .vector-hit, .marquee-selection, .image-placement').forEach(node => node.remove())
         miniature.querySelectorAll('[data-writing-placeholder]').forEach(node => node.removeAttribute('data-writing-placeholder'))
         miniature.querySelectorAll<HTMLElement>('*').forEach(node => {

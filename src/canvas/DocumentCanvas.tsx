@@ -34,6 +34,7 @@ import { freshNode, moveSegment, type SegmentPoint, type SegmentRange } from '..
 import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
 import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
+import { SegmentPreviewBorders } from '../ai/SegmentPreviewBorders'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import { ReviewControls, type AIReview } from '../ai/ReviewControls'
 
@@ -122,6 +123,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     projected.current = { doc, editor: mainEditor, context: originalContext, tasks: candidates.map(task => ({ id: task.id, candidate: task.candidate })), value: projectSegments(doc, candidates, mainEditor, originalContext) }
   }
   const projection = projected.current.value
+  useLayoutEffect(() => {
+    for (const failure of projection.failures) aiReview?.previewFailed(failure.taskId, failure.error)
+  }, [projection])
   const layoutDoc = useMemo(() => ({ ...projection.document, objects: [...projection.document.objects.map(object => {
     const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
     return task && task.preview && task.candidate?.object ? currentPlacement(task.candidate.object, object) : object
@@ -948,6 +952,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           return <ReviewControls key={task.id} task={task} review={canvasReview}
             style={{ left: Math.max(0, Math.min(box.x, pageWidth() - 300)), top: box.y + box.height, maxWidth: pageWidth() }} />
         })}
+        {editable && projection.previews.length > 0 && <SegmentPreviewBorders sheet={sheet} previews={projection.previews}
+          owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
         {imagePlacement.preview}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>

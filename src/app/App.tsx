@@ -621,6 +621,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onSegmentSelection={(range, taskId) => setSelectedSegment({ range, taskId })}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onAISegmentCreate={createAISegment} onDeleteObjects={assistant.deleteObjects}
         aiReview={{ tasks: assistant.tasks, mainActive: !selectedIds.length && activeEditor === mainEditor,
+          previewFailed: assistant.previewFailed,
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, accept: assistant.accept, discard: assistant.discard, stop: assistant.stop,
           toggle: id => { const task = assistant.tasks.find(task => task.id === id)!; assistant.update(id, { preview: !task.preview }) }, open: assistant.openTask, deleteTarget: assistant.deleteTarget }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}

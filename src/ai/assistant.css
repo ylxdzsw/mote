@@ -147,6 +147,11 @@
 .text-content .ai-text-preview[data-ai-first] > :first-child { margin-top: 0; }
 .text-content .ai-text-preview[data-ai-last] > :last-child { margin-bottom: 0; }
 .ai-segment-preview { display: contents; }
+.ai-segment-preview > .ai-candidate, .floating-note[data-ai-segment-candidate], .floating-note[data-ai-segment-candidate] > :is(.object-body, .object-caption) { outline: none !important; }
+.ai-segment-borders { pointer-events: none; }
+.ai-segment-border { position: absolute; box-sizing: border-box; border: 1px solid var(--ui-accent-border); pointer-events: none; z-index: var(--canvas-ui-layer); }
+.ai-segment-border[data-active] { border-color: var(--ui-accent); }
+.sheet:has(.ai-segment-preview:focus-visible, .ai-segment-preview :focus-visible, [data-ai-segment-candidate]:focus-visible) .ai-segment-border[data-active] { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .text-content .ai-segment-preview > .main-paragraph:is(p, pre) { margin-top: var(--text-spaceBefore); margin-bottom: var(--text-spaceAfter); }
 .text-content .ai-segment-preview[data-ai-first] > :first-child { margin-top: 0; }
 .text-content .ai-segment-preview[data-ai-last] > :last-child { margin-bottom: 0; }
@@ -165,7 +170,6 @@
 .ai-segment-marker:not([data-ai-empty]) .ai-segment-handle:focus-visible { opacity: 1; width: 24px; height: 22px; padding: 2px; border: 1px solid var(--ui-accent-border); }
 .ai-segment-preview-handle { position: relative; z-index: var(--canvas-ui-layer); display: block; width: 24px; height: 22px; margin: 0; padding: 2px; border: 1px solid var(--ui-accent-border); border-radius: 4px; background: var(--ui-surface); color: var(--ui-accent); cursor: pointer; }
 .ai-segment-preview-handle::before { content: '◆'; font-size: 10px; }
-.ai-segment-preview > :is(.main-paragraph, [data-spacer], [data-flow]):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .ai-segment-review { position: relative; height: 0; z-index: var(--canvas-ui-layer); pointer-events: none; }
 .ai-segment-review .ai-review-controls { position: absolute; right: 0; bottom: 8px; pointer-events: auto; }
 .ai-review-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: fit-content; max-width: 100%; user-select: none; cursor: default; pointer-events: auto; }

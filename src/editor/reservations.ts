@@ -104,6 +104,7 @@ function segmentPreviewWidget(state: EditorState, preview: SegmentPreview, revie
     const handle = document.createElement('button')
     handle.type = 'button'
     handle.className = 'ai-segment-preview-handle'
+    handle.dataset.aiSegmentOwner = preview.taskId
     handle.setAttribute('aria-label', 'Select empty AI segment preview')
     handle.onclick = event => { event.preventDefault(); selectSegment(review, preview.taskId) }
     root.append(handle)

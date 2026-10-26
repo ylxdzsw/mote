@@ -69,6 +69,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
   </div>
   return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
     data-note-id={note.id} data-anchor-id={objectAnchorId(note) ?? ''} data-placement={note.layout.placement.type} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
+    data-ai-segment-candidate={editable && aiTask?.target.kind === 'segment' && aiTask.preview && aiTask.candidate ? '' : undefined}
     data-table-style={note.kind === 'table' ? note.style ?? 'simple' : undefined} data-table-header={note.kind === 'table' && note.headerRow ? '' : undefined}
     style={{ ...textStyle, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
       marginTop: inFlow ? note.layout.margins?.top : undefined, marginBottom: inFlow ? note.layout.margins?.bottom : undefined,

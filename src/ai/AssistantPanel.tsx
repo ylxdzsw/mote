@@ -147,7 +147,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
         {statusIssue.paused && <button type="button" onClick={() => assistant.checkStatus(task.id)}>Check status</button>}
       </div>}
       {task.candidate && <section className="ai-result" aria-label="Review changes">
-        <h3><PanelIcon name="spark" />{inactive ? 'Retained result' : busy ? 'Previous result' : 'Ready to review'}</h3>
+        <h3><PanelIcon name="spark" />{inactive || task.error && !task.preview ? 'Retained result' : busy ? 'Previous result' : 'Ready to review'}</h3>
         <p className="ai-summary">{task.candidate.summary}</p>
         {!!task.candidate.sources?.length && <details className="ai-sources"><summary>Sources</summary><ul>{task.candidate.sources.filter(source => /^https?:\/\//i.test(source.url)).map((source, index) => <li key={index}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.url}</a></li>)}</ul></details>}
         {!inactive && <div className="ai-preview-switch" role="group" aria-label="Document view">

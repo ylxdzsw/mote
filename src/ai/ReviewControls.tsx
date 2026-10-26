@@ -10,6 +10,7 @@ export interface AIReview {
   activeSegmentId?: string | null
   selectSegment?: (id: string) => void
   selectText: () => void
+  previewFailed: (id: string, error: unknown) => void
   accept: (id: string) => void
   discard: (id: string) => void
   stop: (id: string) => void

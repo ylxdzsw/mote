@@ -19,6 +19,10 @@ import { extensions } from '../editor/extensions'
 
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
 
+function previewFailure(error: unknown) {
+  return { preview: false, error: `Preview unavailable. Your original content is unchanged and the candidate is retained. Try Preview again or download the task JSON for recovery. ${error instanceof Error ? error.message : String(error)}` }
+}
+
 function creationBody(task: AITask) {
   if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1 || task.snapshotDocument?.version !== 1) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
   if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
@@ -172,6 +176,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     })
     const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch, ...workspacePatch }
     if (candidate && !sameContent(task.candidate, candidate)) next.candidate = candidate
+    if (candidate && !inactiveReason(task)) {
+      try { candidateDocument(currentDoc.current, task, candidate, segmentContext?.()) }
+      catch (error) { Object.assign(next, previewFailure(error)) }
+    }
     if (!sameContent(task, { ...task, ...next })) update(task.id, next)
     if (workspaceChangeObserved && pending) setWorkspaceReadIssue(task.id,
       effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
@@ -257,10 +265,6 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         if (!valid()) return
         failures.delete(task.id); paused.delete(task.id)
         nextAt.set(task.id, Date.now() + (['queued', 'running', 'waiting'].includes(remote.status) ? 1200 : 10_000)); setIssue(task.id)
-        if (remote.candidate && !inactiveReason(task)) {
-          try { candidateDocument(currentDoc.current, task, remote.candidate, segmentContext?.()) }
-          catch (error) { receive(remote, { status: 'error', error: `Candidate retained for recovery: ${(error as Error).message}` }); return }
-        }
         receive(remote, { creation: undefined, ...(privateDocument ? { pendingExecutor: undefined } : {}) })
       } catch (error) {
         if (!valid()) return
@@ -816,6 +820,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
   return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, runs, deleteObjects, deleteTarget, missingRemote,
+    previewFailed: (id: string, error: unknown) => update(id, previewFailure(error)),
     switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
     workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,
     workspaceReadWorking: (id: string) => !!workspaceReadOperations[id],
