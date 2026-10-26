@@ -271,13 +271,13 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
       event.preventDefault()
       buttons[event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length]?.focus()
     }}>
-    {caption ? <span className="tt-para-label">Caption</span> : <ToolPopup label="Paragraph class" disabled={paragraphDisabled} items={[
+    <ToolPopup label="Paragraph class" disabled={paragraphDisabled} items={[
       ...blockClasses.map(name => ({ id: name, label: classLabel(name), icon: <TIcon name={name} />, checked: selection.paragraph === name, action: () => applyParagraph(name) })),
       ...([-1, 1] as const).map(delta => ({ id: String(delta), label: delta < 0 ? 'Decrease list level' : 'Increase list level', icon: <TIcon name="chevron" />,
         separator: delta < 0, disabled: !selection.list, action: () => { editor!.view.focus(); changeListLevel(editor!, delta) } })),
     ]}>
       <span className="tt-para-label">{selection.fixed || (selection.text ? selection.paragraph ? classLabel(selection.paragraph) : 'Mixed' : 'Paragraph')}</span>
-    </ToolPopup>}
+    </ToolPopup>
     <span className="tt-divider" aria-hidden="true" />
     <button className="tt-btn tt-bold" aria-label="Bold" title="Bold · Ctrl/⌘B"
       aria-pressed={inlineDisabled ? false : selection.bold} disabled={inlineDisabled}
