@@ -39,6 +39,7 @@ export function useSegmentSelection(props: Props) {
   const [paint, setPaint] = useState<Paint>({ bands: [], objects: [], top: 0, bottom: 0 })
   const [notice, setNotice] = useState('')
   const [dropY, setDropY] = useState<number | null>(null)
+  const [marginHover, setMarginHover] = useState(false)
   const drag = useRef<Drag | null>(null)
   const tick = useRef<() => void>(() => {})
   const content = useRef(props.doc.content)
@@ -147,12 +148,20 @@ export function useSegmentSelection(props: Props) {
       select(ordered(d.anchor, point))
     }
   }
+  function marginTarget(event: ReactPointerEvent) {
+    const { editable, sheet, scale, doc } = live.current
+    if (!editable || !sheet.current || !(event.target as Element).matches('.sheet, .main-text, [data-spacer]')) return false
+    const rect = sheet.current.getBoundingClientRect()
+    const x = (event.clientX - rect.left) / scale - sheet.current.clientLeft
+    return x >= 0 && x < doc.margins.left && event.clientY >= rect.top && event.clientY < rect.bottom
+  }
+  useLayoutEffect(() => { setMarginHover(false) }, [props.editable, props.scale, props.doc.margins.left])
   function begin(event: ReactPointerEvent) {
     const { editable, editor, stage, onStart } = live.current
     const target = (event.target as Element).closest<HTMLElement>('[data-segment-control]')
-    if (!editable || !editor || !target || event.button !== 0 || !event.isPrimary) return false
+    if (!editable || !editor || (!target && !marginTarget(event)) || event.button !== 0 || !event.isPrimary) return false
     event.preventDefault(); event.stopPropagation()
-    const previous = selected.current, control = target.dataset.segmentControl
+    const previous = selected.current, control = target?.dataset.segmentControl
     const moving = control === 'move', handle = control === 'start' || control === 'end' ? control : undefined
     if (moving && (!previous || equal(previous))) return true
     if (moving && reserved(previous!)) { setNotice('Accept or discard the selected AI task before moving this segment.'); return true }
@@ -398,7 +407,8 @@ export function useSegmentSelection(props: Props) {
       {dropY !== null && <div className="segment-drop" style={{ top: (dropY + 1) * props.scale }}><span>Move here</span></div>}
     </>}
   </div>
-  return { begin, clear, overlay, notice, range,
+  return { begin, clear, overlay, notice, range, marginHover,
+    hover: (event: ReactPointerEvent | null) => setMarginHover(!!event && marginTarget(event)),
     target: (y: number, alt = false) => {
       const blocks = measure(), point = endpoint(y, alt, blocks)
       return { point, top: boundaryY(point, 'start', blocks) }

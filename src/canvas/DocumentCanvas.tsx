@@ -127,13 +127,13 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const { geometry, anchors, minHeight, sideInsets, flowMounts, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
-  const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
+  const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, doc.margins.left, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
   useLayoutEffect(scrollFloor.reset, [doc.id, editable, scale, scrollFloor.reset])
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
   useLayoutEffect(() => { onSegmentSelection?.(segments.range, activeSegmentId) }, [segments.range, activeSegmentId])
   const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
-  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.theme, () => { select([]); onActive(mainEditor) })
+  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.margins.left, doc.theme, () => { select([]); onActive(mainEditor) })
   const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage, sheet, editor: mainEditor,
     insertion: () => { const selection = segments.selection(); return selection ? { x: doc.margins.left, y: selection.area.y } : undefined },
     onStart: () => { cancel(); segments.clear(); setActiveSegmentId(null); select([]); onActive(null); onToolChange(null) },
@@ -436,6 +436,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
+    if (!tool && !imagePlacement.active && segments.begin(event)) return
     if (tail.begin(event)) { segments.clear(); setActiveSegmentId(null); return }
     if (tool === 'paragraph') { paragraphs.insert(event); return }
     if (creationObject) {
@@ -449,7 +450,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       setCreating(note)
       return
     }
-    if (segments.begin(event)) return
     segments.clear()
     const target = event.target as Element
     if (target.closest('[data-ai-controls], [data-ai-preview]')) return
@@ -893,7 +893,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onDropCapture={interact}
     style={{ '--page-background': pageColor(doc.theme) } as React.CSSProperties}>
-    <div className="stage" ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
+    <div className={`stage${segments.marginHover ? ' has-segment-margin-hover' : ''}`} ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
+      onPointerMoveCapture={event => segments.hover(!tool && !imagePlacement.active ? event : null)} onPointerLeave={() => segments.hover(null)}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="canvas-scroll-floor" ref={scrollFloor.container}>
       <div className="sheet-footprint" ref={footprint} style={{

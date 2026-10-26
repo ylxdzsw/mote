@@ -7,7 +7,7 @@ import type { Theme } from '../document/model'
 
 type TailPointer = Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey' | 'shiftKey' | 'ctrlKey' | 'metaKey'>
 
-export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, theme: Theme, onActivate: () => void) {
+export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, leftMargin: number, theme: Theme, onActivate: () => void) {
   const [hint, setHint] = useState<number | null>(null)
   const pointer = useRef<TailPointer | null>(null)
   const focusedBlank = useRef(false)
@@ -17,6 +17,7 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
     const hit = document.elementFromPoint(event.clientX, event.clientY)
     if (!hit || hit.closest('.stage') !== sheet.current.closest('.stage') || hit.closest('.floating-note, [data-ai-controls], [data-ai-preview]')) return false
     const surface = sheet.current.getBoundingClientRect()
+    if (event.clientY < surface.bottom && event.clientX < surface.left + (sheet.current.clientLeft + leftMargin) * scale) return false
     const last = editor.view.nodeDOM(editor.state.doc.content.size - editor.state.doc.lastChild!.nodeSize) as HTMLElement
     return event.clientX >= surface.left && event.clientX <= surface.right && event.clientY >= last.getBoundingClientRect().bottom
   }
@@ -53,7 +54,7 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
       window.removeEventListener('scroll', update, true)
       editor.off('transaction', update); editor.off('focus', update); editor.off('blur', update)
     }
-  }, [editor, active, scale, theme, sheet])
+  }, [editor, active, scale, leftMargin, theme, sheet])
 
   useLayoutEffect(() => {
     if (!editor || !active || focusedBlank.current) return

@@ -1635,3 +1635,8 @@ Reservation actions could be occluded because their small fixed z-index values c
 A Linux/Chrome wheel tick could turn 80% into roughly 239% because normalized scroll pixels fed an unbounded exponential at 0.01 per pixel. The shared zoom hook now uses 0.002 per pixel and caps normalized input at ±50 pixels per event (roughly a 10% relative step before existing snapping). Small trackpad inputs remain proportional and retain unsnapped accumulation through 100%/Auto detents. Touch-distance pinch, keyboard/preset zoom, focal anchoring, and saved geometry are unchanged.
 
 Production build/type checks and scoped isolated Chromium checks pass for pixel/line/page wheel units, large deltas in both directions, fine input, ordinary scrolling, escaping both nearby snap points, compact editing, in-app reading, and fresh mobile reading. These are dispatched browser gesture checks, not physical mouse/trackpad certification. No dependencies or regression suite added.
+
+
+## 2026-10-26 — Left margin joins segment selection
+
+The empty document-left margin now starts the same segment selection as the existing 24-screen-pixel outer strip, increasing the target without consuming more workspace width or changing saved geometry. Background-only hit testing leaves text, Flow/Float objects, captions, and controls interactive when they extend into the margin. The right margin/gutter retain object marquee selection. Alt in the left margin splits explicit spaces as part of a segment instead of resizing them; space-resize hints and tail-writing targets yield there. The transparent margin uses the shared segment cursor on hover, with no permanent fill. Creation tools, the outer-strip fallback for zero margins, reading, and exports retain their behavior.

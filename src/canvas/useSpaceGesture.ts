@@ -8,7 +8,7 @@ import { isComposingKey } from '../editor/composition'
 interface Target extends SpacePreview { top: number }
 interface Drag { target: Target; y: number; height: number; moved: boolean; pointerId: number; shift?: SpaceShift }
 
-export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, editable: boolean, scale: number, reflow: () => unknown, onActive: () => void, scrollFloor: { begin: () => void; end: () => void }) {
+export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, editable: boolean, scale: number, leftMargin: number, reflow: () => unknown, onActive: () => void, scrollFloor: { begin: () => void; end: () => void }) {
   const history = useHistory()
   const drag = useRef<Drag | null>(null)
   const [hint, setHint] = useState<{ top: number; height: number; dragging: boolean; existing: boolean } | null>(null)
@@ -27,6 +27,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       const hit = document.elementFromPoint(x, y)
       if (!editable || !hit || !surface.contains(hit) || hit.closest('.floating-note') || surface.classList.contains('has-creation-tool') || surface.hasAttribute('data-floating-preview')) return null
       const rect = surface.getBoundingClientRect()
+      if (hit.matches('.sheet, .main-text, [data-spacer]') && (x - rect.left) / scale - surface.clientLeft < leftMargin) return null
       const localY = (y - rect.top) / scale - surface.clientTop
       const blocks: { from: number; space: boolean; top: number; bottom: number; line: number; height: number }[] = []
       editor!.state.doc.forEach((node, from) => {
@@ -139,7 +140,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       cancel()
       setHint(null)
     }
-  }, [editor, sheet, editable, scale, reflow, history.revision, scrollFloor.end])
+  }, [editor, sheet, editable, scale, leftMargin, reflow, history.revision, scrollFloor.end])
 
   function begin(event: ReactPointerEvent) {
     if (!event.altKey || !event.isPrimary || !editable || !editor) return false

@@ -3,6 +3,7 @@
 html.segment-dragging, html.segment-dragging * { cursor: var(--ui-segment-cursor) !important; }
 html.segment-moving, html.segment-moving * { cursor: grabbing !important; }
 .stage:focus { outline: none; }
+.stage.has-segment-margin-hover .sheet.is-editing, .stage.has-segment-margin-hover .sheet.is-editing :is(.main-text, [data-spacer]) { cursor: var(--ui-segment-cursor); }
 .segment-gutter { position: absolute; left: -24px; top: 0; bottom: 0; width: 24px; pointer-events: auto; cursor: var(--segment-cursor); touch-action: none; }
 .segment-band, .segment-object { position: absolute; background: var(--ui-accent-tint-strong); pointer-events: auto; touch-action: none; cursor: grab; }
 .segment-object { outline: 1px solid var(--ui-accent-border); border-radius: 2px; }
