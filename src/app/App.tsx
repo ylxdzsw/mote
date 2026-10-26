@@ -8,10 +8,9 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { replaceMainContent, tableContent, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { replaceMainContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
-import { DEFAULT_WIDGET_HTML, WIDGET_SCREENSHOT_PLACEHOLDER } from '../document/widget'
 import { useWidgetScreenshot } from './useWidgetScreenshot'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
 import { WorkingCopy } from '../cloud/WorkingCopy'
@@ -245,17 +244,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     return block.attrs.id as string
   }
 
-  function addObject(kind: 'table' | 'formula' | 'html', columns = 2, rows = 2) {
-    const anchor = anchorId()
-    if (!doc || anchor === undefined) return
-    const width = kind === 'table' ? doc.page.width - doc.page.margins.left - doc.page.margins.right - 2 : Math.min(340, doc.page.width - doc.page.margins.left - doc.page.margins.right - 2)
-    const base = { id: crypto.randomUUID(), layout: { width, placement: { type: 'flow' as const, x: 'center' as const } } }
-    const object: FloatingObject = kind === 'formula' ? { ...base, kind, latex: 'E = mc^2' }
-      : kind === 'html' ? { ...base, kind, layout: { ...base.layout, height: 220 }, html: DEFAULT_WIDGET_HTML, screenshot: WIDGET_SCREENSHOT_PLACEHOLDER, alt: '' }
-      : { ...base, kind, content: tableContent(Array.from({ length: rows }, () => Array(columns).fill(''))) }
-    actions.current?.insert([object])
-  }
-
   function updateFloating(objects: FloatingObject[]) { setDoc(current => current && reconcileObjectDeletions(current, objects, actions.current?.segmentContext())) }
 
   function updateObject(id: string, patch: FloatingPatch) {
@@ -288,10 +276,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setLaunchpadAnchor(null)
     setTool(null)
     if (kind === 'image') { chooseImage(); return }
-    if (kind === 'html') { addObject('html'); return }
-    if (kind === 'table') { addObject('table'); return }
-    if (kind === 'formula') { addObject('formula'); return }
-    if (['text','code','drawing','ai','paragraph'].includes(kind)) {
+    if (['text','code','drawing','ai','paragraph','table','formula','html'].includes(kind)) {
       setTool(kind as CreationTool)
       setSelectedIds([])
     }
@@ -323,11 +308,17 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       const anchor = target.anchorId === null || current.content.content!.some(node => node.attrs?.id === target.anchorId)
         ? target.anchorId : null
       const width = Math.min(340, current.page.width - current.page.margins.left - current.page.margins.right)
-      const objects: FloatingObject[] = sources.map((src, index) => {
+      const objects: FloatingImage[] = sources.map((src, index) => {
         const base = { id: crypto.randomUUID(), layout: { width, placement: position ? { type: 'float' as const, anchorId: anchor, x: position.x, y: position.y } : { type: 'flow' as const, x: 'center' as const } }, alt: files[index].name.replace(/\.[^.]+$/, '') }
         return { ...base, kind: 'image', src }
       })
-      actions.current?.insert(objects)
+      if (position) actions.current?.insert(objects)
+      else {
+        const image = new Image(); image.src = sources[0]; await image.decode()
+        if (generation !== imageGeneration.current || latest.current?.id !== target.documentId) return
+        setSelectedIds([]); setActiveEditor(null)
+        setTool({ image: objects[0], ratio: image.naturalWidth / image.naturalHeight })
+      }
     } catch (error) { if (generation === imageGeneration.current) setImageError((error as Error).message) }
     finally { setImageLoading(false) }
   }
@@ -607,7 +598,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                     <button onClick={() => assistant.openTask(selectedTask.id)}>Open AI task</button>
                   </div>
                 : tool ? <div className="context-inspector">
-                    <ContextHeading title={tool === 'ai' ? 'New AI area' : tool === 'text' ? 'Text box' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click or drag to place on the document.' : `Click or drag to place on the page. Click the left gutter to ${tool === 'ai' ? 'reserve an AI section' : 'insert as Flow'}.`} />
+                    <ContextHeading title={tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag to reserve an AI object. Click the left gutter to reserve an AI section.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                   </div>
                 : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />

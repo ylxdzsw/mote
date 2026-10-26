@@ -17,7 +17,7 @@ function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: Launchpa
 }
 
 interface TileEntry {
-  kind: CreationTool | 'image' | 'table' | 'html' | 'formula'
+  kind: Exclude<CreationTool, object> | 'image'
   label: string
   icon: ReactElement
 }

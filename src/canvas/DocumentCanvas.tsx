@@ -2,7 +2,7 @@ import { patchObject, objectX, objectY, objectAnchorId } from '../document/model
 import { useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { captionContent, supportsCaption, isText, paragraph, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { captionContent, supportsCaption, isText, paragraph, tableContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { convertObjectPlacement, insertDocumentObjects, reconcileObjectDeletions } from '../document/flow'
 import { copyFloating, floatingClipboardJSON, floatingCopyIds, floatingText, importFloating, parseFloating, FLOATING_MIME } from '../document/floatingClipboard'
@@ -19,6 +19,7 @@ import { useScrollFloor } from './useScrollFloor'
 import { useParagraphInsertion } from './useParagraphInsertion'
 import { useDocumentTail } from './useDocumentTail'
 import { useImagePlacement } from './useImagePlacement'
+import { DEFAULT_WIDGET_HTML, WIDGET_SCREENSHOT_PLACEHOLDER } from '../document/widget'
 import { useSegmentSelection } from './useSegmentSelection'
 import { spaceRemovalThreshold, type SpaceMerge, type SpaceShift } from '../editor/spaces'
 import { useFloatingLayout, type FloatingPreviews } from './useFloatingLayout'
@@ -38,7 +39,7 @@ import { SegmentPreviewBorders } from '../ai/SegmentPreviewBorders'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import { ReviewControls, type AIReview } from '../ai/ReviewControls'
 
-export type CreationTool = 'paragraph' | 'text' | 'code' | 'drawing' | 'ai' | null
+export type CreationTool = 'paragraph' | 'text' | 'code' | 'drawing' | 'ai' | 'table' | 'formula' | 'html' | { image: FloatingImage; ratio: number } | null
 export interface CanvasActions {
   clearSelection: () => void
   remove: () => void; duplicate: () => void; caption: (id?: string) => void
@@ -71,7 +72,7 @@ interface Props {
   onDrawingEdit?: (id: string) => void
 }
 interface Drag {
-  part: DragPart | 'create' | 'marquee'; id: string; start: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
+  part: DragPart | 'create' | 'marquee'; id: string; start: Point; origin?: Point; ids: string[]; objects: FloatingObject[]; geometry: Geometries
   patches: FloatingPreviews; moved: boolean; additive: string[]; created?: FloatingObject
   destination?: SegmentPoint
 }
@@ -96,10 +97,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const insertionPointer = useRef<Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey'> | null>(null)
   const creationObject = useMemo<FloatingObject | null>(() => {
     if (!tool || tool === 'paragraph') return null
+    if (typeof tool === 'object') return tool.image
     const base = { id: crypto.randomUUID(), layout: { width: 340, placement: { type: 'float' as const, anchorId: null, x: 0, y: 0 } } }
     return tool === 'ai' ? aiPlaceholder(base)
       : tool === 'text' ? { ...base, kind: 'text', content: { type: 'doc', content: [paragraph('')] } }
       : tool === 'code' ? { ...base, kind: 'code', layout: { ...base.layout, width: 420 }, source: '', language: 'plaintext' }
+      : tool === 'table' ? { ...base, kind: 'table', layout: { ...base.layout, width: doc.page.width - doc.page.margins.left - doc.page.margins.right - 2 }, content: tableContent([['', ''], ['', '']]) }
+      : tool === 'formula' ? { ...base, kind: 'formula', latex: 'E = mc^2' }
+      : tool === 'html' ? { ...base, kind: 'html', layout: { ...base.layout, height: 220 }, html: DEFAULT_WIDGET_HTML, screenshot: WIDGET_SCREENSHOT_PLACEHOLDER, alt: '' }
       : { ...base, kind: 'drawing', layout: { ...base.layout, width: 480, height: 320 }, strokes: [], labels: [], background: null }
   }, [tool])
   const [inserting, setInserting] = useState<FloatingObject[]>([])
@@ -138,17 +143,11 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
   useLayoutEffect(() => { onSegmentSelection?.(segments.range, activeSegmentId) }, [segments.range, activeSegmentId])
-  const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, () => { onToolChange(null); onActive(mainEditor) })
+  const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, segments.target, () => { onToolChange(null); onActive(mainEditor) })
   const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.page.margins.left, doc.theme, () => { select([]); onActive(mainEditor) })
-  const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage, sheet, editor: mainEditor,
-    insertion: () => { const selection = segments.selection(); return selection ? { x: doc.page.margins.left, y: selection.area.y } : undefined },
+  const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage,
     onStart: () => { cancel(); segments.clear(); setActiveSegmentId(null); select([]); onActive(null); onToolChange(null) },
-    onCommit: (image, position) => {
-      const next = patchObject(image, anchorPoint(position, anchors))
-      if (!history.guard.current(doc, { ...doc, objects: [...doc.objects, next] })) { setClipboardNotice('Accept or discard the affected AI task before pasting.'); return }
-      history.boundary(); onFloatingChange([...doc.objects, next]); history.boundary()
-      select([next.id]); onActive(null); focusObject(next.id)
-    },
+    onReady: (image, ratio) => onToolChange({ image, ratio }),
   })
   useLayoutEffect(() => { if (tool) { segments.clear(); setActiveSegmentId(null) } }, [tool])
   useLayoutEffect(() => {
@@ -368,22 +367,22 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   function insertionTarget(event: Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey'>) {
     const hit = document.elementFromPoint(event.clientX, event.clientY)
     if (!hit || !stage.current?.contains(hit)) return null
-    if (hit.closest('[data-segment-control]')) {
-      const boundary = segments.target(point(event).y, event.altKey)
+    if ((tool === 'ai' && hit.closest('[data-segment-control]')) || (tool !== 'ai' && !event.altKey && (sheet.current?.contains(hit) || hit.closest('[data-segment-control]')))) {
+      const boundary = segments.target(point(event).y, tool === 'ai' && event.altKey)
       return { position: { x: doc.page.margins.left, y: boundary.top }, boundary }
     }
     if (!sheet.current?.contains(hit)) return null
-    return { position: boundedPoint(snap(point(event), event.altKey), 16, .5) }
+    return { position: boundedPoint(snap(point(event), tool === 'ai' && event.altKey), creationObject?.kind === 'image' ? 36 : 16, .5) }
   }
   function objectAt(position: Point, flow = false): FloatingObject {
     const width = Math.min(creationObject!.layout.width, flow ? pageWidth() - doc.page.margins.left - doc.page.margins.right : pageWidth() - position.x - .5)
-    return patchObject(creationObject!, { ...anchorPoint(position, anchors), width,
+    return patchObject(creationObject!, { placement: 'float', ...anchorPoint(position, anchors), width,
       ...(flow && { placement: 'flow', centered: true, anchorId: null, x: 0, y: 0 }) })
   }
   const refreshInsertion = useRef(() => {})
   refreshInsertion.current = () => {
     if (!editable || !creationObject || drag.current) return
-    setInsertionHint(insertionPointer.current ? insertionTarget(insertionPointer.current) : { position: { x: doc.page.margins.left, y: doc.page.margins.top } })
+    setInsertionHint(insertionPointer.current ? insertionTarget(insertionPointer.current) : null)
   }
   useLayoutEffect(() => {
     setInsertionHint(null)
@@ -450,8 +449,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (target.boundary) { insertAtBoundary(target.boundary); return }
       capture(event); segments.clear(); select([]); onActive(null); history.boundary()
       const start = target.position, note = objectAt(start)
-      drag.current = { part: 'create', id: note.id, ids: [note.id], start, objects: doc.objects, geometry, patches: {}, moved: false, additive: [], created: note }
-      setCreating(note)
+      drag.current = { part: 'create', id: note.id, ids: [note.id], start, origin: point(event), objects: doc.objects, geometry, patches: {}, moved: false, additive: [], created: note }
+      if (tool === 'ai') setCreating(note)
       return
     }
     segments.clear()
@@ -498,7 +497,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (!d || captured.current?.pointerId !== event.pointerId) return
     dragPointer.current = { clientX: event.clientX, clientY: event.clientY, altKey: event.altKey, pointerId: event.pointerId }
     const p = point(event)
-    if (!d.moved && distance(p, d.start) * scale < 3) return
+    if (!d.moved && distance(p, d.origin ?? d.start) * scale < 3) return
     if (!d.moved && d.part === 'marquee') onActive(null)
     d.moved = true
     if (d.part === 'marquee') {
@@ -511,12 +510,20 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const box = d.geometry[d.id]
     let patch: FloatingPatch & { top?: number } = {}
     if (d.part === 'create') {
-      if (object.kind === 'text' || object.kind === 'code') {
-        const end = boundedPoint(snap(p, event.altKey))
+      if (['text', 'code', 'table', 'formula'].includes(object.kind)) {
+        const end = boundedPoint(snap(p, false))
         const x = Math.min(d.start.x, end.x)
         patch = { x, top: d.start.y, width: boundedWidth(x, Math.abs(end.x - d.start.x), 120) }
+      } else if (object.kind === 'image' && typeof tool === 'object' && tool) {
+        const end = snap(p, false), west = end.x < d.start.x, north = end.y < d.start.y
+        const inset = 18, ratio = tool.ratio
+        const available = west ? d.start.x : pageWidth() - d.start.x
+        const vertical = north ? Math.max(0, d.start.y - inset) * ratio + inset : Infinity
+        const width = Math.min(available, vertical, Math.max(36, Math.abs(end.x - d.start.x), Math.max(0, Math.abs(end.y - d.start.y) - inset) * ratio + inset))
+        const height = Math.max(0, width - inset) / ratio + inset
+        patch = { x: west ? d.start.x - width : d.start.x, top: north ? d.start.y - height : d.start.y, width }
       } else {
-        let end = boundedPoint(snap(p, event.altKey), 0, .5)
+        let end = boundedPoint(snap(p, tool === 'ai' && event.altKey), 0, .5)
         if (event.shiftKey) { const size = Math.min(Math.max(Math.abs(end.x - d.start.x), Math.abs(end.y - d.start.y)), end.x >= d.start.x ? pageWidth() - .5 - d.start.x : d.start.x - .5); end = { x: d.start.x + Math.sign(end.x - d.start.x || 1) * size, y: d.start.y + Math.sign(end.y - d.start.y || 1) * size } }
         const rect = rectangle(d.start, end)
         patch = { x: rect.x, top: Math.max(0, rect.y), width: boundedWidth(rect.x, rect.width, 16, .5), height: Math.max(16, rect.height) }
@@ -575,6 +582,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       patch = { x: west ? fixed.x - width : fixed.x, top: Math.max(0, north ? fixed.y - height : fixed.y), width, height }
       if (object.layout.placement.type === 'flow') { delete patch.top; if ((object.layout.placement.x === 'center')) delete patch.x }
     }
+    if (d.part === 'create') setCreating(object)
     patch = constrainCaptionResize(object, patch, box, pageWidth())
     d.patches = { [object.id]: patch }; setPreviews(d.patches)
   }
@@ -611,6 +619,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (d.part === 'marquee') {
       if (d.moved && selectedIds.length) focusObject(selectedIds[0])
     } else if (d.created) {
+      if (!d.moved && tool !== 'ai') { cancel(); refreshInsertion.current(); return }
       const object = d.created
       const next = applyPatches([object], d.patches)[0]
       if (tool === 'ai') {
@@ -885,7 +894,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
             contentActive={segment ? activeSegmentId === segment.id && note.kind === 'html' : selectedIds.length === 1 && selectedIds[0] === note.id && !manipulating}
             aiTask={editable ? segment ?? aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === note.id) : undefined}
             restoreWidgetRevision={aiWidgetIds?.has(note.id) ? history.revision : undefined}
-            defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets} order={layoutDoc.objects.indexOf(original)}
+            defaultFontSize={doc.theme.defaults.size} widgetRun={widgetRuns[note.id] ?? 0} staticWidgets={staticWidgets || original.id === creating?.id} order={layoutDoc.objects.indexOf(original)}
             onBegin={(part, event, caption) => begin(note.id, part, event, caption)} onActive={(editor, caption = false) => {
               if (segment) { selectAISegment(segment.id); return }
               if (drag.current) return
@@ -927,7 +936,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         '--scaled-page-width': `${doc.page.width * scale}px`, '--crop-left': sideSpace ? sideInsets.left / sideSpace : 0,
         height: `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
-      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((tool && tool !== 'paragraph') || imagePlacement.active || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${imagePlacement.active ? 'has-image-placement' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
+      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
@@ -964,11 +973,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         })}
         {editable && projection.previews.length > 0 && <SegmentPreviewBorders sheet={sheet} previews={projection.previews}
           owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
-        {imagePlacement.preview}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>
       {/* Outside the sheet so layout measurement, minimaps, and exports never see it. */}
-      {editable && creationObject && insertionHint && !creating && !(tool === 'ai' && insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert data-mode={doc.theme.appearance.mode}
+      {editable && creationObject && insertionHint && !creating && (tool === 'ai' ? !insertionHint.boundary : !!insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert data-mode={doc.theme.appearance.mode}
         style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), width: doc.page.width, transform: `scale(${scale})` } as React.CSSProperties}>
         {(() => {
           const flow = !!insertionHint.boundary, object = objectAt(insertionHint.position, flow)
@@ -980,7 +988,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
         })()}
       </div>}
       {segments.overlay}
-      {editable && creationObject && insertionHint?.boundary && <div className="segment-layer" aria-hidden="true"><div className="segment-drop" style={{ top: (insertionHint.boundary.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>{tool === 'ai' ? 'Reserve AI section' : 'Insert Flow'}</span></div></div>}
+      {editable && creationObject && insertionHint?.boundary && !creating && <div className="segment-layer creation-guides" aria-hidden="true"><div className="segment-drop" style={{ top: (insertionHint.boundary.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>{tool === 'ai' ? 'Reserve AI section' : 'Insert Flow'}</span></div></div>}
       {flowDrop && <div className="segment-layer flow-drag-guides" aria-hidden="true">
         {flowDrop.top !== undefined && <div className="segment-drop" style={{ top: (flowDrop.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Move Flow here</span></div>}
         {flowDrop.centered && <div className="flow-center-guide" style={{ left: (doc.page.margins.left + (pageWidth() - doc.page.margins.left - doc.page.margins.right) / 2 + 1) * scale }} />}
@@ -995,6 +1003,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     }} />}
     {(clipboardNotice || segments.notice) && <p className="segment-notice" role="status">{clipboardNotice || segments.notice}</p>}
     {imagePlacement.notice && <p className="segment-notice" role="status">{imagePlacement.notice}</p>}
+    {editable && creationObject && !clipboardNotice && !segments.notice && !imagePlacement.notice && <p className="segment-notice" role="status">{tool === 'ai' ? 'Click or drag to reserve an AI object · Gutter: reserve AI section · Esc cancels' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {editable && zoomHost && createPortal(zoomControl, zoomHost)}
