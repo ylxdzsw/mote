@@ -27,7 +27,7 @@ export interface BlockStyle {
 }
 
 export const defaultSubheadingStyle: Partial<BlockStyle> = {
-  size: '1.125em', weight: 600, lineHeight: '1.5em', spaceBefore: '1em', spaceAfter: '0.5em',
+  size: '1.125em', weight: 600, lineHeight: '1.5em', spaceBefore: '2em', spaceAfter: '0.5em',
 }
 
 export const boxDecorationKinds = ['left', 'box'] as const
@@ -51,7 +51,7 @@ export const defaultTheme: Theme = {
   defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: '1.5em', spaceBefore: '0em', spaceAfter: '1em', letterSpacing: '0em' },
   blocks: {
     title: { size: '3em', color: 'gray2', family: 'serif', lineHeight: '3.5em' },
-    heading: { size: '1.5em', color: 'gray2', lineHeight: '2em', spaceBefore: '1.5em', spaceAfter: '0.75em' },
+    heading: { size: '1.5em', color: 'gray2', lineHeight: '2em', spaceBefore: '2.5em', spaceAfter: '0.75em' },
     body: { size: '1em' },
     table: { size: '1em' },
     math: {},

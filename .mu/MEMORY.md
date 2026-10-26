@@ -1640,3 +1640,7 @@ Production build/type checks and scoped isolated Chromium checks pass for pixel/
 ## 2026-10-26 — Left margin joins segment selection
 
 The empty document-left margin now starts the same segment selection as the existing 24-screen-pixel outer strip, increasing the target without consuming more workspace width or changing saved geometry. Background-only hit testing leaves text, Flow/Float objects, captions, and controls interactive when they extend into the margin. The right margin/gutter retain object marquee selection. Alt in the left margin splits explicit spaces as part of a segment instead of resizing them; space-resize hints and tail-writing targets yield there. The transparent margin uses the shared segment cursor on hover, with no permanent fill. Creation tools, the outer-strip fallback for zero margins, reading, and exports retain their behavior.
+
+## 2026-10-26 — More space before heading presets
+
+Increased Heading Space before from 1.5em to 2.5em and Subheading from 1em to 2em, adding the requested 1em to each preset. Other typography and spacing are unchanged. Saved explicit theme styles are not rewritten; omitted Subheading styles continue to resolve through the shared preset.
