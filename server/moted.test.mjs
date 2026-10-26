@@ -2,7 +2,7 @@ import { boxColorIds } from '../shared/palette.mjs'
 import { normalizeLinkHref, validLinkHref } from '../shared/links.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, readFile, writeFile, symlink, readdir } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, readFile, writeFile, symlink, readdir, chmod } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
@@ -780,7 +780,9 @@ test('unsupported task versions remain recoverable without rewriting snapshots o
   meta.candidate = { summary: 'Retained V0 result', content: body.document.content.content }
   const oldDocument = { version: 'V0', id: 'doc-1', floating: [] }
   await writeFile(metaPath, JSON.stringify(meta))
+  await chmod(inputPath, 0o644)
   await writeFile(inputPath, JSON.stringify(oldDocument))
+  await chmod(inputPath, 0o444)
   const metaBytes = await readFile(metaPath), inputBytes = await readFile(inputPath)
   let runs = 0
   const restarted = await app({ stateDir: value.stateDir, runner: async () => { runs++ } })

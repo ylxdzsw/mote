@@ -313,12 +313,10 @@ test('disabling cancels an in-flight worker and re-enabling resumes the paused r
   enable(store)
   const manager = managerFor(root, store)
   await mkdir(manager.tasksDir, { recursive: true })
-  let runs = 0, signalStarted
-  const started = new Promise(resolve => { signalStarted = resolve })
+  let runs = 0
   const runner = async context => {
     runs++
     if (runs === 1) {
-      signalStarted()
       await new Promise((resolve, reject) => {
         context.signal.addEventListener('abort', () => reject(new Error('cancelled')), { once: true })
       })
@@ -328,7 +326,7 @@ test('disabling cancels an in-flight worker and re-enabling resumes the paused r
   }
   const indexer = new DocumentIndexer(manager, { debounceMs: 0, runner })
   await indexer.init()
-  await started
+  await waitFor(() => runs === 1, 'runner start')
   enable(store, false)
   indexer.wake()
   await waitFor(() => indexer.status().documents.find(item => item.id === source.id)?.status === 'queued', 'paused index')
@@ -399,15 +397,11 @@ test('shutdown bounds an uncooperative runner and fences its late completion', a
   enable(store)
   const manager = managerFor(root, store, { timeoutMs: 10 })
   await mkdir(manager.tasksDir, { recursive: true })
-  let releaseRunner, signalStarted
-  const started = new Promise(resolve => { signalStarted = resolve })
-  const runner = () => {
-    signalStarted()
-    return new Promise(resolve => { releaseRunner = resolve })
-  }
+  let releaseRunner
+  const runner = () => new Promise(resolve => { releaseRunner = resolve })
   const indexer = new DocumentIndexer(manager, { debounceMs: 0, runner, runnerSettleTimeoutMs: 20 })
   await indexer.init()
-  await started
+  await waitFor(() => releaseRunner, 'runner start')
   const runId = indexer.running.runId
   const runDir = path.join(indexer.indexDir, runId)
   await indexer.shutdown()
