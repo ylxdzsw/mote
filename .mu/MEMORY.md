@@ -1692,3 +1692,9 @@ The native authoring and candidate protocol guide stays one fully loaded, transp
 Candidate application failures now retain the result with preview disabled rather than re-enabling the failed candidate through receipt handling. Segment projection also catches failures per task, covering recovered tasks, explicit Preview retries, and document/context changes without blanking the workspace or suppressing other valid previews. The original reserved content remains visible and the error points to Preview retry and full task-JSON recovery; no generation is automatically resubmitted.
 
 Section candidates use one measured, pointer-transparent border per task, spanning native blocks and owned Flow/Float objects including captions. It is a canvas overlay rather than a block wrapper, preserving paragraph margin collapse, Flow mounts, and document geometry. Individual candidate outlines are suppressed and the border is omitted from minimaps, reading, and exports. Acceptance remains one ordinary document-history operation; Undo restores pre-acceptance content without resurrecting the agent session.
+
+## 2026-10-26 — Indexing failure isolation and diagnostics
+
+Explicit index retries now preserve unsupported/unreadable source failures while continuing the remaining batch, rather than making a retained old document block recovery of valid ones. Nonblocking, regular-file-only result reads participate in run timeout/cancellation and cleanup settling, so malformed FIFO output cannot stall the queue or shutdown.
+
+The indexer retains a bounded stderr tail through the existing runner transcript callback and persists a terminal-control-stripped excerpt with its failure message before deleting confirmed-clean run artifacts. Diagnostics remain owner-only status, separate from descriptions and agent retrieval; no schema, privacy policy, automatic retry, or artifact-retention mechanism changes. SVG extraction remains outside this fix.

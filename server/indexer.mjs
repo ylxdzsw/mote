@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { constants as fsConstants, promises as fs } from 'node:fs'
 import path from 'node:path'
+import { stripVTControlCharacters } from 'node:util'
 import { fingerprint } from './agent-protocol.mjs'
 import { muRunner, stopWorkerUnit, workerUnit } from './runner.mjs'
 import { HttpError } from './validation.mjs'
@@ -8,6 +9,7 @@ import { HttpError } from './validation.mjs'
 const MAX_INDEX_BYTES = 16 * 1024
 const MAX_DESCRIPTION = 12 * 1024
 const MAX_ERROR = 512
+const MAX_STDERR = 4096
 const CLEANUP_TIMEOUT_MS = 20_000
 const RUNNER_SETTLE_TIMEOUT_MS = 1_000
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
@@ -39,12 +41,12 @@ async function writeNew(file, contents, mode = 0o600) {
   try { await handle.writeFile(contents); await handle.chmod(mode); await handle.sync() } finally { await handle.close() }
 }
 
-async function readRegular(file, limit) {
-  const handle = await fs.open(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
+async function readRegular(file, limit, signal) {
+  const handle = await fs.open(file, fsConstants.O_RDONLY | fsConstants.O_NONBLOCK | fsConstants.O_NOFOLLOW)
   try {
     const stat = await handle.stat()
     if (!stat.isFile() || stat.size > limit) throw new Error('index output is too large or not a regular file')
-    return await handle.readFile()
+    return await handle.readFile({ signal })
   } finally { await handle.close() }
 }
 
@@ -62,7 +64,18 @@ async function fakeIndexRunner(context) {
 }
 
 function safeError(error) {
-  return String(error instanceof Error ? error.message : error).replace(/[\r\n\t]+/g, ' ').slice(0, MAX_ERROR) || 'Indexing failed'
+  return plainDiagnostic(String(error instanceof Error ? error.message : error)).slice(0, MAX_ERROR) || 'Indexing failed'
+}
+
+function plainDiagnostic(value) {
+  return stripVTControlCharacters(value).replace(/[\x00-\x1f\x7f-\x9f]+/g, ' ').trim()
+}
+
+function failureDiagnostic(error, stderr = '') {
+  const message = safeError(error)
+  const available = MAX_ERROR - message.length - 2
+  const detail = available > 0 ? plainDiagnostic(stderr).slice(-available) : ''
+  return detail ? `${message}: ${detail}` : message
 }
 
 export class DocumentIndexer {
@@ -215,7 +228,7 @@ export class DocumentIndexer {
     }
     const current = {
       id: source.id, revision: source.targetRevision, fingerprint: source.targetFingerprint,
-      runId, unit, controller: new AbortController(), cancelReason: null, context: null, promise: null,
+      runId, unit, controller: new AbortController(), cancelReason: null, context: null, promise: null, stderr: '',
     }
     current.cancelled = new Promise(resolve => { current.cancelResolve = resolve })
     this.running = current
@@ -230,19 +243,21 @@ export class DocumentIndexer {
     try {
       await this.prepareRun(current, model)
       if (current.controller.signal.aborted) throw new Error('aborted')
-      const run = Promise.resolve().then(() => this.runner(current.context))
+      const run = Promise.resolve().then(async () => {
+        await this.runner(current.context)
+        current.controller.signal.throwIfAborted()
+        const bytes = await readRegular(path.join(current.context.outputDir, 'index.json'), MAX_INDEX_BYTES, current.controller.signal)
+        try { return outputRecord(JSON.parse(bytes.toString('utf8'))) }
+        catch (error) { throw new Error(`Invalid index output: ${safeError(error)}`) }
+      })
       current.promise = run
-      let deadline
+      let deadline, result
       try {
-        await Promise.race([run, current.cancelled.then(reason => { throw new Error(reason) }), new Promise((_, reject) => {
+        result = await Promise.race([run, current.cancelled.then(reason => { throw new Error(reason) }), new Promise((_, reject) => {
           deadline = setTimeout(() => reject(new Error('worker timed out')), this.manager.timeoutMs)
           deadline.unref?.()
         })])
       } finally { clearTimeout(deadline) }
-      if (current.cancelReason || this.closed) throw new Error(current.cancelReason || 'shutdown')
-      const bytes = await readRegular(path.join(current.context.outputDir, 'index.json'), MAX_INDEX_BYTES)
-      let result
-      try { result = outputRecord(JSON.parse(bytes.toString('utf8'))) } catch (error) { throw new Error(`Invalid index output: ${safeError(error)}`) }
       if (current.cancelReason || this.closed) throw new Error(current.cancelReason || 'shutdown')
       this.store.finishIndexRun(current.runId, current.revision, current.fingerprint, model, result.description)
     } catch (error) {
@@ -256,7 +271,7 @@ export class DocumentIndexer {
       else this.store.finishIndexFailure(current.runId, current.revision, current.fingerprint,
         current.cancelReason === 'shutdown' ? 'Indexing stopped during service shutdown; use Retry to run it again.' :
           current.cancelReason === 'paused' ? 'Indexing paused because workspace indexing was disabled.' :
-            current.cancelReason === 'deleted' ? 'Source document was deleted during indexing.' : safeError(error),
+            current.cancelReason === 'deleted' ? 'Source document was deleted during indexing.' : failureDiagnostic(error, current.stderr),
         cleanupFailed)
     } finally {
       if (!current.context?.cleanupFailed && !this.blockedCleanup) await this.removeRunDirectory(current.runId).catch(() => {})
@@ -306,7 +321,8 @@ export class DocumentIndexer {
       promptPath, model, generation: 1, sourcePath: this.manager.sourcePath, timeoutMs: this.manager.timeoutMs,
       env: this.env, useSystemd: this.manager.useSystemd, signal: current.controller.signal,
       dataDir: this.manager.dataDir, backupDir: this.manager.backupDir, tasksDir: this.manager.tasksDir,
-      agent: undefined, progress: () => {}, emitTranscript: () => {},
+      agent: undefined, progress: () => {},
+      emitTranscript: (kind, text) => { if (kind === 'stderr') current.stderr = (current.stderr + text).slice(-MAX_STDERR) },
       onWorkerStart: pid => { if (!this.closed && this.running === current) this.store.indexWorkerPid(current.runId, pid) },
     }
   }
@@ -355,8 +371,12 @@ export class DocumentIndexer {
     if (this.blockedCleanup) throw new HttpError(503, 'Index worker cleanup is unconfirmed; service recovery is required before retry.')
     for (const source of this.store.indexDocuments()) {
       if (source.status !== 'failed') continue
-      const envelope = this.store.workspaceDocument(source.id, source.id, source.revision)
-      this.store.retryIndexTarget(source.id, source.revision, source.createdAt, fingerprint(envelope.document))
+      try {
+        const envelope = this.store.workspaceDocument(source.id, source.id, source.revision)
+        this.store.retryIndexTarget(source.id, source.revision, source.createdAt, fingerprint(envelope.document))
+      } catch (error) {
+        this.store.failIndexTarget(source.id, source.revision, source.createdAt, safeError(error))
+      }
     }
     this.wake()
     return this.status()
