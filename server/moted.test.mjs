@@ -103,6 +103,71 @@ async function takeEvents(response, count) {
   return result
 }
 
+test('unexpected HTTP failures return correlated IDs and log only sanitized diagnostics', async t => {
+  const value = await app(); t.after(async () => { await value.close(); await rm(value.stateDir, { recursive: true, force: true }) })
+  const address = value.server.address(), originalError = console.error
+  const originalSettings = value.store.settings, originalGet = value.store.get, originalAuthorize = value.manager.authorize
+  const lines = []
+  console.error = line => lines.push(String(line))
+  try {
+    value.store.settings = () => { throw Object.assign(new TypeError(`PRIVATE DOCUMENT CONTENT\nsecret credential\n    at ${new URL('./forged-secret.mjs', import.meta.url).pathname}:1:1`), { code: 'EIO' }) }
+    const mainResponse = await fetch(`http://127.0.0.1:${address.port}/api/settings?token=query-secret`)
+    const mainBody = await mainResponse.json()
+    assert.equal(mainResponse.status, 500)
+    assert.equal(mainBody.error, 'internal server error')
+    assert.match(mainBody.requestId, /^[0-9a-f-]{36}$/)
+    assert.equal(mainResponse.headers.get('x-request-id'), mainBody.requestId)
+    const mainLog = JSON.parse(lines[0])
+    assert.deepEqual(Object.keys(mainLog).sort(), ['errorCode', 'errorType', 'event', 'frames', 'level', 'method', 'requestId', 'route', 'status'])
+    assert.equal(mainLog.level, 'error')
+    assert.equal(mainLog.event, 'http.unexpected_error')
+    assert.equal(mainLog.requestId, mainBody.requestId)
+    assert.equal(mainLog.method, 'GET')
+    assert.equal(mainLog.route, '/api/settings')
+    assert.equal(mainLog.status, 500)
+    assert.equal(mainLog.errorType, 'TypeError')
+    assert.equal(mainLog.errorCode, 'EIO')
+    assert.ok(mainLog.frames.some(frame => /^moted\.mjs:\d+:\d+$/.test(frame)))
+    assert.doesNotMatch(lines[0], /PRIVATE DOCUMENT CONTENT|secret credential|query-secret|forged-secret/)
+
+    value.store.get = () => { throw new Error('PRIVATE DOCUMENT CONTENT and database path') }
+    const documentId = crypto.randomUUID()
+    const documentResponse = await fetch(`http://127.0.0.1:${address.port}/api/documents/${documentId}?token=query-secret`)
+    const documentBody = await documentResponse.json()
+    assert.equal(documentResponse.status, 500)
+    assert.equal(documentBody.error, 'internal server error')
+    assert.equal(documentResponse.headers.get('x-request-id'), documentBody.requestId)
+    const documentLog = JSON.parse(lines[1])
+    assert.equal(documentLog.requestId, documentBody.requestId)
+    assert.equal(documentLog.route, '/api/documents/:id')
+    assert.doesNotMatch(lines[1], new RegExp(`${documentId}|PRIVATE DOCUMENT CONTENT|database path|query-secret`))
+
+    const notFound = await fetch(`http://127.0.0.1:${address.port}/not-found?token=query-secret`)
+    assert.equal(notFound.status, 404)
+    assert.equal(lines.length, 2)
+
+    value.manager.authorize = () => { throw Object.assign(new Error('PRIVATE AGENT INPUT and bearer secret'), { code: 'ERR_INTERNAL' }) }
+    const token = 'A'.repeat(43)
+    const agentResponse = await fetch(`http://127.0.0.1:${address.port}/api/agent/${token}/document.json?query-secret`)
+    const agentBody = await agentResponse.json()
+    assert.equal(agentResponse.status, 500)
+    assert.deepEqual(Object.keys(agentBody).sort(), ['error', 'requestId'])
+    assert.equal(agentBody.error, 'internal server error')
+    assert.equal(agentResponse.headers.get('x-request-id'), agentBody.requestId)
+    const agentLog = JSON.parse(lines[2])
+    assert.equal(agentLog.requestId, agentBody.requestId)
+    assert.equal(agentLog.method, 'GET')
+    assert.equal(agentLog.route, '/api/agent/:token/:resource')
+    assert.equal(agentLog.errorCode, 'ERR_INTERNAL')
+    assert.doesNotMatch(lines[2], /PRIVATE AGENT INPUT|bearer secret|query-secret|A{43}|document\.json/)
+  } finally {
+    console.error = originalError
+    value.store.settings = originalSettings
+    value.store.get = originalGet
+    value.manager.authorize = originalAuthorize
+  }
+})
+
 test('fixed palette references and native links validate across documents, candidates, and segments', () => {
   const references = ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink'].flatMap(id => [id, `${id}:soft`])
   references.push('gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6')

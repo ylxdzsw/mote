@@ -62,6 +62,82 @@ function safeError(error) { return (error instanceof Error ? error.message : Str
 function allowedOrigin(env, origin) { return typeof origin === 'string' && (origin === PROD_ORIGIN || (env.MOTED_FAKE_RUNNER === '1' && origin === env.MOTED_DEV_ORIGIN)) }
 function settled(promise, ms) { return new Promise(resolve => { const timer = setTimeout(() => resolve(false), ms); promise.then(() => { clearTimeout(timer); resolve(true) }, () => { clearTimeout(timer); resolve(true) }) }) }
 
+const LOGGED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'])
+
+function routeTemplate(requestUrl) {
+  let pathname
+  try { pathname = new URL(requestUrl, 'http://moted.local').pathname } catch { return 'unmatched' }
+  if (pathname === '/api/settings' || pathname === '/api/indexing' || pathname === '/api/indexing/retry' || pathname === '/api/widgets/screenshot') return pathname
+  const segments = pathname.split('/').filter(Boolean)
+  if (segments[0] === 'api' && segments[1] === 'agent' && segments.length >= 3) return segments.length === 3 ? '/api/agent/:token' : '/api/agent/:token/:resource'
+  if (segments[0] === 'api' && segments[1] === 'documents') {
+    if (segments.length === 2) return '/api/documents'
+    const resource = ['assistant', 'privacy', 'recovery', 'shares'].includes(segments[3]) ? segments[3] : ':resource'
+    return `/api/documents/:id${segments.length > 3 ? `/${resource}` : ''}${segments.length > 4 ? '/:resource' : ''}`
+  }
+  if (segments[0] === 'api' && segments[1] === 'shared' && segments.length >= 3) return '/api/shared/:token'
+  if (segments[0] === 'api' && segments[1] === 'ai' && segments[2] === 'tasks') {
+    if (segments.length === 3) return '/api/ai/tasks'
+    return segments.length === 4 ? '/api/ai/tasks/:id' : '/api/ai/tasks/:id/:action'
+  }
+  if (segments[0] === 's' && segments.length >= 2) return '/s/:token'
+  return 'unmatched'
+}
+
+function safeErrorType(error) {
+  try {
+    if (error instanceof HttpError) return 'HttpError'
+    for (const type of [TypeError, RangeError, ReferenceError, SyntaxError, URIError, EvalError, AggregateError]) if (error instanceof type) return type.name
+    return error instanceof Error ? 'Error' : 'NonError'
+  } catch { return 'Unknown' }
+}
+
+function safeErrorCode(error) {
+  try { return typeof error?.code === 'string' && /^[A-Z][A-Z0-9_]{0,31}$/.test(error.code) ? error.code : null } catch { return null }
+}
+
+function safeErrorFrames(error) {
+  try {
+    const stack = error instanceof Error ? error.stack : undefined
+    if (typeof stack !== 'string') return []
+    const heading = `${error.name}: ${error.message}`
+    if (!stack.startsWith(heading)) return []
+    const frames = []
+    for (const line of stack.slice(heading.length).split('\n')) {
+      const match = /(?:\(|\s)((?:file:\/\/\/|\/)[^()\s]+):(\d+):(\d+)\)?$/.exec(line)
+      if (!match) continue
+      let file = match[1]
+      try { if (file.startsWith('file://')) file = fileURLToPath(file) } catch { continue }
+      const relative = path.relative(SERVER_ROOT, file)
+      if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) continue
+      frames.push(`${relative}:${match[2]}:${match[3]}`)
+      if (frames.length === 5) break
+    }
+    return frames
+  } catch { return [] }
+}
+
+function logUnexpectedError(request, requestId, status, error) {
+  const diagnostic = {
+    level: 'error', event: 'http.unexpected_error', requestId,
+    method: LOGGED_METHODS.has(request.method) ? request.method : 'OTHER',
+    route: routeTemplate(request.url), status,
+    errorType: safeErrorType(error), errorCode: safeErrorCode(error),
+    frames: safeErrorFrames(error),
+  }
+  try { console.error(JSON.stringify(diagnostic)) } catch {}
+}
+
+function sendRequestError(request, response, error, origin, env, requestId) {
+  const status = error instanceof HttpError ? error.status : 500
+  if (status === 500) logUnexpectedError(request, requestId, status, error)
+  send(response, status, {
+    error: status === 500 ? 'internal server error' : safeError(error),
+    ...(status === 500 ? { requestId } : {}),
+    ...(status !== 500 && error instanceof HttpError && error.current !== undefined ? { current: error.current } : {}),
+  }, origin, env)
+}
+
 async function readBody(request, limit = MAX_BODY) {
   if (Number(request.headers['content-length']) > limit) { request.resume(); throw new HttpError(413, 'request body is too large') }
   const chunks = []; let size = 0
@@ -407,7 +483,8 @@ export class TaskManager {
     })
   }
 
-  async agentApi(request, response, scope) {
+  async agentApi(request, response, scope, requestId = crypto.randomUUID()) {
+    response.setHeader('x-request-id', requestId)
     try {
       const url = new URL(request.url, 'http://moted.local')
       const match = /^\/api\/agent\/([^/]+)(?:\/([^/]*))?$/.exec(url.pathname)
@@ -457,8 +534,7 @@ export class TaskManager {
       response.writeHead(200, { ...responseHeaders(undefined, this.env), 'content-type': type, 'content-security-policy': "default-src 'none'; sandbox", ...(download ? { 'content-disposition': `attachment; filename="${resource}"` } : {}) })
       response.end(data)
     } catch (error) {
-      const status = error instanceof HttpError ? error.status : 500
-      send(response, status, { error: status === 500 ? 'internal server error' : safeError(error), ...(error instanceof HttpError && error.current !== undefined ? { current: error.current } : {}) }, undefined, this.env)
+      sendRequestError(request, response, error, undefined, this.env, requestId)
     }
   }
 
@@ -799,10 +875,12 @@ export async function createMotedServer(options = {}) {
   try { await manager.init(); await indexer.init() } catch (error) { await indexer.shutdown(); await manager.shutdown(); store.close(); throw error }
   const screenshots = new WidgetScreenshots(manager.env)
   const server = http.createServer(async (request, response) => {
+    const requestId = crypto.randomUUID()
+    response.setHeader('x-request-id', requestId)
     const origin = request.headers.origin
     try {
       const url = new URL(request.url, 'http://moted.local')
-      if (url.pathname.startsWith('/api/agent/')) { await manager.agentApi(request, response); return }
+      if (url.pathname.startsWith('/api/agent/')) { await manager.agentApi(request, response, undefined, requestId); return }
       if (url.pathname === '/api/widgets/screenshot') {
         if (!allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
         if (request.method !== 'POST') throw new HttpError(404, 'not found')
@@ -866,7 +944,7 @@ export async function createMotedServer(options = {}) {
         throw new HttpError(404, 'not found')
       }
       throw new HttpError(404, 'not found')
-    } catch (error) { const status = error instanceof HttpError ? error.status : 500; send(response, status, { error: status === 500 ? 'internal server error' : safeError(error), ...(error instanceof HttpError && error.current !== undefined ? { current: error.current } : {}) }, origin, manager.env) }
+    } catch (error) { sendRequestError(request, response, error, origin, manager.env, requestId) }
   })
   let closing
   return { manager, store, indexer, screenshots, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { await Promise.all([screenshots.shutdown(), indexer.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }

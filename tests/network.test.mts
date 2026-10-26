@@ -49,5 +49,11 @@ test('invalid network replies pause requests until a validated read reconnects; 
       await assert.rejects(requestJSON('/api/documents/test', 'GET', undefined, valid), error => error instanceof RequestError && error.status === status)
       assert.equal(connectionSnapshot().offline, false)
     }
+    const requestId = 'edb2d4e0-cbdc-4500-9209-351b7c5e44c2'
+    reply = () => Promise.resolve(Response.json({ error: 'internal server error', requestId }, { status: 500 }))
+    await assert.rejects(requestJSON('/api/settings', 'GET', undefined, valid), error => offline(error) && (error as Error).message.includes(`Error reference: ${requestId}.`))
+    assert.ok(connectionSnapshot().reason.includes(requestId))
+    reply = () => Promise.resolve(Response.json(settings))
+    assert.equal(await retryConnection(), true)
   } finally { globalThis.fetch = original }
 })

@@ -10,7 +10,7 @@ import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normaliz
 import { FilesWindow } from './FilesWindow'
 import type { NewFileOptions } from './NewFileForm'
 import { WorkingCopy } from './WorkingCopy'
-import { deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
+import { createCopyRecord, deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
 import { loadAssistantRecovery, listAssistantRecoveries } from '../ai/storage'
 import './workspace.css'
 import { connectionSnapshot, isRecord, requestJSON } from './connection'
@@ -75,7 +75,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     const pending = new Set(assistants.filter(record => record.dirty || record.pending).map(record => record.workingCopyId))
     setRecoveries(rows.filter(row => {
       try { validateDocument(row.document) } catch { return true }
-      return row.dirty || row.pending || row.pendingCreate || row.pendingPrivacy || pending.has(row.key)
+      return row.dirty || row.pending || row.pendingCreate || row.pendingPrivacy || row.pendingCopy || pending.has(row.key)
     }))
   }).catch(() => setNotice('Local recovery storage could not be read.'))
   useEffect(() => {
@@ -125,8 +125,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         if (cloud && (!local || !local.dirty && !local.pending)) {
           const { document, ...meta } = cloud
           const pendingPrivacy = local?.pendingPrivacy
+          const pendingCopy = local?.pendingCopy
           local = { key, session, meta: local ? mergeDocumentMeta(local.meta, meta) : normalizeDocumentMeta(meta), document, dirty: false, updatedAt: Date.now(),
-            ...(pendingPrivacy ? { pendingPrivacy } : {}) }
+            ...(pendingPrivacy ? { pendingPrivacy } : {}), ...(pendingCopy ? { pendingCopy } : {}) }
         }
         if (local) {
           local = { ...local, meta: normalizeDocumentMeta(local.meta) }
@@ -184,6 +185,10 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } }
     if (!await navigate(document.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
   }
+  async function importDocument(document: MoteDocument, name: string) {
+    const record = createCopyRecord(document, name, await workingSession())
+    if (!await navigate(record.meta.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
+  }
   async function downloadRecovery(record: WorkingRecord) {
     const results = await Promise.allSettled([
       loadAssistantRecovery(record.key, record.meta.id),
@@ -208,7 +213,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         setNotice('Open this recovery in a new tab so it does not replace the current working copy or assistant input.'); return
       }
       const existing = await loadWorkingCopy(key)
-      if (existing && (existing.dirty || existing.pending || existing.pendingCreate || existing.pendingPrivacy) && existing.key !== record.key) { setNotice('This tab already has pending changes for that document. Open a new tab to recover this copy.'); return }
+      if (existing && (existing.dirty || existing.pending || existing.pendingCreate || existing.pendingPrivacy || existing.pendingCopy) && existing.key !== record.key) { setNotice('This tab already has pending changes for that document. Open a new tab to recover this copy.'); return }
       if (await navigate(record.meta.id, true, record)) setRecoveryOpen(false)
     } catch (error) { setNotice((error as Error).message) }
   }
@@ -222,7 +227,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     </main>}
     <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
-    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument}
+    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument} onImport={importDocument}
       onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
       pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
     {recoveryOpen && <LocalRecovery onClose={() => setRecoveryOpen(false)}>

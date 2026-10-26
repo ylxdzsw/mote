@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite --host 127.0.0.1",
     "check": "tsc --noEmit",
     "build": "npm run check && vite build",
-    "preview": "vite preview --host 0.0.0.0",
-    "test:ai": "node --experimental-sqlite --experimental-strip-types --test tests/document-format.test.mjs tests/flow-model.test.mjs tests/ai-reservations.test.mts tests/network.test.mts server/moted.test.mjs server/cloud.test.mjs server/indexer.test.mjs server/retrieval.test.mjs"
+    "preview": "vite preview --host 127.0.0.1",
+    "test:ai": "node --experimental-sqlite --experimental-strip-types --test tests/document-format.test.mjs tests/flow-model.test.mjs tests/ai-reservations.test.mts tests/network.test.mts tests/working-copy.test.mts server/moted.test.mjs server/cloud.test.mjs server/indexer.test.mjs server/retrieval.test.mjs"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",
@@ -30,6 +30,6 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "6.1.1",
     "typescript": "7.0.2",
-    "vite": "8.2.2"
+    "vite": "8.2.4"
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PanelIcon } from '../app/PanelIcon'
 import type { MoteDocument } from '../document/model'
-import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type DocumentMeta } from './api'
 import { NewFileForm, type NewFileOptions } from './NewFileForm'
 import { ShareWindow } from './ShareWindow'
 import type { WorkingCopy } from './WorkingCopy'
@@ -15,6 +15,7 @@ interface Props {
   currentId?: string
   copy?: WorkingCopy
   onNew: (options: NewFileOptions) => Promise<void>
+  onImport: (document: MoteDocument, name: string) => Promise<void>
   pending?: Record<string, string>
   onLocalRecovery?: () => void
 }
@@ -42,7 +43,7 @@ export function FilesWindow({ open, ...props }: Props) {
   return open ? <FilesDialog {...props} /> : null
 }
 
-function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, onLocalRecovery }: Omit<Props, 'open'>) {
+function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pending = {}, onLocalRecovery }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -164,21 +165,6 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
     if (!locked.current && active.current) onOpen(id)
   }
 
-  async function create(source: MoteDocument, name: string) {
-    const id = crypto.randomUUID()
-    const created = await cloudRequest<CloudDocument>('/api/documents', 'POST', {
-      id, name, document: { ...source, id }, operationId: crypto.randomUUID(),
-    })
-    if (!active.current) return
-    setDocuments(items => {
-      const meta = normalizeDocumentMeta(created), old = items.find(item => item.id === meta.id)
-      return [old ? mergeDocumentMeta(old, meta) : meta, ...items.filter(item => item.id !== meta.id)]
-    })
-    setSelectedId(created.id); setFilter(''); setAction(null)
-    setResult(`Created “${created.name}”.`)
-    onOpen(created.id)
-  }
-
   function newDocument(example = false) {
     setError(''); setResult(''); setNewFile(example)
   }
@@ -187,7 +173,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, on
     void run('Importing as a new document…', async () => {
       const { decodeDocument } = await import('../document/file')
       const document = await decodeDocument(file)
-      if (active.current) await create(document, file.name.replace(/\.(mote|html?)$/i, '').trim() || 'Untitled')
+      if (active.current) await onImport(document, file.name.replace(/\.(mote|html?)$/i, '').trim() || 'Untitled')
     })
   }
 

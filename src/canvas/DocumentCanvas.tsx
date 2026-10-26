@@ -895,6 +895,16 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
             onChange={patch => onNoteChange(note.id, patch)} onCaption={() => caption(note.id)} onDrawingEdit={() => onDrawingEdit?.(note.id)} onKey={(event, caption) => key(note.id, event, caption)} />
   }
 
+  const zoomControl = <div className="zoom-level">
+    <select aria-label="Document zoom level" title={editable ? automatic ? 'Auto zoom' : 'Zoom' : 'Zoom document · You can also pinch to zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : event.target.value === 'fit' ? fit() : zoomTo(Number(event.target.value))}>
+      <option value="auto">Auto</option>
+      {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
+      {!editable && <option value="fit">Fit</option>}
+      {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
+    </select>
+    <PanelIcon name="chevron" />
+  </div>
+
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onClickCapture={event => {
@@ -987,14 +997,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     {imagePlacement.notice && <p className="segment-notice" role="status">{imagePlacement.notice}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
-    {zoomHost && createPortal(<div className="zoom-level">
-      <select aria-label="Document zoom level" title={automatic ? 'Auto zoom' : 'Zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : event.target.value === 'fit' ? fit() : zoomTo(Number(event.target.value))}>
-        <option value="auto">Auto</option>
-        {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
-        {!editable && <option value="fit">Fit</option>}
-        {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
-      </select>
-      <PanelIcon name="chevron" />
-    </div>, zoomHost)}
+    {editable && zoomHost && createPortal(zoomControl, zoomHost)}
+    {!editable && !staticWidgets && <div className="reading-zoom">{zoomControl}</div>}
   </div>
 }

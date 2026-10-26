@@ -19,6 +19,14 @@ export interface WorkingRecord {
   draftDefaults?: { mode: 'light' | 'dark'; language: DocumentLanguage }
   pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument; private?: boolean }
   pendingPrivacy?: { private: boolean; basePrivacyRevision: number; baseShareRevision?: number; operationId: string }
+  pendingCopy?: { key: string; document: MoteDocument }
+}
+
+export function createCopyRecord(source: MoteDocument, name: string, session: string, privateDocument = false): WorkingRecord {
+  const id = crypto.randomUUID(), document = { ...source, id }, now = Date.now()
+  return { key: `${session}:${id}`, session, document, dirty: true, draft: true, updatedAt: now,
+    pendingCreate: { id, operationId: crypto.randomUUID(), name, document, private: privateDocument },
+    meta: { id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } }
 }
 
 let database: Promise<IDBDatabase> | undefined
@@ -41,11 +49,15 @@ async function transaction<T>(write: boolean, action: (store: IDBObjectStore) =>
 }
 export const listWorkingCopies = () => transaction<WorkingRecord[]>(false, store => store.getAll())
 export const loadWorkingCopy = (key: string) => transaction<WorkingRecord | undefined>(false, store => store.get(key))
-export const saveWorkingCopy = (copy: WorkingRecord) => transaction(true, store => store.put(copy))
+export const saveWorkingCopy = (copy: WorkingRecord, related?: WorkingRecord) => transaction(true, store => {
+  if (related) store.put(related)
+  return store.put(copy)
+})
 export const deleteWorkingCopy = (key: string) => transaction(true, store => store.delete(key))
 
-export async function forkWorkingCopy(record: WorkingRecord, session: string) {
+export async function forkWorkingCopy(record: WorkingRecord, session: string): Promise<WorkingRecord> {
   const key = `${session}:${record.meta.id}`
+  let pendingCopy = record.pendingCopy
   if (key !== record.key) {
     const existing = await loadAssistantRecovery(key, record.meta.id)
     if (existing && (existing.dirty || existing.pending || existing.archives.length)) {
@@ -53,8 +65,16 @@ export async function forkWorkingCopy(record: WorkingRecord, session: string) {
     }
     const assistant = await loadAssistantRecovery(record.key, record.meta.id)
     if (assistant) await saveAssistantRecovery({ ...assistant, workingCopyId: key })
+    if (pendingCopy) {
+      const target = await loadWorkingCopy(pendingCopy.key)
+      if (target) {
+        const existing = await loadWorkingCopy(`${session}:${target.meta.id}`)
+        const fork = existing ?? await forkWorkingCopy(target, session)
+        pendingCopy = { ...pendingCopy, key: fork.key }
+      }
+    }
   }
-  const fork = { ...record, key, session }
+  const fork = { ...record, key, session, pendingCopy }
   await saveWorkingCopy(fork)
   return fork
 }

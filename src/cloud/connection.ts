@@ -29,6 +29,7 @@ export async function requestJSON<T>(path: string, method: string, body: unknown
   if (state.offline && !options.probe) throw new RequestError(state.reason || 'Offline. Retry the connection to continue syncing.', 0)
   const timeout = AbortSignal.timeout(options.timeoutMs ?? 15_000)
   const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout
+  let requestId: string | undefined
   try {
     const response = await fetch(path, { method, credentials: 'same-origin', cache: 'no-store', redirect: 'error', signal,
       headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
@@ -37,15 +38,19 @@ export async function requestJSON<T>(path: string, method: string, body: unknown
     const value: unknown = await response.json()
     if (!response.ok) {
       if (!isRecord(value) || typeof value.error !== 'string') throw new Error('unexpected response')
-      if (response.status >= 500) throw new Error('service unavailable')
+      if (response.status >= 500) {
+        if (typeof value.requestId === 'string' && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.requestId)) requestId = value.requestId
+        throw new Error('service unavailable')
+      }
       throw new RequestError(value.error, response.status, value)
     }
     if (!valid(value)) throw new Error('unexpected response')
     return value as T
   } catch (error) {
     if (error instanceof RequestError || options.signal?.aborted && !timeout.aborted) throw error
-    const message = timeout.aborted ? 'Connection timed out. Local changes and AI requests are retained.'
+    const detail = timeout.aborted ? 'Connection timed out. Local changes and AI requests are retained.'
       : 'Could not reach Mote or received an unexpected response. Check your connection or Wi-Fi sign-in, then retry.'
+    const message = requestId ? `${detail} Error reference: ${requestId}.` : detail
     connectionFailed(message)
     throw new RequestError(message, 0)
   }

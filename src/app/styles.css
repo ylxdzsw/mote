@@ -169,6 +169,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .zoom-level select { appearance: none; width: 100%; height: 100%; padding: 0 22px 0 5px; border: 0; background: transparent; cursor: pointer; font-variant-numeric: tabular-nums; }
 .zoom-level > svg { position: absolute; right: 3px; top: 6px; width: 16px; height: 16px; pointer-events: none; }
 .zoom-level select:hover { color: var(--ui-accent); background: var(--ui-accent-soft); }
+.reading-zoom { display: none; }
 .sheet { position: relative; margin: 0 auto; background: var(--page-background); border: 1px solid transparent; }
 .sheet-footprint { position: relative; margin: 0 auto; display: flow-root; }
 .sheet-footprint > .sheet { margin: 0; transform-origin: top left; }
@@ -295,7 +296,10 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 
 @media (max-width: 767px) {
   .app-header { padding-inline: 8px; gap: 4px; }
-  .app-header .document-switch { flex: 1; max-width: none; min-height: 44px; font-size: 12px; }
+  .app-header .document-switch { flex: 1; max-width: calc(100% - 80px); min-height: 44px; font-size: 12px; }
+  .reading-zoom { display: block; position: absolute; z-index: 3; top: 3px; right: 8px; background: var(--ui-surface); border-radius: var(--ui-control-radius); }
+  .reading-zoom .zoom-level { width: 72px; height: 44px; }
+  .reading-zoom .zoom-level > svg { top: 14px; }
   .save-message { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .stage { padding-top: 24px; }
   .workspace { display: block; }

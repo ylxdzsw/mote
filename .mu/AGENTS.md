@@ -25,7 +25,7 @@ These instructions hold durable invariants; detailed user interactions and opera
 
 ## Document and rendering invariants
 
-- Desktop supports editing and reading; viewports **under 768px are reading-only**. Default width is **960px**, with **32px left/right** and **48px top/bottom** margins. Zoom and editing scroll-past-bottom are view state, not saved geometry.
+- Desktop supports editing and reading; viewports **under 768px are reading-only**. Default width is **960px**, with **32px left/right** and **48px top/bottom** margins. Zoom and editing scroll-past-bottom are view state, not saved geometry. Mobile readers expose a compact zoom dropdown, shared by private/public reading and standalone HTML; PNG and minimap snapshots omit it.
 - Paragraph typography comes from semantic classes and the document theme. Inline formatting composes Bold, fixed palette colors, None/Box decoration, and a native Link mark with a safe, credential-free absolute HTTP(S) href; no relative paths, controls, `mailto:`, or `tel:`. No arbitrary inline fonts/sizes. Underline-decoration marks are unsupported in V1. Links apply to main text, text boxes, table cells, and captions, never Code or Drawing. Table cells and captions have fixed semantic styling. Code is a plain-source object with its own syntax scheme, never a paragraph class.
 - Supported object kinds are text, table, image, drawing, Code, formula (`formula`, rendered by KaTeX), and HTML widget (`html`). Every kind supports **Flow / Float**. Line, rectangle, ellipse, and standalone Label kinds are removed.
 - Objects stay in ordered `objects`; all saved geometry is nested in `layout`. Every Flow has exactly one top-level `flow` atom with distinct block ID and `objectId`; the atom supplies its position and Flow layout stores no anchor, y, or centered flag. Flow uses a real normal-flow mount, column-relative horizontal placement, and `x: "center"` for persistent centering. Never emulate it with spacers or absolute overlays.
@@ -64,7 +64,7 @@ Read **`CLOUD.md` → Document Private policy** before changing privacy, sharing
 
 ## Development and verification
 
-Use Node.js 22.12+ and npm. Follow **README → Run / Fake-first development**. Bind dev and preview explicitly to `127.0.0.1`; npm script defaults alone are not loopback-only. The isolated fake backend runs on port 5174; its `MOTED_DEV_ORIGIN` must match the browser's exact hostname and port, including preview. Use fresh temporary state/data directories, never production storage, and never expose fake services publicly.
+Use Node.js 22.12+ and npm. Follow **README → Run / Fake-first development**. Keep dev and preview bound to `127.0.0.1`; the npm scripts default to loopback, and direct Vite invocations must do the same. The isolated fake backend runs on port 5174; its `MOTED_DEV_ORIGIN` must match the browser's exact hostname and port, including preview. Use fresh temporary state/data directories, never production storage, and never expose fake services publicly.
 
 - `npm run check`: TypeScript.
 - `npm run build`: TypeScript plus app and standalone reader production bundles.

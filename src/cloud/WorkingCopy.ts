@@ -2,7 +2,7 @@ import { isPristineBlankDocument, type MoteDocument } from '../document/model'
 import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type SharingState } from './api'
-import { saveWorkingCopy, type WorkingRecord } from './workingCopies'
+import { createCopyRecord, loadWorkingCopy, saveWorkingCopy, type WorkingRecord } from './workingCopies'
 import { connectionSnapshot, retryConnection } from './connection'
 
 export interface PrivacyChange {
@@ -31,11 +31,14 @@ export interface CopyState {
   privacy: PrivacyState
 }
 
+const sameDocument = (a: MoteDocument, b: MoteDocument) => a === b || JSON.stringify(a) === JSON.stringify(b)
+
 export class WorkingCopy {
   preserveAssistant?: () => Promise<void>
   private listeners = new Set<() => void>()
   private saving: Promise<unknown> = Promise.resolve()
   private flight?: Promise<CloudDocument | null>
+  private copyFlight?: Promise<CloudDocument | null>
   private checkingRemote = false
   private checkingPrivacy = false
   private generation = 0
@@ -51,10 +54,10 @@ export class WorkingCopy {
     this.state = { ...this.state, ...patch }
     for (const listener of this.listeners) listener()
   }
-  private persist() {
+  private persist(related?: WorkingRecord) {
     const record = this.state.record
     this.publish({ local: 'saving' })
-    const write = this.saving.catch(() => {}).then(() => saveWorkingCopy(record))
+    const write = this.saving.catch(() => {}).then(() => saveWorkingCopy(record, related))
     this.saving = write
     void write.then(() => {
       if (this.state.record === record) this.publish({ local: 'saved' })
@@ -117,14 +120,18 @@ export class WorkingCopy {
       if (connectionSnapshot().offline && !await retryConnection()) return null
       if (this.state.record.draft) {
         const record = this.state.record
-        const pendingCreate = record.pendingCreate ?? { id: record.meta.id, operationId: crypto.randomUUID(), name: record.meta.name, document: record.document }
+        const pendingCreate = record.pendingCreate ?? { id: record.meta.id, operationId: crypto.randomUUID(), name: record.meta.name, document: record.document,
+          private: record.pendingPrivacy?.private ?? false }
         if (!record.pendingCreate) this.publish({ record: { ...record, pendingCreate, dirty: true } })
         await this.persist()
         const result = await cloudRequest<CloudDocument>('/api/documents', 'POST', pendingCreate)
         const current = this.state.record, { document: _document, ...meta } = result
         this.publish({ record: { ...current, meta: mergeDocumentMeta(current.meta, meta), draft: undefined, draftDefaults: undefined, pendingCreate: undefined,
-          dirty: current.document !== pendingCreate.document } })
+          dirty: !sameDocument(current.document, pendingCreate.document) } })
+        const change = this.state.privacy.pending
+        if (change && pendingCreate.private === change.private) this.finishPrivacy(change, undefined, true)
         await this.persist()
+        if (!this.state.record.dirty && !this.state.record.pending) return { ...this.state.record.meta, document: this.state.record.document }
       }
       if (!this.state.record.dirty && !this.state.record.pending) {
         const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
@@ -143,7 +150,7 @@ export class WorkingCopy {
         await this.persist()
         const result = await cloudRequest<CloudDocument>(`/api/documents/${record.meta.id}`, 'PUT', pending)
         const current = this.state.record
-        const dirty = current.document !== pending.document
+        const dirty = !sameDocument(current.document, pending.document)
         const { document: _document, ...resultMeta } = result
         const meta = mergeDocumentMeta(current.meta, resultMeta)
         this.publish({ record: { ...current, meta, pending: undefined, dirty }, conflict: undefined, deleted: false })
@@ -213,11 +220,11 @@ export class WorkingCopy {
     return this.state.record.meta
   }
 
-  private finishPrivacy(change: PrivacyChange, failure = 'The privacy change is not confirmed yet.') {
+  private finishPrivacy(change: PrivacyChange, failure = 'The privacy change is not confirmed yet.', created = false) {
     const current = this.state
     if (current.privacy.pending?.operationId !== change.operationId) return
     const metadata = current.record.meta
-    if (metadata.privacyRevision > change.basePrivacyRevision) {
+    if (created || metadata.privacyRevision > change.basePrivacyRevision) {
       const confirmed = metadata.private === change.private
       if (current.record.pendingPrivacy?.operationId === change.operationId) {
         const { pendingPrivacy: _pendingPrivacy, ...record } = current.record
@@ -247,19 +254,23 @@ export class WorkingCopy {
     try {
       const metadata = await cloudRequest<DocumentMeta>(`/api/documents/${this.state.record.meta.id}/privacy`)
       await this.mergePrivacy(normalizeDocumentMeta(metadata))
-      this.finishPrivacy(change, failure)
+      this.finishPrivacy(change, failure, this.state.record.draft && this.state.record.pendingCreate?.private === change.private && metadata.private === change.private)
     } catch (error) {
       if (this.state.privacy.pending?.operationId === change.operationId) {
         const detail = error instanceof Error ? error.message : 'Could not check the server privacy setting.'
-        this.publish({ privacy: { ...this.state.privacy, busy: false, error: `${failure} ${detail}` } })
+        this.publish({ privacy: { ...this.state.privacy, busy: false, error: `Privacy is not confirmed. ${detail} Check the server or retry the privacy change.` } })
       }
     }
   }
 
   private async sendPrivacy(change: PrivacyChange) {
-    if (this.state.record.draft && !await this.sync()) {
-      this.publish({ privacy: { ...this.state.privacy, busy: false, error: 'Save this draft to the cloud before confirming Private. Retry to try again.', message: '' } })
-      return
+    if (this.state.record.draft) {
+      const saved = await this.sync()
+      if (this.state.privacy.pending?.operationId !== change.operationId) return
+      if (!saved) {
+        this.publish({ privacy: { ...this.state.privacy, busy: false, error: 'Save this draft to the cloud before confirming Private. Retry to try again.', message: '' } })
+        return
+      }
     }
     const path = `/api/documents/${this.state.record.meta.id}/privacy`
     try {
@@ -282,8 +293,8 @@ export class WorkingCopy {
           return
         }
       }
-      const detail = error instanceof Error ? error.message : 'The privacy change could not be confirmed.'
-      await this.reconcilePendingPrivacy(change, `The privacy change could not be confirmed. ${detail}`)
+      const detail = error instanceof Error ? error.message : 'Retry the privacy change.'
+      await this.reconcilePendingPrivacy(change, `Privacy is not confirmed. ${detail}`)
     }
   }
 
@@ -307,7 +318,9 @@ export class WorkingCopy {
       }
     }
     const change: PrivacyChange = { private: value, basePrivacyRevision: meta.privacyRevision, baseShareRevision, operationId: crypto.randomUUID() }
-    this.publish({ record: { ...this.state.record, pendingPrivacy: change }, privacy: { pending: change, busy: true, error: '', message: '' } })
+    const record = this.state.record
+    const pendingCreate = record.pendingCreate ?? (record.draft ? { id: meta.id, operationId: crypto.randomUUID(), name: meta.name, document: record.document, private: value } : undefined)
+    this.publish({ record: { ...record, pendingCreate, pendingPrivacy: change }, privacy: { pending: change, busy: true, error: '', message: '' } })
     try { await this.persist() }
     catch {
       this.publish({ privacy: { pending: change, busy: false, error: 'Privacy was not sent because its retry details could not be saved on this device. Retry to try again.', message: '' } })
@@ -337,13 +350,58 @@ export class WorkingCopy {
     await this.reconcilePendingPrivacy(change, 'The requested change was not found on the server.')
   }
 
-  async saveAs(name: string): Promise<CloudDocument | null> {
+  saveAs(name: string): Promise<CloudDocument | null> {
+    return this.copyFlight ??= this.performSaveAs(name).finally(() => { this.copyFlight = undefined })
+  }
+
+  private async performSaveAs(name: string): Promise<CloudDocument | null> {
     if (this.flight) await this.flight
     try {
-      const id = crypto.randomUUID(), document = { ...this.state.record.document, id }
-      const result = await cloudRequest<CloudDocument>('/api/documents', 'POST', { id, document, name, private: this.state.record.meta.private || this.state.record.pendingCreate?.private === true || this.state.privacy.pending?.private === true, operationId: id })
-      // The old local copy is deliberately kept as recovery until explicitly discarded.
-      return result
+      await this.flushLocal()
+      const source = this.state.record
+      let target: WorkingRecord
+      if (source.pendingCopy) {
+        const saved = await loadWorkingCopy(source.pendingCopy.key)
+        if (!saved) throw new Error('The pending copy is missing from this device. Open Local recovery or Files to locate it before saving another copy. The original is retained.')
+        target = saved
+      } else {
+        target = createCopyRecord(source.document, name, source.session,
+          source.meta.private || source.pendingCreate?.private === true || this.state.privacy.pending?.private === true)
+      }
+      for (;;) {
+        const record = this.state.record, pendingCopy = record.pendingCopy ?? { key: target.key, document: source.document }
+        const previous = { ...pendingCopy.document, id: target.meta.id }
+        if (!sameDocument(target.document, previous)) {
+          throw new Error('The pending copy was edited separately. Open it from Files or Local recovery to continue. Both copies are retained; nothing was overwritten.')
+        }
+        const document = record.document
+        const next = { ...document, id: target.meta.id }
+        const copy = new WorkingCopy({ ...target, document: next, dirty: target.dirty || !sameDocument(target.document, next), updatedAt: Date.now() })
+        this.publish({ record: { ...this.state.record, pendingCopy: { ...pendingCopy, document } } })
+        // Both the destination and its retry link must survive reload before any POST.
+        try { await this.persist(copy.getSnapshot().record) }
+        catch (error) {
+          this.publish({ record: { ...this.state.record, pendingCopy: record.pendingCopy } })
+          throw error
+        }
+        const result = await copy.sync()
+        if (!result) throw new Error(`${copy.getSnapshot().error || 'The copy could not be confirmed.'} Retry Save as copy or open Local recovery. The original is retained.`)
+        target = copy.getSnapshot().record
+        if (!sameDocument(this.state.record.document, document)) continue
+        const pending = this.state.record.pendingCopy
+        this.publish({ record: { ...this.state.record, pendingCopy: undefined } })
+        try { await this.persist() }
+        catch (error) {
+          this.publish({ record: { ...this.state.record, pendingCopy: pending } })
+          throw error
+        }
+        if (!sameDocument(this.state.record.document, document)) {
+          this.publish({ record: { ...this.state.record, pendingCopy: pending } })
+          continue
+        }
+        // The old local copy is deliberately kept as recovery until explicitly discarded.
+        return result
+      }
     } catch (error) { this.failure(error); return null }
   }
 }
