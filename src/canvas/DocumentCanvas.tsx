@@ -10,6 +10,7 @@ import { TextEditor } from '../editor/TextEditor'
 import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
 import { pageColor } from '../../shared/palette.mjs'
+import { validLinkHref } from '../../shared/links.mjs'
 import { useDocumentZoom } from './useDocumentZoom'
 import { Minimap } from './Minimap'
 import { useSpaceGesture } from './useSpaceGesture'
@@ -436,6 +437,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
+    if ((event.ctrlKey || event.metaKey) && (event.target as Element).closest('.text-content a[href]')) {
+      event.stopPropagation()
+      return
+    }
     if (!tool && !imagePlacement.active && segments.begin(event)) return
     if (tail.begin(event)) { segments.clear(); setActiveSegmentId(null); return }
     if (tool === 'paragraph') { paragraphs.insert(event); return }
@@ -891,6 +896,15 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
 
   return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}`}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
+    onClickCapture={event => {
+      const link = (event.target as Element).closest<HTMLAnchorElement>('.text-content a[href]')
+      if (!editable || !link) return
+      event.preventDefault()
+      if ((event.ctrlKey || event.metaKey) && validLinkHref(link.getAttribute('href'))) {
+        event.stopPropagation()
+        window.open(link.href, '_blank', 'noopener,noreferrer')
+      }
+    }}
     onDropCapture={interact}
     style={{ '--page-background': pageColor(doc.theme) } as React.CSSProperties}>
     <div className={`stage${segments.marginHover ? ' has-segment-margin-hover' : ''}`} ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}

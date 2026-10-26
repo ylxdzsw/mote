@@ -1,4 +1,5 @@
 import { boxColorIds } from '../shared/palette.mjs'
+import { normalizeLinkHref, validLinkHref } from '../shared/links.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile, symlink, readdir } from 'node:fs/promises'
@@ -102,7 +103,7 @@ async function takeEvents(response, count) {
   return result
 }
 
-test('fixed palette slots validate across documents, text candidates, and segments', () => {
+test('fixed palette references and native links validate across documents, candidates, and segments', () => {
   const references = ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink'].flatMap(id => [id, `${id}:soft`])
   references.push('gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6')
   const paragraph = color => ({ type: 'paragraph', attrs: { id: 'color-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color } }] }] })
@@ -129,6 +130,41 @@ test('fixed palette slots validate across documents, text candidates, and segmen
     segment.content[0].content = paragraph(color).content
     assert.throws(() => validateCandidate({ segment, summary: 'Invalid' }, segmentDocument(), segmentTarget()), /unknown palette color/)
   }
+
+  assert.equal(normalizeLinkHref('  example.com/path?q=1  '), 'https://example.com/path?q=1')
+  assert.equal(normalizeLinkHref('http://localhost:5173'), 'http://localhost:5173/')
+  for (const href of ['https://example.com/', 'http://localhost:5173/']) assert.equal(validLinkHref(href), true)
+  for (const href of ['javascript:alert(1)', 'mailto:a@example.com', 'tel:+123', '/relative', '//example.com', 'ftp://example.com', 'http://user:pass@example.com', 'https://example.com\n.evil']) {
+    assert.equal(validLinkHref(href), false, href)
+    assert.equal(normalizeLinkHref(href), null, href)
+  }
+  assert.equal(normalizeLinkHref('localhost:5173'), null)
+
+  const linkParagraph = (href, id = 'link-paragraph') => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text: 'Open', marks: [{ type: 'link', attrs: { href } }] }] })
+  const doc = document()
+  doc.content.content[0] = linkParagraph('https://example.com/', 'block-1')
+  assert.doesNotThrow(() => validateDocument(doc))
+  assert.doesNotThrow(() => validateCandidate({ content: [linkParagraph('https://example.com/')], summary: 'Link' }, doc, request('unused', doc).target))
+
+  const segment = segmentPayload()
+  segment.content[0].content = linkParagraph('https://example.com/').content
+  segment.floating[0].caption.content.content[0].content = linkParagraph('http://localhost:5173/').content
+  assert.doesNotThrow(() => validateCandidate({ segment, summary: 'Linked segment' }, segmentDocument(), segmentTarget()))
+
+  for (const href of ['javascript:alert(1)', 'mailto:a@example.com', 'tel:+123', '/relative', '//example.com', 'ftp://example.com', 'http://user:pass@example.com', 'https://example.com\n.evil']) {
+    const invalid = document()
+    invalid.content.content[0] = linkParagraph(href, 'block-1')
+    assert.throws(() => validateDocument(invalid), /link destination/)
+    assert.throws(() => validateCandidate({ content: [linkParagraph(href)], summary: 'Unsafe link' }, doc, request('unused', doc).target), /link destination/)
+    const invalidSegment = segmentPayload()
+    invalidSegment.content[0].content = linkParagraph(href).content
+    assert.throws(() => validateCandidate({ segment: invalidSegment, summary: 'Unsafe link' }, segmentDocument(), segmentTarget()), /link destination/)
+  }
+
+  const underline = document()
+  underline.content.content[0].content = [{ type: 'text', text: 'Old', marks: [{ type: 'decoration', attrs: { decoration: 'underline' } }] }]
+  assert.throws(() => validateDocument(underline), /unsupported decoration/)
+  assert.throws(() => validateCandidate({ content: underline.content.content, summary: 'Old underline' }, doc, request('unused', doc).target), /unsupported decoration/)
 })
 
 test('theme requires mode and two finite hues and rejects legacy palette fields', () => {
@@ -226,7 +262,7 @@ test('segment targets use canonical points and exact block/object ownership', ()
 })
 
 test('caption subobjects validate, preserve content and user width, clear when explicitly empty, and reject legacy schemas', () => {
-  const caption = (id, textValue = 'A caption', width) => ({ content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'gray2' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] }] }] }, ...(width === undefined ? {} : { width }) })
+  const caption = (id, textValue = 'A caption', width) => ({ content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'gray2' } }, { type: 'decoration', attrs: { decoration: 'box' } }] }] }] }, ...(width === undefined ? {} : { width }) })
   const doc = document('html')
   doc.floating[0].caption = caption('html-caption', 'A caption', 240)
   assert.equal(validateDocument(doc).floating[0].caption.content.content[0].content[0].text, 'A caption')

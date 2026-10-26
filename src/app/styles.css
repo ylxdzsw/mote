@@ -223,7 +223,9 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .text-content [data-semantic='list'][data-list-level]:not([data-list-level='0']) { list-style-type: circle; }
 .text-content [data-inline-color] { color: inherit; }
 .text-content [data-inline-decoration='box'] { padding: 0 .12em; border: 1px solid currentColor; background: var(--inline-surface, var(--palette-gray5)); border-radius: 2px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
-.text-content [data-inline-decoration='underline'] { color: inherit; text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: .12em; }
+.text-content a[href] { color: inherit; text-decoration: underline; text-decoration-color: currentColor; text-underline-offset: .12em; }
+.is-editing .text-content a[href] { cursor: text; }
+.text-content a[href]:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .text-content strong { font-weight: 700; }
 .text-content [data-spacer] { position: relative; margin: 0 calc(-1 * var(--margin-right)) calc(-1 * var(--space-overlap, 0px)) calc(-1 * var(--margin-left)); height: var(--spacer-preview-height, var(--spacer-height)); }
 .is-editing [data-spacer] { cursor: default; }

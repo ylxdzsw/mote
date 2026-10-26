@@ -246,7 +246,7 @@ export function createDocument(): MoteDocument {
         { type: 'text', text: 'Write naturally. Give a figure its own place in the ' },
         { type: 'text', text: 'Flow', marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'primary' } }] },
         { type: 'text', text: ', or let a thought ' },
-        { type: 'text', text: 'Float', marks: [{ type: 'color', attrs: { color: 'secondary' } }, { type: 'decoration', attrs: { decoration: 'underline' } }] },
+        { type: 'text', text: 'Float', marks: [{ type: 'color', attrs: { color: 'secondary' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
         { type: 'text', text: ' beside it. Leave ' },
         { type: 'text', text: 'a little space — 一点留白', marks: [{ type: 'color', attrs: { color: 'primary' } }, { type: 'decoration', attrs: { decoration: 'box' } }] },
         { type: 'text', text: ' for what comes next.' },

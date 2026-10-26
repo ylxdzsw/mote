@@ -1,5 +1,5 @@
 import { Extension, Node } from '@tiptap/core'
-import { DOMParser, Fragment, Slice, type Node as ProseMirrorNode, type Schema } from '@tiptap/pm/model'
+import { DOMParser, Fragment, Slice, type Mark, type Node as ProseMirrorNode, type Schema } from '@tiptap/pm/model'
 import { Plugin, type Command, type EditorState } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import { addColumnAfter, deleteColumn, goToNextCell, isInTable, selectedRect, TableMap, tableEditing } from '@tiptap/pm/tables'
@@ -64,9 +64,9 @@ function parseCell(element: globalThis.Node, schema: Schema) {
   return Fragment.from(paragraph)
 }
 
-function textParagraph(text: string, schema: Schema) {
+function textParagraph(text: string, schema: Schema, marks: readonly Mark[] = []) {
   return schema.nodes.paragraph.create(null, text.split('\n').flatMap((line, index) => [
-    ...(index ? [schema.nodes.hardBreak.create()] : []), ...(line ? [schema.text(line)] : []),
+    ...(index ? [schema.nodes.hardBreak.create()] : []), ...(line ? [schema.text(line, marks)] : []),
   ]))
 }
 
@@ -105,7 +105,7 @@ export const CaptionBehavior = Extension.create({
         transformPastedHTML: flattenedHTML,
         clipboardTextParser: (text, $context) => {
           const schema = $context.doc.type.schema
-          return new Slice(Fragment.from(textParagraph(text.replace(/\r\n?/g, '\n'), schema)), 1, 1)
+          return new Slice(Fragment.from(textParagraph(text.replace(/\r\n?/g, '\n'), schema, $context.marks())), 1, 1)
         },
         transformPasted: flattenParagraphs,
         handleDOMEvents: {
@@ -155,7 +155,7 @@ const Table = Node.create({
         clipboardTextParser: (text, $context) => {
           const schema = $context.doc.type.schema
           text = text.replace(/\r\n?/g, '\n')
-          if (!text.includes('\t')) return new Slice(Fragment.from(textParagraph(text, schema)), 1, 1)
+          if (!text.includes('\t')) return new Slice(Fragment.from(textParagraph(text, schema, $context.marks())), 1, 1)
           const rows = text.replace(/\n$/, '').split('\n').map(row => schema.nodes.tableRow.create(null,
             row.split('\t').map(cell => schema.nodes.tableCell.create(null, textParagraph(cell, schema)))))
           return new Slice(Fragment.from(schema.nodes.table.create(null, rows)), 0, 0)

@@ -1,4 +1,5 @@
 import { boxColorIds, validPaletteReference } from '../shared/palette.mjs'
+import { validLinkHref } from '../shared/links.mjs'
 
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -95,9 +96,13 @@ function content(value, label = 'content', mode = 'text', allowed = ['doc'], sta
     if (node.marks.length && !['text', 'hardBreak'].includes(node.type)) throw new HttpError(400, `${label}.marks are only supported on inline content`)
     for (const [i, markValue] of node.marks.entries()) {
       const mark = record(markValue, `${label}.marks[${i}]`)
-      if (!['bold', 'color', 'decoration'].includes(mark.type)) throw new HttpError(400, `${label}.marks[${i}] is unsupported`)
+      if (!['bold', 'color', 'decoration', 'link'].includes(mark.type)) throw new HttpError(400, `${label}.marks[${i}] is unsupported`)
       if (mark.type === 'color') text(record(mark.attrs, `${label}.marks[${i}].attrs`).color, 'mark color', 128, true)
-      if (mark.type === 'decoration' && !['box', 'underline'].includes(record(mark.attrs, `${label}.marks[${i}].attrs`).decoration)) throw new HttpError(400, 'unsupported decoration')
+      if (mark.type === 'decoration' && record(mark.attrs, `${label}.marks[${i}].attrs`).decoration !== 'box') throw new HttpError(400, 'unsupported decoration')
+      if (mark.type === 'link') {
+        const attrs = record(mark.attrs, `${label}.marks[${i}].attrs`)
+        if (Object.keys(mark).some(key => !['type', 'attrs'].includes(key)) || Object.keys(attrs).length !== 1 || !validLinkHref(attrs.href)) throw new HttpError(400, 'unsupported link destination')
+      }
     }
   }
   if ('content' in node) {
@@ -133,7 +138,7 @@ function validateCaption(value, label) {
       if (Object.keys(mark).some(key => !allowed.includes(key))) throw new HttpError(400, `${label} uses an unsupported mark shape`)
       if (mark.type !== 'bold') {
         const markAttrs = record(mark.attrs, `${label}.content.content[0].content[${index}].marks[${markIndex}].attrs`)
-        const attr = mark.type === 'color' ? 'color' : 'decoration'
+        const attr = mark.type === 'link' ? 'href' : mark.type === 'color' ? 'color' : 'decoration'
         if (Object.keys(markAttrs).length !== 1 || !Object.hasOwn(markAttrs, attr)) throw new HttpError(400, `${label} uses an unsupported mark shape`)
       }
     }

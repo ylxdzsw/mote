@@ -1644,3 +1644,9 @@ The empty document-left margin now starts the same segment selection as the exis
 ## 2026-10-26 — More space before heading presets
 
 Increased Heading Space before from 1.5em to 2.5em and Subheading from 1em to 2em, adding the requested 1em to each preset. Other typography and spacing are unchanged. Saved explicit theme styles are not rewritten; omitted Subheading styles continue to resolve through the shared preset.
+
+## 2026-10-26 — Native links replace standalone underline
+
+Underline now identifies native links rather than an independent decoration. The Text strip replaces Underline with Link and removes Clear formatting entirely: hiding a multi-style operation in the color picker was unintuitive. Link editing stays in an expanding URL row below the strip, not a popover. A caret reveals its existing destination without taking focus; Ctrl/⌘K focuses the field. Enter/blur commits, Escape cancels, empty removes, and the Link button toggles off existing links. Caret edits cover the contiguous link across other marks; explicit selections change only their ranges. Links inherit authored color and compose with Bold and Box.
+
+Typing never auto-links. Ordinary paste recognizes explicit HTTP(S) URLs, including those spanning formatting runs, and preserves safe rich links. Explicit paste without formatting skips detection and discards source links while inheriting the destination link only when inserted inside it. An ordinary literal URL pasted inside a link gets its own destination instead. Reading clicks and editing Ctrl/⌘-clicks open new tabs without replacing Mote. Shared readers and HTML exports use native anchors; PNG/minimap retain the same appearance. Native saves, clipboard, captions, and agent validation share safe absolute HTTP(S) destinations. Legacy underline marks are unsupported current V0 content; no saved-document migration or production rewrite is performed.

@@ -11,10 +11,11 @@ import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inlin
 import { paletteColor, paletteSwatches } from '../theme/palette'
 import { PaletteControl } from '../theme/PaletteControl'
 import { PanelIcon } from './PanelIcon'
+import { useLinkControl } from './LinkControl'
 import './inspector.css'
 import './text-color-popup.css'
 
-type TIconName = 'bold' | 'color' | 'box' | 'underline' | 'plain' | 'chevron' | 'clear' | BlockClass
+type TIconName = 'bold' | 'color' | 'box' | 'chevron' | BlockClass
 function TIcon({ name }: { name: TIconName }) {
   const bodyPath = <path d="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" />
   const paths: Record<TIconName, React.ReactNode> = {
@@ -27,9 +28,6 @@ function TIcon({ name }: { name: TIconName }) {
     bold: <path d="M7 12h7a4 4 0 0 1 0 8H7V4h6a4 4 0 0 1 0 8" strokeWidth="2.8" />,
     color: <><circle cx="12" cy="12" r="8" /><path d="M8 16h8" strokeWidth="3" /></>,
     box: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="m8 17 4-10 4 10M9.2 14h5.6" strokeWidth="1.5" /></>,
-    underline: <path d="M7 5v6a5 5 0 0 0 10 0V5M5 19h14" />,
-    plain: <path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4ZM9 11l7 6M13 20h8" />,
-    clear: <><path d="m5 16 8-11a2 2 0 0 1 3 0l4 3a2 2 0 0 1 0 3l-7 9H9l-4-4Z" /><path d="m9 11 7 6" /></>,
     chevron: <path d="m7 10 5 5 5-5" />,
   }
   return <svg className="tool-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" width="16" height="16">{paths[name]}</svg>
@@ -227,6 +225,7 @@ export interface TextToolsRowProps {
 export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied, caption = false }: TextToolsRowProps) {
   const tools = useRef<HTMLDivElement>(null)
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor, caption) }) ?? selectedClasses(null, caption)
+  const link = useLinkControl(editor, !!editor?.isEditable && selection.text)
   useEffect(() => {
     if (!selection.text) return
     function focusTools(event: KeyboardEvent) {
@@ -297,14 +296,14 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
         optional="default" fallback={inheritedColor} />
       <div className="tt-color-popup-actions">
         <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { close(); onPalette?.() }}>Theme colors…</button>
-        <button type="button" onMouseDown={event => event.preventDefault()}
-          onClick={() => { close(); editor?.chain().focus().unsetMark('color').unsetMark('bold').unsetMark('decoration').run() }}>Clear formatting</button>
       </div>
     </>}>
       <span className={`tt-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} />
     </ToolPopup>
-    {(['box', 'underline'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
+    {(['box'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
       aria-pressed={selection.decoration === decoration} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration(decoration)}><TIcon name={decoration} /></button>)}
+    {link.button}
     </div>
+    {link.row}
   </div>
 }

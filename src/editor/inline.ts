@@ -1,6 +1,7 @@
 import { Mark, type Editor } from '@tiptap/core'
 import { NodeSelection } from '@tiptap/pm/state'
 import { CellSelection } from '@tiptap/pm/tables'
+import { InlineLink } from './links'
 
 const paletteReference = /^[A-Za-z0-9_-]+(?::soft)?$/
 const reservedReferences = new Set(['__proto__', 'constructor', 'prototype'])
@@ -56,12 +57,12 @@ export const InlineDecoration = Mark.create({
       decoration: {
         default: null,
         validate: (value: unknown) => {
-          if (value !== 'box' && value !== 'underline') throw new Error('Inline decoration is unsupported')
+          if (value !== 'box') throw new Error('Inline decoration is unsupported')
         },
         parseHTML: element => {
           const decoration = element.getAttribute('data-inline-decoration')
           if (decoration === null) return null
-          return decoration === 'box' || decoration === 'underline' ? decoration : false
+          return decoration === 'box' ? decoration : false
         },
         renderHTML: attributes => ({ 'data-inline-decoration': attributes.decoration }),
       },
@@ -70,9 +71,8 @@ export const InlineDecoration = Mark.create({
   parseHTML: () => [
     { tag: 'span[data-inline-decoration]', getAttrs: element => {
       const decoration = element.getAttribute('data-inline-decoration')
-      return decoration === 'box' || decoration === 'underline' ? {} : false
+      return decoration === 'box' ? {} : false
     } },
-    { tag: 'u', getAttrs: () => ({ decoration: 'underline' }) },
   ],
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
@@ -97,9 +97,9 @@ export const InlineBold = Mark.create({
   renderHTML: () => ['strong', 0],
 })
 
-export const inlineMarks = [InlineColor, InlineDecoration, InlineBold]
+export const inlineMarks = [InlineColor, InlineDecoration, InlineBold, InlineLink]
 
-export type InlineDecorationValue = 'box' | 'underline'
+export type InlineDecorationValue = 'box'
 
 export interface InlineSelection {
   bold: boolean | 'mixed'

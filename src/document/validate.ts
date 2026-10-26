@@ -1,5 +1,6 @@
 import { boxDecorationKinds, supportsCaption, tableStyles, themeBlockClasses, type BoxDecoration, type FloatingObject, type MoteDocument, type TableStyle } from './model'
 import { boxColorIds } from '../../shared/palette.mjs'
+import { validLinkHref } from '../../shared/links.mjs'
 
 export class MoteFileError extends Error {
   constructor(message: string) {
@@ -137,6 +138,12 @@ function inspectContent(value: unknown, path: string, allowFlow = false): void {
     }
   }
   if (node.type === 'text' && typeof node.text !== 'string') invalid(`${path}.text must be a string`)
+  if (Array.isArray(node.marks)) for (const [index, value] of node.marks.entries()) {
+    const mark = record(value, `${path}.marks[${index}]`)
+    if (mark.type !== 'link') continue
+    const attrs = record(mark.attrs, `${path}.marks[${index}].attrs`)
+    if (!['text', 'hardBreak'].includes(node.type) || Object.keys(mark).some(key => !['type', 'attrs'].includes(key)) || Object.keys(attrs).length !== 1 || !validLinkHref(attrs.href)) invalid(`${path}.marks[${index}] is not a supported link`)
+  }
   if ('content' in node) {
     if (!Array.isArray(node.content)) invalid(`${path}.content must be an array`)
     node.content.forEach((child, index) => inspectContent(child, `${path}.content[${index}]`, path === 'content' && node.type === 'doc'))
@@ -169,12 +176,13 @@ function checkCaption(value: unknown, path: string): string {
         const markPath = `${inlinePath}.marks[${markIndex}]`, mark = record(markValue, markPath)
         if (mark.type === 'bold') {
           if (Object.keys(mark).some(key => key !== 'type')) invalid(`${markPath} is not a shared inline mark`)
-        } else if (mark.type === 'color' || mark.type === 'decoration') {
+        } else if (mark.type === 'color' || mark.type === 'decoration' || mark.type === 'link') {
           const markAttrs = record(mark.attrs, `${markPath}.attrs`)
-          const expected = mark.type === 'color' ? 'color' : 'decoration'
+          const expected = mark.type === 'link' ? 'href' : mark.type === 'color' ? 'color' : 'decoration'
           if (Object.keys(mark).some(key => !['type', 'attrs'].includes(key)) || Object.keys(markAttrs).length !== 1 || !(expected in markAttrs)) invalid(`${markPath} is not a shared inline mark`)
           if (mark.type === 'color') text(markAttrs.color, `${markPath}.attrs.color`)
-          else if (!['box', 'underline'].includes(markAttrs.decoration as string)) invalid(`${markPath}.attrs.decoration is unsupported`)
+          else if (mark.type === 'link') { if (!validLinkHref(markAttrs.href)) invalid(`${markPath}.attrs.href is unsupported`) }
+          else if (markAttrs.decoration !== 'box') invalid(`${markPath}.attrs.decoration is unsupported`)
         } else invalid(`${markPath} is not a shared inline mark`)
       }
     }

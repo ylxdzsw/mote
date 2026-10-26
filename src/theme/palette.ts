@@ -1,6 +1,7 @@
 import { isText, supportsCaption, type MoteDocument, type Theme } from '../document/model'
 import type { JSONContent } from '@tiptap/core'
 import { paletteEntries, validPaletteReference } from '../../shared/palette.mjs'
+import { validLinkHref } from '../../shared/links.mjs'
 export { paletteEntries, pageColor, neutralIds, boxColorIds } from '../../shared/palette.mjs'
 
 export function paletteColor(theme: Theme, reference: string): string {
@@ -33,7 +34,9 @@ export function validatePaletteReferences(doc: MoteDocument) {
     for (const mark of node.marks ?? []) {
       if (mark.type === 'color') reference(mark.attrs?.color)
       else if (mark.type === 'decoration') {
-        if (!['box', 'underline'].includes(mark.attrs?.decoration)) fail('unsupported inline decoration')
+        if (mark.attrs?.decoration !== 'box') fail('unsupported inline decoration')
+      } else if (mark.type === 'link') {
+        if (!validLinkHref(mark.attrs?.href)) fail('unsupported link destination')
       } else if (mark.type !== 'bold') fail('unsupported inline mark')
     }
     node.content?.forEach(content)
