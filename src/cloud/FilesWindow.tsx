@@ -2,6 +2,8 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent
 import { PanelIcon } from '../app/PanelIcon'
 import { createDocument, type MoteDocument } from '../document/model'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
+import { ShareWindow } from './ShareWindow'
+import type { WorkingCopy } from './WorkingCopy'
 import './cloud.css'
 import './files.css'
 
@@ -10,6 +12,7 @@ interface Props {
   onClose: () => void
   onOpen: (id: string) => void
   currentId?: string
+  copy?: WorkingCopy
   onNew: () => Promise<void>
   pending?: Record<string, string>
   onImportLocal?: () => Promise<void>
@@ -40,7 +43,7 @@ export function FilesWindow({ open, ...props }: Props) {
   return open ? <FilesDialog {...props} /> : null
 }
 
-function FilesDialog({ onClose, onOpen, onNew, currentId, pending = {}, onImportLocal, hasLocalDraft, onLocalRecovery }: Omit<Props, 'open'>) {
+function FilesDialog({ onClose, onOpen, onNew, currentId, copy, pending = {}, onImportLocal, hasLocalDraft, onLocalRecovery }: Omit<Props, 'open'>) {
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
@@ -60,6 +63,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, pending = {}, onImport
   const [selectedId, setSelectedId] = useState(currentId ?? '')
   const [action, setAction] = useState<'rename' | 'delete' | 'import' | null>(null)
   const [name, setName] = useState('')
+  const [shareTarget, setShareTarget] = useState<DocumentMeta>()
   const visible = documents.filter(item => item.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()))
     .sort((a, b) => (sort === 'modified' ? b.updatedAt - a.updatedAt : 0) || a.name.localeCompare(b.name))
   const selected = documents.find(item => item.id === selectedId)
@@ -173,7 +177,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, pending = {}, onImport
     })
   }
 
-  return <dialog ref={dialog} className="cloud-dialog cloud-files" aria-labelledby={titleId} aria-busy={!!busy}
+  return <><dialog ref={dialog} className="cloud-dialog cloud-files" aria-labelledby={titleId} aria-busy={!!busy}
     onCancel={event => { event.preventDefault(); dismiss() }} onKeyDown={event => {
       event.stopPropagation()
       if (event.key === 'Escape' && !event.defaultPrevented) { event.preventDefault(); dismiss() }
@@ -216,6 +220,7 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, pending = {}, onImport
             {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
           </button>
           <FilesMenu label={`Actions for ${item.name}`} disabled={!!busy}>
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => setShareTarget(item)}>Share…</button>
             <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setSelectedId(item.id); setName(item.name); setAction('rename') }}>Rename</button>
             <button type="button" role="menuitem" tabIndex={-1} className="cloud-danger" onClick={() => { setSelectedId(item.id); setAction('delete') }}>Delete…</button>
           </FilesMenu>
@@ -279,6 +284,10 @@ function FilesDialog({ onClose, onOpen, onNew, currentId, pending = {}, onImport
       {auth && <a href="/" target="_blank" rel="noopener noreferrer">Sign in, then refresh Files</a>}
     </footer>
   </dialog>
+  {shareTarget && <ShareWindow open documentId={shareTarget.id} name={shareTarget.name} privateDocument={shareTarget.private}
+    copy={shareTarget.id === currentId ? copy : undefined} pendingLocal={!!pending[shareTarget.id]}
+    onClose={() => { setShareTarget(undefined); focusFile(shareTarget.id, true) }} />}
+  </>
 }
 
 function FilesMenu({ label, disabled, icon = 'more', children }: { label: string; disabled: boolean; icon?: 'more' | 'chevron'; children: ReactNode }) {

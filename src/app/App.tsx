@@ -498,7 +498,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>
     </header>
 
-    <ShareWindow open={editable && shareOpen} onClose={() => setShareOpen(false)} doc={doc} documentId={doc.id} name={cloud.record.meta.name} dirty={cloud.record.dirty} sync={copy.sync} privateDocument={sharingBlocked} draft={cloud.record.draft} />
+    <ShareWindow open={editable && shareOpen} onClose={() => setShareOpen(false)} copy={copy} documentId={doc.id} name={cloud.record.meta.name} privateDocument={sharingBlocked} />
     {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
       <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
         : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`

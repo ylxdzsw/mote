@@ -205,7 +205,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     </main>}
     <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
-    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} onOpen={next => void navigate(next)} onNew={newDocument}
+    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument}
       onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
       hasLocalDraft={!!legacy} onImportLocal={importLegacy} pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
     {recoveryOpen && <LocalRecovery onClose={() => setRecoveryOpen(false)}>

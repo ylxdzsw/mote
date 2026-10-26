@@ -25,12 +25,12 @@ function download(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000)
 }
 
-export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusyChange?: (busy: boolean) => void }) {
+export function DocumentFiles({ doc, name, onBusyChange }: { doc: MoteDocument; name: string; onBusyChange?: (busy: boolean) => void }) {
   const titleId = useId()
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [result, setResult] = useState('')
-  const [filename, setFilename] = useState('Untitled')
+  const [filename, setFilename] = useState(name)
   const [pngScale, setPngScale] = useState<1 | 2>(2)
   const basename = filename.trim().replace(/\.(png|html|mote)$/i, '')
   const invalidName = !basename || /^[. ]+$/.test(basename) || /[<>:"/\\|?*\u0000-\u001f]/.test(basename)
@@ -83,7 +83,7 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
       <div className="export-formats">
         <div className="export-png" role="group" aria-label="PNG export">
           <button className="export-format" aria-label="Export PNG" disabled={!!busy || invalidName} onClick={() => void exporting('png')}
-            title="Exports the current page, including unsynced changes, as a full-length image without internal notes. Widgets use their saved screenshots. Higher resolution sharpens text and vectors; image detail depends on the source. Very large pages may require 1× resolution."><span className="export-format-copy"><strong>PNG <small>.png</small></strong><span>Full-length image · {Math.ceil(doc.width * pngScale)}px wide</span></span><PanelIcon name="export" /></button>
+            title="Exports the page as a full-length image without internal notes. Widgets use their saved screenshots. Higher resolution sharpens text and vectors; image detail depends on the source. Very large pages may require 1× resolution."><span className="export-format-copy"><strong>PNG <small>.png</small></strong><span>Full-length image · {Math.ceil(doc.width * pngScale)}px wide</span></span><PanelIcon name="export" /></button>
           <label className="export-resolution">Resolution
             <select value={pngScale} disabled={!!busy} onChange={event => setPngScale(Number(event.currentTarget.value) as 1 | 2)}>
               <option value={1}>1× · Original</option>
@@ -92,9 +92,9 @@ export function DocumentFiles({ doc, onBusyChange }: { doc: MoteDocument; onBusy
           </label>
         </div>
         <button className="export-format" aria-label="Export HTML" disabled={!!busy || invalidName} onClick={() => void exporting('html')}
-          title="Exports the current page, including unsynced changes, as a standalone browser reader that can be imported back into Mote. Internal notes are excluded, including from the embedded document. Widgets stay interactive; their online resources still need a connection. JavaScript is required to view the page."><span className="export-format-copy"><strong>HTML <small>.html</small></strong><span>Standalone reader · reimportable · excludes internal notes</span></span><PanelIcon name="export" /></button>
+          title="Exports the page as a standalone browser reader that can be imported back into Mote. Internal notes are excluded, including from the embedded document. Widgets stay interactive; their online resources still need a connection. JavaScript is required to view the page."><span className="export-format-copy"><strong>HTML <small>.html</small></strong><span>Standalone reader · reimportable · excludes internal notes</span></span><PanelIcon name="export" /></button>
         <button className="export-format" aria-label="Export Mote document" disabled={!!busy || invalidName} onClick={() => void exporting('mote')}
-          title="Exports the complete current document, including unsynced changes and all internal notes, as a compressed editable file. Import it into Mote to continue editing. Internal notes are included in any copy you share."><span className="export-format-copy"><strong>Mote document <small>.mote</small></strong><span>Editable document · includes internal notes</span></span><PanelIcon name="export" /></button>
+          title="Exports the complete document and all internal notes as a compressed editable file. Import it into Mote to continue editing. Internal notes are included in any copy you share."><span className="export-format-copy"><strong>Mote document <small>.mote</small></strong><span>Editable document · includes internal notes</span></span><PanelIcon name="export" /></button>
       </div>
       <p className="files-status" role="status">{busy || result}</p>
       {error && <p className="error" role="alert">{error}</p>}

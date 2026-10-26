@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
-import type { MoteDocument } from '../document/model'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
+import { initializeDocument } from '../document/initialize'
 import { DocumentFiles } from '../app/DocumentFiles'
-import { CloudError, cloudRequest, type SharingState } from './api'
+import { CloudError, cloudRequest, type CloudDocument, type SharingState } from './api'
+import type { WorkingCopy } from './WorkingCopy'
 import { retryConnection, useConnection } from './connection'
 import './cloud.css'
 
@@ -10,11 +11,9 @@ interface Props {
   onClose: () => void
   documentId: string
   name: string
-  dirty: boolean
   privateDocument: boolean
-  draft?: boolean
-  sync: () => Promise<{ revision: string } | null>
-  doc: MoteDocument
+  copy?: WorkingCopy
+  pendingLocal?: boolean
 }
 
 type Tab = 'link' | 'file'
@@ -23,12 +22,23 @@ type ShareAction = 'enable' | 'disable' | 'replace'
 interface ShareChange { baseRevision: number; operationId: string; action: ShareAction }
 const shareUrl = (token: string) => new URL(`/s/${encodeURIComponent(token)}`, window.location.origin).href
 const message = (error: unknown) => error instanceof Error ? error.message : 'The operation failed. Please try again.'
+const noSubscription = () => () => {}
+const noSnapshot = () => undefined
 
 export function ShareWindow({ open, ...props }: Props) {
   return open ? <ShareDialog key={props.documentId} {...props} /> : null
 }
 
-function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft, sync, doc }: Omit<Props, 'open'>) {
+function ShareDialog({ onClose, documentId, name, privateDocument: listedPrivate, copy, pendingLocal }: Omit<Props, 'open'>) {
+  const current = useSyncExternalStore(copy?.subscribe ?? noSubscription, copy?.getSnapshot ?? noSnapshot)
+  const [loaded, setLoaded] = useState<CloudDocument>()
+  const [loadError, setLoadError] = useState('')
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const doc = current?.record.document ?? loaded?.document
+  const dirty = current?.record.dirty
+  const draft = current?.record.draft
+  const privateDocument = current ? current.record.meta.private || current.privacy.pending?.private === true : loaded?.private ?? listedPrivate
+  const documentName = current?.record.meta.name ?? loaded?.name ?? name
   const titleId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const toggleButton = useRef<HTMLButtonElement>(null)
@@ -49,9 +59,23 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft,
   const [pending, setPending] = useState<ShareChange | null>(null)
   const [confirm, setConfirm] = useState<'disable' | 'replace' | null>(null)
   const path = `/api/documents/${encodeURIComponent(documentId)}/shares`
-  const unavailable = privateDocument || connection.offline || !!draft
+  const unavailable = privateDocument || connection.offline || !!draft || !doc
   const linkBusy = !!busy || shareLoading || unavailable
   const share = sharing?.share
+
+  useEffect(() => {
+    if (copy) return
+    let canceled = false
+    setLoadError('')
+    void cloudRequest<CloudDocument>(`/api/documents/${encodeURIComponent(documentId)}`)
+      .then(value => {
+        if (canceled) return
+        try { setLoaded({ ...value, document: initializeDocument(value.document) }) }
+        catch { setLoadError('This saved document is not supported by the current format. It has not been changed.') }
+      })
+      .catch(error => { if (!canceled) setLoadError(message(error)) })
+    return () => { canceled = true }
+  }, [copy, documentId, loadAttempt])
 
   useEffect(() => {
     const element = dialog.current
@@ -123,9 +147,9 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft,
   function changeSharing(action: ShareAction) {
     if (!sharing || pending) return
     const change = { baseRevision: sharing.revision, operationId: crypto.randomUUID(), action }
-    void run(action === 'enable' ? 'Saving current document…' : 'Updating sharing…', async () => {
-      if (action === 'enable') {
-        const saved = await sync()
+    void run(action === 'enable' && copy ? 'Saving current document…' : 'Updating sharing…', async () => {
+      if (action === 'enable' && copy) {
+        const saved = await copy.sync()
         if (!saved?.revision) throw new Error('The current document could not be saved to the cloud. Sharing was not enabled. Resolve the sync issue, then try again.')
       }
       if (active.current) await sendChange(change)
@@ -170,13 +194,22 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft,
     requestAnimationFrame(() => tabButtons.current[nextTab]?.focus())
   }
 
-  return <dialog ref={dialog} className="cloud-dialog cloud-share" aria-labelledby={titleId} aria-describedby={tab === 'link' ? `${titleId}-hint` : undefined}
-    aria-busy={!!busy || shareLoading || fileBusy}
+  return <dialog ref={dialog} className="cloud-dialog cloud-share" aria-labelledby={titleId} aria-describedby={doc && tab === 'link' ? `${titleId}-hint` : undefined}
+    aria-busy={!!busy || shareLoading || fileBusy || (!doc && !loadError)}
     onCancel={event => { event.preventDefault(); closeDialog() }} onKeyDown={event => event.stopPropagation()}>
-    <header className="cloud-heading"><h1 id={titleId} title={`Share — ${name}`}>Share — {name}</h1>
+    <header className="cloud-heading"><h1 id={titleId} title={`Share — ${documentName}`}>Share — {documentName}</h1>
       <button type="button" className="cloud-button cloud-close" aria-label="Close share dialog" disabled={!!busy || fileBusy} onClick={closeDialog}>×</button>
     </header>
     <div className="cloud-body">
+      {!doc ? loadError ? <>
+        <p className="cloud-error" role="alert">{loadError}</p>
+        <button type="button" className="cloud-button" disabled={connection.checking} onClick={() => {
+          void (async () => {
+            if (connection.offline && !await retryConnection()) return
+            setLoadAttempt(value => value + 1)
+          })()
+        }}>Retry loading document</button>
+      </> : <p className="cloud-hint" role="status">Loading document…</p> : <>
       <div className="settings-tabs cloud-tabs" role="tablist" aria-label="Share options" onKeyDown={onTabKeyDown}>
         <button ref={element => { tabButtons.current.link = element }} type="button" className="cloud-tab" role="tab" id={`${titleId}-link-tab`}
           aria-controls={`${titleId}-link-panel`} aria-selected={tab === 'link'} tabIndex={tab === 'link' ? 0 : -1}
@@ -185,6 +218,7 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft,
           aria-controls={`${titleId}-file-panel`} aria-selected={tab === 'file'} tabIndex={tab === 'file' ? 0 : -1}
           disabled={!!busy || fileBusy} onClick={() => selectTab('file')}>Export</button>
       </div>
+      {!copy && pendingLocal && <p className="cloud-pending">This document has changes on this device. Sharing and export use the cloud-saved version, not local recovery copies.</p>}
       <section id={`${titleId}-link-panel`} role="tabpanel" aria-labelledby={`${titleId}-link-tab`} hidden={tab !== 'link'}>
         {unavailable ? <p id={`${titleId}-hint`} className="cloud-hint">{draft
           ? 'This draft is not saved to the cloud. Add content or change document settings, then sync before enabling sharing. Local export is available now.'
@@ -232,8 +266,10 @@ function ShareDialog({ onClose, documentId, name, dirty, privateDocument, draft,
         }}>{pending ? 'Retry sharing change' : 'Check sharing status'}</button>}
       </section>
       <section id={`${titleId}-file-panel`} role="tabpanel" aria-labelledby={`${titleId}-file-tab`} hidden={tab !== 'file'}>
-        <DocumentFiles doc={doc} onBusyChange={setFileBusy} />
+        <p className="cloud-hint">{copy ? 'Exports include unsynced changes in this working copy.' : 'Exports use the cloud-saved version fetched when this dialog opened.'}</p>
+        <DocumentFiles doc={doc} name={documentName} onBusyChange={setFileBusy} />
       </section>
+      </>}
     </div>
     {tab === 'link' && (busy || result || error) && <footer className="cloud-feedback">
       <p className="cloud-status" role="status">{busy || result}</p>

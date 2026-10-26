@@ -27,7 +27,7 @@ Organize by what the user is doing and what the action affects. Extend an existi
 | Reserve content or work with an AI task | Assistant: reservation, request, access, and review stay together |
 | Find or manage a document | Title → Files: search and opening lead; row actions handle maintenance |
 | Change wider settings | Settings → Document / Workspace / Browser: scope is explicit |
-| Share or export | Share → Link / Export: related outcomes in one dialog |
+| Share or export | Header Share or Files row → Share → Link / Export: one dialog, scoped to its named document without requiring navigation |
 | Navigate or keep scratch material | Left minimap/bookmarks; Notes overlay below the canvas |
 
 Make scope visible through selection, headings, and grouping. For example, caption width belongs in Caption properties; global Caption typography points to the document theme. Flow/Float placement uses the same control across object kinds. Right-click creation remains separate from object actions, with native text and editor-specific contexts preserved.

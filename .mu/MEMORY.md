@@ -1655,3 +1655,10 @@ Typing never auto-links. Ordinary paste recognizes explicit HTTP(S) URLs, includ
 ## 2026-10-26 — Direct Context class-style shortcut
 
 Removed the Document styles disclosure and its Palette shortcut. The relevant document-wide class-style button now sits directly in Context for paragraphs, text boxes, tables, Code, formulas, and owned captions. Objects without a typography class show no style shortcut. This removes an extra click for class styling while keeping palette configuration in the color menu and Document settings; shared theme behavior and reservation restrictions are unchanged.
+
+
+## 2026-10-26 — Share and export directly from Files
+
+Files row menus now expose Share, reusing the same Link/Export dialog as the editing header rather than introducing an export-only interface. The named target does not become the open document. Files stays mounted behind the dialog, preserving search, sort, scroll, and focus on return; private reading and mobile gain the same entry point.
+
+The shared dialog subscribes to the active working copy when it is the target, preserving unsynced exports and sync-before-enable. Otherwise it fetches and validates one cloud snapshot, without constructing a working copy or writing document content; link actions affect only the target’s server-owned share state. Export source copy distinguishes local working content from fetched cloud content, with a warning for known pending recovery copies. Failed or unsupported reads do not fall back to stale content or reset documents. Private, share confirmations/CAS, pending-candidate exclusion, and native-only Notes export retain their existing boundaries. The export filename starts with the target’s document name.
