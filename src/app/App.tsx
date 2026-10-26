@@ -587,7 +587,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
               <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
               {selectedObject && assistant.lockedIds.has(selectedObject.id) && !selectedObjectTask ? <div className="context-inspector">
-                <ContextHeading title="Reserved for AI" subtitle="Review the result before editing this area." />
+                <ContextHeading title="Reserved for AI" />
                 <div className="inspector-stack">
                   <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
                 </div>
@@ -607,7 +607,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   reserved={!!selectedObjectTask}
                   onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} />
                 : selectedTask ? <div className="context-inspector">
-                    <ContextHeading title="Reserved for AI" subtitle="Review the result before editing this area." />
+                    <ContextHeading title="Reserved for AI" />
                     <button onClick={() => assistant.openTask(selectedTask.id)}>Open AI task</button>
                   </div>
                 : tool ? <div className="context-inspector">
@@ -615,7 +615,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                   </div>
                 : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
-                : <div className="context-inspector"><p className="hint">Select text or an object to see its properties.</p></div>}
+                : <div className="context-inspector"><p className="hint">Select text or an object.</p></div>}
               </>}
               </div>
             </div>}

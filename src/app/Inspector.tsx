@@ -210,7 +210,6 @@ export function TableControls({ selection, onCommand }: { selection: TableInspec
           {(['left', 'center', 'right'] as const).map(align => <button key={align} disabled={!selection?.tableRect}
             aria-pressed={selection?.columnAlignment === align} onClick={() => onCommand(alignColumns(align))}>{classLabel(align)}</button>)}
         </div>
-        {!selection?.tableRect && <p className="hint">Select a cell to edit rows and columns.</p>}
       </InspectorField>
     </div>
   </InspectorGroup>

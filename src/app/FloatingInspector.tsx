@@ -176,7 +176,6 @@ function ObjectMargins({ object, onChange }: { object: FloatingObject; onChange:
           onChange={value => onChange({ ...margins, [side]: value })} />
       </label>)}
     </div>
-    <p className="hint">Margins affect layout footprint, not object size.</p>
   </div>
 }
 
