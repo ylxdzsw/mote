@@ -2,7 +2,7 @@ import { isText, supportsCaption, type MoteDocument, type Theme } from '../docum
 import type { JSONContent } from '@tiptap/core'
 import { paletteEntries, validPaletteReference } from '../../shared/palette.mjs'
 import { validLinkHref } from '../../shared/links.mjs'
-export { paletteEntries, pageColor, neutralIds, boxColorIds } from '../../shared/palette.mjs'
+export { paletteEntries, pageColor, neutralIds, boxColorIds, hueTones } from '../../shared/palette.mjs'
 
 export function paletteColor(theme: Theme, reference: string): string {
   const [id, tone] = reference.split(':')

@@ -186,9 +186,10 @@ test('fixed palette retains readable pairs across all theme hues and both modes'
     assert.equal(paletteColor(theme, 'gray1'), mode === 'light' ? '#000000' : '#ffffff')
     assert.equal(paletteColor(theme, 'gray6'), mode === 'light' ? '#ffffff' : '#000000')
     for (const entry of entries.filter(entry => entry.soft)) {
-      for (const [foreground, background] of [[entry.strong, pageColor(theme)], [entry.strong, entry.soft], [paletteColor(theme, 'gray2'), entry.soft]]) {
+      for (const [foreground, background] of [[entry.strong, pageColor(theme)], [paletteColor(theme, 'gray2'), entry.soft]]) {
         assert.ok(contrastRatio(foreground, background) >= 4.5, `${mode} ${hue} ${entry.id}`)
       }
+      assert.ok(contrastRatio(entry.strong, entry.soft) >= 3, `${mode} ${hue} ${entry.id} border`)
     }
   }
 })

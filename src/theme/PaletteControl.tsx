@@ -1,7 +1,7 @@
 import { useId, type CSSProperties } from 'react'
 import type { Theme } from '../document/model'
 import { useHistory } from '../document/history'
-import { boxColorIds, paletteColor, paletteEntries, pageColor } from './palette'
+import { boxColorIds, hueTones, paletteColor, paletteEntries, pageColor } from './palette'
 import './palette.css'
 
 export type PaletteControlOptional = 'none' | 'default'
@@ -50,6 +50,8 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
   const history = useHistory()
   const id = useId()
   const entries = paletteEntries(theme)
+  // The belt shows the Strong tone each hue actually produces in the current mode.
+  const belt = `linear-gradient(to right, ${Array.from({ length: 37 }, (_, index) => hueTones(theme.appearance.mode, index * 10).strong).join(', ')})`
   return <section className="panel-section palette-editor" aria-label="Document palette">
     <h2>Palette</h2>
     <div className="style-field">
@@ -62,13 +64,14 @@ export function PaletteEditor({ theme, onChange }: { theme: Theme; onChange: (th
     </div>
     {(['primaryHue', 'secondaryHue'] as const).map((key, index) => <div className="theme-hue-field" key={key}>
       <label className="theme-hue-label" htmlFor={`${id}-${key}`}>{index ? 'Secondary hue' : 'Primary hue'}<output>{theme.appearance[key]}°</output></label>
-      <input id={`${id}-${key}`} className="theme-hue" type="range" min="0" max="359" step="1" value={theme.appearance[key]}
+      <input id={`${id}-${key}`} className="theme-hue" type="range" min="0" max="359" step="1" value={theme.appearance[key]} style={{ background: belt }}
         onFocus={() => history.begin(key)} onBlur={history.boundary}
         onPointerDown={() => history.begin(key)} onPointerUp={history.boundary} onPointerCancel={history.boundary}
         onKeyUp={event => { if (event.key.startsWith('Arrow') || ['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) history.boundary() }}
         onChange={event => { history.begin(key); onChange({ ...theme, appearance: { ...theme.appearance, [key]: Number(event.target.value) } }) }} />
       <div className="palette-tone-preview" style={{ color: entries[index].strong }} aria-label={`${entries[index].name} preview`}>
-        <span style={{ background: pageColor(theme) }}>Strong</span><span style={{ background: entries[index].soft }}>Strong on Soft</span>
+        <span style={{ background: pageColor(theme) }}>Strong</span>
+        <span style={{ background: entries[index].soft, color: paletteColor(theme, 'gray2'), borderColor: entries[index].strong }}>Text on Soft</span>
       </div>
     </div>)}
     <p className="hint">Primary also colors interface accents. Secondary colors document content.</p>

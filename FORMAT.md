@@ -56,7 +56,7 @@ is required. The optional `authoring` object, when present, requires `notes`;
 omitting `authoring` means there are no notes or document model override.
 Notes are user-owned plain-text scratchpads, not published page content.
 
-A new document starts in Light mode with Primary hue 28°, Secondary hue 265°,
+A new document starts in Light mode with Primary hue 29°, Secondary hue 262°,
 mixed-script autospace enabled, and a 16px Sans default in Gray 2 at weight
 400. Its default line height is 1.5em, Before is 0em, After is 1em, and
 letter spacing is 0em. New themes seed Title, Heading, Subheading, Body,

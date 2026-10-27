@@ -25,11 +25,11 @@
   --ui-border-strong: #a4a4a4;
   --ui-page-border: #cacaca;
   --ui-grid: #8c8c8c;
-  --ui-accent: oklch(43% .09 28);
-  --ui-accent-hover: oklch(37% .095 28);
-  --ui-accent-border: oklch(69% .055 28);
-  --ui-accent-soft: oklch(95% .025 28);
-  --ui-accent-surface: oklch(89% .04 28);
+  --ui-accent: oklch(43% .09 29);
+  --ui-accent-hover: oklch(37% .095 29);
+  --ui-accent-border: oklch(69% .055 29);
+  --ui-accent-soft: oklch(95% .025 29);
+  --ui-accent-surface: oklch(89% .04 29);
   --ui-accent-tint: color-mix(in srgb, var(--ui-accent) 14%, transparent);
   --ui-accent-tint-strong: color-mix(in srgb, var(--ui-accent) 22%, transparent);
   --ui-shadow-soft: color-mix(in srgb, var(--ui-ink) 7%, transparent);
