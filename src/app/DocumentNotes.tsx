@@ -13,7 +13,8 @@ export function DocumentNotes({ value, onFocus }: {
   const toggle = useRef<HTMLButtonElement>(null)
   const tabs = useRef<HTMLDivElement>(null)
   const [selected, setSelected] = useState(0)
-  const notes = value
+  const [emptyNote, setEmptyNote] = useState(settings.notesOpen && !value.length)
+  const notes = value.length ? value : emptyNote ? [''] : value
   const active = Math.min(selected, notes.length - 1)
   const drag = useRef<{ y: number; height: number } | null>(null)
   const [dragHeight, setDragHeight] = useState<number | null>(null)
@@ -52,7 +53,8 @@ export function DocumentNotes({ value, onFocus }: {
   }
   function removeNote(index: number) {
     history.boundary()
-    history.setDoc(doc => doc && { ...doc, authoring: { ...doc.authoring, notes: notes.filter((_, at) => at !== index) } })
+    setEmptyNote(false)
+    if (value.length) history.setDoc(doc => doc && { ...doc, authoring: { ...doc.authoring, notes: notes.filter((_, at) => at !== index) } })
     const next = Math.max(0, Math.min(active - (index < active ? 1 : 0), notes.length - 2))
     selectNote(next)
     requestAnimationFrame(() => {
@@ -91,7 +93,10 @@ export function DocumentNotes({ value, onFocus }: {
         onClick={() => {
           history.boundary()
           onSettings({ ...settings, notesOpen: !settings.notesOpen })
-          if (!settings.notesOpen) focusInput()
+          if (!settings.notesOpen) {
+            setEmptyNote(!value.length)
+            focusInput()
+          }
         }}>
         <PanelIcon name="chevron" /> Notes
       </button>

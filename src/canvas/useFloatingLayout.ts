@@ -143,8 +143,12 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       // Widget wrappers and zero-height reservation controls are not flow
       // boundaries. Resolve paragraph edge margins from visible block order.
       for (const [index, { element, paragraph }] of blocks.entries()) if (paragraph || element.hasAttribute('data-flow')) {
-        property(element, 'margin-top', index === 0 ? '0px' : paragraph ? 'var(--text-spaceBefore)' : 'var(--flow-spaceBefore)')
-        property(element, 'margin-bottom', index === blocks.length - 1 ? '0px' : paragraph ? 'var(--text-spaceAfter)' : 'var(--flow-spaceAfter)')
+        const before = paragraph ? 'var(--text-spaceBefore)' : 'var(--flow-spaceBefore)'
+        const after = paragraph ? 'var(--text-spaceAfter)' : 'var(--flow-spaceAfter)'
+        // Page padding already supplies its margin; retain only excess style
+        // spacing. Object margins stay inside the Flow mount's footprint.
+        property(element, 'margin-top', index === 0 ? `max(0px, calc(${before} - var(--margin-top)))` : before)
+        property(element, 'margin-bottom', index === blocks.length - 1 ? `max(0px, calc(${after} - var(--margin-bottom)))` : after)
       }
       // A spacer separates margins that would otherwise collapse to their maximum.
       const visible = new Set(blocks.map(block => block.element))

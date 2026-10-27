@@ -136,12 +136,20 @@ letter spacing may be signed. Font weight is finite and from 1 through 1000.
 Flow Before omission means zero; Flow After omission follows the resolved
 Body `spaceAfter`.
 
-The default Title style is Serif, 3em, Gray 2, with 3.5em line height. Heading
-is 1.5em, Gray 2, 2em line height, 2.5em Before, and 0.75em After. Body is
+The default Title style inherits the Defaults family, is 2.5em, semibold (600),
+Gray 2, with 3.5em line height and 3em Before and After. Heading
+is 1.5em, Gray 2, 2em line height, 2em Before, and 1.5em After. Body is
 1em. Caption is 0.75em Gray 3 with 1.25em line height. List is 1em with
 0.375em After. The default Table object style is 1em; Code is 0.875em with
 1.375em line height; Formula inherits Defaults. Other omitted style
 properties inherit Defaults.
+
+Adjacent main paragraphs and Flow blocks collapse their style spacing: the gap
+is the maximum of the preceding block's After and the following block's Before.
+At the page edges, Before/After collapses with the top/bottom page margin in the
+same way. Object margins remain additive inside the object's layout footprint;
+they never participate in style-space collapse. Explicit spaces add their saved
+height to the surrounding collapsed style gap.
 
 The fixed 22-slot palette has eight Strong/Soft pairs—Primary, Secondary, Red,
 Amber, Green, Pink, Blue, and Violet—and six adaptive grays (`gray1` through

@@ -23,6 +23,7 @@ const paths = {
   lock: 'M7 10V7a5 5 0 0 1 10 0v3M5 10h14v11H5zM12 14v3',
   unlock: 'M7 10V7a5 5 0 0 1 10 0M5 10h14v11H5zM12 14v3',
   reset: 'M4 11a8 8 0 1 1 2 7M4 4v7h7',
+  inherit: 'M4 4h16M12 4v12m-4-4 4 4 4-4M8 20h8',
 }
 
 export function PanelIcon({ name }: { name: keyof typeof paths }) {

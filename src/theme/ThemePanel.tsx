@@ -5,6 +5,7 @@ import { paletteColor, paletteEntries, pageColor } from './palette'
 import { PaletteControl, PaletteEditor } from './PaletteControl'
 import { MathView } from '../canvas/MathView'
 import { CodeView } from '../canvas/CodeView'
+import { PanelIcon } from '../app/PanelIcon'
 
 export function pixels(value: ThemeLength | LineHeight | number, base: number, fontSize = base) {
   return typeof value === 'number' ? value : value.value * (value.unit === 'em' ? base : value.unit === 'ratio' ? fontSize : 1)
@@ -111,14 +112,12 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
   }
   function field(property: string, label: string, control: ReactNode) {
     const inherited = !defaults && values[property] === undefined
-    const inheritedLabel = isFlow
-      ? property === 'spaceBefore' ? 'Default · 0px' : 'Follows Body'
-      : 'Follows Defaults'
+    const source = isFlow ? property === 'spaceBefore' ? 'default (0px)' : 'Body' : 'Defaults'
     const resetTarget = isFlow && property === 'spaceBefore' ? 'default' : 'inherited'
     return <div className="style-field" key={property}>
       <div className="field-heading"><span>{label}</span>{!defaults && (inherited
-        ? <span className="inherited">{inheritedLabel}</span>
-        : <button aria-label={`Reset ${label.toLowerCase()} to ${resetTarget}`} title={`Use ${resetTarget} value`} onClick={() => { history.boundary(); update(property) }}>↶</button>)}</div>
+        ? <span className="inherit-indicator" role="img" aria-label={`${label} inherited from ${source}`} title={`Inherited from ${source}`}><PanelIcon name="inherit" /></span>
+        : <button className="inherit-reset" aria-label={`Reset ${label.toLowerCase()} to ${resetTarget}`} title={`Inherit from ${source}`} onClick={() => { history.boundary(); update(property) }}><PanelIcon name="reset" /></button>)}</div>
       {control}
     </div>
   }
@@ -142,12 +141,10 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         update(property, { value: next, unit: nextUnit === '×' ? 'ratio' : nextUnit as 'em' | 'px' })
       }} />)
   }
-  function choose(property: string, label: string, choices: [string, string][], value: string, parse: (value: string) => string | number | boolean | LineHeight = value => value) {
-    const inherited = choices.find(([choice]) => choice === String(resolved[property as keyof typeof resolved]))?.[1]
-    return field(property, label, <select aria-label={label} value={value} onChange={event => {
-      history.boundary(); update(property, event.target.value === 'inherit' ? undefined : parse(event.target.value))
+  function choose(property: string, label: string, choices: [string, string][], parse: (value: string) => string | number | boolean | LineHeight = value => value) {
+    return field(property, label, <select aria-label={label} value={String(resolved[property as keyof typeof resolved])} onChange={event => {
+      history.boundary(); update(property, parse(event.target.value))
     }}>
-      {!defaults && <option value="inherit">Inherited · {inherited ?? 'Defaults'}</option>}
       {choices.map(([choice, choiceLabel]) => <option key={choice} value={choice}>{choiceLabel}</option>)}
     </select>)
   }
@@ -169,11 +166,11 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       <h2>{classLabel(selected)}</h2>
       <p className="hint">{defaults ? 'The shared baseline for paragraph styles. Font size defines 1em.' : isFlow ? 'Spacing for every Flow object. Space before defaults to 0; Space after follows Body.' : isCode ? 'Every code object uses monospace typography. Syntax colors follow the document appearance.' : isMath ? 'Math follows Defaults except for size and color overrides.' : 'Every paragraph with this meaning follows this style.'}</p>
       {(defaults || isParagraphBlock) && <>
-        {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']], !defaults && values.family === undefined ? 'inherit' : resolved.family)}
+        {choose('family', 'Typeface', [['sans', 'Sans serif'], ['serif', 'Serif'], ['mono', 'Monospace']])}
         {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
       {(isMath || isCode) && length('size', 'Font size', 1, 512, .5)}
-      {(defaults || isParagraphBlock || isMath || isCode) && !isMath && choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], !defaults && values.weight === undefined ? 'inherit' : String(resolved.weight), Number)}
+      {(defaults || isParagraphBlock || isMath || isCode) && !isMath && choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], Number)}
       {!isFlow && !isCode && paletteField('color', 'Text color')}
       {defaults && <>
         <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {
@@ -193,16 +190,18 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
           : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，留下思考空间。</span></p>}
       </div>
-      {!defaults && <button disabled={!Object.keys(styles).length} onClick={() => {
+      {!defaults && <button className="reset-class-overrides" disabled={!Object.keys(styles).length} onClick={() => {
         history.boundary()
         if (isFlow) {
           const updated = { ...theme }
           updated.flow = {}
           onChange(updated)
         } else onChange(setOverrides(theme, selected as ThemeBlockClass, {}))
-      }}>Reset class overrides</button>}
+      }}><PanelIcon name="reset" /> Reset class overrides</button>}
       <details className="settings-help"><summary>Typography details</summary>
         <p>1em = Defaults font size ({theme.defaults.size}px). × line height follows the local font size.</p>
+        {!defaults && <p className="inherit-help"><PanelIcon name="inherit" /> marks an inherited value. <PanelIcon name="reset" /> resets an override to inherit again.</p>}
+        {(defaults || isParagraphBlock || isFlow) && <p>Adjacent paragraph and Flow spacing collapses to the larger value, including at the page’s top and bottom margins. Object margins add to that gap; explicit spaces add a separate pause.</p>}
         {(defaults || isParagraphBlock) && <p>{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>}
         {defaults && <p>Mixed-script spacing adds a small gap between Chinese and English letters or numbers where supported. It does not change your text; Code stays literal.</p>}
       </details>

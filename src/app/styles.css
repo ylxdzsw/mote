@@ -345,8 +345,13 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .class-properties h2 { margin-bottom: 6px; }
 .style-field { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 4px 10px; margin-top: 10px; min-width: 0; }
 .field-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px 5px; min-height: 18px; margin-bottom: 0; font-size: 11px; color: var(--ui-muted); }
-.field-heading .inherited { flex-basis: 100%; font-size: 10px; color: var(--ui-faint); }
 .field-heading button { margin: 0; border: 0; padding: 0 4px; font-size: 15px; line-height: 18px; min-height: 24px; min-width: 24px; }
+.field-heading :is(.inherit-indicator, .inherit-reset) { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--ui-control-height); height: var(--ui-control-height); padding: 0; }
+.field-heading .inherit-indicator { color: var(--ui-faint); }
+.field-heading .inherit-reset { color: var(--ui-muted); }
+.field-heading .inherit-reset:hover { color: var(--ui-accent); }
+.inherit-help .panel-icon { vertical-align: middle; }
+.reset-class-overrides { display: inline-flex; align-items: center; gap: 6px; }
 .style-field select { margin: 0; }
 .number-field { display: flex; align-items: center; gap: 4px; min-height: var(--ui-control-height); min-width: 0; background: var(--ui-surface-raised); border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); padding-right: 6px; }
 .number-field input { width: 100%; min-width: 0; border: 0; background: transparent; padding: 4px 6px; color: var(--ui-ink); font-size: var(--ui-font-size); line-height: 18px; font-variant-numeric: tabular-nums; }
