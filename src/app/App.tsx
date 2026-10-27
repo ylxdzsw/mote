@@ -151,6 +151,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useEffect(() => {
     if (!settingsOpen) return
     actions.current?.clearSelection()
+    assistant.followSelection()
     setActiveEditor(null)
   }, [settingsOpen])
 
@@ -380,15 +381,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     title: selectedIds.length > 1 ? `${selectedIds.length} objects` : selectedObject ? kindName(selectedObject)
       : target?.kind === 'segment' ? target.range.start.index === target.range.end.index && target.range.start.offset === target.range.end.offset ? 'New section' : 'Document section'
       : target?.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : 'Assistant',
-    detail: overlappingTasks.length && !selectedTask ? 'This selection overlaps existing reservations. Select one task or an unreserved area.'
+    detail: overlappingTasks.length && !selectedTask ? 'Select one reserved area to view its task.'
       : selectedIds.length > 1 ? 'Select one object, or select a section using the gutter.'
       : selectedObject ? selectedObject.kind === 'table' ? selectedObject.caption ? 'Entire table and caption.' : 'Entire table.' : 'caption' in selectedObject && selectedObject.caption ? 'Includes its caption.' : undefined
       : target?.kind === 'text' ? 'Reserves whole paragraphs, including any unselected text.'
       : target?.kind === 'segment' ? target.blockIds.length || target.objectIds.length ? 'Reserves this section and its owned objects.' : 'Creates a section at this insertion point.'
       : activeEditor === mainEditor && mainEditor ? 'Select consecutive paragraphs, or use the gutter to include spaces and Flow objects.'
-      : 'Select a passage, an object, or a section to work with Assistant.',
+      : 'Select a reserved area to view its task.',
     canReserve: !!target && !overlappingTasks.length,
-    tasks: selectedTask ? [] : overlappingTasks,
   }
   const assistantTaskId = assistant.allTasks.some(task => task.id === assistant.activeId) ? assistant.activeId : selectedTask?.id ?? null
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
 import { ContextHeading } from '../app/Inspector'
@@ -15,54 +15,35 @@ const targetLabel = ({ target, original }: AITask) => target.kind === 'segment'
 const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim().split('\n')[0].slice(0, 40) || targetLabel(task)
 const statusLabel = { draft: 'Not sent', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Waiting for result', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
 const displayedStatus = (task: AITask) => task.executor === 'external' && ['preparing', 'queued', 'running'].includes(task.status) ? 'waiting' : task.status
+const routineProgress = new Set(['Running builtin agent', 'Queued', 'Queued revision', 'Saving document and preparing snapshot…'])
 const busyTask = (task: AITask) => (task.executor ?? 'builtin') === 'builtin' && ['preparing', 'queued', 'running'].includes(task.status)
 
 export interface ReservationSelection {
   title: string
   detail?: string
   canReserve: boolean
-  tasks: AITask[]
 }
 
 export function AssistantPanel({ assistant, activeId, selection, onReserve, onLocate }: {
   assistant: Assistant; activeId: string | null; selection: ReservationSelection; onReserve: () => void; onLocate: (task: AITask) => void
 }) {
-  const tabs = useRef<HTMLDivElement>(null)
-  useEffect(() => { tabs.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [activeId])
+  const recoveryTasks = assistant.allTasks.filter(task => !!assistant.inactiveReason(task))
   return <div className="ai-panel" aria-label="AI assistant">
     <CloudStatus assistant={assistant} />
-    {!!assistant.allTasks.length && <div className="ai-tabs" role="tablist" aria-label="Tasks" ref={tabs} onKeyDown={event => {
-      const index = [...tabs.current!.querySelectorAll('[role="tab"]')].indexOf(document.activeElement!)
-      const next = event.key === 'ArrowRight' ? (index + 1) % assistant.allTasks.length : event.key === 'ArrowLeft' ? (index + assistant.allTasks.length - 1) % assistant.allTasks.length
-        : event.key === 'Home' ? 0 : event.key === 'End' ? assistant.allTasks.length - 1 : -1
-      if (next < 0) return
-      event.preventDefault(); assistant.openTask(assistant.allTasks[next].id)
-      tabs.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next].focus()
-    }}>
-      {assistant.allTasks.map((task, index) => <button key={task.id} id={`ai-tab-${task.id}`} role="tab" aria-selected={activeId === task.id}
-        aria-controls={`ai-panel-${task.id}`} tabIndex={activeId === task.id || !activeId && index === 0 ? 0 : -1} title={`${taskTitle(task)} — ${statusLabel[displayedStatus(task)]}`}
-        onClick={() => assistant.openTask(task.id)}>
-        <span className={`ai-tab-status ${displayedStatus(task)}`} aria-label={statusLabel[displayedStatus(task)]}>{busyTask(task) ? '◌' : task.status === 'ready' ? '✓' : task.status === 'error' ? '!' : '○'}</span>
-        <span className="ai-tab-title">{taskTitle(task)}</span>
-      </button>)}
-    </div>}
     {!activeId && <div className="ai-empty">
       <ContextHeading title={selection.title} subtitle={selection.detail} />
-      {selection.canReserve ? <>
-        <button className="ai-primary ai-reserve" onClick={onReserve}>Reserve for Assistant <PanelIcon name="spark" /></button>
-        <p>Reserving locks the content for an AI task. Nothing is generated until you send a request.</p>
-      </> : selection.tasks.length ? <div className="ai-selection-tasks">
-        {selection.tasks.map(task => <button key={task.id} onClick={() => assistant.openTask(task.id)}>Open {taskTitle(task)}</button>)}
-      </div> : <p>For something new, choose <strong>Add → AI object</strong> and place an area on the document.</p>}
-      <p className="ai-empty-note">Changes preview in place. You decide what to keep.</p>
+      {selection.canReserve && <button className="ai-primary ai-reserve" title="Lock this content for a task without starting generation." onClick={onReserve}>Reserve for Assistant <PanelIcon name="spark" /></button>}
     </div>}
     {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
     <RecoveryArchives assistant={assistant} />
     <footer className="ai-footer">
+      {!!recoveryTasks.length && <details className="ai-recovery-tasks"><summary>Recovery ({recoveryTasks.length})</summary>
+        {recoveryTasks.map(task => <button key={task.id} aria-pressed={activeId === task.id} onClick={() => assistant.openTask(task.id)}>{taskTitle(task)}</button>)}
+      </details>}
       <details className="ai-info"><summary>Help & privacy</summary>
         <p>Documents and assistant tasks, including unsent requests and generated results, sync to your workspace. Preview candidate sends a saved document revision, its rendered snapshot, and the reserved area to Mu.</p>
         <p>External grants anyone holding the link access to the full snapshot and scoped candidate submission. Workspace reads are off by default and grant access only to non-Private workspace sources; Private documents remain limited to their own built-in agent. Switching back or releasing the reservation revokes future access, not downloaded copies.</p>
-        <p>The area stays locked until you accept, discard, or delete it. Floating areas can move, and resize before the first request or handoff. Closing this panel does not stop work.</p>
+        <p>Select a reserved area to view its task. For a new area, choose Add → AI object. Reserving does not start generation. Changes preview in place for your review. The area stays locked until you accept, discard, or delete it. Floating areas can move, and resize before the first request or handoff. Closing this panel does not stop work.</p>
       </details>
     </footer>
   </div>
@@ -79,7 +60,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   const statusIssue = assistant.statusIssue(task.id)
   const prompt = task.draftPrompt ?? (task.submitted ? '' : task.prompt)
   const agentLink = assistant.agentLink(task)
-  const showProgress = !!task.progress && (busy || executorBusy && (!!task.pendingExecutor || !external))
+  const showProgress = !!task.progress && busy && !executorBusy && !assistant.offline && !routineProgress.has(task.progress)
   const retry = !!task.creation || !prompt.trim() && ['error', 'stopped'].includes(task.status)
   const workspaceReadBlocked = assistant.workspaceReadBlocked(task)
   const expanded = busy || !activityCollapsed
@@ -107,7 +88,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     finally { setRetryingExecutor(false) }
   }
   const instructions = agentLink && `Please work on this Mote task: ${agentLink}\nRead the exact-version Mote guide linked from the task unless you have already read it. The link provides the full immutable document snapshot. Return a candidate only for the reserved area for my review; do not apply changes directly.${task.workspaceRead ? '\n\nWorkspace reads are enabled. Download the scoped workspace-index.md resource when useful and search it with focused rg queries instead of reading the whole catalog. Read the complete relevant native documents before referring to or reusing their content. Private source documents are never available cross-document.' : ''}`
-  return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}${external ? ' ai-task-external' : ''}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} role="tabpanel" aria-labelledby={`ai-tab-${task.id}`} hidden={!active}>
+  return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}${external ? ' ai-task-external' : ''}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} aria-label={taskTitle(task)} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
         <div className="ai-task-title"><ContextHeading title={taskTitle(task)} /><button aria-label="Show in document" title="Show in document" disabled={!!inactive} onClick={onLocate}><PanelIcon name="arrow" /></button></div>
@@ -179,14 +160,13 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       {busy && <button type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>}
     </div> : <form className="ai-composer" onSubmit={event => { event.preventDefault(); if (!busy && !executorBusy) void assistant.start(task.id, retry ? task.prompt : prompt) }}>
       <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>
-      <textarea id={`ai-request-${task.id}`} aria-label="AI request" aria-describedby={!task.submitted ? `ai-privacy-${task.id}` : undefined} rows={task.submitted ? 3 : 5} value={prompt}
+      <textarea id={`ai-request-${task.id}`} aria-label="AI request" rows={task.submitted ? 3 : 5} value={prompt}
         placeholder={placeholder} disabled={executorBusy} onChange={event => assistant.update(task.id, { draftPrompt: event.target.value })} />
       <div className="ai-actions ai-compose-actions">
         {busy ? <button key="stop" type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>
           : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Preview candidate'} <PanelIcon name="spark" /></button>}
         {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>{task.status === 'draft' ? 'Cancel reservation' : 'Discard'}</button>}
       </div>
-      {!task.submitted && <p className="ai-privacy" id={`ai-privacy-${task.id}`}>Requests sync to your workspace. Preview candidate shares the saved document revision and a snapshot with Mu. Changes preview in place for your review.</p>}
     </form>}
     {!task.submitted && <RecoveryDetails task={task} />}
   </section>

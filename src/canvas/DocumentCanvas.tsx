@@ -477,6 +477,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (space || gutter || padding) {
       capture(event)
       stage.current!.focus({ preventScroll: true })
+      onActive(null)
       drag.current = { part: 'marquee', id: '', ids: [], start, objects: doc.objects, geometry, patches: {}, moved: false, additive: event.shiftKey ? selectedIds : [] }
       if (!drag.current.additive.length) select([])
     } else select([])
@@ -498,7 +499,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     dragPointer.current = { clientX: event.clientX, clientY: event.clientY, altKey: event.altKey, pointerId: event.pointerId }
     const p = point(event)
     if (!d.moved && distance(p, d.origin ?? d.start) * scale < 3) return
-    if (!d.moved && d.part === 'marquee') onActive(null)
     d.moved = true
     if (d.part === 'marquee') {
       const box = rectangle(d.start, p)
