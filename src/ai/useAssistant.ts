@@ -8,6 +8,7 @@ import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
 import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, reservedText, sameContent } from './reservations'
 import { aiRequest, AIServiceError } from './api'
+import { candidateSelection, candidateVersions, defaultCandidateVersion, reconcileCandidateState, selectedCandidateVersion } from './candidates'
 import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
 import { useAssistantState } from './useAssistantState'
 import type { AssistantState } from './cloudState'
@@ -42,7 +43,7 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
   return result
 }
 
-export function candidateDocument(doc: MoteDocument, task: AITask, candidate = task.candidate, context?: SegmentContext): MoteDocument {
+export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
   if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
   return memoizedCandidate(doc, candidate, task.id, task.target.kind === 'segment' ? context : undefined, () => {
@@ -117,7 +118,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!mounted.current) return
     persistence.replace(state.current.map(task => {
       if (task.id !== id) return task
-      return { ...task, ...(patch.candidate ? { preview: true } : {}), ...patch }
+      return { ...task, ...patch }
     }))
   }
   function setWorkspaceReadIssue(id: string, message?: string) {
@@ -168,16 +169,17 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
       return
     }
-    const { externalPath, candidate, workspaceRead: _workspaceRead, workspaceReadRevision: _workspaceReadRevision, ...rest } = remote
+    const { externalPath, candidate: _candidate, candidates: _candidates, workspaceRead: _workspaceRead, workspaceReadRevision: _workspaceReadRevision, ...rest } = remote
     setAccess(current => {
       const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0,
         path: cloudRef.current?.externalBlocked ? undefined : externalPath }
       return sameContent(current[task.id], next) ? current : { ...current, [task.id]: next }
     })
-    const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch, ...workspacePatch }
-    if (candidate && !sameContent(task.candidate, candidate)) next.candidate = candidate
-    if (candidate && !inactiveReason(task)) {
-      try { candidateDocument(currentDoc.current, task, candidate, segmentContext?.()) }
+    const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch, ...workspacePatch, ...reconcileCandidateState(task, remote) }
+    const updatedTask = { ...task, ...next }
+    const selected = selectedCandidateVersion(updatedTask)
+    if (selected && !inactiveReason(task)) {
+      try { candidateDocument(currentDoc.current, updatedTask, selected.candidate, segmentContext?.()) }
       catch (error) { Object.assign(next, previewFailure(error)) }
     }
     if (!sameContent(task, { ...task, ...next })) update(task.id, next)
@@ -236,6 +238,19 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     setActiveId(current => allTasks.some(task => task.id === current) ? current : null)
   }, [allTasks])
+  useEffect(() => {
+    if (!loaded) return
+    let changed = false
+    const normalized = state.current.map(task => {
+      if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1) return task
+      if (!Array.isArray(task.candidates) || !task.candidates.length || task.selectedCandidate || task.candidateNotice) return task
+      const selected = candidateSelection(defaultCandidateVersion(task))
+      if (!selected) return task
+      changed = true
+      return { ...task, selectedCandidate: selected }
+    })
+    if (changed) persistence.replace(normalized)
+  }, [loaded, savedTasks])
 
   useEffect(() => {
     if (!writable || !loaded) { checkStatusRef.current = () => {}; setStatusIssues({}); return }
@@ -394,6 +409,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
     if (!task || inactiveReason(task) || task.remoteMissing || preparations.current.has(id)) return
     if (workspaceReadBlocked(task)) { setNotice('Confirm the workspace-read setting before continuing. Refresh status or retry the pending permission change.'); return }
+    if (task.submitted && candidateVersions(task).length && !selectedCandidateVersion(task)) {
+      update(id, { error: 'Choose a remaining candidate before sending a follow-up. No removed candidate was used.' }); return
+    }
     let knownNotCreated = !task.submitted && !task.requestSent
     if (executor === 'builtin' && ((task.executor ?? 'builtin') !== 'builtin' || executorBusy(task) || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status))) return
     // Resizing is allowed before the first request. Freeze the current object,
@@ -431,7 +449,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       else if (task.submitted) {
         if (!await store.flush()) throw new Error('Save or resolve the cloud assistant state before revising.')
         if (!preparing()) return
-        remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt, executorRevision: task.executorRevision })
+        const selected = selectedCandidateVersion(task)
+        remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt, executorRevision: task.executorRevision,
+          ...(selected?.id ? { candidateId: selected.id, candidateVersion: selected.revision } : {}) })
       } else {
         const saved = await connection.sync()
         if (!preparing()) return
@@ -740,13 +760,15 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   function accept(id: string) {
     const task = state.current.find(task => task.id === id)
-    if (!writable || !cloud || !task?.candidate || !task.remoteMissing && (executorBusy(task) || workspaceReadBlocked(task)) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
+    const selected = task && selectedCandidateVersion(task)
+    if (!writable || !cloud || !task || !selected || !task.remoteMissing && (executorBusy(task) || workspaceReadBlocked(task)) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
     try {
-      const next = candidateDocument(currentDoc.current, task, task.candidate, segmentContext?.())
+      const next = candidateDocument(currentDoc.current, task, selected.candidate, segmentContext?.())
       if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
       unrestricted(() => history.setDoc(next))
       markMutation(id)
-      update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next }, preview: false, error: undefined })
+      update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next,
+        ...(selected.id ? { candidateId: selected.id } : {}), candidateVersion: selected.revision }, preview: false, error: undefined })
       if (!task.remoteMissing && (task.submitted || task.requestSent)) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
         if (mounted.current) update(id, { error: `Agent access revocation is pending: ${(error as Error).message}` })
       })
@@ -756,6 +778,11 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         setRuns(current => ({ ...current, [objectId]: (current[objectId] ?? 0) + 1 }))
       }
     } catch (error) { update(id, { error: (error as Error).message }) }
+  }
+  function selectCandidate(id: string, selection: { id: string; revision: number }) {
+    const task = state.current.find(task => task.id === id)
+    if (!task || !candidateVersions(task).some(version => version.id === selection.id && version.revision === selection.revision)) return
+    update(id, { selectedCandidate: selection, candidateNotice: undefined, preview: true, error: undefined })
   }
   async function syncAcceptance(id: string) {
     const task = state.current.find(task => task.id === id), connection = cloudRef.current, store = persistence.engine.current
@@ -819,7 +846,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     forget(id); history.boundary(); history.setDoc(next); history.boundary()
   }
-  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, update, runs, deleteObjects, deleteTarget, missingRemote,
+  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, selectCandidate, update, runs, deleteObjects, deleteTarget, missingRemote,
     previewFailed: (id: string, error: unknown) => update(id, previewFailure(error)),
     switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
     workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,

@@ -11,6 +11,7 @@ import { DrawingView } from './DrawingView'
 import { pixels } from '../theme/ThemePanel'
 import { paletteCSS } from '../theme/palette'
 import type { AITask } from '../ai/types'
+import { selectedCandidateVersion } from '../ai/candidates'
 
 export type DragPart = 'move' | 'caption-width' | 'width' | 'nw' | 'ne' | 'sw' | 'se'
 interface Props {
@@ -32,6 +33,7 @@ interface Props {
 export function FloatingObjectView({ note, geometry: box, editable, selected, contentActive, defaultFontSize, onBegin, onActive, onChange, onCaption, captionSelected = false, captionResizable = true, onDrawingEdit, onKey, widgetRun, staticWidgets, order, locked = false, sizeLocked = locked, restoreWidgetRevision, aiTask, inFlow = false }: Props) {
   const editor = useRef<Editor | null>(null)
   const kind = note.kind
+  const candidatePreview = aiTask?.preview && !!selectedCandidateVersion(aiTask)
   const footprint = layoutBounds({ ...box, margins: note.layout.margins })
   const decoration = isText(note) ? note.decoration : null
   const textStyle = isText(note) ? {
@@ -67,9 +69,9 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       aria-label="Resize caption width" aria-valuemin={16} aria-valuenow={Math.round(caption.width ?? note.layout.width)}
       onPointerDown={event => begin('caption-width', event, true)} onFocus={() => onActive(null, true)} />}
   </div>
-  return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${aiTask?.preview && aiTask.candidate ? ' ai-candidate' : ''}` : ''}`}
+  return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${candidatePreview ? ' ai-candidate' : ''}` : ''}`}
     data-note-id={note.id} data-anchor-id={objectAnchorId(note) ?? ''} data-placement={note.layout.placement.type} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
-    data-ai-segment-candidate={editable && aiTask?.target.kind === 'segment' && aiTask.preview && aiTask.candidate ? '' : undefined}
+    data-ai-segment-candidate={editable && aiTask?.target.kind === 'segment' && candidatePreview ? '' : undefined}
     data-table-style={note.kind === 'table' ? note.style ?? 'simple' : undefined} data-table-header={note.kind === 'table' && note.headerRow ? '' : undefined}
     style={{ ...textStyle, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
       marginTop: inFlow ? note.layout.margins?.top : undefined, marginBottom: inFlow ? note.layout.margins?.bottom : undefined,
@@ -96,7 +98,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
         onActive={() => onActive(null)} onBegin={event => begin('move', event)}
         onChange={source => onChange({ source })} />
       : note.kind === 'html' ? <HTMLWidgetView key={locked ? note.html : undefined} note={note} editable={editable} selected={contentActive && !captionSelected} run={widgetRun}
-        staticOnly={staticWidgets || !!(aiTask?.target.kind === 'object' && aiTask.target.isNew && !(aiTask.preview && aiTask.candidate))} restoreRevision={restoreWidgetRevision} />
+        staticOnly={staticWidgets || !!(aiTask?.target.kind === 'object' && aiTask.target.isNew && !candidatePreview)} restoreRevision={restoreWidgetRevision} />
       : 'content' in note ? <TextEditor content={note.content} editable={editable && contentActive && !captionSelected && !locked} table={kind === 'table'}
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onReady={value => { editor.current = value }} /> : null}

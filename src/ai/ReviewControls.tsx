@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type CSSProperties } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import type { AITask } from './types'
+import { selectedCandidateVersion } from './candidates'
 
 export interface AIReview {
   tasks: AITask[]
@@ -19,7 +20,7 @@ export interface AIReview {
   deleteTarget?: (id: string) => void
 }
 
-export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${!!task.candidate}:${!!task.remoteMissing}:${!!task.pendingExecutor}:${!!task.pendingWorkspaceRead}:${task.workspaceReadConfirmed ?? ''}:${task.workspaceReadRevision ?? ''}`
+export const reviewKey = (task: AITask) => `${task.id}:${task.status}:${task.preview}:${selectedCandidateVersion(task)?.id ?? ''}:${selectedCandidateVersion(task)?.revision ?? ''}:${!!task.candidateNotice}:${!!task.remoteMissing}:${!!task.pendingExecutor}:${!!task.pendingWorkspaceRead}:${task.workspaceReadConfirmed ?? ''}:${task.workspaceReadRevision ?? ''}`
 
 // Shared by editor decoration widgets and floating objects; never document content.
 export function reviewControls(task: AITask, actions: () => AIReview) {
@@ -40,7 +41,7 @@ export function reviewControls(task: AITask, actions: () => AIReview) {
   }
   const busy = ['preparing', 'queued', 'running'].includes(task.status)
   const workspacePermissionUnconfirmed = !!task.pendingWorkspaceRead || !!task.submitted && task.workspaceReadConfirmed !== true
-  if (task.candidate) {
+  if (selectedCandidateVersion(task)) {
     button(task.preview ? 'Original' : 'Candidate', () => actions().toggle(task.id))
     if (!busy && (task.remoteMissing || !task.pendingExecutor && !workspacePermissionUnconfirmed)) button('Accept', () => actions().accept(task.id))
   }

@@ -31,7 +31,8 @@ export class CloudStore {
         createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, deletedAt INTEGER,
         assistantRevision TEXT NOT NULL DEFAULT '0', tasks TEXT NOT NULL DEFAULT '{"value":[],"assets":[]}',
         private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1)), privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0),
-        shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0)
+        shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0),
+        externalAccessAt INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS revisions (
         documentId TEXT NOT NULL REFERENCES documents(id), revision TEXT NOT NULL,
@@ -74,6 +75,7 @@ export class CloudStore {
       if (!columns.has('private')) db.exec('ALTER TABLE documents ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1))')
       if (!columns.has('privacyRevision')) db.exec('ALTER TABLE documents ADD COLUMN privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)')
       if (!columns.has('shareRevision')) db.exec('ALTER TABLE documents ADD COLUMN shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0)')
+      if (!columns.has('externalAccessAt')) db.exec('ALTER TABLE documents ADD COLUMN externalAccessAt INTEGER NOT NULL DEFAULT 0')
       const settingsColumns = new Set(db.prepare('PRAGMA table_info(workspace_settings)').all().map(column => column.name))
       if (!settingsColumns.has('indexingEnabled')) db.exec('ALTER TABLE workspace_settings ADD COLUMN indexingEnabled INTEGER NOT NULL DEFAULT 0 CHECK(indexingEnabled IN (0,1))')
       const legacySnapshots = db.prepare("SELECT DISTINCT documentId FROM shares WHERE mode='snapshot' AND revokedAt IS NULL").all()
@@ -91,6 +93,14 @@ export class CloudStore {
   }
 
   close() { this.db.close() }
+  noteDocumentOpen(id) {
+    const time = now()
+    this.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=? AND deletedAt IS NULL AND externalAccessAt<?').run(time, id, time - 60_000)
+  }
+  documentAccessUntil(id) {
+    const row = this.db.prepare('SELECT externalAccessAt FROM documents WHERE id=? AND deletedAt IS NULL').get(id)
+    return row?.externalAccessAt ? row.externalAccessAt + 24 * 60 * 60 * 1000 : 0
+  }
   settings() {
     const { revision, builtin, indexing, indexingEnabled } = this.db.prepare('SELECT revision,builtin,indexing,indexingEnabled FROM workspace_settings WHERE id=1').get()
     return { revision, models: { builtin, indexing }, indexingEnabled: indexingEnabled === 1 }

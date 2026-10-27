@@ -30,5 +30,9 @@ export async function cloudApi(store, request, pathname, readBody) {
     else if (method === 'PUT' && !child) body = store.putShares(id, await readBody(request))
   }
   if (body === undefined) throw new HttpError(404, 'not found')
+  if (method === 'POST') store.noteDocumentOpen(body.id)
+  else if (id && !action && method === 'PUT') store.noteDocumentOpen(id)
+  else if (id && action === 'privacy' && method === 'GET'
+    && new URL(request.url, 'http://moted.local').searchParams.get('open') === '1') store.noteDocumentOpen(id)
   return { status, body }
 }

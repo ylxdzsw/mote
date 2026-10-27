@@ -151,7 +151,7 @@ export async function fakeRunner(context) {
   await wait(delay, context.signal)
   transcript('stdout', 'candidate written\n')
   await fs.writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify(candidate), { flag: 'wx', mode: 0o660 })
-  await submitResult(context)
+  await submitResult(context.candidateRef ? { ...context, agent: { ...context.agent, candidateId: context.candidateRef.candidateId } } : context)
   return { sessionId: context.sessionId || `fake-${context.taskId}` }
 }
 

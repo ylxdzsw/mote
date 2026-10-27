@@ -34,7 +34,7 @@ const server = await createServer({ configFile: false, optimizeDeps: { noDiscove
 const { WorkingCopy } = await server.ssrLoadModule('/src/cloud/WorkingCopy.ts')
 const { createCopyRecord, saveWorkingCopy, forkWorkingCopy } = await server.ssrLoadModule('/src/cloud/workingCopies.ts')
 const { createBlankDocument } = await server.ssrLoadModule('/src/document/model.ts')
-const { retryConnection } = await server.ssrLoadModule('/src/cloud/connection.ts')
+const { connectionSnapshot, retryConnection } = await server.ssrLoadModule('/src/cloud/connection.ts')
 const originalFetch = globalThis.fetch
 after(async () => { globalThis.fetch = originalFetch; delete (globalThis as any).indexedDB; await server.close() })
 
@@ -42,10 +42,11 @@ const cloud = new Map<string, CloudDocument>(), operations = new Map<string, { b
 const calls: { path: string; method: string; body: any }[] = []
 let loseCreate = false, failPrivacy = false, duringCreate: (() => void) | undefined
 globalThis.fetch = async (input, options) => {
-  const path = String(input), method = options?.method ?? 'GET', body = options?.body ? JSON.parse(String(options.body)) : undefined
+  const path = String(input), pathname = new URL(path, 'http://moted.local').pathname
+  const method = options?.method ?? 'GET', body = options?.body ? JSON.parse(String(options.body)) : undefined
   calls.push({ path, method, body })
-  if (path === '/api/settings') return Response.json({ revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false })
-  if (path.endsWith('/shares')) return Response.json({ share: null, revision: 0 })
+  if (pathname === '/api/settings') return Response.json({ revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false })
+  if (pathname.endsWith('/shares')) return Response.json({ share: null, revision: 0 })
   if (method === 'POST') {
     const stored = [...rows.values()].find(record => record.meta.id === body.id)
     assert.deepEqual(stored?.pendingCreate, body, 'creation is durable before POST')
@@ -58,8 +59,8 @@ globalThis.fetch = async (input, options) => {
     if (loseCreate) { loseCreate = false; throw new TypeError('response lost') }
     return Response.json(result)
   }
-  const id = path.split('/')[3], current = cloud.get(id)!
-  if (path.endsWith('/privacy')) {
+  const id = pathname.split('/')[3], current = cloud.get(id)!
+  if (pathname.endsWith('/privacy')) {
     if (failPrivacy) throw new TypeError('privacy unavailable')
     if (method === 'PUT') {
       assert.equal(body.basePrivacyRevision, current.privacyRevision)
@@ -91,6 +92,18 @@ async function reset() {
   loseCreate = false; failPrivacy = false; failWrite = false; duringCreate = undefined
   await retryConnection(); calls.length = 0
 }
+
+test('open privacy refresh marks the request and validates its query response', async () => {
+  await reset()
+  const record = draft()
+  delete record.draft; delete record.pendingCreate
+  record.dirty = false; record.meta.revision = '1'
+  cloud.set(record.meta.id, { ...record.meta, document: record.document })
+  const copy = new WorkingCopy(record)
+  await copy.refreshPrivacy()
+  assert.equal(calls.find(call => call.method === 'GET')?.path, `/api/documents/${record.meta.id}/privacy?open=1`)
+  assert.equal(connectionSnapshot().offline, false)
+})
 
 test('creation identity, privacy, and copy recovery', async t => {
   await t.test('Settings Private creates a blank draft privately, without a follow-up PUT', async () => {

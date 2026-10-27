@@ -114,7 +114,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         if (!active) return
         const [cloudResult, privacyResult] = local?.draft ? [] : await Promise.allSettled([
           cloudRequest<CloudDocument>(`/api/documents/${id}`),
-          cloudRequest<DocumentMeta>(`/api/documents/${id}/privacy`),
+          cloudRequest<DocumentMeta>(`/api/documents/${id}/privacy?open=1`),
         ])
         const cloud = cloudResult?.status === 'fulfilled' ? cloudResult.value : undefined
         const privacy = privacyResult?.status === 'fulfilled' ? privacyResult.value : undefined

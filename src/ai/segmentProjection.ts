@@ -1,6 +1,7 @@
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { MoteDocument } from '../document/model'
 import type { AITask } from './types'
+import { selectedCandidateVersion } from './candidates'
 import type { SegmentContext } from './segments'
 import { candidateDocument } from './useAssistant'
 import { resolveSegmentRange } from './segments'
@@ -20,9 +21,10 @@ export function projectSegments(doc: MoteDocument, tasks: AITask[], editor: Edit
   const original = editor.schema.nodeFromJSON(doc.content), positions = [0]
   original.forEach(node => positions.push(positions.at(-1)! + node.nodeSize))
   for (const task of tasks) {
-    if (task.target.kind !== 'segment' || !task.preview || !task.candidate?.segment) continue
+    const candidate = selectedCandidateVersion(task)?.candidate
+    if (task.target.kind !== 'segment' || !task.preview || !candidate?.segment) continue
     let next: MoteDocument
-    try { next = candidateDocument(document, task, task.candidate, context) }
+    try { next = candidateDocument(document, task, candidate, context) }
     catch (error) { failures.push({ taskId: task.id, error }); continue }
     applied.push(task)
     const oldBlocks = new Set(document.content.content!.map(node => node.attrs!.id))

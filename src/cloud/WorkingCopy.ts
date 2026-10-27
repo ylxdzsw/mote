@@ -242,7 +242,7 @@ export class WorkingCopy {
     if (this.state.record.draft || this.checkingPrivacy) return
     this.checkingPrivacy = true
     try {
-      const metadata = await cloudRequest<DocumentMeta>(`/api/documents/${this.state.record.meta.id}/privacy`)
+      const metadata = await cloudRequest<DocumentMeta>(`/api/documents/${this.state.record.meta.id}/privacy?open=1`)
       await this.mergePrivacy(normalizeDocumentMeta(metadata))
       const change = this.state.privacy.pending
       if (change && this.state.record.meta.privacyRevision > change.basePrivacyRevision) this.finishPrivacy(change)

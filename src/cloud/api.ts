@@ -69,13 +69,14 @@ function validMeta(value: unknown) {
     && typeof value.private === 'boolean' && Number.isSafeInteger(value.privacyRevision)
 }
 function validResponse(path: string, method: string, value: unknown) {
+  const pathname = new URL(path, 'http://moted.local').pathname
   if (!isRecord(value)) return false
   if (method === 'DELETE') return value.ok === true
-  if (path.startsWith('/api/shared/')) return typeof value.name === 'string' && isRecord(value.document)
-  if (path.endsWith('/shares')) return Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
+  if (pathname.startsWith('/api/shared/')) return typeof value.name === 'string' && isRecord(value.document)
+  if (pathname.endsWith('/shares')) return Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
     && (value.share === null || isRecord(value.share) && typeof value.share.id === 'string' && typeof value.share.token === 'string')
-  if (path === '/api/documents' && method === 'GET') return Array.isArray(value.documents) && value.documents.every(validMeta)
+  if (pathname === '/api/documents' && method === 'GET') return Array.isArray(value.documents) && value.documents.every(validMeta)
   if (!validMeta(value)) return false
   // Native content validation/recovery remains separate from the response envelope.
-  return path.endsWith('/privacy') || method === 'PATCH' || isRecord(value.document)
+  return pathname.endsWith('/privacy') || method === 'PATCH' || isRecord(value.document)
 }

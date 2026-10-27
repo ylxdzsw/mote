@@ -36,6 +36,7 @@ import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
 import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { SegmentPreviewBorders } from '../ai/SegmentPreviewBorders'
+import { selectedCandidateVersion } from '../ai/candidates'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import { ReviewControls, type AIReview } from '../ai/ReviewControls'
 
@@ -122,10 +123,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const [measuredSource, setMeasuredSource] = useState<{ doc: MoteDocument; context: SegmentContext; signature: string } | null>(null)
   const originalContext = measuredSource?.doc === doc ? measuredSource.context : sourceContext.current
   const projected = useRef<{ doc: MoteDocument; editor: Editor | null; context: SegmentContext; tasks: { id: string; candidate: unknown }[]; value: ReturnType<typeof projectSegments> } | null>(null)
-  const candidates = editable && contextReady ? aiReview?.tasks.filter(task => task.target.kind === 'segment' && task.preview && task.candidate?.segment) ?? [] : []
+  const candidates = editable && contextReady ? aiReview?.tasks.filter(task => task.target.kind === 'segment' && task.preview && selectedCandidateVersion(task)?.candidate.segment) ?? [] : []
   if (!projected.current || projected.current.doc !== doc || projected.current.editor !== mainEditor || projected.current.context !== originalContext
-    || projected.current.tasks.length !== candidates.length || candidates.some((task, i) => projected.current!.tasks[i].id !== task.id || projected.current!.tasks[i].candidate !== task.candidate)) {
-    projected.current = { doc, editor: mainEditor, context: originalContext, tasks: candidates.map(task => ({ id: task.id, candidate: task.candidate })), value: projectSegments(doc, candidates, mainEditor, originalContext) }
+    || projected.current.tasks.length !== candidates.length || candidates.some((task, i) => projected.current!.tasks[i].id !== task.id || projected.current!.tasks[i].candidate !== selectedCandidateVersion(task)?.candidate)) {
+    projected.current = { doc, editor: mainEditor, context: originalContext, tasks: candidates.map(task => ({ id: task.id, candidate: selectedCandidateVersion(task)?.candidate })), value: projectSegments(doc, candidates, mainEditor, originalContext) }
   }
   const projection = projected.current.value
   useLayoutEffect(() => {
@@ -133,7 +134,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }, [projection])
   const layoutDoc = useMemo(() => ({ ...projection.document, objects: [...projection.document.objects.map(object => {
     const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
-    return task && task.preview && task.candidate?.object ? currentPlacement(task.candidate.object, object) : object
+    const candidate = task ? selectedCandidateVersion(task)?.candidate : undefined
+    return task && task.preview && candidate?.object ? currentPlacement(candidate.object, object) : object
   }), ...inserting, ...(creating ? [creating] : [])] }), [projection, creating, inserting, editable, aiReview?.tasks])
   const { geometry, anchors, minHeight, sideInsets, flowMounts, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const sideSpace = sideInsets.left + sideInsets.right

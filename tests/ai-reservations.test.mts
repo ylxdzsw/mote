@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import { Schema } from '@tiptap/pm/model'
 import type { MoteDocument, FloatingDrawing, FloatingHTMLWidget, FloatingObject } from '../src/document/model.ts'
-import type { AITask } from '../src/ai/types.ts'
+import type { AITask, Candidate, RemoteTask, TaskCandidate } from '../src/ai/types.ts'
 
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
 const { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } = await server.ssrLoadModule('/src/ai/reservations.ts')
+const { candidateVersions, reconcileCandidateState, selectedCandidateVersion } = await server.ssrLoadModule('/src/ai/candidates.ts')
 const { patchFloating } = await server.ssrLoadModule('/src/canvas/patchFloating.ts')
 const { createBlankDocument, patchObject } = await server.ssrLoadModule('/src/document/model.ts')
 
@@ -308,4 +309,52 @@ test('a Flow segment reserves its block, object, anchored Floats, and captions t
   assert.equal(permits([task], source, { ...source, objects: objects.map(item => item.id === 'box' ? patchObject(item, { centered: false }) : item) }), false)
   assert.equal(permits([task], source, { ...source, objects: objects.map(item => item.id === 'detail' ? patchObject(item, { anchorId: 'd' }) : item) }), false)
   assert.equal(permitsEditor([task], 'main', source.content, { ...source.content, content: [paragraph('a'), paragraph('d')] }), false)
+})
+
+test('candidate selection remains on the exact historical revision as alternatives arrive', () => {
+  const first = { summary: 'First', content: [] } as Candidate
+  const revised = { summary: 'Revised', content: [] } as Candidate
+  const alternative = { summary: 'Alternative', content: [] } as Candidate
+  const task = { ...objectTask, candidate: first, candidateRevision: 3, preview: true,
+    candidates: [{ id: 'C1', label: 'First idea', revision: 2, candidate: revised,
+      history: [{ revision: 1, candidate: first }] }], selectedCandidate: { id: 'C1', revision: 1 } } as AITask
+  const candidates: TaskCandidate[] = [
+    { id: 'C1', label: 'First idea', revision: 2, candidate: revised, history: [{ revision: 1, candidate: first }] },
+    { id: 'C2', label: 'Alternative', revision: 1, candidate: alternative },
+  ]
+  const next = { ...task, ...reconcileCandidateState(task, { id: task.id, status: 'ready', progress: '', candidateRevision: 4,
+    candidate: alternative, candidates, workspaceRead: false, workspaceReadRevision: 0 } as RemoteTask) }
+  assert.deepEqual(next.selectedCandidate, { id: 'C1', revision: 1 })
+  assert.equal(selectedCandidateVersion(next)?.candidate.summary, 'First')
+  assert.equal(next.preview, true)
+  assert.deepEqual(candidateVersions(next).map(version => [version.id, version.revision, version.current]), [
+    ['C1', 2, true], ['C2', 1, true], ['C1', 1, false],
+  ])
+})
+
+test('removing the selected candidate shows original content instead of applying stale data', () => {
+  const removed = { summary: 'Removed', content: [] } as Candidate
+  const remaining = { summary: 'Remaining', content: [] } as Candidate
+  const task = { ...objectTask, candidate: removed, candidateRevision: 2, preview: true,
+    candidates: [{ id: 'C1', revision: 1, candidate: removed }, { id: 'C2', revision: 1, candidate: remaining }],
+    selectedCandidate: { id: 'C1', revision: 1 } } as AITask
+  const next = { ...task, ...reconcileCandidateState(task, { id: task.id, status: 'ready', progress: '', candidateRevision: 3,
+    candidate: remaining, candidates: [{ id: 'C2', revision: 1, candidate: remaining }], workspaceRead: false, workspaceReadRevision: 0 } as RemoteTask) }
+  assert.equal(next.candidate?.summary, 'Remaining')
+  assert.equal(next.selectedCandidate, undefined)
+  assert.equal(next.preview, false)
+  assert.equal(selectedCandidateVersion(next), undefined)
+  assert.match(next.candidateNotice!, /C1 · r1 was removed/)
+})
+
+test('legacy candidate payloads remain recoverable and map to a new exact candidate when available', () => {
+  const candidate = { summary: 'Legacy result', content: [] } as Candidate
+  const legacy = { ...objectTask, candidate, candidateRevision: 7, preview: true } as AITask
+  assert.equal(candidateVersions(legacy)[0].legacy, true)
+  assert.equal(selectedCandidateVersion(legacy)?.candidate.summary, 'Legacy result')
+  const upgraded = { ...legacy, ...reconcileCandidateState(legacy, { id: legacy.id, status: 'ready', progress: '', candidateRevision: 8,
+    candidate, candidates: [{ id: 'C1', revision: 1, candidate }], workspaceRead: false, workspaceReadRevision: 0 } as RemoteTask) }
+  assert.deepEqual(upgraded.selectedCandidate, { id: 'C1', revision: 1 })
+  assert.equal(upgraded.candidateNotice, undefined)
+  assert.equal(selectedCandidateVersion(upgraded)?.candidate.summary, 'Legacy result')
 })

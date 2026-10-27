@@ -46,16 +46,23 @@ export function agentRequest(url, { socketPath, body } = {}) {
 export async function submitResult(context, operationId = randomUUID()) {
   const { url, socketPath, executorRevision, candidateRevision } = context.agent
   const delivery = await localDelivery(context.outputDir)
-  const receipt = await agentRequest(`${url}/submit`, { socketPath, body: { operationId, executorRevision, candidateRevision, ...delivery } })
+  const body = { operationId, executorRevision, candidateRevision, ...delivery,
+    ...(context.agent.candidateId === undefined ? {} : { candidateId: context.agent.candidateId }),
+    ...(context.agent.label === undefined ? {} : { label: context.agent.label }) }
+  const receipt = await agentRequest(`${url}/submit`, { socketPath, body })
   if (receipt?.status !== 'ready' || typeof receipt.taskId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(receipt.taskId)
     || (context.taskId !== undefined && receipt.taskId !== context.taskId)
     || !Number.isSafeInteger(receipt.executorRevision) || receipt.executorRevision < 0 || receipt.executorRevision !== executorRevision
-    || !Number.isSafeInteger(receipt.candidateRevision) || receipt.candidateRevision < 1 || receipt.candidateRevision !== candidateRevision + 1) throw new Error('Invalid submission receipt')
+    || !Number.isSafeInteger(receipt.candidateRevision) || receipt.candidateRevision < 1 || receipt.candidateRevision !== candidateRevision + 1
+    || typeof receipt.candidateId !== 'string' || !/^C[1-9]\d*$/.test(receipt.candidateId)
+    || (context.agent.candidateId !== undefined && receipt.candidateId !== context.agent.candidateId)
+    || !Number.isSafeInteger(receipt.revision) || receipt.revision < 1) throw new Error('Invalid submission receipt')
   return receipt
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [base, directory, executor, candidate, operation] = process.argv.slice(2)
-  if (!base || !directory || !/^\d+$/.test(executor ?? '') || !/^\d+$/.test(candidate ?? '') || !operation) throw new Error('Usage: node submit.mjs AGENT_BASE_URL OUTPUT_DIR EXECUTOR_REVISION CANDIDATE_REVISION OPERATION_UUID (optional MOTED_AGENT_SOCKET)')
-  console.log(JSON.stringify(await submitResult({ outputDir: directory, agent: { url: base.replace(/\/$/, ''), socketPath: process.env.MOTED_AGENT_SOCKET, executorRevision: Number(executor), candidateRevision: Number(candidate) } }, operation)))
+  const [base, directory, executor, candidate, operation, rawCandidateId, label] = process.argv.slice(2)
+  if (!base || !directory || !/^\d+$/.test(executor ?? '') || !/^\d+$/.test(candidate ?? '') || !operation) throw new Error('Usage: node submit.mjs AGENT_BASE_URL OUTPUT_DIR EXECUTOR_REVISION CANDIDATE_REVISION OPERATION_UUID [CANDIDATE_ID|-] [LABEL] (optional MOTED_AGENT_SOCKET)')
+  const candidateId = rawCandidateId === '-' ? undefined : rawCandidateId
+  console.log(JSON.stringify(await submitResult({ outputDir: directory, agent: { url: base.replace(/\/$/, ''), socketPath: process.env.MOTED_AGENT_SOCKET, executorRevision: Number(executor), candidateRevision: Number(candidate), ...(candidateId === undefined ? {} : { candidateId }), ...(label === undefined ? {} : { label }) } }, operation)))
 }

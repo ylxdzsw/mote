@@ -6,6 +6,7 @@ import type { RefObject } from 'react'
 import type { useDocumentHistory } from '../document/history'
 import { reviewControls, reviewKey, type AIReview } from '../ai/ReviewControls'
 import type { AITask } from '../ai/types'
+import { selectedCandidateVersion } from '../ai/candidates'
 
 const candidates = new WeakMap<object, number>()
 let nextCandidate = 0
@@ -197,7 +198,7 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
           const task = tasks.find(task => !segmentTasks.has(task.id) && task.target.kind === 'text' && task.target.blockIds.includes(node.attrs.id))
           if (!task || task.target.kind !== 'text') return
           const ids = task.target.blockIds
-          const candidate = task.preview && task.candidate?.content
+          const candidate = task.preview && selectedCandidateVersion(task)?.candidate.content
           const first = position === 0, last = state.doc.lastChild?.attrs.id === ids.at(-1)
           decorations.push(Decoration.node(position, position + node.nodeSize, {
             class: candidate ? 'ai-original-hidden' : 'ai-reserved', 'data-ai-reservation': task.id,

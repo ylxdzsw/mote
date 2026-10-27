@@ -72,6 +72,11 @@
 .ai-result { flex: none; margin: 8px 12px 12px; padding: 9px 0; border-block: 1px solid var(--panel-line); background: transparent; }
 .ai-result h3 { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--ui-accent); font-size: 13px; font-weight: 600; }
 .ai-summary { margin: 6px 0 10px; color: var(--ui-ink); font-size: 12px; }
+.ai-candidate-picker { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; margin: 6px 0 8px; color: var(--ui-muted); font-size: 12px; }
+.ai-candidate-picker select { box-sizing: border-box; width: 100%; min-width: 0; min-height: var(--ui-control-height); padding: 3px 6px; color: var(--ui-ink); background: var(--ui-surface-raised); font: inherit; }
+.ai-candidate-meta { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 8px; margin: 0 0 5px; color: var(--ui-muted); font-size: 11px; overflow-wrap: anywhere; }
+.ai-candidate-meta > span { color: var(--ui-faint); }
+.ai-candidate-notice { margin: 0 0 8px; padding: 6px 8px; border-left: 2px solid var(--ui-warning); color: var(--ui-muted); background: var(--ui-surface-muted); font-size: 12px; overflow-wrap: anywhere; }
 .ai-sources { margin: 0 0 8px; font-size: 12px; }
 .ai-sources summary { color: var(--ui-muted); }
 .ai-sources ul { margin-block: 5px; padding-left: 18px; overflow-wrap: anywhere; }

@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Mote isolated candidate preview</title>
+<style>html,body{margin:0;background:transparent;color:#303830;font:14px system-ui,sans-serif}iframe{display:block;border:0;background:transparent}</style>
+<main><iframe id="candidate" sandbox="allow-scripts" title="Isolated Mote candidate"></iframe></main>
+<script>
+const source = __MOTE_CANDIDATE_HTML__
+const params = new URLSearchParams(location.search)
+const frame = document.querySelector('#candidate')
+frame.width = Number(params.get('width') || 690)
+frame.height = Number(params.get('height') || 400)
+frame.srcdoc = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;width:100%;height:100%;background:transparent}</style></head>' + source
+</script>

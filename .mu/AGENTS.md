@@ -17,7 +17,7 @@ Mote is an early-development private, AI-native cloud document workspace: semant
 | Native V1 document schema and validation | [FORMAT.md](../FORMAT.md) |
 | UI design principles, visual patterns, and interaction review | [mote-ui skill](mote-ui.md) |
 | Sync/recovery, privacy, sharing, indexing/retrieval, storage | [CLOUD.md](../CLOUD.md) |
-| Agent input/output, supported native content, preview/delivery | [server/guide.md](../server/guide.md) |
+| New agent workflow, native authoring, preview, and submission | [public skills](../public/skills/external/SKILL.md) and shared references in `../public/skills/` |
 | Task/capability API, executor grants, concurrency | [server/agent-api.md](../server/agent-api.md) |
 | Prior decisions and their rationale | [MEMORY.md](MEMORY.md) (search the topic; later decisions supersede earlier ones) |
 
@@ -59,7 +59,8 @@ Read **`CLOUD.md` → Document Private policy** before changing privacy, sharing
 - Network failures preserve local edits and pending AI work. Validated reconnection resumes sync/status/transcripts; it must never automatically resubmit generation. Model failure must not block manual document work.
 - Private blocks public sharing, external handoff, and all other-document agent access to content **and derived indexes**. Its own built-in agent and trusted indexer remain allowed. Current source privacy governs historical reads too. Disabling Private never revives revoked links.
 - Auto-indexing is opt-in; workspace retrieval is a separate, server-confirmed per-session permission, reset on executor changes. Agents search the permission-filtered index, then read relevant native sources before reference/reuse. Retrieval never expands the reserved write target.
-- Built-in and external agents use the same validated candidate protocol and immutable full-document input. Executor switches revoke prior-generation credentials before acknowledgment. Acceptance is local and undoable; retain the candidate until the exact accepted document is cloud-acknowledged.
+- Built-in and external agents use the same validated candidate protocol and immutable full-document input. New tasks use public, unversioned skills/references and do not pin a skill version or guide digest; document inputs remain pinned. Preserve legacy task snapshots/artifacts without conversion. Candidate records have stable IDs, per-record revisions/history, and a task-wide `candidateRevision` CAS; follow-ups name the exact candidate revision. Alternatives are opt-in, and agents remove them only on an explicit user request. The client persists the exact selected candidate revision without automatic switching; acceptance applies exactly what the owner saw, closes the reservation locally and requests server revocation immediately, and keeps acceptance data until cloud acknowledgment. Alternative cleanup waits until the exact accepted document is acknowledged.
+- External grants use only `/a/<22-character-base64url-token>` URLs. The public `/api/agent/` route is retired (404, no access logging); its 43-character internal transport remains socket-only. A one-time credential rotation replaces pre-rollout external tokens without changing task contents or pause windows; unsupported tasks are not converted. Explicit open-document privacy polls (`?open=1`), content saves, and creation renew a persisted 24-hour external access window. Recovery downloads and unmarked owner reads never renew it. Agent activity never renews it; after inactivity all external reads/mutations pause with HTTP 423 and ask the owner to reopen the same document. The same token resumes; HTTP 404 means permanently revoked/unavailable. No keepalive. Acceptance, release, executor switch, task/document deletion, and Private permanently revoke grants; public-share URLs are separate and unaffected. Public `/skills/` content/helpers contain no task data, use `Cache-Control: no-store`, and remain accessible after grant revocation.
 - Individual reserved objects may move; body dimensions lock at preparation/submission. Caption width remains user-owned for individual tasks; caption content/removal stays reserved. Section reservations lock the whole composition. Candidate omission preserves an owned caption; explicit empty content clears it.
 
 ## Development and verification
@@ -79,7 +80,7 @@ Demo: `https://mote.ylxdzsw.com`. Static root: `/var/www/mote`. Nginx config: `/
 2. Validate/reload Nginx (`nginx -t && systemctl reload nginx`). For backend changes, check active tasks/workers before restarting `moted.service`; static-only changes do not require a backend restart.
 3. Verify live HTML and referenced assets match the build and retain `Cache-Control: no-store`; private APIs must remain login-gated. Preserve `/var/lib/mote`, `/var/lib/mote-ai`, and `/var/backups/mote`. Do not reset/import/edit production documents as a deployment check.
 
-The existing server-wide `/var/www/login.html` cookie gate protects private routes. Public routes are `/s/:token`, scoped `GET /api/shared/:token`, reservation capabilities `/api/agent/:token`, and static assets/favicons. Public code contains no document data. `moted.service` owns SQLite, sharing, tasks, and indexing. Workers cannot read cloud data, backups, Nginx secrets, or sibling task directories. See `CLOUD.md` for the operational boundary and manual backup/restore procedures.
+The existing server-wide `/var/www/login.html` cookie gate protects private routes. Public routes include `/s/:token`, scoped `GET /api/shared/:token`, reservation capabilities `/a/:token`, and static assets/favicons/skills. The retired `/api/agent/` route denies public requests without logging tokens. Public skills contain no document data. All HTTP responses, including static skills/helpers, use `Cache-Control: no-store`. `moted.service` owns SQLite, sharing, tasks, and indexing. Workers cannot read cloud data, backups, Nginx secrets, or sibling task directories. See `CLOUD.md` for the operational boundary and manual backup/restore procedures.
 
 ## Code map
 
@@ -90,7 +91,8 @@ The existing server-wide `/var/www/login.html` cookie gate protects private rout
 - `src/canvas/`: measured anchors, Flow mounts, Float layer, captions, spatial interactions, shared reader, zoom/minimap.
 - `src/theme/`, `src/reader/`: semantic palette/theme styling; standalone reader/export entry.
 - `src/ai/`: reservations, task state, protocol client, review UI.
-- `server/`: moted, cloud store, isolation, indexing/retrieval, guide/protocol, preview/delivery helpers, fake runner.
+- `server/`: moted, cloud store, isolation, indexing/retrieval, private task API, retained legacy guide, preview/delivery helpers, fake runner.
+- `public/skills/`: unversioned public built-in/external entry skills, shared authoring references, and portable helpers.
 
 ## Deferred, not current scope
 

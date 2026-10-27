@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from 'react'
 import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
+import { candidateVersionName, candidateVersions, selectedCandidateVersion } from './candidates'
 import { ContextHeading } from '../app/Inspector'
 import { PanelIcon } from '../app/PanelIcon'
 import { kindName } from '../app/FloatingInspector'
@@ -42,7 +43,7 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
       </details>}
       <details className="ai-info"><summary>Help & privacy</summary>
         <p>Documents and assistant tasks, including unsent requests and generated results, sync to your workspace. Preview candidate sends a saved document revision, its rendered snapshot, and the reserved area to Mu.</p>
-        <p>External grants anyone holding the link access to the full snapshot and scoped candidate submission. Workspace reads are off by default and grant access only to non-Private workspace sources; Private documents remain limited to their own built-in agent. Switching back or releasing the reservation revokes future access, not downloaded copies.</p>
+        <p>External links grant access to the full immutable snapshot and scoped candidate submission. Workspace reads are separately off by default and expose only non-Private sources. Access pauses 24 hours after the document is closed; reopening resumes the same link. Switching agents, releasing or accepting the reservation, or enabling Private permanently revokes access. Downloaded copies cannot be recalled.</p>
         <p>Select a reserved area to view its task. For a new area, choose Add → AI object. Reserving does not start generation. Changes preview in place for your review. The area stays locked until you accept, discard, or delete it. Floating areas can move, and resize before the first request or handoff. Closing this panel does not stop work.</p>
       </details>
     </footer>
@@ -58,6 +59,8 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   const executor = task.executor ?? 'builtin', external = executor === 'external'
   const status = displayedStatus(task)
   const statusIssue = assistant.statusIssue(task.id)
+  const candidateOptions = candidateVersions(task)
+  const selectedCandidate = selectedCandidateVersion(task)
   const prompt = task.draftPrompt ?? (task.submitted ? '' : task.prompt)
   const agentLink = assistant.agentLink(task)
   const showProgress = !!task.progress && busy && !executorBusy && !assistant.offline && !routineProgress.has(task.progress)
@@ -87,7 +90,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     try { await assistant.retryExecutor(task.id) } catch { /* The hook retains the confirmation error on the task. */ }
     finally { setRetryingExecutor(false) }
   }
-  const instructions = agentLink && `Please work on this Mote task: ${agentLink}\nRead the exact-version Mote guide linked from the task unless you have already read it. The link provides the full immutable document snapshot. Return a candidate only for the reserved area for my review; do not apply changes directly.${task.workspaceRead ? '\n\nWorkspace reads are enabled. Download the scoped workspace-index.md resource when useful and search it with focused rg queries instead of reading the whole catalog. Read the complete relevant native documents before referring to or reusing their content. Private source documents are never available cross-document.' : ''}`
+  const instructions = agentLink && `Please help me with this Mote document: ${agentLink}\nSkill: https://mote.ylxdzsw.com/skills/external/SKILL.md${selectedCandidate?.id ? `\nCandidate to discuss: ${selectedCandidate.id} revision ${selectedCandidate.revision}.` : ''}`
   return <section className={`ai-task${task.submitted ? '' : ' ai-task-draft'}${external ? ' ai-task-external' : ''}`} data-ai-task={task.id} id={`ai-panel-${task.id}`} aria-label={taskTitle(task)} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
@@ -127,16 +130,36 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
         <p className="ai-progress" role="status">{statusIssue.message}</p>
         {statusIssue.paused && <button type="button" onClick={() => assistant.checkStatus(task.id)}>Check status</button>}
       </div>}
-      {task.candidate && <section className="ai-result" aria-label="Review changes">
-        <h3><PanelIcon name="spark" />{inactive || task.error && !task.preview ? 'Retained result' : busy ? 'Previous result' : 'Ready to review'}</h3>
-        <p className="ai-summary">{task.candidate.summary}</p>
-        {!!task.candidate.sources?.length && <details className="ai-sources"><summary>Sources</summary><ul>{task.candidate.sources.filter(source => /^https?:\/\//i.test(source.url)).map((source, index) => <li key={index}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.url}</a></li>)}</ul></details>}
-        {!inactive && <div className="ai-preview-switch" role="group" aria-label="Document view">
-          <button type="button" aria-pressed={!task.preview} onClick={() => assistant.update(task.id, { preview: false })}>Original</button>
-          <button type="button" aria-pressed={task.preview} onClick={() => assistant.update(task.id, { preview: true })}>Preview</button>
-        </div>}
+      {(candidateOptions.length > 0 || task.candidateNotice) && <section className="ai-result" aria-label="Review changes">
+        <h3><PanelIcon name="spark" />{selectedCandidate ? inactive || task.error && !task.preview ? 'Retained result' : busy ? 'Previous result' : 'Ready to review' : 'Candidate selection'}</h3>
+        {task.candidateNotice && <p className="ai-candidate-notice" role="status">{task.candidateNotice}</p>}
+        {(candidateOptions.length > 1 || candidateOptions.length > 0 && !selectedCandidate) && <label className="ai-candidate-picker">
+          <span>Candidate</span>
+          <select aria-label="Select candidate revision" value={selectedCandidate?.id ? `${selectedCandidate.id}:${selectedCandidate.revision}` : ''}
+            onChange={event => {
+              const [id, revision] = event.target.value.split(':')
+              if (id && Number.isSafeInteger(Number(revision))) assistant.selectCandidate(task.id, { id, revision: Number(revision) })
+            }}>
+            {!selectedCandidate && <option value="">Choose a candidate…</option>}
+            <optgroup label="Current candidates">
+              {candidateOptions.filter(option => option.current).map(option => <option key={`${option.id}:${option.revision}`} value={`${option.id}:${option.revision}`}>{candidateVersionName(option)}</option>)}
+            </optgroup>
+            {candidateOptions.some(option => !option.current) && <optgroup label="Earlier revisions">
+              {candidateOptions.filter(option => !option.current).map(option => <option key={`${option.id}:${option.revision}`} value={`${option.id}:${option.revision}`}>{candidateVersionName(option)}</option>)}
+            </optgroup>}
+          </select>
+        </label>}
+        {selectedCandidate ? <>
+          <p className="ai-candidate-meta">{candidateVersionName(selectedCandidate)}{!selectedCandidate.current && <span>Earlier revision</span>}</p>
+          <p className="ai-summary">{selectedCandidate.candidate.summary}</p>
+          {Array.isArray(selectedCandidate.candidate.sources) && !!selectedCandidate.candidate.sources.length && <details className="ai-sources"><summary>Sources</summary><ul>{selectedCandidate.candidate.sources.filter(source => /^https?:\/\//i.test(source.url)).map((source, index) => <li key={index}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || source.url}</a></li>)}</ul></details>}
+          {!inactive && <div className="ai-preview-switch" role="group" aria-label="Document view">
+            <button type="button" aria-pressed={!task.preview} onClick={() => assistant.update(task.id, { preview: false })}>Original</button>
+            <button type="button" aria-pressed={task.preview} onClick={() => assistant.update(task.id, { preview: true })}>Preview</button>
+          </div>}
+        </> : candidateOptions.length > 0 && <p className="ai-note" role="status">Original content is shown. Choose a remaining candidate to preview it.</p>}
         <div className="ai-actions ai-review-actions">
-          {!inactive && <button className="ai-primary" type="button" disabled={busy || !task.remoteMissing && (executorBusy || workspaceReadBlocked)} onClick={() => assistant.accept(task.id)}>Accept <PanelIcon name="check" /></button>}
+          {!inactive && selectedCandidate && <button className="ai-primary" type="button" disabled={busy || !task.remoteMissing && (executorBusy || workspaceReadBlocked)} onClick={() => assistant.accept(task.id)}>Accept this candidate <PanelIcon name="check" /></button>}
           <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard</button>
         </div>
       </section>}
@@ -149,14 +172,15 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           onClick={() => instructions && void copyText(instructions, 'Instructions')}>Copy instructions</button>
         <button type="button" disabled={executorBusy || workspaceReadBlocked || !!inactive || !agentLink}
           onClick={() => agentLink && void copyText(agentLink, 'Link')}>Copy link</button>
-        {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
+        {!candidateOptions.length && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
       </div>
       {assistant.privateDocument ? <p className="ai-external-unavailable" role="status">External handoff and its access link are disabled while this document is private.</p>
         : !agentLink && !executorBusy && <p className="ai-external-unavailable" role="status">Agent access link is unavailable.</p>}
+      {task.accessPaused && <p className="ai-external-unavailable" role="status">External access is paused. Reopen this document to resume the same link.</p>}
       {copyNotice && <p className="ai-copy-notice" role="status" aria-live="polite">{copyNotice}</p>}
-      <p className="ai-privacy">This link gives the external agent access to the full immutable document snapshot, not only the reserved area. Access lasts until you switch back or release this task. Downloaded copies cannot be recalled. Only the returned candidate is limited to the reserved area for your review.</p>
+      <p className="ai-privacy">This link grants access to the full immutable document snapshot and scoped candidate submission, not only the reserved area. Access pauses 24 hours after the document is closed; reopening resumes the same link. Switching agents, releasing or accepting the reservation, or enabling Private permanently revokes access. Downloaded copies cannot be recalled.</p>
     </div> : inactive ? <div className="ai-composer ai-actions">
-      {!task.candidate && <button type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
+      {!candidateOptions.length && <button type="button" onClick={() => assistant.discard(task.id)}>Discard task</button>}
       {busy && <button type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>}
     </div> : <form className="ai-composer" onSubmit={event => { event.preventDefault(); if (!busy && !executorBusy) void assistant.start(task.id, retry ? task.prompt : prompt) }}>
       <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>
@@ -164,8 +188,8 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
         placeholder={placeholder} disabled={executorBusy} onChange={event => assistant.update(task.id, { draftPrompt: event.target.value })} />
       <div className="ai-actions ai-compose-actions">
         {busy ? <button key="stop" type="button" disabled={executorBusy} onClick={() => void assistant.stop(task.id)}>Stop</button>
-          : <button key="submit" className={task.candidate ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Preview candidate'} <PanelIcon name="spark" /></button>}
-        {!task.candidate && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>{task.status === 'draft' ? 'Cancel reservation' : 'Discard'}</button>}
+          : <button key="submit" className={candidateOptions.length ? '' : 'ai-primary'} type="submit" disabled={executorBusy || workspaceReadBlocked || !!assistant.cloudConflict || task.remoteMissing || task.submitted && candidateOptions.length > 0 && !selectedCandidate || !(retry ? task.prompt : prompt).trim()}>{retry ? 'Retry' : task.submitted ? 'Revise' : 'Preview candidate'} <PanelIcon name="spark" /></button>}
+        {!candidateOptions.length && <button className="ai-quiet" type="button" onClick={() => assistant.discard(task.id)}>{task.status === 'draft' ? 'Cancel reservation' : 'Discard'}</button>}
       </div>
     </form>}
     {!task.submitted && <RecoveryDetails task={task} />}

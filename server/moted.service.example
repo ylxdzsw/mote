@@ -47,7 +47,10 @@ WantedBy=multi-user.target
 # Task candidates and Mu sessions persist until explicit task deletion (no TTL).
 # Gate /api/documents, /api/settings, /api/indexing, /api/widgets and /api/ai through the authenticated Unix-socket
 # Nginx boundary. Public routes: GET /api/shared/:token and narrowly scoped
-# /api/agent/:token[/resource] (access_log off). No direct TCP in production.
+# /a/:token[/resource] (access_log off). Retired public /api/agent/ returns 404
+# without logging. The built-in /api/agent/ transport exists only on task sockets.
+# Public /skills/ files are inert static documentation/helpers with no-store.
+# No direct TCP in production.
 # Builtin workers get a task-only HTTP Unix socket, never the private API socket.
 # Configure client_max_body_size 128m and no-store for API responses at the proxy.
 # Backups are manual only; do not schedule them or publish data/backups.

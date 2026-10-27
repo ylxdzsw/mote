@@ -28,7 +28,7 @@ async function app(t, options = {}) {
   t.after(() => value.close())
   value.root = root
   value.call = async (method, suffix, body, headers = {}) => {
-    const response = await fetch(`http://127.0.0.1:${value.server.address().port}/api/${suffix}`, { method, headers: { origin, 'content-type': 'application/json', ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) })
+    const response = await fetch(`http://127.0.0.1:${value.server.address().port}${suffix.startsWith('/') ? suffix : `/api/${suffix}`}`, { method, headers: { origin, 'content-type': 'application/json', ...headers }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) })
     return { status: response.status, body: await response.json(), headers: response.headers }
   }
   return value
@@ -460,7 +460,7 @@ test('cloud reservation authorizes creation and permanently revokes grants on ac
   assert.equal((await value.call('POST', 'ai/tasks', { ...request, target: { ...request.target, insert: true } })).status, 409)
   const creations = await Promise.all([value.call('POST', 'ai/tasks', request), value.call('POST', 'ai/tasks', request)])
   assert.deepEqual(creations.map(result => result.status), [202, 202]); assert.equal(value.manager.tasks.size, 1)
-  const base = creations[0].body.externalPath.slice('/api/'.length)
+  const base = creations[0].body.externalPath
   assert.equal((await value.call('POST', `${base}/submit`, submission(original.document), { origin: '' })).status, 200)
   const oldState = value.store.assistant(original.id)
   const persist = value.manager.persist.bind(value.manager)
@@ -483,7 +483,7 @@ test('cloud reservation authorizes creation and permanently revokes grants on ac
   assert.equal(secondTask.status, 202)
   // Direct CloudStore mutation models a crash before TaskManager's best-effort cleanup.
   restarted.store.putAssistant(original.id, { baseRevision: restarted.store.assistant(original.id).revision, tasks: [request], operationId: randomUUID() })
-  assert.equal((await restarted.call('GET', `${secondTask.body.externalPath.slice(5)}/document.json`)).status, 404)
+  assert.equal((await restarted.call('GET', `${secondTask.body.externalPath}/document.json`)).status, 404)
   assert.equal((await restarted.call('GET', `ai/tasks/${second.id}`)).body.released, true)
   await readFile(path.join(restarted.manager.tasks.get(second.id).dir, 'input', 'document.json'))
 })
@@ -491,7 +491,7 @@ test('cloud reservation authorizes creation and permanently revokes grants on ac
 test('cloud deletion is rechecked at candidate commit and survives restart without artifact cleanup', async t => {
   const value = await app(t), original = await create(value), request = portableRequest(original)
   await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
   let entered, continueLoad
   const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { continueLoad = resolve })
   const load = value.manager.loadRequest.bind(value.manager)
@@ -515,10 +515,85 @@ const privacyChange = (value, original, enabled) => value.call('PUT', `documents
   private: enabled, basePrivacyRevision: value.store.privacyMeta(original.id).privacyRevision, operationId: randomUUID(),
 })
 
+test('external access pauses with document inactivity, survives restart, and resumes the same token only while authorized', async t => {
+  const value = await app(t), original = await create(value), request = { ...portableRequest(original), workspaceRead: true }
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
+  assert.match(base, /^\/a\/[A-Za-z0-9_-]{22}$/)
+  const proposed = submission(original.document)
+  assert.equal((await value.call('POST', `${base}/submit`, proposed)).status, 200)
+  const shared = (await shareMutation(value, original.id, 0, 'enable')).body.share
+  const before = value.store.documentAccessUntil(original.id)
+  assert.equal((await value.call('GET', `${base}/document.json`)).status, 200)
+  assert.equal(value.store.documentAccessUntil(original.id), before)
+  const staleAt = Date.now() - 25 * 60 * 60 * 1000
+  value.store.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=?').run(staleAt, original.id)
+  for (const resource of ['manifest.json', 'document.json', 'target.json', 'snapshot.png', 'candidates.json', 'candidates/C1.json', 'workspace-index.md']) {
+    assert.equal((await value.call('GET', `${base}/${resource}`)).status, 423, resource)
+  }
+  assert.equal((await value.call('POST', `${base}/submit`, proposed)).status, 423)
+  assert.equal((await value.call('POST', `${base}/candidates/C1/remove`, { operationId: randomUUID(), executorRevision: 0, candidateRevision: 1 })).status, 423)
+  const pausedUntil = value.store.documentAccessUntil(original.id)
+  assert.equal(pausedUntil < Date.now(), true)
+  const paused = (await value.call('GET', `ai/tasks/${request.id}`)).body
+  assert.equal(paused.accessPaused, true)
+  assert.equal(paused.externalPath, base)
+  assert.equal(paused.candidate.summary, proposed.candidate.summary)
+  assert.equal((await value.call('GET', `shared/${shared.token}`)).status, 200)
+  assert.equal((await value.call('GET', `documents/${original.id}/assistant`)).status, 200)
+  assert.equal((await value.call('GET', `documents/${original.id}/privacy`)).status, 200)
+  assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
+  assert.equal((await value.call('GET', `documents/${original.id}/shares`)).status, 200)
+  assert.equal((await value.call('PATCH', `documents/${original.id}`, { name: 'Renamed from Files' })).status, 200)
+  assert.equal(value.store.documentAccessUntil(original.id), pausedUntil)
+  const shares = await value.call('GET', `documents/${original.id}/shares`)
+  assert.equal((await shareMutation(value, original.id, shares.body.revision, 'disable')).status, 200)
+  assert.equal(value.store.documentAccessUntil(original.id), pausedUntil)
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 423)
+  assert.equal((await restarted.call('GET', `documents/${original.id}/privacy`)).status, 200)
+  assert.equal(restarted.store.documentAccessUntil(original.id), pausedUntil)
+  const privacyMeta = restarted.store.privacyMeta.bind(restarted.store)
+  restarted.store.privacyMeta = () => { throw new Error('simulated privacy read failure') }
+  assert.equal((await restarted.call('GET', `documents/${original.id}/privacy?open=1`)).status, 500)
+  assert.equal(restarted.store.documentAccessUntil(original.id), pausedUntil)
+  restarted.store.privacyMeta = privacyMeta
+  assert.equal((await restarted.call('GET', `documents/${original.id}/privacy?open=1`)).status, 200)
+  assert.equal(restarted.store.documentAccessUntil(original.id) > Date.now(), true)
+  assert.notEqual(restarted.store.documentAccessUntil(original.id), pausedUntil)
+  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 200)
+  const resumed = (await restarted.call('GET', `ai/tasks/${request.id}`)).body
+  assert.equal(resumed.externalPath, base)
+  assert.equal(resumed.accessPaused, false)
+  assert.equal((await restarted.call('POST', `${base}/submit`, proposed)).body.candidateRevision, 1)
+  assert.equal((await restarted.call('POST', `ai/tasks/${request.id}/release`, {})).status, 200)
+  await restarted.call('GET', `documents/${original.id}`)
+  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
+  const openedAt = restarted.store.db.prepare('SELECT externalAccessAt FROM documents WHERE id=?').get(original.id).externalAccessAt
+  await privacyChange(restarted, original, true)
+  await privacyChange(restarted, original, false)
+  assert.equal(restarted.store.db.prepare('SELECT externalAccessAt FROM documents WHERE id=?').get(original.id).externalAccessAt, openedAt)
+})
+
+test('external submissions recheck document inactivity after asynchronous input loading', async t => {
+  const value = await app(t), original = await create(value), request = portableRequest(original)
+  await reservations(value, original, [request])
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
+  const load = value.manager.loadRequest.bind(value.manager)
+  value.manager.loadRequest = async task => {
+    const input = await load(task)
+    value.store.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=?').run(Date.now() - 25 * 60 * 60 * 1000, original.id)
+    return input
+  }
+  assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 423)
+  assert.equal(value.manager.tasks.get(request.id).meta.candidate, undefined)
+})
+
 test('Private revokes external context and delivery, preserves candidate/reservation, and keeps built-in generation available', async t => {
   const value = await app(t), original = await create(value), request = portableRequest(original)
   await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
   assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 200)
   assert.equal((await privacyChange(value, original, true)).status, 200)
   const own = await value.call('GET', `ai/tasks/${request.id}`)
@@ -543,13 +618,13 @@ test('Private revokes external context and delivery, preserves candidate/reserva
   assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
   const fresh = await value.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'external', baseExecutorRevision: 1, operationId: randomUUID() })
   assert.equal(fresh.status, 200); assert.notEqual(fresh.body.externalPath, created.body.externalPath)
-  assert.equal((await value.call('GET', `${fresh.body.externalPath.slice(5)}/document.json`)).status, 200)
+  assert.equal((await value.call('GET', `${fresh.body.externalPath}/document.json`)).status, 200)
 })
 
 test('privacy epochs revoke external grants across off/on cycles and restart even if task metadata cleanup fails', async t => {
   const value = await app(t), original = await create(value), request = portableRequest(original)
   await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
   assert.equal((await value.call('POST', `${base}/submit`, submission(original.document))).status, 200)
   const persist = value.manager.persist.bind(value.manager)
   value.manager.persist = (task, meta = task.meta) => meta.executor === 'builtin' ? Promise.reject(new Error('simulated cleanup failure')) : persist(task, meta)
@@ -572,7 +647,7 @@ test('privacy epochs revoke external grants across off/on cycles and restart eve
 test('privacy changes serialize with asynchronous external candidate commits before acknowledging revocation', async t => {
   const value = await app(t), original = await create(value), request = portableRequest(original)
   await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
   let entered, resume
   const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
   const persist = value.manager.persist.bind(value.manager)
@@ -598,7 +673,7 @@ test('privacy changes serialize with asynchronous external candidate commits bef
 test('in-flight public context reads recheck privacy after asynchronous snapshot access', async t => {
   const value = await app(t), original = await create(value), request = portableRequest(original)
   await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath.slice(5)
+  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
   let entered, resume
   const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
   const load = value.manager.loadRequest.bind(value.manager)

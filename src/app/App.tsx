@@ -35,6 +35,7 @@ import { isCaptionEditor } from '../editor/extensions'
 import { ContextHeading, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
+import { selectedCandidateVersion } from '../ai/candidates'
 import { AssistantPanel, type ReservationSelection } from '../ai/AssistantPanel'
 import type { Area, AITarget, AITask } from '../ai/types'
 import { containsTarget, overlaps, paragraphSelection } from '../ai/reservations'
@@ -416,6 +417,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
   function locateTask(task: AITask) {
     setTool(null)
+    const hasCandidate = !!selectedCandidateVersion(task)
     if (task.target.kind === 'segment') { actions.current?.locateSegment(task.id); return }
     if (task.target.kind === 'object') { setSelectedIds([task.target.objectId]); setActiveEditor(null) }
     else if (mainEditor) {
@@ -429,10 +431,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     }
     requestAnimationFrame(() => {
       const selector = task.target.kind === 'object' ? `[data-note-id="${task.target.objectId}"]`
-        : task.preview && task.candidate ? `[data-ai-preview="${task.id}"] > .main-paragraph` : `[data-ai-reservation="${task.id}"]`
+        : task.preview && hasCandidate ? `[data-ai-preview="${task.id}"] > .main-paragraph` : `[data-ai-reservation="${task.id}"]`
       const element = document.querySelector<HTMLElement>(`.workspace > .canvas-pane ${selector}`)
       element?.scrollIntoView({ block: 'center', inline: 'nearest' })
-      if (task.target.kind === 'object' || task.preview && task.candidate) element?.focus({ preventScroll: true })
+      if (task.target.kind === 'object' || task.preview && hasCandidate) element?.focus({ preventScroll: true })
       else mainEditor?.view.focus()
     })
   }
