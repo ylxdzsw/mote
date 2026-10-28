@@ -67,6 +67,8 @@ Use short labels and concrete verbs: “Add caption,” “Match object width,�
 
 Quiet feedback must still be truthful. Local saving is not cloud synchronization; pending permission is not confirmed permission; a candidate preview is not accepted content. Favor undo for ordinary document edits. Use confirmation where the existing workflow protects a consequential operation, such as deleting a file, resetting content, or revoking active sharing.
 
+Routine successful actions should not create persistent page-wide banners. Let the changed document, existing sync indicator, or local control status communicate completion. Reserve persistent banners for actionable warnings, errors, and recovery needs; successful background work must not replace an unrelated warning. AI acceptance uses the normal sync indicator and Assistant Recovery while awaiting cloud acknowledgment, without an applied/saved banner.
+
 ## Make the same design usable across inputs and sizes
 
 Keyboard focus, accessible names, selected/disabled states, and focus restoration are part of the component. Prefer native button, input, radio, and dialog behavior where it fits. Color and hover alone should not carry essential meaning. Tooltips complement visible state and accessible descriptions.

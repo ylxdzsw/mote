@@ -772,7 +772,6 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (!task.remoteMissing && (task.submitted || task.requestSent)) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
         if (mounted.current) update(id, { error: `Agent access revocation is pending: ${(error as Error).message}` })
       })
-      setNotice('Applied locally. The AI result is retained until the accepted document is saved to the cloud.')
       if (task.target.kind === 'object') {
         const objectId = task.target.objectId
         setRuns(current => ({ ...current, [objectId]: (current[objectId] ?? 0) + 1 }))
@@ -793,7 +792,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (!saved || !sameContent(saved.document, task.acceptance.document)) {
         update(id, { error: 'The exact accepted document has not been confirmed in the cloud. The working copy may have changed or conflicted. Your original input and candidate are retained below.' }); return
       }
-      forget(id); setNotice('Accepted document saved to the cloud.')
+      forget(id)
     } catch (error) {
       if (mounted.current && store === persistence.engine.current) update(id, { error: `The result is retained: ${(error as Error).message}` })
     }

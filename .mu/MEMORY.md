@@ -1772,3 +1772,7 @@ Enabled language-aware CSS auto-hyphenation on native rich-text paragraphs, incl
 ## 2026-10-28 — Flow spacing preset
 
 New themes seed Flow Space before and Space after at 1.5em each for balanced object spacing. Existing saved themes are untouched, including the native omission semantics (zero Before, Body After); this changes the creation preset, not V1/V2 interpretation or adjacent-gap collapse.
+
+## 2026-10-28 — Quiet routine completion
+
+Removed the persistent page-wide messages for local AI acceptance and its successful cloud save. Routine completion belongs in the document and existing sync/task controls, not a banner requiring dismissal. Actionable warnings and errors remain visible, and successful acceptance no longer overwrites unrelated notices. Acceptance retention, cloud acknowledgment, revocation, and cleanup are unchanged; pending accepted results remain accessible in Assistant Recovery.
