@@ -41,6 +41,8 @@ import type { Area, AITarget, AITask } from '../ai/types'
 import { containsTarget, overlaps, paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
 import type { SegmentRange } from '../document/segment'
+import { promoteSlideSelection } from '../document/slideClipboard'
+import { objectSlideIndex, slideRanges } from '../document/slides'
 import { uiThemeVariables } from '../theme/ui'
 import { Launchpad } from './Launchpad'
 import { DocumentNotes } from './DocumentNotes'
@@ -125,6 +127,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
   const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
   const selectedObject = doc?.objects.find(object => object.id === selectedIds[0])
+  const selectedSlides = doc && selectedSegment.range ? promoteSlideSelection(doc, selectedSegment.range) : null
+  const selectedSlideOwner = doc?.page.slideHeight !== undefined && selectedObject ? objectSlideIndex(doc, selectedObject) : null
   const selectedObjectTask = selectedIds.length === 1 && selectedObject
     ? assistant.tasks.find(task => task.target.kind === 'object' && task.target.objectId === selectedObject.id)
     : undefined
@@ -278,7 +282,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setLaunchpadAnchor(null)
     setTool(null)
     if (kind === 'image') { chooseImage(); return }
-    if (['text','code','drawing','ai','paragraph','table','formula','html'].includes(kind)) {
+    if (['text','code','drawing','ai','paragraph','table','formula','html','slideBreak'].includes(kind)) {
       setTool(kind as CreationTool)
       setSelectedIds([])
     }
@@ -540,6 +544,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         </div>
         {creatingPrivate && <p className="settings-dialog-note" role="status">Private is awaiting the first cloud save. Sharing and external agents are blocked. Use the sync indicator to retry.</p>}
         <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
+          layoutContext={() => actions.current?.segmentContext()}
           selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} privacy={cloud.privacy}
           onPrivacyRetry={() => void copy.retryPrivacy()}
           onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
@@ -582,7 +587,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 </div>
                 <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
               </div> : <>
-                {selectedObject ? <FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
+                {selectedObject ? <>{selectedSlideOwner !== null && <p className="hint">Slide {selectedSlideOwner + 1}{(() => {
+                  const context = actions.current?.segmentContext(), box = context?.geometry[selectedObject.id]
+                  const slide = slideRanges(doc)[selectedSlideOwner]
+                  const top = slide.id ? context?.anchors.find(anchor => anchor.id === slide.id)?.top ?? 0 : 0
+                  return box && (box.y < top || box.y + box.height > top + doc.page.slideHeight!) ? ' · Extends beyond slide' : ''
+                })()}</p>}<FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
                   captionMaxWidth={doc.page.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
                   onCaption={() => actions.current?.caption()}
                   textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
@@ -594,14 +604,20 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   reserved={!!selectedObjectTask}
-                  onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} />
+                  onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} /></>
                 : selectedTask ? <div className="context-inspector">
                     <ContextHeading title="Reserved for AI" />
                     <button onClick={() => assistant.openTask(selectedTask.id)}>Open AI task</button>
                   </div>
                 : tool ? <div className="context-inspector">
-                    <ContextHeading title={tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag to reserve an AI object. Click the left gutter to reserve an AI section.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
+                    <ContextHeading title={tool === 'slideBreak' ? 'Slide break' : tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'slideBreak' ? 'Click a boundary to start a new slide.' : tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag to reserve an AI object. Click the left gutter to reserve an AI section.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
                     <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
+                  </div>
+                : selectedSlides ? <div className="context-inspector">
+                    <ContextHeading title={selectedSlides.first === selectedSlides.last ? 'Slide' : `${selectedSlides.last - selectedSlides.first + 1} slides`}
+                      subtitle={selectedSlides.first === selectedSlides.last ? `Slide ${selectedSlides.first + 1}` : `Slides ${selectedSlides.first + 1}–${selectedSlides.last + 1}`} />
+                    {selectedSlides.first === selectedSlides.last && selectedSlides.first > 0 && <button onClick={() => actions.current?.joinSlide(selectedSlides.first)}>Join with previous slide</button>}
+                    <InspectorHelp><p>Copy or cut these slides, then paste after another slide or at a slide border. Delete removes the selected slides.</p></InspectorHelp>
                   </div>
                 : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
                 : <div className="context-inspector"><p className="hint">Select text or an object.</p></div>}
@@ -635,6 +651,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         signedY={doc.content.content!.some(node => node.type === 'flow' && node.attrs?.id === objectAnchorId(drawing, doc.content))} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
       document.querySelector('.app')!)}
     {editable && <Launchpad
+      slides={doc.page.slideHeight !== undefined}
       point={launchpadPoint}
       anchor={launchpadAnchor}
       onChoose={handleLaunchpadChoose}

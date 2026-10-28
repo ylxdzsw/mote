@@ -1,7 +1,7 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
-export const DOCUMENT_VERSION = 1
+export const DOCUMENT_VERSION = 2
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -155,6 +155,10 @@ function rich(node, path, mode, allowed, state, depth = 0, allowEmpty = false) {
     record(node.attrs, `${path}.attrs`, ['id', 'objectId'])
     identifier(node.attrs.id, `${path}.attrs.id`, state.ids)
     identifier(node.attrs.objectId, `${path}.attrs.objectId`)
+  } else if (type === 'slideBreak') {
+    record(node, path, ['type', 'attrs'])
+    record(node.attrs, `${path}.attrs`, ['id'])
+    identifier(node.attrs.id, `${path}.attrs.id`, state.ids)
   } else if (type === 'paragraph') {
     record(node, path, ['type', 'attrs'], ['content'])
     const semantic = mode === 'main' || mode === 'text'
@@ -183,7 +187,7 @@ function rich(node, path, mode, allowed, state, depth = 0, allowEmpty = false) {
     }
   }
   if (present(node, 'marks')) marks(node.marks, `${path}.marks`)
-  const childTypes = type === 'doc' ? docChildren[mode] : children[type] ?? []
+  const childTypes = type === 'doc' ? mode === 'main' && state.slides ? [...docChildren.main, 'slideBreak'] : docChildren[mode] : children[type] ?? []
   const list = present(node, 'content') ? array(node.content, `${path}.content`) : []
   if (['doc', 'table', 'tableRow', 'tableCell'].includes(type) && !list.length && !(type === 'doc' && allowEmpty)) fail(path, 'requires child content')
   if ((type === 'tableCell' || type === 'doc' && ['table', 'caption'].includes(mode)) && list.length !== 1) fail(path, 'requires exactly one child')
@@ -195,9 +199,9 @@ function rich(node, path, mode, allowed, state, depth = 0, allowEmpty = false) {
   }
 }
 
-export function validateContent(value, mode = 'main') {
+export function validateContent(value, mode = 'main', options = {}) {
   choice(mode, Object.keys(docChildren), 'content mode')
-  rich(value, 'content', mode, ['doc'], { count: 0, ids: new Set() })
+  rich(value, 'content', mode, ['doc'], { count: 0, ids: new Set(), slides: options.slides })
   return value
 }
 
@@ -286,7 +290,7 @@ export function validateObject(value, options = {}) {
 export function validateComposition(blocks, objects, options = {}) {
   array(blocks, 'content', MAX_NODES, options.allowEmpty ? 0 : 1)
   array(objects, 'objects')
-  const state = { count: 0, ids: new Set() }
+  const state = { count: 0, ids: new Set(), slides: options.slides }
   rich({ type: 'doc', content: blocks }, 'content', 'main', ['doc'], state, 0, options.allowEmpty)
   objects.forEach((value, index) => object(value, `objects[${index}]`, state, { allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) }))
   const byId = new Map(objects.map(value => [value.id, value]))
@@ -311,18 +315,27 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (value.version !== DOCUMENT_VERSION) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (value.version !== 1 && value.version !== 2) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1 and V2 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
   choice(value.language, ['en', 'zh-Hans'], 'language')
-  record(value.page, 'page', ['width', 'margins'])
+  record(value.page, 'page', ['width', 'margins'], value.version === 2 ? ['slideHeight'] : [])
   number(value.page.width, 'page.width', Number.MIN_VALUE)
+  if (present(value.page, 'slideHeight')) number(value.page.slideHeight, 'page.slideHeight', Number.MIN_VALUE)
   insets(value.page.margins, 'page.margins', 0)
   theme(value.theme)
   record(value.content, 'content', ['type', 'content'])
   choice(value.content.type, ['doc'], 'content.type')
-  validateComposition(value.content.content, value.objects)
+  const slides = present(value.page, 'slideHeight')
+  validateComposition(value.content.content, value.objects, { slides })
+  if (slides) {
+    const blocks = value.content.content
+    if (blocks[0].type === 'slideBreak' || blocks.at(-1).type === 'slideBreak'
+      || blocks.some((block, index) => block.type === 'slideBreak' && blocks[index - 1]?.type === 'slideBreak')) {
+      fail('content', 'each slide requires content; use an empty paragraph for an empty slide')
+    }
+  }
   if (present(value, 'authoring')) {
     record(value.authoring, 'authoring', ['notes'], ['aiModel'])
     array(value.authoring.notes, 'authoring.notes').forEach((note, index) => text(note, `authoring.notes[${index}]`))
@@ -334,8 +347,8 @@ export function validateDocument(value) {
   return value
 }
 
-// Future version upgrades belong here, before validating the current model.
-// V1 is the compatibility baseline; V0 deliberately has no converter.
+// Loading validates the saved version unchanged. Enabling Slides explicitly
+// creates V2; V1 remains strict and V0 deliberately has no converter.
 export function loadDocument(value) {
   return validateDocument(value)
 }

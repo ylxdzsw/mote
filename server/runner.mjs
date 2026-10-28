@@ -139,6 +139,13 @@ export async function fakeRunner(context) {
     candidate.segment = { version: 1, type: 'segment', content, objects: [figure], geometry: {
       [figureId]: { x, y: 28, width: drawingWidth, height: 64 },
     }, anchorTops: { [paragraphId]: 0, [flowId]: 28 }, originTop: 0 }
+    if (document.page.slideHeight !== undefined) {
+      candidate.segment.version = 2
+      const selected = document.content.content.slice(context.target.range.start.index, context.target.range.end.index)
+      if (selected[0]?.type === 'slideBreak') content.unshift(structuredClone(selected[0]))
+      for (const [index, block] of selected.slice(1).entries()) if (block.type === 'slideBreak') content.push(structuredClone(block),
+        { type: 'paragraph', attrs: { id: `${prefix}-slide-${index}`, semantic: 'body' }, content: [{ type: 'text', text: 'AI draft: next slide' }] })
+    }
   } else {
     const blocks = []
     const visit = node => { if (node?.attrs?.id && context.target.blockIds.includes(node.attrs.id)) blocks.push(structuredClone(node)); node.content?.forEach(visit) }

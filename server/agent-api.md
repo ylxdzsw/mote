@@ -10,16 +10,19 @@ pins its immutable document inputs and target. Existing task artifacts and
 unresolved work are preserved; legacy task-local guides are not converted or
 rewritten.
 
-The document format is V1 (`format: 'mote', version: 1`); the distinct agent
-transport protocol is `mote-agent-v1`. See [FORMAT.md](../FORMAT.md) for the
-normative native schema.
+The supported native document formats are V1 and V2 (`format: 'mote',
+version: 1 | 2`); the separate task transport protocol remains
+`mote-agent-v1`. New tasks pin the exact native version and snapshot.
+See [FORMAT.md](../FORMAT.md) for the normative schema.
 
 ## Native Flow and Float contract
 
-Cloud documents use the V1 `MoteDocument` directly in storage and on the wire.
+Cloud documents use the V1 or V2 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
 each object's `layout`. There is no V0 runtime adapter, extension bag, or
-implicit conversion. Unknown fields and unsupported versions are rejected.
+implicit conversion. V1 keeps its existing strict continuous-page schema. V2
+adds Slides without changing the meaning of other fields. Unknown fields and
+unsupported versions are rejected.
 
 Every Flow object has exactly one top-level main-content Flow atom
 `{type:'flow',attrs:{id:uniqueBlockId,objectId:objectId}}`. Its atom ID and
@@ -43,6 +46,30 @@ zero. Margins affect layout footprint, not object dimensions. Clipboard and
 conversion operations retain them. See FORMAT.md for theme lengths and exact
 object fields.
 
+## Native Slides contract
+
+V1 rejects both `page.slideHeight` and `slideBreak` atoms. In V2, Slides are
+active only when `page.slideHeight` is present and positive; V2 without it is
+continuous. The first slide is implicit. Each later slide begins with a
+top-level `{type:'slideBreak',attrs:{id}}` in the same flat `content` array.
+Markers are not nested in objects, captions, or tables, and each slide has
+content (an empty slide uses an empty paragraph). A marker-relative Float
+belongs to the slide it starts and uses page-space x and nonnegative y. Floats
+anchored to ordinary blocks remain in that block's slide; Flow-anchored Floats
+retain their signed offsets from the Flow owner.
+
+Enabling Slides upgrades V1 to V2 explicitly. Automatic Title/Heading breaks
+and whole-block height packing are best-effort and happen only on enable;
+height edits do not repartition. Disabling removes the active slide height and
+breaks, leaves the document V2, and is not a round-trip guarantee. Layout and
+anchors are best-effort across the toggle, so use document Undo to restore the
+prior arrangement. Each slide lays out Flow, margins, repulsion, and anchors
+independently. Editing expands for main flow and Flow captions but not direct
+Float height. Floats may overlap or cover later slides and remain visible;
+reading and exports clip each slide to its saved height. PNG is one long image,
+and standalone HTML embeds the native document, including its overflowing
+content. Reading/export output has no slide-editing controls or slide navigator.
+
 Captions belong only to image, HTML, and table owners. Their exact shape is
 `{content:JSONContent,width?:number}` with a doc containing one paragraph whose
 attrs contain only `id`. Caption paragraphs use the shared inline marks and
@@ -52,9 +79,9 @@ separate object ID, layout, x/y, or placement. A caption is part of its owner's
 reservation and composition.
 
 Segment scope includes Flow blocks, their objects and captions, and anchored
-Floats. Candidate segment data is a V1 transfer envelope:
+Floats. Ordinary candidate segment data uses this transfer envelope:
 `{version:1,type:'segment',content:[...],objects:[...],geometry:{...},anchorTops:{...},originTop:number}`.
-It uses `objects`, never `floating`; object records use V1 `layout`. Geometry,
+It uses `objects`, never `floating`. Version 1 carries ordinary blocks; version 2 additionally carries native slide-break atoms and requires a Slides document. Geometry,
 anchor tops, and origin top are transfer-only data, not saved document fields.
 Flow references must be one-to-one and internal. Main-text tasks accept
 paragraphs only and cannot cross Flow blocks. Individual-object candidates
@@ -64,8 +91,15 @@ acceptance rebinds the latest values. Omitting an existing caption preserves
 it; an explicit empty caption paragraph clears it. Caption text is reserved,
 width is user-owned, and a new caption on an existing object follows its owner.
 Section candidates may author margins. A new single-object placeholder may be
-Float. Indexing reads captions and both placements from the same native V1
+Float. Indexing reads captions and both placements from the same native V1/V2
 document under the source's current Private policy.
+
+Slide-aware segment results use `version:2` in the same envelope, not the separate
+Slides clipboard payload. All internal boundaries in the reserved range must
+remain in order; the leading marker may be omitted and is restored by Mote.
+Application preserves original boundary IDs and remaps marker-anchored Floats.
+An empty result clears content while retaining the slides. Do not change
+`slideHeight` or unrelated slide structure.
 
 Internal Notes are `authoring.notes`, an ordered array of plain-text strings.
 Authorized task snapshots and workspace reads may include them as tentative
@@ -95,13 +129,13 @@ Inline rich text accepts only `bold`, fixed-palette `color`, Box `decoration`,
 and safe absolute HTTP(S) `link` marks. Link hrefs have no credentials or
 control characters and cannot be relative, `mailto:`, or `tel:`. Marks have
 exact attributes and cannot be duplicated. `theme.palette`, arbitrary raw
-colors, and custom color definitions are not part of V1. Clipboard/candidate
+colors, and custom color definitions are not part of V1 or V2. Clipboard/candidate
 payloads carry no palette definitions; fixed references adopt destination mode
 and hues.
 
 ## Private task API
 
-New tasks pin their V1 document snapshot, target, and supplied visual context; the transport protocol remains `mote-agent-v1`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Old task snapshots are not converted: any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation.
+New tasks pin their exact V1 or V2 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Old task snapshots are not converted: any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation. Retained V1 snapshots stay V1 and unchanged.
 
 Authenticated `/api/ai/tasks` routes retain their exact-Origin check.
 `RemoteTask` includes `executor: 'builtin' | 'external'`, `executorRevision`,
@@ -238,7 +272,7 @@ and delivery details appropriate to the executor.
 Result-root `screenshotPath` or segment `screenshotPaths` name keys in the
 uploaded assets map, never server paths or URLs. Embedded native images carry
 their own data URLs. The validator never executes HTML or fetches caller-supplied
-URLs/files. Native rich text must match V1. PNGs are bounded and dimension-
+URLs/files. Native rich text must match the shared V1/V2 grammar. PNGs are bounded and dimension-
 checked: an individual HTML candidate uses the snapshot object's body
 width/height, excluding caption and margin extents in `target.area`; segment
 widgets use their authored body sizes. Each successful mutation advances the

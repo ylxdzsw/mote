@@ -138,10 +138,10 @@ export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
   format: 'mote'
-  version: 1
+  version: 1 | 2
   id: string
   language: DocumentLanguage
-  page: { width: number; margins: Margins }
+  page: { width: number; margins: Margins; slideHeight?: number }
   theme: Theme
   content: JSONContent
   objects: FloatingObject[]
@@ -197,7 +197,7 @@ export function isPristineBlankDocument(document: MoteDocument, defaults = { mod
     && !block.content?.length && (!block.attrs?.semantic || block.attrs.semantic === 'body') && !block.attrs?.listLevel
     && !document.authoring?.notes.some(note => note.length)
     && (document.language ?? 'en') === defaults.language && !document.authoring?.aiModel?.trim()
-    && document.page.width === 960 && document.page.margins.top === 48 && document.page.margins.bottom === 48
+    && document.page.slideHeight === undefined && document.page.width === 960 && document.page.margins.top === 48 && document.page.margins.bottom === 48
     && document.page.margins.left === 32 && document.page.margins.right === 32
     && document.theme.autospace !== false
     && JSON.stringify(document.theme) === JSON.stringify({ ...defaultTheme, appearance: { ...defaultTheme.appearance, mode: defaults.mode } })

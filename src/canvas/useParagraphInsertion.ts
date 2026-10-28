@@ -3,9 +3,9 @@ import type { Editor } from '@tiptap/core'
 import { TextSelection } from '@tiptap/pm/state'
 import type { SegmentPoint } from '../document/segment'
 
-interface Boundary { from: number; top: number }
+interface Boundary { from: number; top: number; index: number }
 
-export function useParagraphInsertion(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, boundaryAt: (y: number) => { point: SegmentPoint; top: number }, onFinish: () => void) {
+export function useParagraphInsertion(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, boundaryAt: (y: number) => { point: SegmentPoint; top: number }, onFinish: () => void, onInsert?: (index: number) => void) {
   const [hint, setHint] = useState<Boundary | null>(null)
   const finish = useRef(onFinish)
   finish.current = onFinish
@@ -18,7 +18,7 @@ export function useParagraphInsertion(editor: Editor | null, sheet: RefObject<HT
     const boundary = boundaryAt(localY)
     let from = 0
     for (let index = 0; index < boundary.point.index; index++) from += editor.state.doc.child(index).nodeSize
-    return { from, top: boundary.top }
+    return { from, top: boundary.top, index: boundary.point.index }
   }
 
   useLayoutEffect(() => {
@@ -45,6 +45,7 @@ export function useParagraphInsertion(editor: Editor | null, sheet: RefObject<HT
     if (!event.isPrimary || !editor) return
     const boundary = target(event.clientX, event.clientY)
     if (!boundary) return
+    if (onInsert) { onInsert(boundary.index); return }
     const node = editor.schema.nodes.paragraph.create({ id: crypto.randomUUID(), semantic: 'body' })
     const transaction = editor.state.tr.insert(boundary.from, node)
     transaction.setSelection(TextSelection.create(transaction.doc, boundary.from + 1)).setStoredMarks([])

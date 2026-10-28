@@ -43,7 +43,7 @@ test('V1 has one strict browser/server contract and initialization never strips 
 })
 
 test('unsupported versions are rejected without conversion or mutation', () => {
-  for (const version of ['V0', 0, 2, 'V1', undefined]) {
+  for (const version of ['V0', 0, 3, 'V1', undefined]) {
     const value = { ...createBlankDocument(), version }, before = structuredClone(value)
     assert.throws(() => loadDocument(value), error => error instanceof DocumentFormatError && error.code === 'unsupported' && /has not been changed/.test(error.message))
     assert.deepEqual(value, before)

@@ -25,7 +25,7 @@ function previewFailure(error: unknown) {
 }
 
 function creationBody(task: AITask) {
-  if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1 || task.snapshotDocument?.version !== 1) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
+  if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0) || task.snapshotDocument?.version !== task.documentVersion) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
   if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
   return { ...task.creation, id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
     baseRevision: task.baseRevision, target: task.target, workspaceRead: task.workspaceRead ?? false }
@@ -44,7 +44,7 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 }
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
-  if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1) throw new Error('Unsupported task version. The candidate is retained for recovery.')
+  if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
   return memoizedCandidate(doc, candidate, task.id, task.target.kind === 'segment' ? context : undefined, () => {
     const target = task.target
@@ -230,7 +230,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     if (!externalBlocked) return
     for (const task of state.current) {
-      if (task.protocol === 'mote-agent-v1' && task.documentVersion === 1 && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
+      if (task.protocol === 'mote-agent-v1' && [1, 2].includes(task.documentVersion ?? 0) && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
         rejectPrivateExternalDraft(task.id)
       }
     }
@@ -242,7 +242,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!loaded) return
     let changed = false
     const normalized = state.current.map(task => {
-      if (task.protocol !== 'mote-agent-v1' || task.documentVersion !== 1) return task
+      if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0)) return task
       if (!Array.isArray(task.candidates) || !task.candidates.length || task.selectedCandidate || task.candidateNotice) return task
       const selected = candidateSelection(defaultCandidateVersion(task))
       if (!selected) return task
@@ -258,7 +258,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     let active = true, pending = false, authPaused = false
     const failures = new Map<string, number>(), paused = new Set<string>(), nextAt = new Map<string, number>(), requested = new Set<string>()
     const authPausedTasks = new Set<string>()
-    const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && task.documentVersion === 1 && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
+    const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && [1, 2].includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
       && !task.acceptance && !task.remoteMissing
       && (task.submitted || task.requestSent)
     function setIssue(id: string, value?: { message: string; paused: boolean }) {
@@ -373,11 +373,11 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     else if (target.kind === 'text') original = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
     else {
       const context = segmentContext?.() ?? { anchors: [], geometry: {} }
-      original = copySegment(snapshot, target.range, context.anchors, context.geometry)
+      original = copySegment(snapshot, target.range, context.anchors, context.geometry, true)
       segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
       segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => target.objectIds.includes(object.id)))
     }
-    const task: AITask = { protocol: 'mote-agent-v1', documentVersion: 1, id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
+    const task: AITask = { protocol: 'mote-agent-v1', documentVersion: snapshot.version, id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
       original,
       snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false,
       workspaceRead: false, workspaceReadRevision: 0 }
@@ -473,7 +473,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           const range = resolveSegmentRange(snapshotDocument, target)
           if (!range || !context) throw new Error('The reserved segment geometry is not available. Retry after the document finishes rendering.')
           target = makeSegmentTarget(snapshotDocument, range, { ...target.area, width: snapshotDocument.page.width })
-          original = copySegment(snapshotDocument, range, context.anchors, context.geometry)
+          original = copySegment(snapshotDocument, range, context.anchors, context.geometry, true)
           const { blockIds, objectIds } = target
           segmentOriginalBlocks = structuredClone(snapshotDocument.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
           segmentOriginalObjects = structuredClone(snapshotDocument.objects.filter(object => objectIds.includes(object.id)))
@@ -494,7 +494,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           target = { ...target, ...selection, area }
           original = structuredClone(snapshotDocument.content.content!.filter(block => blockIds.includes(block.attrs?.id)))
         }
-        const input = { snapshotDocument, original, target, segmentOriginalBlocks, segmentOriginalObjects,
+        const input = { snapshotDocument, documentVersion: snapshotDocument.version, original, target, segmentOriginalBlocks, segmentOriginalObjects,
           cloudDocumentId: connection.documentId, baseRevision: saved.revision }
         task = { ...task, ...input }; update(id, input)
         const { exportPng } = await import('../document/png')
@@ -802,7 +802,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     // Parent effects first copy the committed history document into its sync
     // controller. Calling sync during this hook's effect would save the old doc.
     const timer = window.setTimeout(() => {
-      for (const task of allTasks) if (task.protocol === 'mote-agent-v1' && task.documentVersion === 1 && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
+      for (const task of allTasks) if (task.protocol === 'mote-agent-v1' && [1, 2].includes(task.documentVersion ?? 0) && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
         acceptanceAttempts.current.add(task.id); void syncAcceptance(task.id)
       }
     }, 0)

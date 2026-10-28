@@ -7,6 +7,7 @@ export interface NewFileOptions {
   private: boolean
   example: boolean
   modified: boolean
+  slideHeight?: number
 }
 
 type Preferences = Pick<NewFileOptions, 'mode' | 'language'>
@@ -40,6 +41,8 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
   const [language, setLanguage] = useState<Preferences['language']>(preferences.language)
   const [isPrivate, setPrivate] = useState(false)
   const [modified, setModified] = useState(false)
+  const [slides, setSlides] = useState(false)
+  const [slideHeight, setSlideHeight] = useState('540')
   const appearanceName = useId()
   const languageName = useId()
   const privacyDescription = useId()
@@ -47,7 +50,8 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    const options: NewFileOptions = { name, mode, language, private: isPrivate, example, modified }
+    const options: NewFileOptions = { name, mode, language, private: isPrivate, example, modified,
+      ...(slides && { slideHeight: Number(slideHeight) }) }
     try { await onCreate(options) }
     catch { return }
     rememberPreferences({ mode, language })
@@ -86,6 +90,16 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
         <small>For document text, not the interface.</small>
       </div>
     </div>
+    <div className="files-form-row">
+      <span className="files-form-label">Layout</span>
+      <label className="files-private-choice"><input type="checkbox" checked={slides} disabled={busy}
+        onChange={event => { setSlides(event.target.checked); setModified(true) }} /><span>Slides</span></label>
+    </div>
+    {slides && <label className="files-form-row">
+      <span className="files-form-label">Slide height</span>
+      <input aria-label="Slide height" type="number" min={Number.MIN_VALUE} step="any" required value={slideHeight} disabled={busy}
+        onChange={event => { setSlideHeight(event.target.value); setModified(true) }} /><span>px</span>
+    </label>}
     <div className="files-form-row files-private-row">
       <span className="files-form-label" aria-hidden="true">Privacy</span>
       <label className="files-private-choice">

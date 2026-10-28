@@ -5,7 +5,11 @@ export interface Point { x: number; y: number }
 export interface Box extends Point { width: number; height: number }
 export interface Geometry extends Box { captionWidth?: number; margins?: FloatingObject['layout']['margins'] }
 export type Geometries = Record<string, Geometry>
-export interface Anchor { id: string; top: number; left?: number }
+export interface Anchor { id: string; top: number; left?: number; slideIndex?: number }
+export interface SlideGeometry { index: number; id: string | null; start: number; end: number; top: number; height: number; savedHeight: number; contentBottom: number }
+export function slideAtPoint(slides: SlideGeometry[], y: number) {
+  return slides.findLast(slide => slide.top <= y) ?? slides[0]
+}
 export const gridSize = 16
 export const distance = (a: Point, b: Point) => Math.hypot(a.x - b.x, a.y - b.y)
 
@@ -73,9 +77,10 @@ export function boundedTranslation(objects: FloatingObject[], boxes: Geometries,
   return { x: Math.max(min, Math.min(max, delta.x)), y: Math.max(-Math.min(...bounds.map(box => box.y), ...selected.map(object => boxes[object.id].y)), delta.y) }
 }
 
-export function anchorPoint(point: Point, anchors: Anchor[]): { x: number; y: number; anchorId: string | null } {
-  const anchor = anchors.findLast(anchor => anchor.top <= point.y)
-  return { x: point.x - (anchor?.left ?? 0), y: Math.max(0, point.y - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
+export function anchorPoint(point: Point, anchors: Anchor[], slides: SlideGeometry[] = []): { x: number; y: number; anchorId: string | null } {
+  const slide = slideAtPoint(slides, point.y)
+  const anchor = anchors.findLast(anchor => (!slide || anchor.slideIndex === slide.index) && anchor.top <= point.y)
+  return { x: point.x - (anchor?.left ?? 0), y: Math.max(0, point.y - (anchor?.top ?? slide?.top ?? 0)), anchorId: anchor?.id ?? slide?.id ?? null }
 }
 
 export function resolveGeometry(objects: FloatingObject[], sizes: Record<string, { width: number; height: number }>, tops: Record<string, number>, anchors: Anchor[] = [], column = { left: 0, width: 0 }): Geometries {

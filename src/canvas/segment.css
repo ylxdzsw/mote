@@ -7,6 +7,7 @@ html.segment-moving, html.segment-moving * { cursor: grabbing !important; }
 .segment-gutter { position: absolute; left: -24px; top: 0; bottom: 0; width: 24px; pointer-events: auto; cursor: var(--segment-cursor); touch-action: none; }
 .segment-band, .segment-object { position: absolute; background: var(--ui-accent-tint-strong); pointer-events: auto; touch-action: none; cursor: grab; }
 .segment-object { outline: 1px solid var(--ui-accent-border); border-radius: 2px; }
+.has-slides .segment-band { outline: 1px solid var(--ui-accent-border); outline-offset: -1px; }
 .segment-boundary { position: absolute; left: 0; right: 0; height: 0; border-top: 1px solid var(--ui-accent); }
 .segment-handle-join { position: absolute; left: -3px; width: 3px; border-left: 1px solid var(--ui-accent); border-block: 1px solid var(--ui-accent); }
 .segment-handle { position: absolute; right: 100%; top: -12px; width: 24px; height: 24px; padding: 2px; border: 0; border-radius: 3px; pointer-events: auto; touch-action: none; cursor: var(--segment-cursor); color: var(--ui-accent); background: var(--ui-gutter); }

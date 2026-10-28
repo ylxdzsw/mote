@@ -3,24 +3,26 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from '
 import type { Editor } from '@tiptap/core'
 import { supportsCaption, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
-import { extentBounds, layoutBounds, resolveGeometry, visualBottom, type Anchor, type Geometries } from './floatingGeometry'
+import { extentBounds, layoutBounds, resolveGeometry, slideAtPoint, visualBottom, type Anchor, type Geometries, type SlideGeometry } from './floatingGeometry'
 import { nativeSize } from './measurement'
+import { objectSlideIndex, slideRanges } from '../document/slides'
+import './SlideRulers.css'
 
 export interface Placement { x: number; top: number }
 export type FloatingPreview = FloatingPatch & { top?: number }
 export type FloatingPreviews = Record<string, FloatingPreview>
 interface Obstacle { left: number; right: number; top: number; bottom: number }
-interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number }; flowMounts: Record<string, HTMLElement> }
-interface VisibleBlock { element: HTMLElement; ids: string[]; paragraph: boolean }
+interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number }; flowMounts: Record<string, HTMLElement>; slides: SlideGeometry[] }
+interface VisibleBlock { element: HTMLElement; ids: string[]; paragraph: boolean; slideIndex: number }
 const gap = 8
-const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0, sideInsets: { left: 0, right: 0 }, flowMounts: {} }
+const origin: Layout = { anchors: [], tops: {}, geometry: {}, minHeight: 0, sideInsets: { left: 0, right: 0 }, flowMounts: {}, slides: [] }
 
 function property(element: HTMLElement, name: string, value: string) {
   if (element.style.getPropertyValue(name) !== value) element.style.setProperty(name, value)
 }
 
 function layoutBlock(element: Element): element is HTMLElement {
-  return element instanceof HTMLElement && element.matches('.main-paragraph, [data-spacer], [data-flow]')
+  return element instanceof HTMLElement && element.matches('.main-paragraph, [data-spacer], [data-flow], [data-slide-break]')
 }
 
 function blockIds(element: HTMLElement, fallback?: string) {
@@ -59,14 +61,19 @@ function exclusion(obstacles: Obstacle[], top: number, left: number, width: numb
   return { height, shape: `polygon(${points.join(',')})` }
 }
 
-export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, preview: FloatingPreviews) {
+export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, preview: FloatingPreviews, editable: boolean) {
   const [layout, setLayout] = useState(origin)
+  const measuredSlides = useRef<SlideGeometry[]>([])
   const measureRef = useRef<(override?: FloatingPreviews) => Layout>(() => origin)
   const reflow = useCallback(() => measureRef.current(), [])
 
   useLayoutEffect(() => {
     if (!editor) return
     const surface = sheet.current!
+    const slideHeight = doc.page.slideHeight && doc.page.slideHeight > 0 ? doc.page.slideHeight : 0
+    const ranges = slideHeight ? slideRanges(doc) : []
+    if (slideHeight) surface.setAttribute('data-slides', '')
+    else surface.removeAttribute('data-slides')
     let frame = 0
     const observed = new Set<Element>()
     const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; measure() }) }
@@ -101,6 +108,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const anchors: Anchor[] = []
       const tops: Record<string, number> = {}
       const flowMounts: Record<string, HTMLElement> = {}
+      const slides: SlideGeometry[] = []
       const obstacles = new Map<string, Obstacle>()
       const activate = (note: FloatingObject, anchorTop: number, anchorLeft = 0) => {
         if (note.layout.placement.type === 'flow') return
@@ -119,15 +127,18 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         else obstacles.delete(note.id)
       }
       // A dragged object has a fixed document-space position until release.
-      for (const note of objects) if (objectAnchorId(note) === null || override[note.id]?.top !== undefined) activate(note, 0)
+      if (!slideHeight) for (const note of objects) if (objectAnchorId(note) === null || override[note.id]?.top !== undefined) activate(note, 0)
       const originalIds: string[] = []
       editor!.state.doc.forEach(node => originalIds.push(node.attrs.id))
       const blocks: VisibleBlock[] = []
+      const breaks = new Map<number, HTMLElement>()
+      let slideIndex = 0
       let originalIndex = 0
       const addBlock = (element: HTMLElement, fallback?: string) => {
         if (element.classList.contains('ai-original-hidden')) return
         const ids = blockIds(element, fallback)
-        blocks.push({ element, ids, paragraph: element.classList.contains('main-paragraph') })
+        if (slideHeight && element.hasAttribute('data-slide-break')) { breaks.set(++slideIndex, element); return }
+        blocks.push({ element, ids, paragraph: element.classList.contains('main-paragraph'), slideIndex })
       }
       const addPreview = (preview: HTMLElement) => {
         for (const element of [...preview.children]) if (layoutBlock(element)) addBlock(element)
@@ -147,67 +158,119 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const after = paragraph ? 'var(--text-spaceAfter)' : 'var(--flow-spaceAfter)'
         // Page padding already supplies its margin; retain only excess style
         // spacing. Object margins stay inside the Flow mount's footprint.
-        property(element, 'margin-top', index === 0 ? `max(0px, calc(${before} - var(--margin-top)))` : before)
-        property(element, 'margin-bottom', index === blocks.length - 1 ? `max(0px, calc(${after} - var(--margin-bottom)))` : after)
+        property(element, 'margin-top', index === 0 || blocks[index - 1].slideIndex !== blocks[index].slideIndex ? `max(0px, calc(${before} - var(--margin-top)))` : before)
+        property(element, 'margin-bottom', index === blocks.length - 1 || blocks[index + 1].slideIndex !== blocks[index].slideIndex ? `max(0px, calc(${after} - var(--margin-bottom)))` : after)
       }
       // A spacer separates margins that would otherwise collapse to their maximum.
       const visible = new Set(blocks.map(block => block.element))
       editor!.view.dom.querySelectorAll<HTMLElement>('[data-spacer]').forEach(element => {
         if (!visible.has(element)) { element.style.removeProperty('--space-overlap'); return }
         const index = blocks.findIndex(block => block.element === element)
-        const before = index > 0 ? blocks[index - 1].element : undefined
-        const after = index + 1 < blocks.length ? blocks[index + 1].element : undefined
+        const before = index > 0 && blocks[index - 1].slideIndex === blocks[index].slideIndex ? blocks[index - 1].element : undefined
+        const after = index + 1 < blocks.length && blocks[index + 1].slideIndex === blocks[index].slideIndex ? blocks[index + 1].element : undefined
         const overlap = Math.min(before ? parseFloat(getComputedStyle(before).marginBottom) || 0 : 0, after ? parseFloat(getComputedStyle(after).marginTop) || 0 : 0)
         property(element, '--space-overlap', `${overlap}px`)
       })
       // Repulsion starts at the anchor: an object must not reflow preceding
       // content that establishes its own position (a cyclic layout dependency).
-      for (const { element, ids, paragraph } of blocks) {
-        let top = localTop(element)
-        let left: number | undefined
-        if (element.hasAttribute('data-flow')) {
-          const id = element.dataset.objectId!
-          const mount = element.querySelector<HTMLElement>('[data-flow-mount]')!
-          flowMounts[id] = mount
-          elements.add(mount)
-          const object = objects.find(note => note.id === id)
-          const target = notes.get(id)
-          if (target && mount.contains(target)) {
-            top = localTop(target)
-            left = localLeft(target)
-          } else if (object) {
-            const projected = previewObjects([object], override, anchors, column.left)
-            left = resolveGeometry(projected, sizes, {}, anchors, column)[id].x
+      // Relative offsets preserve each block's native measurement and editing DOM.
+      // Reading may move a whole slide back over the preceding slide's overflow;
+      // that overflow is clipped separately, never allowed to move its successor.
+      const groups = slideHeight ? ranges.map(range => blocks.filter(block => block.slideIndex === range.index)) : [blocks]
+      for (const [groupIndex, group] of groups.entries()) {
+        const range = ranges[groupIndex]
+        const slideTop = slides.at(-1) ? slides.at(-1)!.top + slides.at(-1)!.height : 0
+        if (slideHeight) {
+          obstacles.clear()
+          if (range.id) anchors.push({ id: range.id, top: slideTop, slideIndex: groupIndex })
+          const first = group[0]?.element
+          const shift = first ? slideTop + doc.page.margins.top + (parseFloat(getComputedStyle(first).marginTop) || 0)
+            - localTop(first) + (parseFloat(first.style.getPropertyValue('--slide-offset')) || 0) : 0
+          for (const { element } of group) property(element, '--slide-offset', `${Math.round(shift * 64) / 64}px`)
+          const boundary = breaks.get(groupIndex)
+          if (boundary) property(boundary, '--slide-offset', `${slideTop - localTop(boundary) + (parseFloat(boundary.style.getPropertyValue('--slide-offset')) || 0)}px`)
+          for (const note of objects) {
+            const movingTop = override[note.id]?.top
+            const owner = movingTop === undefined ? objectSlideIndex(doc, note)
+              : slideAtPoint(measuredSlides.current, movingTop)?.index ?? objectSlideIndex(doc, note)
+            if (owner === groupIndex && (objectAnchorId(note) === null || objectAnchorId(note) === range.id || movingTop !== undefined)) activate(note, slideTop)
           }
-          tops[id] = top
         }
-        // Resolve aliases for removed original blocks, but prefer the visible candidate.
-        anchors.push(...ids.toReversed().map(id => ({ id, top, ...(left === undefined ? {} : { left }) })))
-        elements.add(element)
-        for (const note of objects) if (objectAnchorId(note) !== null && ids.includes(objectAnchorId(note, doc.content)!) && override[note.id]?.top === undefined) activate(note, top, left)
-        if (!paragraph) continue
-        const content = element.firstElementChild as HTMLElement
-        elements.add(content)
-        const shape = exclusion([...obstacles.values()], top, localLeft(element), nativeSize(element).width)
-        if (shape) {
-          // Contain each proxy float, but derive paragraph height from its native
-          // in-flow content rather than the (possibly much taller) proxy itself.
-          if (!element.hasAttribute('data-repel')) {
-            property(element, '--text-height', `${nativeSize(content).height}px`)
-            element.setAttribute('data-repel', '')
+        for (const { element, ids, paragraph } of group) {
+          let top = localTop(element)
+          let left: number | undefined
+          if (element.hasAttribute('data-flow')) {
+            const id = element.dataset.objectId!
+            const mount = element.querySelector<HTMLElement>('[data-flow-mount]')!
+            flowMounts[id] = mount
+            elements.add(mount)
+            const object = objects.find(note => note.id === id)
+            const target = notes.get(id)
+            if (target && mount.contains(target)) {
+              top = localTop(target)
+              left = localLeft(target)
+            } else if (object) {
+              const projected = previewObjects([object], override, anchors, column.left)
+              left = resolveGeometry(projected, sizes, {}, anchors, column)[id].x
+            }
+            tops[id] = top
           }
-          property(element, '--repel-height', `${shape.height}px`)
-          property(element, '--repel-shape', shape.shape)
-          property(element, '--text-height', `${nativeSize(content).height}px`)
-        } else if (element.hasAttribute('data-repel')) {
-          element.removeAttribute('data-repel')
-          for (const name of ['--repel-height', '--repel-shape', '--text-height']) element.style.removeProperty(name)
+          // Resolve aliases for removed original blocks, but prefer the visible candidate.
+          anchors.push(...ids.toReversed().map(id => ({ id, top, ...(left === undefined ? {} : { left }), ...(slideHeight && { slideIndex: groupIndex }) })))
+          elements.add(element)
+          for (const note of objects) if (objectAnchorId(note) !== null && ids.includes(objectAnchorId(note, doc.content)!) && override[note.id]?.top === undefined) activate(note, top, left)
+          if (!paragraph) continue
+          const content = element.firstElementChild as HTMLElement
+          elements.add(content)
+          const shape = exclusion([...obstacles.values()], top, localLeft(element), nativeSize(element).width)
+          if (shape) {
+            // Contain each proxy float, but derive paragraph height from its native
+            // in-flow content rather than the (possibly much taller) proxy itself.
+            if (!element.hasAttribute('data-repel')) {
+              property(element, '--text-height', `${nativeSize(content).height}px`)
+              element.setAttribute('data-repel', '')
+            }
+            property(element, '--repel-height', `${shape.height}px`)
+            property(element, '--repel-shape', shape.shape)
+            property(element, '--text-height', `${nativeSize(content).height}px`)
+          } else if (element.hasAttribute('data-repel')) {
+            element.removeAttribute('data-repel')
+            for (const name of ['--repel-height', '--repel-shape', '--text-height']) element.style.removeProperty(name)
+          }
+        }
+        if (slideHeight) {
+          let contentBottom = slideTop + doc.page.margins.top
+          for (const { element } of group) {
+            contentBottom = Math.max(contentBottom, localTop(element) + nativeSize(element).height + Math.max(0, parseFloat(getComputedStyle(element).marginBottom) || 0))
+            const note = notes.get(element.dataset.objectId!)
+            const object = objects.find(object => object.id === element.dataset.objectId)
+            if (note && object) contentBottom = Math.max(contentBottom, localTop(note) + nativeSize(note).height + Math.max(0, object.layout.margins?.bottom ?? 0))
+          }
+          slides.push({ ...range, top: slideTop, savedHeight: slideHeight, contentBottom,
+            height: editable ? Math.max(slideHeight, contentBottom - slideTop + doc.page.margins.bottom) : slideHeight })
         }
       }
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
       const projectedObjects = previewObjects(objects, override, anchors, column.left)
       const geometry = resolveGeometry(projectedObjects, sizes, tops, anchors, column)
+      // Clip against the owning slide, not the object's own box: captions, math,
+      // and negative-margin Flow bodies may overhang that box inside the slide.
+      const clip = (element: HTMLElement, slide: SlideGeometry, x = localLeft(element), y = localTop(element)) => {
+        property(element, 'clip-path', `polygon(${-x}px ${slide.top - y}px, ${surface.clientWidth - x}px ${slide.top - y}px, ${surface.clientWidth - x}px ${slide.top + slide.height - y}px, ${-x}px ${slide.top + slide.height - y}px)`)
+      }
+      if (slideHeight) {
+        const height = slides.reduce((sum, slide) => sum + slide.height, 0)
+        property(surface, '--slides-height', `${height}px`)
+        for (const block of blocks) if (!editable) clip(block.element, slides[block.slideIndex])
+        for (const note of projectedObjects) {
+          const element = notes.get(note.id), box = geometry[note.id]
+          if (element && !editable && note.layout.placement.type !== 'flow') clip(element, slides[objectSlideIndex(doc, note)], box.x, box.y)
+        }
+      }
+      if (!slideHeight || editable) surface.querySelectorAll<HTMLElement>('[style*="clip-path"]').forEach(element => {
+        if (element.matches('.main-paragraph, [data-spacer], [data-flow], .floating-note')) element.style.removeProperty('clip-path')
+      })
       // Only unused side margins may collapse in reading; retain every on-page object.
       let left = doc.page.margins.left, right = doc.page.width - doc.page.margins.right
       for (const note of projectedObjects) {
@@ -221,9 +284,11 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         const start = (box.left - rect.left) / scale, end = (box.right - rect.left) / scale
         if (end > 0 && start < doc.page.width) { left = Math.min(left, start); right = Math.max(right, end) }
       })
-      const sideInsets = { left: Math.max(0, left), right: Math.max(0, doc.page.width - right) }
-      const values = { anchors, tops, geometry, sideInsets, minHeight: Math.max(0, ...projectedObjects.map(note => visualBottom(geometry[note.id]))) + doc.page.margins.bottom + surface.clientTop * 2 }
+      const sideInsets = slideHeight ? { left: 0, right: 0 } : { left: Math.max(0, left), right: Math.max(0, doc.page.width - right) }
+      const values = { anchors, tops, geometry, sideInsets, slides, minHeight: slideHeight ? slides.reduce((sum, slide) => sum + slide.height, 0)
+        : Math.max(0, ...projectedObjects.map(note => visualBottom(geometry[note.id]))) + doc.page.margins.bottom + surface.clientTop * 2 }
       const next = { ...values, flowMounts }
+      measuredSlides.current = slides
       setLayout(previous => {
         const { flowMounts: previousMounts, ...previousValues } = previous
         return Object.keys(previousMounts).length === Object.keys(flowMounts).length
@@ -243,13 +308,14 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       editor.off('transaction', schedule)
       document.fonts.removeEventListener('loadingdone', schedule)
     }
-  }, [doc, editor, sheet, preview])
+  }, [doc, editor, sheet, preview, editable])
 
   function attach(note: FloatingObject, placement: Placement): FloatingPatch {
-    const { anchors } = measureRef.current({ ...preview, [note.id]: placement })
+    const { anchors, slides } = measureRef.current({ ...preview, [note.id]: placement })
+    const slide = slideAtPoint(slides, placement.top)
     const self = new Set((doc.content.content ?? []).filter(block => block.type === 'flow' && block.attrs?.objectId === note.id).map(block => block.attrs!.id))
-    const anchor = anchors.findLast(anchor => !self.has(anchor.id) && anchor.top <= placement.top - (anchor.left === undefined ? gap : 0))
-    return { x: placement.x - (anchor?.left ?? 0), y: Math.max(0, placement.top - (anchor?.top ?? 0)), anchorId: anchor?.id ?? null }
+    const anchor = anchors.findLast(anchor => !self.has(anchor.id) && (!slide || anchor.slideIndex === slide.index) && anchor.top <= placement.top - (anchor.left === undefined ? gap : 0))
+    return { x: placement.x - (anchor?.left ?? 0), y: Math.max(0, placement.top - (anchor?.top ?? slide?.top ?? 0)), anchorId: anchor?.id ?? slide?.id ?? null }
   }
 
   const objects = previewObjects(shiftSpaceObjects(doc.objects, editor ? spaceLayoutKey.getState(editor.state)?.shift : null, doc.content), preview, layout.anchors, doc.page.margins.left)

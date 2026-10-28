@@ -1,16 +1,16 @@
-# Mote native format reference — V1
+# Mote native format reference — V1 and V2
 
-This public reference is a focused authoring specification for external agents; it does not require a repository checkout and contains no task data. Native V1 is a closed schema. A document is V1 only when `format` is exactly `"mote"` and `version` is the number `1`. Unknown versions and unknown fields are unsupported. Preserve unsupported inputs and report the issue; do not convert, extend, or repair them. The agent transport protocol is separate from the document version.
+This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1 and V2 are closed schemas. A document has `format:"mote"` and numeric `version:1` or `2`; V1 remains unchanged, while V2 adds Slides as described below. Unknown versions and unknown fields are unsupported. Preserve unsupported inputs and report the issue; do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
 
 ## Document envelope and theme
 
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1
+  version: 1 | 2
   id: string
   language: 'en' | 'zh-Hans'
-  page: { width: number; margins: Insets }
+  page: { width: number; margins: Insets; slideHeight?: number } // slideHeight is V2-only
   theme: Theme
   content: MainDoc
   objects: Object[]
@@ -45,7 +45,7 @@ type Theme = {
 }
 ```
 
-Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Font weight is finite from 1 through 1000. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
+Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Font weight is finite from 1 through 1000. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
 
 `theme.defaults` is complete. Paragraph/object style overrides are sparse and inherit omitted properties from Defaults. `theme.objects` has only the shown table, code, and formula overrides. Flow Before omission means zero; Flow After omission follows resolved Body `spaceAfter`. Do not add a palette, page-background field, or custom theme key.
 
@@ -53,11 +53,53 @@ The fixed palette is 22 slots: Strong/Soft pairs for Primary, Secondary, Red, Am
 
 `authoring.notes` are internal user scratchpads. They can appear in authorized input as tentative context, but they are not automatic instructions or published content. Never edit Notes or include `authoring` in a candidate. Public shares and HTML exports omit `authoring`; native `.mote` files retain it.
 
+## Slides (V2 only)
+
+Slides are active only when V2 `page.slideHeight` is present; its default when
+the user enables Slides is 540px, but any positive finite height is valid.
+V1 rejects both `slideHeight` and slide-break atoms. V2 without `slideHeight`
+is a continuous document and rejects slide-break atoms too.
+
+The first slide is implicit. Later slides start at top-level
+`{type:'slideBreak',attrs:{id:string}}` atoms in the same flat `content`
+array. The marker belongs to the slide it starts; there is no nested slide
+container or separate object-ownership field. A document cannot start/end
+with a marker or have adjacent markers. Every slide has at least one content
+block; represent an empty slide with an empty paragraph. Marker IDs are
+globally unique, like other main block IDs. Markers cannot be nested in
+objects, captions, or tables.
+
+Enabling Slides explicitly upgrades V1 to V2. Mote makes a best-effort initial
+partition at main-text Title/Heading paragraphs (not Subheading or text inside
+objects), then packs whole blocks to the requested height. It may estimate
+unmeasured block heights; a single oversized block stays intact. This is a
+lossy, undoable layout conversion, not a round-trip promise. It runs only when
+enabling; changing the saved height never repartitions existing boundaries.
+Disabling removes `slideHeight` and the markers, concatenates the blocks, and
+leaves the document V2.
+
+Each slide lays out Flow, margins, text repulsion, and anchors independently.
+During editing, a slide expands to fit its main flow and Flow captions but not
+the height of direct Floats. Those Floats remain visible and may overlap or
+cover following slides; an editing ruler shows the saved-height crop line when
+content expands past it. Reading, standalone HTML, and PNG crop each slide to
+its saved height and show no slide-editing controls or slide navigator. PNG is
+one long image. Standalone HTML embeds the native document, including content
+that overflows the saved slide height.
+
+Floats belong to the slide of their anchor. `anchorId:null` means the first
+slide top. A marker ID anchors a Float to that slide's top using page-space x
+and nonnegative y. Paragraph, spacer, and Flow anchors belong to their
+containing slide; a Flow-anchored Float retains signed x/y offsets from the
+Flow owner's measured top-left. Owned captions stay with their objects.
+Preserve slide boundaries and owned Floats/captions within the exact reserved
+scope; do not change unrelated slide structure or `slideHeight`.
+
 ## Main content, rich text, IDs
 
 ```ts
 type MainDoc = { type: 'doc'; content: [MainBlock, ...MainBlock[]] }
-type MainBlock = MainParagraph | Spacer | FlowAtom
+type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // SlideBreak only in V2 with page.slideHeight
 type MainParagraph = {
   type: 'paragraph'
   attrs:
@@ -67,6 +109,7 @@ type MainParagraph = {
 }
 type Spacer = { type: 'spacer'; attrs: { id: string; height: number } }
 type FlowAtom = { type: 'flow'; attrs: { id: string; objectId: string } }
+type SlideBreak = { type: 'slideBreak'; attrs: { id: string } }
 type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'hardBreak'; marks?: Mark[] }
 type Mark =
   | { type: 'bold' }
@@ -95,7 +138,7 @@ The exact mark attributes are shown above: `bold` has no `attrs`; the other mark
 
 A link is a credential-free absolute HTTP(S) URL with a host and no control characters; `mailto:`, `tel:`, and relative paths are unsupported. Links inherit text color and render underlined. Links are valid in main text, text objects, table cells, and captions, not in Code or Drawing.
 
-IDs match `[A-Za-z0-9_-]{1,128}`; `__proto__`, `constructor`, and `prototype` are forbidden. All main block IDs, object IDs, and rich-text/caption paragraph IDs are globally unique across the full document/composition. A Flow atom ID is a main-block ID and differs from its `objectId`. Create fresh IDs for new nodes; preserve the target paragraph/object ID when revising an existing target.
+IDs match `[A-Za-z0-9_-]{1,128}`; `__proto__`, `constructor`, and `prototype` are forbidden. All main block IDs (including V2 slide markers), object IDs, and rich-text/caption paragraph IDs are globally unique across the full document/composition. A Flow atom ID is a main-block ID and differs from its `objectId`. Create fresh IDs for new nodes; preserve the target paragraph/object ID when revising an existing target.
 
 ## Tables
 
@@ -142,7 +185,7 @@ All saved geometry is inside `layout`. Never put top-level `x`, `y`, `width`, `h
 
 - **Flow:** every Flow object has exactly one top-level Flow atom with its own distinct block ID. The atom supplies block position. Its object placement is `{type:'flow',x:number|'center'}` with no anchor or saved `y`. Numeric x is relative to the text-column left; `"center"` centers in that column. The object occupies real normal flow at its natural rendered height.
 - **Style spacing:** adjacent paragraphs and Flow blocks use the maximum of the preceding After and following Before. At the document edges, style spacing also collapses with the top/bottom page margin to their maximum. Object margins extend the body-and-caption layout footprint and stay additive, never collapsed. Explicit space blocks add their height to the surrounding collapsed style gap. Omitted Flow Before is zero; omitted Flow After follows Body.
-- **Float:** `anchorId` is `null` (document top) or a main paragraph, spacer, or Flow atom ID. For null/ordinary paragraph/spacer anchors, x is page-space and y is a nonnegative anchor-relative offset. When anchored to a Flow atom, both x and y are signed offsets from the Flow owner's measured top-left. Floats may overlap one another and Flow objects. Main text uses only the interval left of an intersecting Float; it does not wrap around to its right.
+- **Float:** `anchorId` is `null` (document/first-slide top), a main paragraph, spacer, Flow atom, or (in V2 Slides) slide-break ID. For null/slide-top/ordinary paragraph/spacer anchors, x is page-space and y is a nonnegative anchor-relative offset. When anchored to a Flow atom, both x and y are signed offsets from the Flow owner's measured top-left. Floats may overlap one another and Flow objects. Main text uses only the interval left of an intersecting Float; it does not wrap around to its right.
 
 | Kind | Required fields (besides `id`, `kind`, `layout`) | Optional fields |
 | --- | --- | --- |
@@ -271,7 +314,7 @@ An individual HTML object result keeps screenshot path metadata at the candidate
 
 ### Complete segment candidate and geometry
 
-A segment candidate is a complete native composition in the transfer-only envelope below. It contains main blocks and owned object records; it has no single object ID or fixed output-height box. `geometry`, `anchorTops`, and `originTop` are required transfer data, not saved document fields or `layout` fields. `geometry` maps object IDs to measured page-space body boxes `{x,y,width,height}` and may carry separate `captionWidth`/`margins` hints; `x` and `y` are measured absolute page coordinates, not Float anchor offsets. `anchorTops` maps top-level block IDs to their measured absolute document y; a partial spacer's value is the top of its selected slice. `originTop` is the absolute document y of the canonical start point. Use the same coordinate system for all three.
+A segment candidate is a complete native composition in a transfer-only envelope. Version 1 contains ordinary main blocks and owned objects; version 2 additionally permits native `slideBreak` atoms and is accepted only for a Slides document. The example below uses version 1. For a target spanning slides, return version 2 and retain every internal boundary in order. The target's leading marker may be omitted; Mote restores it automatically. Keep marker-anchored Floats anchored to their marker, not a placeholder paragraph. Mote preserves the original boundary IDs and remaps their Float anchors at application. An empty candidate clears content while retaining the slides. Do not change slide height or unrelated slide structure. This is not the separate whole-slide clipboard payload. `geometry`, `anchorTops`, and `originTop` are required transfer data, not saved document fields or `layout` fields. `geometry` maps object IDs to measured page-space body boxes `{x,y,width,height}` and may carry separate `captionWidth`/`margins` hints; `x` and `y` are measured absolute page coordinates, not Float anchor offsets. `anchorTops` maps top-level block IDs to their measured absolute document y; a partial spacer's value is the top of its selected slice. `originTop` is the absolute document y of the canonical start point. Use the same coordinate system for all three.
 
 When the composition is inserted/replaced, absolute vertical measurements are translated by `insertionTop + (sourceY - originTop)`. For a Float whose `layout.placement.anchorId` names a block inside the payload, its saved `layout.placement.y` remains relative to that anchor; do not replace that offset with geometry's absolute y. A Flow object's position is its Flow atom; Float annotations anchored to it use signed x/y offsets from the Flow object's top-left. Keep every anchor inside `content`, and keep `geometry` IDs inside `objects` and `anchorTops` IDs inside top-level `content`.
 
@@ -309,4 +352,4 @@ The segment `content` array may be empty only for an intentional empty replaceme
 
 ## Validation and practical limits
 
-Validation is strict over received JSON. Unknown fields are rejected; do not normalize input through an editor schema before validating it. No arbitrary extension bag, custom colors, custom nodes/marks, or legacy conversion exists. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and drawing caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).
+Validation is strict over received JSON. Unknown fields are rejected; do not normalize input through an editor schema before validating it. No arbitrary extension bag, custom colors, custom nodes/marks, or legacy conversion exists. V1 and V2 are the only supported native versions; unsupported document inputs and retained task snapshots are not converted. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and drawing caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).

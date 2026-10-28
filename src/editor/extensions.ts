@@ -5,6 +5,7 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor } from '@tiptap/extensions'
+import { Plugin } from '@tiptap/pm/state'
 import { blockClasses } from '../document/model'
 import { CaptionBehavior, TableParagraph, tableExtensions } from './table'
 import { Spaces } from './spaces'
@@ -136,16 +137,50 @@ export const Flow = Node.create({
 
 const CaptionMode = Extension.create({ name: 'captionMode' })
 
+export const SlideBreak = Node.create({
+  name: 'slideBreak',
+  group: 'block',
+  atom: true,
+  selectable: false,
+  parseHTML: () => [{ tag: 'div[data-slide-break]' }],
+  renderHTML: ({ HTMLAttributes }) => ['div', mergeAttributes(HTMLAttributes, { 'data-slide-break': '', contenteditable: 'false' })],
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      appendTransaction(transactions, _old, state) {
+        if (!transactions.some(transaction => transaction.docChanged)) return null
+        const positions: number[] = []
+        let empty = true, hasBreak = false
+        state.doc.forEach((node, pos) => {
+          if (node.type.name === 'slideBreak') {
+            hasBreak = true
+            if (empty) positions.push(pos)
+            empty = true
+          } else empty = false
+        })
+        if (!hasBreak) return null
+        if (empty) positions.push(state.doc.content.size)
+        if (!positions.length) return null
+        const tr = state.tr
+        for (const pos of positions.reverse()) {
+          tr.insert(pos, state.schema.nodes.paragraph.create({ id: crypto.randomUUID(), semantic: 'body' }))
+        }
+        return tr
+      },
+    })]
+  },
+})
+
 export function isCaptionEditor(editor: Editor | null | undefined) {
   return !!editor && !editor.isDestroyed && editor.extensionManager.extensions.some(extension => extension.name === 'captionMode')
 }
 
 export function extensions(spatial: boolean, table = false, caption = false) {
   return [
-    caption ? Document.extend({ content: 'paragraph' }) : table ? Document.extend({ content: 'table' }) : Document,
+    caption ? Document.extend({ content: 'paragraph' }) : table ? Document.extend({ content: 'table' })
+      : spatial ? Document.extend({ content: '(paragraph | spacer | flow | slideBreak)+' }) : Document,
     caption ? CaptionParagraph : table ? TableParagraph : spatial ? MainParagraph : SemanticParagraph, Text, HardBreak, ...inlineMarks, Gapcursor,
-    UniqueID.configure({ types: spatial && !caption ? ['paragraph', 'spacer', 'flow'] : ['paragraph'] }),
-    ...(spatial && !caption ? [Spacer, Flow, Spaces, DocumentTail] : []),
+    UniqueID.configure({ types: spatial && !caption ? ['paragraph', 'spacer', 'flow', 'slideBreak'] : ['paragraph'] }),
+    ...(spatial && !caption ? [Spacer, Flow, SlideBreak, Spaces, DocumentTail] : []),
     ...(caption ? [CaptionMode, CaptionBehavior] : table ? tableExtensions : [ParagraphBehavior]),
   ]
 }

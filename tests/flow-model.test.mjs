@@ -420,7 +420,7 @@ test('V1 loading validates without rewriting input; unknown versions and fields 
   const source = createDocument(), before = JSON.stringify(source)
   assert.equal(initializeDocument(source), source)
   assert.equal(JSON.stringify(source), before)
-  for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 2 }, { ...source, extra: true }]) {
+  for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 3 }, { ...source, extra: true }]) {
     const raw = JSON.stringify(invalid)
     assert.throws(() => initializeDocument(invalid))
     assert.equal(JSON.stringify(invalid), raw)

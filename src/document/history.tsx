@@ -27,6 +27,7 @@ export function useDocumentHistory(initial: MoteDocument) {
     if (!next || next === s.doc) return
     if (s.doc && !guard.current(s.doc, next)) return
     if (s.doc && next.id === s.doc.id && next.content === s.doc.content && next.objects === s.doc.objects
+      && next.version === s.doc.version && next.page.slideHeight === s.doc.page.slideHeight
       && next.page.width === s.doc.page.width && next.language === s.doc.language && next.authoring?.aiModel === s.doc.authoring?.aiModel && next.authoring?.notes === s.doc.authoring?.notes && JSON.stringify(next.page.margins) === JSON.stringify(s.doc.page.margins)
       && JSON.stringify(next.theme) === JSON.stringify(s.doc.theme)) {
       s.doc = next; render(next)

@@ -85,11 +85,11 @@ function segmentScreenshotPathMap(value, payload) {
 
 function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   const payload = record(value, 'candidate.segment')
-  if (payload.version !== 1 || payload.type !== 'segment') throw new HttpError(400, 'candidate.segment must be a V1 segment')
+  if (![1, 2].includes(payload.version) || payload.type !== 'segment' || payload.version === 2 && document.page.slideHeight === undefined) throw new HttpError(400, 'candidate.segment must be V1, or V2 for a Slides document')
   if (!Array.isArray(payload.content) || payload.content.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.content must be an array')
   if (!Array.isArray(payload.objects) || payload.objects.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.objects must be an array')
   const screenshotIds = options.screenshotIds ?? new Set()
-  composition(payload.content, payload.objects, { allowEmpty: true, allowMissingScreenshotIds: screenshotIds })
+  composition(payload.content, payload.objects, { allowEmpty: true, slides: payload.version === 2, allowMissingScreenshotIds: screenshotIds })
   if (Object.keys(payload).some(key => !['version', 'type', 'content', 'objects', 'geometry', 'anchorTops', 'originTop'].includes(key))) throw new HttpError(400, 'candidate.segment contains an unsupported field')
   const topIds = new Set(payload.content.map(node => node.attrs.id))
   const objects = new Map(payload.objects.map(object => [object.id, object]))
@@ -107,6 +107,13 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   if (selectedTarget?.kind === 'segment') {
     const scope = segmentScope(document, selectedTarget)
     if (!scope) throw new HttpError(400, 'candidate.segment target scope is invalid')
+    const selected = scope.blocks.slice(scope.range.start.index, scope.range.end.index)
+    const boundaries = selected.filter(block => block.type === 'slideBreak').length
+    const supplied = payload.content.filter(block => block.type === 'slideBreak').length
+    const omittedLeading = selected[0]?.type === 'slideBreak' && payload.content[0]?.type !== 'slideBreak' ? 1 : 0
+    if (payload.content.length || payload.objects.length) {
+      if (supplied + omittedLeading !== boundaries) throw new HttpError(400, 'Preserve the reserved slide boundaries in a V2 segment. The leading boundary may be omitted; internal boundaries must remain.')
+    }
   }
   return { payload, paths }
 }
@@ -285,6 +292,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     if (original.layout.margins === undefined) delete candidateObject.layout.margins
     else candidateObject.layout.margins = structuredClone(original.layout.margins)
     composition(document.content.content, document.objects.map(object => object.id === candidateObject.id ? candidateObject : object), {
+      slides: document.page.slideHeight !== undefined,
       allowMissingScreenshotIds: hasScreenshotPath && options.allowScreenshotPath ? new Set([candidateObject.id]) : new Set(),
     })
     output.object = candidateObject

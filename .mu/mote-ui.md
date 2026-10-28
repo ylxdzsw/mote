@@ -11,7 +11,7 @@ Use these principles to make design choices, not as a frozen component specifica
 
 ## Let the document lead
 
-Keep chrome visually quiet and let authored content supply most of the visual variety. Favor a continuous working surface, restrained borders, modest corners, and whitespace that makes relationships legible. Use elevation where it explains layering, such as a menu or dialog. A card is useful when it groups a real choice or composition; it need not surround every property group.
+Keep chrome visually quiet and let authored content supply most of the visual variety. Favor a continuous working surface, restrained borders, modest corners, and whitespace that makes relationships legible. A document may also use saved Slides boundaries without becoming a presentation editor: keep its layout controls in Document settings, show boundary/crop cues only while editing, and let reading/export present the authored slides without slide chrome. Use elevation where it explains layering, such as a menu or dialog. A card is useful when it groups a real choice or composition; it need not surround every property group.
 
 The main header, panels, text tools, and minimap share the document's page background; the exposed canvas surround stays neutral. Editing outlines, guides, and handles explain the current interaction and recede when it ends. Reading and export present the authored page without editing controls.
 
@@ -26,6 +26,7 @@ Organize by what the user is doing and what the action affects. Extend an existi
 | Change the selected object or caption | Context: properties stay with their target |
 | Reserve content or work with an AI task | Assistant: reservation, request, access, and review stay together |
 | Find or manage a document | Title → Files: search and opening lead; row actions handle maintenance |
+| Choose a document layout | Settings → Document → Layout: continuous or Slides, with slide boundaries kept on the editing canvas |
 | Change wider settings | Settings → Document / Workspace / Browser: scope is explicit |
 | Share or export | Header Share or Files row → Share → Link / Export: one dialog, scoped to its named document without requiring navigation |
 | Navigate or keep scratch material | Left minimap/bookmarks; Notes overlay below the canvas |

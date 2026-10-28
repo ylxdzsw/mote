@@ -39,6 +39,7 @@ const TILES: TileEntry[] = [
   { kind: 'code',      label: 'Code',       icon: <Icon path="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" /> },
   { kind: 'formula',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
+  { kind: 'slideBreak', label: 'Slide break', icon: <Icon path="M3 3h18v6M3 9V3M3 15v6h18v-6M2 12h4m3 0h6m3 0h4" /> },
 ]
 
 interface Props {
@@ -47,9 +48,10 @@ interface Props {
   anchor?: LaunchpadPoint | null
   onChoose: (kind: string) => void
   onClose: () => void
+  slides?: boolean
 }
 
-export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
+export function Launchpad({ point, anchor, onChoose, onClose, slides = false }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const origin = point ?? anchor ?? null
   const open = !!origin
@@ -100,7 +102,7 @@ export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
       <button aria-label="Close" className="launchpad-close" onClick={onClose}>×</button>
     </div>
     <div className="launchpad-grid">
-      {TILES.map(tile =>
+      {TILES.filter(tile => tile.kind !== 'slideBreak' || slides).map(tile =>
         <button key={String(tile.kind)} role="menuitem" className="launchpad-tile" tabIndex={-1}
             onClick={() => onChoose(String(tile.kind))}>
             {tile.icon}<span>{tile.label}</span>

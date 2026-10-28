@@ -59,12 +59,12 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         const nodes: ProseMirrorNode[] = []
         // Composed Mote clipboard data is handled by the canvas segment path.
         // An ordinary HTML slice cannot carry an object's stored payload.
-        slice.content.forEach(node => { if (node.type.name !== 'flow') nodes.push(clean(node)) })
+        slice.content.forEach(node => { if (node.type.name !== 'flow' && node.type.name !== 'slideBreak') nodes.push(clean(node)) })
         return new Slice(Fragment.from(nodes), slice.openStart, slice.openEnd)
       },
       attributes: { 'aria-label': caption ? 'Caption' : label, role: 'textbox', 'aria-multiline': 'true' },
       handleDrop: (_view, event, slice) => {
-        if (!slice.content.content.some(node => node.type.name === 'flow')) return false
+        if (!slice.content.content.some(node => node.type.name === 'flow' || node.type.name === 'slideBreak')) return false
         event.preventDefault()
         return true
       },

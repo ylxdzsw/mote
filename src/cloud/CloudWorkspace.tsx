@@ -3,6 +3,7 @@ import { ReadDocument } from '../canvas/ReadDocument'
 import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
 import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
+import { setSlides } from '../document/slides'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
@@ -174,9 +175,10 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     return true
   }
   async function newDocument(options: NewFileOptions) {
-    const document = initializeDocument(options.example ? createDocument() : createBlankDocument())
+    let document = initializeDocument(options.example ? createDocument() : createBlankDocument())
     document.theme.appearance.mode = options.mode
     document.language = options.language
+    if (options.slideHeight !== undefined) document = setSlides(document, true, options.slideHeight)
     const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
     const retain = options.example || options.modified
     const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, dirty: retain, draft: true, updatedAt: now,

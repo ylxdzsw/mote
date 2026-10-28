@@ -2,6 +2,7 @@ import { patchObject, objectX, objectY, objectAnchorId } from './model'
 import type { JSONContent } from '@tiptap/core'
 import { flowX, type Anchor, type Geometries, type Point } from '../canvas/floatingGeometry'
 import { paragraph, type FloatingObject, type MoteDocument } from './model'
+import { filledSlides } from './slides'
 
 export interface FlowGeometryOptions {
   anchors?: readonly Anchor[]
@@ -74,7 +75,7 @@ export function reconcileFlowContent(doc: MoteDocument, content: JSONContent, op
 export function reconcileObjectDeletions(doc: MoteDocument, objects: FloatingObject[], options: FlowGeometryOptions = {}): MoteDocument {
   const ids = new Set(objects.filter(object => object.layout.placement.type === 'flow').map(object => object.id))
   const blocks = blocksOf(doc).filter(block => block.type !== 'flow' || ids.has(block.attrs?.objectId))
-  const content = { ...doc.content, content: blocks.length ? blocks : [paragraph('')] }
+  const content = { ...doc.content, content: doc.page.slideHeight !== undefined ? filledSlides(blocks) : blocks.length ? blocks : [paragraph('')] }
   return reconcile(doc, content, objects, options)
 }
 

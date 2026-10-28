@@ -471,9 +471,9 @@ export class TaskManager {
     await writeImmutable(path.join(dir, '.mu', 'AGENTS.md'), `# Task-local Mu scope\nRead-only source: ${this.sourcePath}\nWritable scope is private /tmp and this task's output, .mu journals/objects, and cache/config directories. Supplied Mu configuration and credentials remain read-only.\nShared /root/.mu is read-only.\n`)
   }
 
-  supported(task) { return task.meta.protocol === AGENT_PROTOCOL && task.meta.documentVersion === 1 }
+  supported(task) { return task.meta.protocol === AGENT_PROTOCOL && [1, 2].includes(task.meta.documentVersion) }
   assertSupported(task) {
-    if (!this.supported(task)) throw new HttpError(409, 'Unsupported task protocol or document version. Retained task artifacts require recovery; create a new V1 task to generate.')
+    if (!this.supported(task)) throw new HttpError(409, 'Unsupported task protocol or document version. Retained task artifacts require recovery; create a new task to generate.')
   }
   assertActive(task) {
     if (task.meta.released || task.abandoned) throw new HttpError(410, 'reservation was released')
