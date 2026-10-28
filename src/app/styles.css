@@ -200,7 +200,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .panel-section button { font-size: var(--ui-font-size); border-color: var(--border); margin-top: 8px; }
 .text-content, .text-content .tiptap { word-break: normal; line-break: strict; text-autospace: var(--text-autospace, normal); }
 .text-content .tiptap { outline: none; min-height: 24px; overflow-wrap: anywhere; }
-.text-content p { margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
+.text-content p { -webkit-hyphens: auto; hyphens: auto; margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
 .text-content p:last-child { margin-bottom: 0; }
 .main-paragraph { display: flow-root; box-sizing: content-box; }
 .paragraph-content { display: block; }

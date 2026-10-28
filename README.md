@@ -28,6 +28,8 @@ Editing uses a compact document workbench: 28px standard controls, 12px UI text 
 
 Interface density does not change document typography, geometry, or zoom. Light/Dark appearance and the Primary hue apply throughout, including Files and Local recovery. Below 768px, Mote remains reading-only; Files and reading navigation retain larger touch targets.
 
+Native paragraphs, text boxes, table cells, and captions use automatic CSS hyphenation with the document's text language, without changing alignment. Editing, reading, minimap, PNG, and standalone HTML share this styling. Available hyphenation dictionaries depend on the browser and operating system; Code, Drawing, and embedded widget source are unaffected.
+
 On-document reservation actions and markers, selection marquees, and placement/space guides stay above the document object stack. Review actions never bring the reserved content itself to the front. Individual object review controls sit below the complete object, including its caption, and follow its measured Flow or Float placement.
 
 ## AI assistant
