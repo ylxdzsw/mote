@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { requestJSON, RequestError } from './connection'
+import { ModelField } from '../app/ModelField'
 
 interface ModelSettings {
   builtin: string
@@ -282,18 +283,18 @@ export function WorkspaceSettings({ active }: { active: boolean }) {
   return <section className="cloud-management" aria-label="Workspace management">
     <div className="cloud-management-panel">
       <p className="cloud-hint">Workspace model defaults. Document overrides take priority; existing agent sessions keep their model.</p>
-      <label className="cloud-field">Built-in agent default model
-        <input type="text" maxLength={256} spellCheck={false} autoComplete="off" value={draft?.models.builtin ?? ''}
+      <div className="cloud-field"><span>Built-in agent default model</span>
+        <ModelField label="Built-in agent default model" value={draft?.models.builtin ?? ''}
           placeholder="provider/model:effort" disabled={!settings || operation !== null}
-          onChange={event => setDraftSettings({ ...(draftRef.current ?? { models: { builtin: '', indexing: '' }, indexingEnabled: false }), models: { ...(draftRef.current?.models ?? { builtin: '', indexing: '' }), builtin: event.target.value } })} />
-      </label>
+          onChange={builtin => setDraftSettings({ ...draftRef.current!, models: { ...draftRef.current!.models, builtin } })} />
+      </div>
       <p className="cloud-detail">A model must be set here or in Document settings before using the built-in agent.</p>
-      <label className="cloud-field">Indexing model
-        <input type="text" maxLength={256} spellCheck={false} autoComplete="off" value={draft?.models.indexing ?? ''}
-          placeholder="provider/model:effort" disabled={!settings || operation !== null}
-          onChange={event => setDraftSettings({ ...(draftRef.current ?? { models: { builtin: '', indexing: '' }, indexingEnabled: false }), models: { ...(draftRef.current?.models ?? { builtin: '', indexing: '' }), indexing: event.target.value } })} />
-      </label>
-      <p className="cloud-detail">Blank inherits the workspace built-in agent model. Indexing requires one of these workspace models.</p>
+      <div className="cloud-field"><span>Indexing model</span>
+        <ModelField label="Indexing model" value={draft?.models.indexing ?? ''}
+          placeholder="Workspace built-in default" disabled={!settings || operation !== null}
+          onChange={indexing => setDraftSettings({ ...draftRef.current!, models: { ...draftRef.current!.models, indexing } })} />
+      </div>
+      <p className="cloud-detail">Blank inherits {draft?.models.builtin ? <><code>{draft.models.builtin}</code>, the workspace built-in agent model</> : 'the workspace built-in agent model'}. Indexing requires one of these workspace models.</p>
       <p className="cloud-detail">Use <code>provider/model:effort</code>, or <code>model:effort</code> for configured provider fallback. Settings do not test model availability. Enabling auto-indexing authorizes background model calls.</p>
       <label className="cloud-check-field">
         <input type="checkbox" checked={draft?.indexingEnabled ?? false} disabled={!settings || operation !== null}

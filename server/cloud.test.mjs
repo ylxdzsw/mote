@@ -8,7 +8,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { createMotedServer } from './moted.mjs'
 import { backupDatabase } from './backup.mjs'
 import { muRunner, workerStorageProperties } from './runner.mjs'
-import { MAX_BODY } from './validation.mjs'
+import { MAX_BODY, PROD_ORIGIN } from './validation.mjs'
 
 const origin = 'http://localhost:5173'
 const image = 'data:image/png;base64,iVBORw0KGgo='
@@ -61,6 +61,85 @@ test('workspace model defaults are provider-free, durable, validated and revisio
   assert.deepEqual((await restarted.call('GET', 'settings')).body.models, models)
   assert.equal((await restarted.call('PUT', 'settings', { baseRevision: 1, models: { builtin: '', indexing: '' } })).status, 200)
   assert.equal(await restarted.manager.resolveModel(), '')
+})
+
+test('model suggestions whitelist Mu catalog fields, preserve arbitrary settings and share only concurrent lookups', async t => {
+  const value = await app(t, { workspaceModel: '', env: { MOTED_MU_BIN: '/not-installed-mu' } })
+  const fake = await value.call('GET', 'models')
+  assert.equal(fake.status, 200)
+  assert.equal(fake.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(fake.body, { models: [
+    { reference: 'fake', efforts: [] },
+    { reference: 'openai/gpt-4o', efforts: ['low', 'medium', 'high'] },
+    { reference: 'gpt-4o', efforts: ['low', 'medium', 'high'] },
+    { reference: 'anthropic/claude-3-7-sonnet', efforts: ['low', 'medium', 'high', 'max'] },
+    { reference: 'claude-3-7-sonnet', efforts: ['low', 'medium', 'high', 'max'] },
+  ] })
+
+  const shared = path.join(value.root, 'catalog-config'), calls = path.join(value.root, 'catalog-calls'), bin = path.join(value.root, 'configured-mu')
+  await mkdir(shared)
+  await writeFile(path.join(shared, 'config.jsonc'), '{}')
+  const status = {
+    model: { id: 'selected/session-secret' },
+    endpoint: 'https://private.endpoint.invalid', api_key: 'private-key', stdout: 'private stdout',
+    available_models: { providers: [
+      { id: 'vendor', endpoint: 'https://provider.endpoint.invalid', api_key_env: 'PRIVATE_TOKEN', models: [
+        { id: 'vendor/model-a', model_id: 'model-a', supported_efforts: ['low', 'high', 'bad\neffort'], replay_key: 'private-replay-key', credentials: 'private-credential' },
+      ] },
+      { id: 'other', models: [
+        { id: 'other/model-b', model_id: 'model-b', supported_efforts: ['medium', 'xhigh'] },
+      ] },
+    ] },
+  }
+  const encoded = JSON.stringify(status)
+  await writeFile(bin, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(calls)}, process.env.MU_CONFIG_DIR + String.fromCharCode(10))\nsetTimeout(() => process.stdout.write(${JSON.stringify(encoded)}), 80)\n`, { mode: 0o700 })
+  value.manager.env.MOTED_FAKE_RUNNER = '0'
+  delete value.manager.env.MOTED_MU_BIN
+  value.manager.env.MOTED_MU = bin
+  value.manager.env.MOTED_SHARED_MU_DIR = shared
+
+  assert.equal((await value.call('GET', 'settings')).status, 200)
+  const models = { builtin: 'not-in-catalog/custom:high', indexing: 'also-unknown' }
+  const saved = await value.call('PUT', 'settings', { baseRevision: 0, models }, { origin: PROD_ORIGIN })
+  assert.equal(saved.status, 200)
+  assert.deepEqual(saved.body.models, models)
+  await assert.rejects(readFile(calls), { code: 'ENOENT' })
+
+  const [first, second] = await Promise.all([value.call('GET', 'models'), value.call('GET', 'models')])
+  const expected = { models: [
+    { reference: 'vendor/model-a', efforts: ['low', 'high'] },
+    { reference: 'model-a', efforts: ['low', 'high'] },
+    { reference: 'other/model-b', efforts: ['medium', 'xhigh'] },
+    { reference: 'model-b', efforts: ['medium', 'xhigh'] },
+  ] }
+  for (const response of [first, second]) {
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.deepEqual(response.body, expected)
+    assert.deepEqual(Object.keys(response.body.models[0]).sort(), ['efforts', 'reference'])
+    assert.doesNotMatch(JSON.stringify(response.body), /private|endpoint|stdout|selected\/session|credentials|replay/i)
+  }
+  assert.deepEqual((await readFile(calls, 'utf8')).trim().split('\n'), [shared])
+
+  assert.deepEqual((await value.call('GET', 'models')).body, expected)
+  assert.deepEqual((await readFile(calls, 'utf8')).trim().split('\n'), [shared, shared])
+})
+
+test('model catalog timeout returns a bounded actionable 422 without exposing Mu output', async t => {
+  const value = await app(t, { workspaceModel: '', env: { MOTED_FAKE_RUNNER: '0' } })
+  const shared = path.join(value.root, 'catalog-config'), bin = path.join(value.root, 'slow-mu')
+  await mkdir(shared)
+  await writeFile(path.join(shared, 'config.jsonc'), '{}')
+  await writeFile(bin, `#!${process.execPath}\nprocess.stderr.write('private endpoint and key')\nsetInterval(() => {}, 1000)\n`, { mode: 0o700 })
+  value.manager.env.MOTED_SHARED_MU_DIR = shared
+  value.manager.env.MOTED_MU_BIN = bin
+  const started = Date.now()
+  const response = await value.call('GET', 'models')
+  assert.equal(response.status, 422)
+  assert.equal(response.body.error, 'Mu model suggestions are unavailable. Configure providers in Mu locally, or enter a model reference manually.')
+  assert.doesNotMatch(JSON.stringify(response.body), /private endpoint|key/i)
+  assert.equal(response.headers.get('cache-control'), 'no-store')
+  assert.ok(Date.now() - started < 5000)
 })
 
 test('missing Mu and failed workers leave cloud documents usable without automatic execution retries', async t => {

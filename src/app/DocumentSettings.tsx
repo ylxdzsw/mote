@@ -3,6 +3,7 @@ import { type DocumentLanguage, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { NumberField, ThemePanel, type ThemeClass } from '../theme/ThemePanel'
 import type { PrivacyState } from '../cloud/WorkingCopy'
+import { ModelField } from './ModelField'
 
 export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onChange,
   privacy, onPrivacyRetry, onPrivacyReconcile }: {
@@ -79,9 +80,9 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
         </details>
         <h2 className="subheading">AI assistant</h2>
         <div className="style-field"><div className="field-heading">Mu model</div>
-          <input type="text" maxLength={256} spellCheck={false} autoComplete="off" aria-label="AI assistant Mu model"
+          <ModelField label="AI assistant Mu model"
             value={doc.authoring?.aiModel ?? ''} placeholder="Workspace default" onFocus={() => history.begin('document-ai-model')} onBlur={history.boundary}
-            onChange={event => onChange({ ...doc, authoring: { notes: [], ...doc.authoring, aiModel: event.target.value.replace(/[\u0000-\u001F\u007F-\u009F]/g, '') } })} />
+            onChange={aiModel => onChange({ ...doc, authoring: { notes: [], ...doc.authoring, aiModel } })} />
         </div>
         <p className="hint">Blank uses the workspace default. Generation is explicit and sends the full document to the selected model.</p>
       </section> : <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} /></div>}

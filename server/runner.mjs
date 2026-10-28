@@ -228,7 +228,7 @@ export async function muRunner(context) {
   const unit = workerUnit(context.taskId, context.generation)
   await prepareWorkerPaths(context)
   if (context.signal.aborted) throw new Error('aborted')
-  const mu = context.env.MOTED_MU_BIN || 'mu'
+  const mu = context.env.MOTED_MU_BIN || context.env.MOTED_MU || 'mu'
   const muArgs = context.sessionId
     ? ['--trap', 'off', '-o', 'concise', '-s', context.sessionId, context.promptPath]
     : ['--trap', 'off', '-o', 'concise', '-m', context.model, context.promptPath]

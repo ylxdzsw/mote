@@ -1,0 +1,17 @@
+.model-field { min-width: 0; }
+.model-field-control { position: relative; }
+.model-field-control input { width: 100%; padding-right: 32px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.model-field-control .model-field-toggle { position: absolute; inset: 1px 1px 1px auto; display: grid; place-items: center; width: 28px; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: var(--ui-control-radius); background: transparent; color: var(--ui-muted); }
+.model-field-toggle:hover:not(:disabled) { background: var(--ui-surface-hover); }
+.model-field-hint { display: block; margin-top: 4px; color: var(--ui-muted); font-size: var(--ui-label-size); line-height: 1.5; }
+.model-field-popup { position: fixed; inset: auto; margin: 0; padding: 4px; box-sizing: border-box; overflow: auto; overscroll-behavior: contain; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface-raised); color: var(--ui-ink); box-shadow: 0 4px 16px var(--ui-shadow); font-size: var(--ui-font-size); }
+.model-field-option { min-height: var(--ui-control-height); display: flex; align-items: center; padding: 5px 7px; border-radius: 2px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; cursor: pointer; }
+.model-field-option:hover { background: var(--ui-surface-hover); }
+.model-field-option[aria-selected='true'] { background: var(--ui-accent-soft); color: var(--ui-accent); }
+.model-field-option[aria-selected='true']:hover { background: var(--ui-accent-surface); }
+.model-field-empty { margin: 0; padding: 7px; color: var(--ui-muted); line-height: 1.5; }
+.cloud-management-panel .cloud-field:has(.model-field) { align-items: start; }
+.cloud-management-panel .cloud-field:has(.model-field) > span { padding-top: 6px; }
+.cloud-field .model-field-control input { padding-right: 32px; }
+.style-field:has(> .model-field) { align-items: start; }
+.style-field:has(> .model-field) > .field-heading { padding-top: 6px; }

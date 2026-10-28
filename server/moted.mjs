@@ -1,8 +1,10 @@
 import http from 'node:http'
+import { execFile } from 'node:child_process'
 import { constants as fsConstants, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
+import { promisify } from 'node:util'
 import { HttpError, MAX_BODY, MAX_RESULT, MAX_SCREENSHOT, PROD_ORIGIN, UUID, validateRequest, validateDocument } from './validation.mjs'
 import { fakeRunner, muRunner, readSessionId, stopWorkerUnit, workerUnit } from './runner.mjs'
 import { TranscriptJournal } from './transcript.mjs'
@@ -16,6 +18,37 @@ const SERVER_ROOT = path.dirname(fileURLToPath(import.meta.url))
 const DURABLE_EXPIRY = 253402300799999
 const CANDIDATE_ID = /^C([1-9]\d*)$/
 const EXTERNAL_SKILL = 'https://mote.ylxdzsw.com/skills/external/SKILL.md'
+const execFileAsync = promisify(execFile)
+const MODEL_PART = /^[^\s:@\u0000-\u001F\u007F-\u009F]+$/u
+const MODEL_CATALOG_ERROR = 'Mu model suggestions are unavailable. Configure providers in Mu locally, or enter a model reference manually.'
+const FAKE_MODELS = [
+  { reference: 'fake', efforts: [] },
+  { reference: 'openai/gpt-4o', efforts: ['low', 'medium', 'high'] },
+  { reference: 'gpt-4o', efforts: ['low', 'medium', 'high'] },
+  { reference: 'anthropic/claude-3-7-sonnet', efforts: ['low', 'medium', 'high', 'max'] },
+  { reference: 'claude-3-7-sonnet', efforts: ['low', 'medium', 'high', 'max'] },
+]
+
+function configuredModels(status) {
+  const providers = status?.available_models?.providers
+  if (!Array.isArray(providers)) throw new Error('model catalog unavailable')
+  const models = [], byReference = new Map()
+  const add = (reference, efforts) => {
+    if (typeof reference !== 'string' || reference.length > 256 || !MODEL_PART.test(reference)) return
+    let entry = byReference.get(reference)
+    if (!entry) { entry = { reference, efforts: [] }; byReference.set(reference, entry); models.push(entry) }
+    for (const effort of efforts) if (!entry.efforts.includes(effort)) entry.efforts.push(effort)
+  }
+  for (const provider of providers) for (const model of Array.isArray(provider?.models) ? provider.models : []) {
+    const efforts = Array.isArray(model?.supported_efforts)
+      ? model.supported_efforts.filter(value => typeof value === 'string' && value.length <= 256 && MODEL_PART.test(value))
+      : []
+    add(model?.id, efforts)
+    add(model?.model_id, efforts)
+  }
+  if (!models.length) throw new Error('model catalog unavailable')
+  return { models }
+}
 
 async function mkdirSafe(directory, mode) {
   try {
@@ -69,7 +102,7 @@ const LOGGED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS
 function routeTemplate(requestUrl) {
   let pathname
   try { pathname = new URL(requestUrl, 'http://moted.local').pathname } catch { return 'unmatched' }
-  if (pathname === '/api/settings' || pathname === '/api/indexing' || pathname === '/api/indexing/retry' || pathname === '/api/widgets/screenshot') return pathname
+  if (pathname === '/api/models' || pathname === '/api/settings' || pathname === '/api/indexing' || pathname === '/api/indexing/retry' || pathname === '/api/widgets/screenshot') return pathname
   const segments = pathname.split('/').filter(Boolean)
   if (segments[0] === 'a' && segments.length >= 2) return segments.length === 2 ? '/a/:token' : '/a/:token/:resource'
   if (segments[0] === 'api' && segments[1] === 'agent' && segments.length >= 3) return segments.length === 3 ? '/api/agent/:token' : '/api/agent/:token/:resource'
@@ -980,6 +1013,31 @@ MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' 
     return this.store?.settings().models.builtin
   }
 
+  async modelSuggestions() {
+    if (this.env.MOTED_FAKE_RUNNER === '1') return structuredClone({ models: FAKE_MODELS })
+    if (this.modelLookup) return this.modelLookup
+    const lookup = (async () => {
+      const shared = path.resolve(this.env.MOTED_SHARED_MU_DIR || '/root/.mu')
+      const command = this.env.MOTED_MU_BIN || this.env.MOTED_MU || 'mu'
+      try {
+        const config = await fs.lstat(path.join(shared, 'config.jsonc'))
+        if (config.isSymbolicLink() || !config.isFile() || config.size > 1024 * 1024) throw new Error('invalid Mu config')
+      } catch { throw new HttpError(422, MODEL_CATALOG_ERROR) }
+      let stdout
+      try {
+        ({ stdout } = await execFileAsync(command, ['status', '--json', '--include-models'], {
+          cwd: '/',
+          env: { PATH: this.env.PATH || '/usr/local/bin:/usr/bin:/bin', HOME: path.dirname(shared), LANG: this.env.LANG || 'C.UTF-8', MU_CONFIG_DIR: shared },
+          encoding: 'utf8', timeout: 2500, killSignal: 'SIGKILL', maxBuffer: 256 * 1024,
+        }))
+      } catch { throw new HttpError(422, MODEL_CATALOG_ERROR) }
+      try { return configuredModels(JSON.parse(stdout)) }
+      catch { throw new HttpError(422, MODEL_CATALOG_ERROR) }
+    })()
+    this.modelLookup = lookup
+    try { return await lookup } finally { if (this.modelLookup === lookup) this.modelLookup = undefined }
+  }
+
   async remove(task) {
     await this.mutate(task, () => this.release(task))
     // Waiting is outside mutate; in-flight submission/completion must be able to finish.
@@ -1043,6 +1101,10 @@ export async function createMotedServer(options = {}) {
           }, client.signal)
           send(response, 200, result, origin, manager.env); return
         } finally { response.removeListener('close', disconnected) }
+      }
+      if (url.pathname === '/api/models') {
+        if (request.method !== 'GET') throw new HttpError(404, 'not found')
+        send(response, 200, await manager.modelSuggestions(), origin, manager.env); return
       }
       if (url.pathname === '/api/settings') {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
