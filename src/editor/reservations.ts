@@ -20,7 +20,7 @@ type SegmentRange = NonNullable<AIReview['segmentRanges']>[number]
 
 function segmentAttributes(range: SegmentRange, node: ProseMirrorNode, position: number, active: boolean, empty = false) {
   const attrs: Record<string, string> = {
-    class: 'ai-reserved ai-segment-reserved',
+    class: 'ai-segment-reserved',
     'data-ai-reservation': range.taskId,
     'data-ai-segment': range.taskId,
   }

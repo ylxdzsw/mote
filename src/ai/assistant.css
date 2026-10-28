@@ -143,19 +143,17 @@
 .text-content .ai-text-preview[data-ai-first] > :first-child { margin-top: 0; }
 .text-content .ai-text-preview[data-ai-last] > :last-child { margin-bottom: 0; }
 .ai-segment-preview { display: contents; }
-.ai-segment-preview > .ai-candidate, .floating-note[data-ai-segment-candidate], .floating-note[data-ai-segment-candidate] > :is(.object-body, .object-caption) { outline: none !important; }
+.ai-segment-preview > .ai-candidate, .floating-note[data-ai-segment-owner], .floating-note[data-ai-segment-owner] > :is(.object-body, .object-caption) { outline: none !important; background-image: none; }
+.floating-note[data-ai-segment-owner]::after { display: none; }
 .ai-segment-borders { pointer-events: none; }
-.ai-segment-border { position: absolute; box-sizing: border-box; border: 1px solid var(--ui-accent-border); pointer-events: none; z-index: var(--canvas-ui-layer); }
+.ai-segment-border { position: absolute; box-sizing: border-box; border: 1px solid var(--ui-accent-border); outline: none; pointer-events: none; z-index: var(--canvas-ui-layer); }
+.ai-segment-border.ai-reserved { border-style: dashed; }
 .ai-segment-border[data-active] { border-color: var(--ui-accent); }
 .sheet:has(.ai-segment-preview:focus-visible, .ai-segment-preview :focus-visible, [data-ai-segment-candidate]:focus-visible) .ai-segment-border[data-active] { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .text-content .ai-segment-preview > .main-paragraph:is(p, pre) { margin-top: var(--text-spaceBefore); margin-bottom: var(--text-spaceAfter); }
 .text-content .ai-segment-preview[data-ai-first] > :first-child { margin-top: 0; }
 .text-content .ai-segment-preview[data-ai-last] > :last-child { margin-bottom: 0; }
 .text-content :is(.main-paragraph, [data-spacer], [data-flow]).ai-original-hidden { display: none; }
-.text-content [data-spacer].ai-segment-reserved { background-image: none; outline: 1px dashed var(--ui-accent-border); }
-.text-content [data-spacer].ai-segment-reserved::after { content: ''; position: absolute; inset: var(--ai-segment-start, 0px) 0 calc(100% - var(--ai-segment-end, 100%)); background-image: repeating-linear-gradient(-45deg, var(--ui-accent-tint), var(--ui-accent-tint) 6px, var(--ui-accent-tint-strong) 6px, var(--ui-accent-tint-strong) 7px); pointer-events: none; }
-.text-content [data-spacer].ai-segment-reserved[data-ai-empty]::after { display: none; }
-.text-content [data-spacer].ai-segment-reserved[data-ai-empty]::before { content: ''; position: absolute; left: 0; right: 0; top: var(--ai-segment-start, 0px); height: 1px; background: var(--ui-accent); pointer-events: none; z-index: 1; }
 .ai-segment-marker { position: relative; display: block; height: 0; z-index: var(--canvas-ui-layer); pointer-events: none; }
 .ai-segment-marker[data-ai-offset] { transform: translateY(var(--ai-segment-offset)); }
 .ai-segment-marker::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid var(--ui-accent); pointer-events: none; }

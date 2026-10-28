@@ -1776,3 +1776,7 @@ New themes seed Flow Space before and Space after at 1.5em each for balanced obj
 ## 2026-10-28 — Quiet routine completion
 
 Removed the persistent page-wide messages for local AI acceptance and its successful cloud save. Routine completion belongs in the document and existing sync/task controls, not a banner requiring dismissal. Actionable warnings and errors remain visible, and successful acceptance no longer overwrites unrelated notices. Acceptance retention, cloud acknowledgment, revocation, and cleanup are unchanged; pending accepted results remain accessible in Assistant Recovery.
+
+## 2026-10-28 — Whole-segment reservation overlay
+
+Extended the measured section-preview border to original segment reservations: one continuous striped rectangle and dashed perimeter spans the composition, including intervening gaps, partial explicit space, and owned objects/captions. Member-level stripes and outlines are suppressed so a section reads as one reserved area rather than independent items. Empty bookmarks retain their marker, previews retain their solid unshaded border, and individual text/object reservations are unchanged. The pointer-transparent overlay leaves native Flow layout, reservation protection, and task state untouched and stays out of reading, minimaps, and exports.

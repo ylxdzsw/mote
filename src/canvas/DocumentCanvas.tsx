@@ -37,7 +37,7 @@ import { freshNode, moveSegment, type SegmentPoint, type SegmentRange } from '..
 import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
 import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
-import { SegmentPreviewBorders } from '../ai/SegmentPreviewBorders'
+import { SegmentBorders } from '../ai/SegmentBorders'
 import { selectedCandidateVersion } from '../ai/candidates'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
 import { ReviewControls, type AIReview } from '../ai/ReviewControls'
@@ -989,7 +989,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           return <ReviewControls key={task.id} task={task} review={canvasReview}
             style={{ left: Math.max(0, Math.min(box.x, pageWidth() - 300)), top: box.y + box.height, maxWidth: pageWidth() }} />
         })}
-        {editable && projection.previews.length > 0 && <SegmentPreviewBorders sheet={sheet} previews={projection.previews}
+        {editable && canvasReview && <SegmentBorders sheet={sheet} tasks={canvasReview.tasks} previews={projection.previews}
           owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>
