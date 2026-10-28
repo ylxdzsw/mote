@@ -41,7 +41,8 @@ export interface Theme {
   objects: { table?: Partial<BlockStyle>; code?: Partial<Pick<BlockStyle, 'size' | 'weight' | 'lineHeight' | 'letterSpacing'>>; formula?: Partial<Pick<BlockStyle, 'size' | 'color'>> }
 }
 export const defaultTheme: Theme = {
-  appearance: { mode: 'light', primaryHue: defaultHue, secondaryHue: defaultSecondaryHue }, autospace: true, flow: {},
+  appearance: { mode: 'light', primaryHue: defaultHue, secondaryHue: defaultSecondaryHue }, autospace: true,
+  flow: { spaceBefore: em(1.5), spaceAfter: em(1.5) },
   defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: em(1.5), spaceBefore: em(0), spaceAfter: em(1), letterSpacing: em(0) },
   paragraphs: {
     title: { size: em(2.5), color: 'gray2', weight: 600, lineHeight: em(3.5), spaceBefore: em(3), spaceAfter: em(3) },

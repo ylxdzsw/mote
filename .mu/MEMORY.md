@@ -1768,3 +1768,7 @@ Whole-slide selection and clipboard are separate from ordinary segments: promoti
 ## 2026-10-28 — Native text auto-hyphenation
 
 Enabled language-aware CSS auto-hyphenation on native rich-text paragraphs, including text boxes, tables, and captions, to soften ragged right edges without justified word spacing. The shared paragraph rule includes the WebKit prefix for Safari and applies to editing, reading, minimap, PNG, and standalone HTML; scoping it to paragraphs avoids inheritance into Flow Code and drawings. Actual breaks depend on browser/OS dictionaries. Alignment and saved documents remain unchanged.
+
+## 2026-10-28 — Flow spacing preset
+
+New themes seed Flow Space before and Space after at 1.5em each for balanced object spacing. Existing saved themes are untouched, including the native omission semantics (zero Before, Body After); this changes the creation preset, not V1/V2 interpretation or adjacent-gap collapse.

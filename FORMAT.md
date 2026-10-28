@@ -95,7 +95,7 @@ mixed-script autospace enabled, and a 16px Sans default in Gray 2 at weight
 400. Its default line height is 1.5em, Before is 0em, After is 1em, and
 letter spacing is 0em. New themes seed Title, Heading, Subheading, Body,
 Caption, and List paragraph styles; Table, Code, and Formula object styles;
-and an empty `flow` override. The seeded Subheading style is 1.125em at weight
+and Flow spacing of 1.5em Before and After. The seeded Subheading style is 1.125em at weight
 600, line height 1.5em, Before 2em, After 0.5em; absence in another theme
 still means inheritance from Defaults, not this preset.
 
