@@ -1,5 +1,5 @@
 import { patchObject, objectX, objectY, objectAnchorId } from '../document/model'
-import { useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { captionContent, supportsCaption, isText, paragraph, tableContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
@@ -91,7 +91,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const scrollFloor = useScrollFloor(stage, footprint, editable)
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
-  const { scale, automatic, zoomTo, reset, fit } = useDocumentZoom(stage, sheet, doc.page.width, editable, initialScale)
+  const { scale, automatic, zoomed, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editable, initialScale)
+  const [zoomFeedback, setZoomFeedback] = useState(false)
+  useEffect(() => {
+    if (!zoomed) return
+    setZoomFeedback(true)
+    const timer = setTimeout(() => setZoomFeedback(false), 900)
+    return () => clearTimeout(timer)
+  }, [zoomed])
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [insertionHint, setInsertionHint] = useState<{ position: Point; boundary?: { point: SegmentPoint; top: number } } | null>(null)
@@ -907,10 +914,9 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
 
   const zoomControl = <div className="zoom-level">
-    <select aria-label="Document zoom level" title={editable ? automatic ? 'Auto zoom' : 'Zoom' : 'Zoom document · You can also pinch to zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : event.target.value === 'fit' ? fit() : zoomTo(Number(event.target.value))}>
+    <select aria-label="Document zoom level" title={automatic ? 'Auto zoom' : 'Zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : zoomTo(Number(event.target.value))}>
       <option value="auto">Auto</option>
       {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
-      {!editable && <option value="fit">Fit</option>}
       {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
     </select>
     <PanelIcon name="chevron" />
@@ -1009,6 +1015,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
     {editable && zoomHost && createPortal(zoomControl, zoomHost)}
-    {!editable && !staticWidgets && <div className="reading-zoom">{zoomControl}</div>}
+    {!editable && !staticWidgets && <p className={`zoom-feedback ${zoomFeedback ? 'is-visible' : ''}`} aria-hidden="true">{Math.round(scale * 100)}%</p>}
   </div>
 }

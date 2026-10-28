@@ -4,8 +4,9 @@ import { isComposingKey } from '../editor/composition'
 interface Point { x: number; y: number }
 
 export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number) {
-  const [fit, setFit] = useState(1)
   const [autoScale, setAutoScale] = useState(1)
+  // Counts explicit zoom actions so readers can show transient feedback, excluding automatic fitting.
+  const [zoomed, setZoomed] = useState(0)
   const [zooms, setZooms] = useState<{ edit: number | null; read: number | null | undefined }>({ edit: initialScale ?? null, read: initialScale })
   const mode = editable ? 'edit' : 'read'
   const zoom = zooms[mode]
@@ -25,7 +26,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     topPadding.current = paddingTop
     const availableWidth = Math.max(1, viewport.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight))
     const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
-    setFit(Math.min(1, availableWidth / width))
+
     // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
     const automatic = Math.min(3, availableWidth / width, availableHeight / 600)
     if (zoom === null && automatic !== scale && !focal.current) {
@@ -53,6 +54,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
 
   function zoomTo(next: number, client?: Point, snap = false, automatic = false) {
     wheelGesture.current = null
+    setZoomed(count => count + 1)
     if (snap) {
       const target = [1, autoScale].sort((a, b) => Math.abs(Math.log(next / a)) - Math.abs(Math.log(next / b)))
         .find(value => next >= value * .95 && next <= value * 1.05)
@@ -126,5 +128,5 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     }
   }, [])
 
-  return { scale, minScale, automatic: zoom === null, zoomTo, zoomBy, reset, fit: () => zoomTo(fit) }
+  return { scale, minScale, automatic: zoom === null, zoomed, zoomTo, zoomBy, reset }
 }

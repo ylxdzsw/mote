@@ -22,8 +22,10 @@
 @media (max-width: 767px) {
   .cloud-local-recovery { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 12px; }
   .cloud-local-recovery > div > button, .cloud-local-recovery > button:last-child { min-height: 44px; }
-  .app-header.cloud-header { position: relative; inset: auto; height: 50px; background: var(--ui-surface); pointer-events: auto; border-bottom-color: var(--ui-border); }
+  /* A fixed, full-width opaque bar lets iOS Safari extend its color under the status bar instead of showing scrolled content. */
+  .app-header.cloud-header.cloud-header { position: fixed; inset: 0 0 auto; height: 36px; background: var(--ui-surface); pointer-events: auto; border-bottom-color: var(--ui-border); }
+  .app:has(> .cloud-header) { padding-top: 36px; }
   .cloud-header > .save-status, .cloud-header > .header-actions { display: none; }
-  .app-header.cloud-header > .document-switch { display: flex; }
+  .app-header.cloud-header > .document-switch { display: flex; background: transparent; }
   .app:has(.cloud-header) .minimap-pane { margin-top: 0; }
 }

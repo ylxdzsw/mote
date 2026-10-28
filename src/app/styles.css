@@ -169,7 +169,8 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .zoom-level select { appearance: none; width: 100%; height: 100%; padding: 0 22px 0 5px; border: 0; background: transparent; cursor: pointer; font-variant-numeric: tabular-nums; }
 .zoom-level > svg { position: absolute; right: 3px; top: 6px; width: 16px; height: 16px; pointer-events: none; }
 .zoom-level select:hover { color: var(--ui-accent); background: var(--ui-accent-soft); }
-.reading-zoom { display: none; }
+.zoom-feedback { display: none; position: absolute; z-index: 3; top: 12px; left: 50%; margin: 0; padding: 3px 10px; border-radius: 999px; transform: translateX(-50%); background: color-mix(in srgb, var(--ui-surface) 88%, transparent); box-shadow: 0 1px 6px var(--ui-shadow); color: var(--ui-ink); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; opacity: 0; transition: opacity .25s; }
+.zoom-feedback.is-visible { opacity: 1; transition-duration: 0s; }
 .sheet { position: relative; margin: 0 auto; background: var(--page-background); border: 1px solid transparent; }
 .sheet-footprint { position: relative; margin: 0 auto; display: flow-root; }
 .sheet-footprint > .sheet { margin: 0; transform-origin: top left; }
@@ -296,11 +297,9 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 
 @media (max-width: 767px) {
   .app-header { padding-inline: 8px; gap: 4px; }
-  .app-header .document-switch { flex: 1; max-width: calc(100% - 80px); min-height: 44px; font-size: 12px; }
-  .reading-zoom { display: block; position: absolute; z-index: 3; top: 3px; right: 8px; background: var(--ui-surface); border-radius: var(--ui-control-radius); }
-  .reading-zoom .zoom-level { width: 72px; height: 44px; }
-  .reading-zoom .zoom-level > svg { top: 14px; }
+  .app-header .document-switch { flex: 0 1 auto; max-width: min(240px, 100%); min-height: 36px; padding-inline: 6px; font-size: 13px; }
   .save-message { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .zoom-feedback { display: block; }
   .stage { padding-top: 24px; }
   .workspace { display: block; }
   .inspector { position: absolute; top: 0; left: 0; bottom: 0; width: min(280px, 85vw); z-index: 2; box-shadow: 4px 0 16px var(--ui-shadow); }
