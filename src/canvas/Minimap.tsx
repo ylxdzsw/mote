@@ -18,10 +18,32 @@ interface Geometry {
 }
 
 interface Bookmark {
-  paragraph: HTMLElement
+  target: HTMLElement
   button: HTMLButtonElement
   y: number
   scrollY: number
+}
+
+function landmarks(source: HTMLElement) {
+  if (source.hasAttribute('data-slides')) {
+    const slides = [{ target: source, paragraphs: [] as HTMLElement[] }]
+    for (const block of source.querySelectorAll<HTMLElement>('.main-text :is(.main-paragraph, [data-slide-break]):not(.ai-original-hidden)')) {
+      if (block.hasAttribute('data-slide-break')) slides.push({ target: block, paragraphs: [] })
+      else slides.at(-1)!.paragraphs.push(block)
+    }
+    return slides.map(({ target, paragraphs }, index) => {
+      const first = (semantic: string) => paragraphs.find(paragraph => paragraph.dataset.semantic === semantic && paragraph.textContent?.trim())
+      const label = first('title') ?? first('heading')
+      return { target, text: label?.textContent?.trim() || `Slide ${index + 1}`, semantic: 'slide' }
+    })
+  }
+  const paragraphs = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic]:not(.ai-original-hidden)')]
+  const titles = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'title')
+  const hiddenTitle = titles.length === 1 && titles[0] === paragraphs[0] ? titles[0] : null
+  return paragraphs.filter(paragraph => paragraph.dataset.semantic === 'heading'
+    || paragraph.dataset.semantic === 'title' && paragraph !== hiddenTitle).map(target => ({
+    target, semantic: target.dataset.semantic!, text: target.textContent?.trim() || `Untitled ${target.dataset.semantic}`,
+  }))
 }
 
 export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
@@ -90,33 +112,28 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         }
         miniature.style.transform = `translate(6px, ${pageTop * y}px) scale(${x}, ${y})`
 
-        const paragraphs = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic]:not(.ai-original-hidden)')]
-        const titles = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'title')
-        const hiddenTitle = titles.length === 1 && titles[0] === paragraphs[0] ? titles[0] : null
-        const existing = new Map(bookmarks.map(bookmark => [bookmark.paragraph, bookmark.button]))
-        bookmarks = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'heading'
-          || paragraph.dataset.semantic === 'title' && paragraph !== hiddenTitle).map(paragraph => {
-          const semantic = paragraph.dataset.semantic!
-          let button = existing.get(paragraph)
+        navigation.setAttribute('aria-label', source.hasAttribute('data-slides') ? 'Slide bookmarks' : 'Title and heading bookmarks')
+        const existing = new Map(bookmarks.map(bookmark => [bookmark.target, bookmark.button]))
+        bookmarks = landmarks(source).map(({ target, semantic, text }) => {
+          let button = existing.get(target)
           if (!button) {
             button = document.createElement('button')
             button.type = 'button'
             button.className = 'minimap-bookmark'
             button.onpointerdown = event => event.preventDefault()
             button.onclick = () => {
-              viewport.scrollTop = Math.ceil(viewport.scrollTop + paragraph.getBoundingClientRect().top - viewport.getBoundingClientRect().top - viewport.clientTop - bookmarkFocusOffset())
+              viewport.scrollTop = Math.ceil(viewport.scrollTop + target.getBoundingClientRect().top - viewport.getBoundingClientRect().top - viewport.clientTop - bookmarkFocusOffset())
             }
           }
           button.classList.toggle('minimap-bookmark-title', semantic === 'title')
-          const text = paragraph.textContent?.trim() || `Untitled ${semantic}`
           if (button.textContent !== text) button.textContent = text
           button.title = text
           button.setAttribute('aria-label', `Go to ${semantic}: ${text}`)
-          const scrollY = paragraph.getBoundingClientRect().top - rect.top + pageTop * zoom
-          return { paragraph, button, y: scrollY / zoom * y, scrollY }
+          const scrollY = target.getBoundingClientRect().top - rect.top + pageTop * zoom
+          return { target, button, y: scrollY / zoom * y, scrollY }
         }).sort((a, b) => a.y - b.y)
-        for (const [paragraph, button] of existing) {
-          if (!bookmarks.some(bookmark => bookmark.paragraph === paragraph)) button.remove()
+        for (const [target, button] of existing) {
+          if (!bookmarks.some(bookmark => bookmark.target === target)) button.remove()
         }
         bookmarks.forEach(({ button }, index) => {
           if (navigation.children[index] !== button) navigation.insertBefore(button, navigation.children[index] ?? null)
