@@ -12,5 +12,4 @@
 .html-widget iframe { display: block; width: 100%; height: 100%; border: 0; background: transparent; }
 .widget-screenshot { display: none; width: 100%; height: 100%; object-fit: fill; }
 .widget-screenshot.is-static, .minimap-sheet .widget-screenshot { display: block; }
-.ai-review-controls button { padding: 4px 8px; border: 1px solid var(--ui-accent-border); border-radius: 4px; background: var(--ui-surface-raised); color: var(--ui-accent); font: 12px/1.4 system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
 .is-floating-dragging .html-widget iframe { pointer-events: none !important; }

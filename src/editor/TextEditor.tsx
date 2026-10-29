@@ -10,7 +10,7 @@ import { extensions } from './extensions'
 import { useHistory } from '../document/history'
 import { spaceLayoutKey, type SpaceMerge, type SpaceShift } from './spaces'
 import { reservationExtension } from './reservations'
-import type { AIReview } from '../ai/ReviewControls'
+import type { AIReview } from '../ai/types'
 import { paragraphClipboard } from './paragraphClipboard'
 import type { MoteDocument } from '../document/model'
 import { atDocumentTail } from './documentTail'
@@ -140,7 +140,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const reservations = JSON.stringify(history.lockedBlocks.current)
   const segmentPreviews = JSON.stringify(aiReview?.segmentPreviews ?? [])
   const segmentRanges = JSON.stringify(aiReview?.segmentRanges ?? [])
-  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, aiReview?.mainActive, segmentPreviews, segmentRanges, aiReview?.activeSegmentId, editable])
+  useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, segmentPreviews, segmentRanges, aiReview?.activeSegmentId, editable])
 
   return <EditorContent className="text-content" editor={editor} />
 }

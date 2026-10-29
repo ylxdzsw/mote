@@ -1,11 +1,11 @@
 import { Extension, type JSONContent } from '@tiptap/core'
-import { Plugin, TextSelection, type EditorState } from '@tiptap/pm/state'
-import { Decoration, DecorationSet } from '@tiptap/pm/view'
+import { Plugin, TextSelection, type EditorState, type Selection } from '@tiptap/pm/state'
+import { Decoration, DecorationSet, type EditorView } from '@tiptap/pm/view'
 import { DOMSerializer, type Node as ProseMirrorNode } from '@tiptap/pm/model'
 import type { RefObject } from 'react'
 import type { useDocumentHistory } from '../document/history'
-import { reviewControls, reviewKey, type AIReview } from '../ai/ReviewControls'
-import type { AITask } from '../ai/types'
+import type { AIReview } from '../ai/types'
+import { isComposingKey } from './composition'
 import { selectedCandidateVersion } from '../ai/candidates'
 
 const candidates = new WeakMap<object, number>()
@@ -71,6 +71,17 @@ function selectSegment(review: RefObject<AIReview | undefined>, taskId: string) 
   review.current?.selectSegment?.(taskId)
 }
 
+const deletion = (event: KeyboardEvent) => ['Delete', 'Backspace'].includes(event.key) && !isComposingKey(event)
+
+// Widgets stop editor events, so a selected segment handles its own deletion key.
+function deleteSegmentOnKey(review: RefObject<AIReview | undefined>, taskId: () => string) {
+  return (event: KeyboardEvent) => {
+    event.stopPropagation()
+    if (!deletion(event) || !review.current) return
+    event.preventDefault(); review.current.deleteTarget(taskId())
+  }
+}
+
 function segmentPreviewWidget(state: EditorState, preview: SegmentPreview, review: RefObject<AIReview | undefined>) {
   const root = document.createElement('div')
   const active = preview.taskIds.includes(review.current?.activeSegmentId ?? '')
@@ -93,7 +104,10 @@ function segmentPreviewWidget(state: EditorState, preview: SegmentPreview, revie
     const target = (event.target as Element).closest<HTMLElement>('[data-ai-block]') ?? root.querySelector<HTMLElement>('[data-ai-block]') ?? root
     target.focus({ preventScroll: true })
   }
-  root.onkeydown = event => event.stopPropagation()
+  root.onkeydown = deleteSegmentOnKey(review, () => {
+    const active = review.current?.activeSegmentId
+    return active && preview.taskIds.includes(active) ? active : preview.taskId
+  })
   root.addEventListener('focusin', select)
   const serializer = DOMSerializer.fromSchema(state.schema)
   for (const block of preview.content) {
@@ -113,15 +127,6 @@ function segmentPreviewWidget(state: EditorState, preview: SegmentPreview, revie
   return root
 }
 
-function segmentReviewWidget(task: AITask, review: RefObject<AIReview | undefined>, offset = 0) {
-  const root = document.createElement('div')
-  root.className = 'ai-segment-review'
-  root.contentEditable = 'false'
-  root.dataset.aiSegmentReview = task.id
-  if (offset) root.style.transform = `translateY(${offset}px)`
-  root.append(reviewControls(task, () => review.current!))
-  return root
-}
 
 function segmentMarkerWidget(range: SegmentRange, review: RefObject<AIReview | undefined>) {
   const empty = range.from === range.to
@@ -143,14 +148,18 @@ function segmentMarkerWidget(range: SegmentRange, review: RefObject<AIReview | u
   button.onclick = event => { event.preventDefault(); select() }
   root.onpointerdown = event => {
     if (event.button !== 0) return
-    event.preventDefault(); event.stopPropagation(); select()
+    event.preventDefault(); event.stopPropagation(); select(); button.focus({ preventScroll: true })
   }
+  root.onkeydown = deleteSegmentOnKey(review, () => range.taskId)
   root.addEventListener('focusin', select)
   root.append(button)
   return root
 }
 
 export function reservationExtension(history: ReturnType<typeof useDocumentHistory>, id: string, review: RefObject<AIReview | undefined>) {
+  // Segment selection is canvas state; Delete applies only while the editor selection is unchanged since choosing it.
+  let armed: { taskId: string; selection: Selection } | null = null
+  const arm = (view: EditorView, taskId: string) => { selectSegment(review, taskId); armed = { taskId, selection: view.state.selection } }
   return Extension.create({
     name: 'aiReservations',
     addProseMirrorPlugins: () => [new Plugin({
@@ -163,9 +172,39 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
           const target = (event.target as Element).closest<HTMLElement>('[data-ai-segment]')
           if (!target || event.button !== 0 || !review.current?.selectSegment) return false
           event.preventDefault()
-          view.focus(); selectSegment(review, target.dataset.aiSegment!)
+          view.focus(); arm(view, target.dataset.aiSegment!)
           return true
         } },
+        handleKeyDown(view, event) {
+          const current = review.current
+          if (id !== 'main' || !current || !deletion(event)) return false
+          const { doc, selection } = view.state
+          if (armed && current.activeSegmentId === armed.taskId && selection.eq(armed.selection)) {
+            event.preventDefault(); current.deleteTarget(armed.taskId); armed = null; return true
+          }
+          const segment = current.segmentRanges?.find(range => range.from < range.to && range.from <= selection.from && selection.to <= range.to)
+          if (segment) { event.preventDefault(); arm(view, segment.taskId); return true }
+          const blocks: Array<{ id: string; from: number; to: number }> = []
+          doc.forEach((node, position) => {
+            const end = position + node.nodeSize
+            if (selection.empty ? position < selection.from && selection.from < end : position < selection.to && end > selection.from)
+              blocks.push({ id: node.attrs.id, from: position + 1, to: end - 1 })
+          })
+          const task = current.tasks.find(task => task.target.kind === 'text' && blocks.some(block => (task.target as { blockIds: string[] }).blockIds.includes(block.id)))
+          if (!task || task.target.kind !== 'text') return false
+          const ids = task.target.blockIds
+          // Mixed selections stay with the reservation guard; abandoning a task needs a whole-region selection.
+          if (blocks.some(block => !ids.includes(block.id))) return false
+          let from = 0, to = 0
+          doc.forEach((node, position) => {
+            if (node.attrs.id === ids[0]) from = position + 1
+            if (node.attrs.id === ids.at(-1)) to = position + node.nodeSize - 1
+          })
+          event.preventDefault()
+          if (selection.from <= from && selection.to >= to && (!selection.empty || from === to)) current.deleteTarget(task.id)
+          else { view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, from, to))); current.selectText() }
+          return true
+        },
         decorations(state) {
         if (id !== 'main') return DecorationSet.empty
         const current = review.current
@@ -175,11 +214,6 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
         const segmentTasks = new Set([...previewTasks, ...ranges.map(range => range.taskId)])
         const tasks = current?.tasks ?? []
         const decorations: Decoration[] = []
-        const selected = new Set<string>()
-        if (current?.mainActive) state.doc.nodesBetween(state.selection.from, state.selection.to, (node, position) => {
-          if (node.type.name === 'paragraph' && (state.selection.empty || position + 1 < state.selection.to)) selected.add(node.attrs.id)
-          return false
-        })
 
         state.doc.forEach((node, position) => {
           const preview = previews.find(candidate => previewCovers(candidate, position, node.nodeSize))
@@ -219,6 +253,7 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
             }
             root.onpointerdown = event => { if (event.button === 0) { event.preventDefault(); select(); view.focus() } }
             root.addEventListener('focusin', select)
+            root.onkeydown = event => { if (deletion(event)) { event.preventDefault(); review.current?.deleteTarget(task.id) } }
             if (first) root.dataset.aiFirst = ''
             if (last) root.dataset.aiLast = ''
             const serializer = DOMSerializer.fromSchema(state.schema)
@@ -242,33 +277,18 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
             }
             return root
           }, { key: `candidate:${task.id}:${candidateKey(candidate)}:${first}:${last}`, side: -1, stopEvent: () => true }))
-          if (node.attrs.id === ids[0] && ids.some(id => selected.has(id))) decorations.push(Decoration.widget(position, () => {
-            const root = document.createElement('div')
-            root.className = 'ai-text-review'
-            root.contentEditable = 'false'
-            root.append(reviewControls(task, () => review.current!))
-            return root
-          }, { key: reviewKey(task), side: -2, stopEvent: () => true }))
         })
 
-        for (const preview of previews) {
-          const task = tasks.find(candidate => candidate.id === current?.activeSegmentId && preview.taskIds.includes(candidate.id))
-          decorations.push(Decoration.widget(preview.from, () => segmentPreviewWidget(state, preview, review), {
-            key: `segment-preview:${preview.taskId}:${candidateKey(preview.content as object)}:${current?.activeSegmentId}`,
-            side: -1, stopEvent: () => true,
-          }))
-          if (task) decorations.push(Decoration.widget(preview.from,
-            () => segmentReviewWidget(task, review), { key: `segment-review:${reviewKey(task)}:${preview.taskId}`, side: -2, stopEvent: () => true }))
-        }
+        for (const preview of previews) decorations.push(Decoration.widget(preview.from, () => segmentPreviewWidget(state, preview, review), {
+          key: `segment-preview:${preview.taskId}:${candidateKey(preview.content as object)}:${current?.activeSegmentId}`,
+          side: -1, stopEvent: () => true,
+        }))
         for (const range of ranges) {
           if (previewTasks.has(range.taskId)) continue
           decorations.push(Decoration.widget(range.from, () => segmentMarkerWidget(range, review), {
             key: `segment-marker:${range.taskId}:${range.from}:${range.to}:${range.startOffset ?? ''}:${range.endOffset ?? ''}:${current?.activeSegmentId === range.taskId}`,
             side: -3, stopEvent: () => true,
           }))
-          const task = tasks.find(candidate => candidate.id === range.taskId)
-          if (task && current?.activeSegmentId === range.taskId) decorations.push(Decoration.widget(range.from,
-            () => segmentReviewWidget(task, review, range.startOffset), { key: `segment-review:${reviewKey(task)}:${range.taskId}:${range.startOffset}`, side: -2, stopEvent: () => true }))
         }
         return DecorationSet.create(state.doc, decorations)
       } },

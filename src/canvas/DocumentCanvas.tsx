@@ -40,7 +40,7 @@ import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { SegmentBorders } from '../ai/SegmentBorders'
 import { selectedCandidateVersion } from '../ai/candidates'
 import { canResizeReservation, currentPlacement } from '../ai/reservations'
-import { ReviewControls, type AIReview } from '../ai/ReviewControls'
+import type { AIReview } from '../ai/types'
 
 export type CreationTool = 'paragraph' | 'slideBreak' | 'text' | 'code' | 'drawing' | 'ai' | 'table' | 'formula' | 'html' | { image: FloatingImage; ratio: number } | null
 export interface CanvasActions {
@@ -473,7 +473,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     }
     segments.clear()
     const target = event.target as Element
-    if (target.closest('[data-ai-controls], [data-ai-preview]')) return
+    if (target.closest('[data-ai-preview]')) return
     const reservedObject = target.closest<HTMLElement>('[data-note-id]')
     if (reservedObject && segmentTask(reservedObject.dataset.noteId!)) return
     if (target.closest('[data-ai-segment]')) return
@@ -822,7 +822,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const task = segmentTask(id)
     if (task) {
       if (captionSelected) return
-      if (['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); aiReview?.deleteTarget?.(task.id) }
+      if (['Delete', 'Backspace'].includes(event.key)) { event.preventDefault(); aiReview?.deleteTarget(task.id) }
       return
     }
     if (event.key === 'Delete' || event.key === 'Backspace') { event.preventDefault(); if (captionSelected) removeCaption(id); else remove(); return }
@@ -982,13 +982,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           }
           return renderObject(original)
         })}
-        {editable && canvasReview?.tasks.map(task => {
-          if (task.target.kind !== 'object' || !selectedIds.includes(task.target.objectId)) return null
-          const box = geometry[task.target.objectId]
-          if (!box) return null
-          return <ReviewControls key={task.id} task={task} review={canvasReview}
-            style={{ left: Math.max(0, Math.min(box.x, pageWidth() - 300)), top: box.y + box.height, maxWidth: pageWidth() }} />
-        })}
+
         {editable && canvasReview && <SegmentBorders sheet={sheet} tasks={canvasReview.tasks} previews={projection.previews}
           owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}

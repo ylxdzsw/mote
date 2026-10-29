@@ -67,3 +67,15 @@ export interface AssistantCloud {
   sync: () => Promise<{ revision: string; document: MoteDocument } | null>
 }
 export interface AssistantCloudState { revision: string; tasks: AITask[] }
+
+// Canvas hooks for reservation decorations; review actions themselves live in Assistant.
+export interface AIReview {
+  tasks: AITask[]
+  segmentPreviews?: Array<{ taskId: string; taskIds: string[]; from: number; to: number; content: JSONContent[]; blockOwners: Record<string, string> }>
+  segmentRanges?: Array<{ taskId: string; from: number; to: number; startOffset?: number; endOffset?: number }>
+  activeSegmentId?: string | null
+  selectSegment?: (id: string) => void
+  selectText: () => void
+  previewFailed: (id: string, error: unknown) => void
+  deleteTarget: (id: string) => void
+}

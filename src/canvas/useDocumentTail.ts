@@ -16,7 +16,7 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
   function target(event: TailPointer) {
     if (!active || !editor || !sheet.current || event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return null
     const hit = document.elementFromPoint(event.clientX, event.clientY)
-    if (!hit || hit.closest('.stage') !== sheet.current.closest('.stage') || hit.closest('.floating-note, [data-ai-controls], [data-ai-preview], [data-slide-control]')) return null
+    if (!hit || hit.closest('.stage') !== sheet.current.closest('.stage') || hit.closest('.floating-note, [data-ai-preview], [data-slide-control]')) return null
     const surface = sheet.current.getBoundingClientRect()
     if (event.clientY < surface.bottom && event.clientX < surface.left + (sheet.current.clientLeft + leftMargin) * scale) return null
     const slide = slideAtPoint(slides, (event.clientY - surface.top) / scale - sheet.current.clientTop)

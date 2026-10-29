@@ -12,7 +12,7 @@ export function useParagraphInsertion(editor: Editor | null, sheet: RefObject<HT
 
   function target(x: number, y: number): Boundary | null {
     const surface = sheet.current, hit = document.elementFromPoint(x, y)
-    if (!active || !editor || !surface || !hit || !surface.contains(hit) || hit.closest('.floating-note, [data-ai-controls], [data-ai-preview]')) return null
+    if (!active || !editor || !surface || !hit || !surface.contains(hit) || hit.closest('.floating-note, [data-ai-preview]')) return null
     const rect = surface.getBoundingClientRect()
     const localY = (y - rect.top) / scale - surface.clientTop
     const boundary = boundaryAt(localY)
