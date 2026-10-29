@@ -1780,3 +1780,7 @@ Removed the persistent page-wide messages for local AI acceptance and its succes
 ## 2026-10-28 — Whole-segment reservation overlay
 
 Extended the measured section-preview border to original segment reservations: one continuous striped rectangle and dashed perimeter spans the composition, including intervening gaps, partial explicit space, and owned objects/captions. Member-level stripes and outlines are suppressed so a section reads as one reserved area rather than independent items. Empty bookmarks retain their marker, previews retain their solid unshaded border, and individual text/object reservations are unchanged. The pointer-transparent overlay leaves native Flow layout, reservation protection, and task state untouched and stays out of reading, minimaps, and exports.
+
+## 2026-10-28 — Stable slide layout measurements
+
+A reported Edge/Windows blank screen with React error #185 exposed a synchronous layout feedback loop: fresh measurement-context identities recreated an unchanged layout document, and tiny transformed-coordinate differences repeatedly updated React state. Layout memoization now follows the projected document itself, while measured anchor/segment coordinates and slide offsets use a consistent 1/64-document-pixel precision. This is view geometry only, not a document rewrite. Injected subpixel measurement jitter reproduced the crash before the fix; layout must converge rather than merely defer an endless loop to animation frames.

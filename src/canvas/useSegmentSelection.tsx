@@ -10,6 +10,7 @@ import { paragraphClipboardJSON, parseParagraphs } from '../document/paragraphCl
 import { extentBounds, type Anchor, type Box, type Geometries } from './floatingGeometry'
 import { copySlides, deleteSlides, flattenSlides, insertSlides, parseSlides, promoteSlideSelection, serializeSlides, slideObjectIds, slideSelectionRange, slidesClipboardJSON, SLIDES_MIME, type SlideSelection } from '../document/slideClipboard'
 import { objectSlideIndex, slideAtIndex, slideRanges } from '../document/slides'
+import { layoutPixel } from './measurement'
 import './segment.css'
 
 interface Props {
@@ -93,12 +94,12 @@ export function useSegmentSelection(props: Props) {
       const element = editor.view.nodeDOM(from) as HTMLElement
       const candidate = sheet.current!.querySelector<HTMLElement>(`[data-ai-block="${node.attrs.id}"]`)?.closest('.main-paragraph')
       const box = (candidate ?? element).getBoundingClientRect()
-      const top = (box.top - rect.top) / scale - border, space = node.type.name === 'spacer'
-      let bottom = top + box.height / scale
+      const top = layoutPixel((box.top - rect.top) / scale - border), space = node.type.name === 'spacer'
+      let bottom = layoutPixel((box.bottom - rect.top) / scale - border)
       // Extra candidate paragraphs belong to the final original reservation block.
       for (let next = candidate?.nextElementSibling; next?.getAttribute('data-ai-block') === ''; next = next.nextElementSibling) {
         const box = next.getBoundingClientRect()
-        bottom = (box.bottom - rect.top) / scale - border
+        bottom = layoutPixel((box.bottom - rect.top) / scale - border)
       }
       const height = space ? node.attrs.height : bottom - top
       blocks.push({ top, bottom: top + height, height, space })

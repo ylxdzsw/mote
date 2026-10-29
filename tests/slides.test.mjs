@@ -160,6 +160,7 @@ test('enabling partitions headings and measured height, never repartitions a hei
 
 test('packing keeps oversized Flow/caption compositions and signed Float offsets intact', () => {
   const source = document([p('a'), { type: 'flow', attrs: { id: 'flow', objectId: 'figure' } }, p('b')])
+  source.theme.flow = { spaceBefore: px(0), spaceAfter: px(0) }
   source.objects = [
     { id: 'figure', kind: 'image', src: 'data:image/png;base64,iVBORw0KGgo=', alt: '', layout: { width: 200, placement: { type: 'flow', x: 'center' } },
       caption: { width: 260, content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption' }, content: [{ type: 'text', text: 'Caption' }] }] } } },

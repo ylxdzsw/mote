@@ -147,7 +147,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const task = editable && aiReview?.tasks.find(task => task.target.kind === 'object' && task.target.objectId === object.id)
     const candidate = task ? selectedCandidateVersion(task)?.candidate : undefined
     return task && task.preview && candidate?.object ? currentPlacement(candidate.object, object) : object
-  }), ...inserting, ...(creating ? [creating] : [])] }), [projection, creating, inserting, editable, aiReview?.tasks])
+  }), ...inserting, ...(creating ? [creating] : [])] }), [projection.document, creating, inserting, editable, aiReview?.tasks])
   const { geometry, anchors, minHeight, sideInsets, flowMounts, slides, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews, editable || expandSlides)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0

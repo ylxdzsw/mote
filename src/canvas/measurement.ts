@@ -1,3 +1,7 @@
+// Browser layout uses subpixels; discard transform round-off before feeding
+// measured coordinates back into React state or another layout pass.
+export const layoutPixel = (value: number) => Math.round(value * 64) / 64
+
 // Computed box dimensions stay in document pixels, independent of view transforms.
 export function nativeSize(element: HTMLElement) {
   const style = getComputedStyle(element)

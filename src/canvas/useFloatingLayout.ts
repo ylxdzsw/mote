@@ -4,7 +4,7 @@ import type { Editor } from '@tiptap/core'
 import { supportsCaption, shiftSpaceObjects, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { spaceLayoutKey } from '../editor/spaces'
 import { extentBounds, layoutBounds, resolveGeometry, slideAtPoint, visualBottom, type Anchor, type Geometries, type SlideGeometry } from './floatingGeometry'
-import { nativeSize } from './measurement'
+import { layoutPixel, nativeSize } from './measurement'
 import { objectSlideIndex, slideRanges } from '../document/slides'
 import './SlideRulers.css'
 
@@ -86,8 +86,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       const objects = shiftSpaceObjects(doc.objects, spaceLayoutKey.getState(editor!.state)?.shift, doc.content)
       const rect = surface.getBoundingClientRect()
       const scale = rect.width / nativeSize(surface).width
-      const localTop = (element: Element) => (element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop
-      const localLeft = (element: Element) => (element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft
+      const localTop = (element: Element) => layoutPixel((element.getBoundingClientRect().top - rect.top) / scale - surface.clientTop)
+      const localLeft = (element: Element) => layoutPixel((element.getBoundingClientRect().left - rect.left) / scale - surface.clientLeft)
       const column = { left: doc.page.margins.left, width: surface.clientWidth - doc.page.margins.left - doc.page.margins.right }
       const elements = new Set<Element>([editor!.view.dom])
       const heights = new Map<string, number>()
@@ -186,9 +186,9 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           const first = group[0]?.element
           const shift = first ? slideTop + doc.page.margins.top + (parseFloat(getComputedStyle(first).marginTop) || 0)
             - localTop(first) + (parseFloat(first.style.getPropertyValue('--slide-offset')) || 0) : 0
-          for (const { element } of group) property(element, '--slide-offset', `${Math.round(shift * 64) / 64}px`)
+          for (const { element } of group) property(element, '--slide-offset', `${layoutPixel(shift)}px`)
           const boundary = breaks.get(groupIndex)
-          if (boundary) property(boundary, '--slide-offset', `${slideTop - localTop(boundary) + (parseFloat(boundary.style.getPropertyValue('--slide-offset')) || 0)}px`)
+          if (boundary) property(boundary, '--slide-offset', `${layoutPixel(slideTop - localTop(boundary) + (parseFloat(boundary.style.getPropertyValue('--slide-offset')) || 0))}px`)
           for (const note of objects) {
             const movingTop = override[note.id]?.top
             const owner = movingTop === undefined ? objectSlideIndex(doc, note)
