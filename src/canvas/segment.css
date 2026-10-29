@@ -1,5 +1,8 @@
 .segment-layer { --segment-cursor: var(--ui-segment-cursor); }
 .segment-layer { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.segment-selection { z-index: auto; }
+.segment-selection > * { z-index: 1; }
+.segment-selection > .segment-boundary { z-index: 5; }
 html.segment-dragging, html.segment-dragging * { cursor: var(--ui-segment-cursor) !important; }
 html.segment-moving, html.segment-moving * { cursor: grabbing !important; }
 .stage:focus { outline: none; }

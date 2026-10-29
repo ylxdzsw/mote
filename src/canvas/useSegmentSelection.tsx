@@ -515,7 +515,7 @@ export function useSegmentSelection(props: Props) {
     if (nextSide !== side) live.current.stage.current!.querySelector<HTMLButtonElement>(`[data-segment-control="${nextSide}"]`)!.focus({ preventScroll: true })
   }
   const styleBox = (box: Box) => ({ left: (box.x + 1) * props.scale, top: (box.y + 1) * props.scale, width: box.width * props.scale, height: box.height * props.scale })
-  const overlay = props.editable && <div className={`segment-layer${range ? ' has-segment' : ''}${slides ? ' has-slides' : ''}`}>
+  const overlay = props.editable && <div className={`segment-layer segment-selection${range ? ' has-segment' : ''}${slides ? ' has-slides' : ''}`}>
     <div className="segment-gutter" data-segment-control="gutter" title={props.doc.page.slideHeight ? "Drag to select segments or slides" : "Drag to select a segment · Alt splits explicit spaces"} />
     {range && <>
       {paint.bands.map((box, index) => <div className="segment-band" data-segment-control="move" title={slides ? "Drag to reorder slides" : "Drag to move segment · Alt splits spaces"} key={index} style={styleBox(box)} />)}
