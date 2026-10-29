@@ -175,10 +175,10 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     return true
   }
   async function newDocument(options: NewFileOptions) {
-    let document = initializeDocument(options.example ? createDocument() : createBlankDocument())
+    let document = initializeDocument(options.example ? createDocument(options) : createBlankDocument())
     document.theme.appearance.mode = options.mode
     document.language = options.language
-    if (options.slideHeight !== undefined) document = setSlides(document, true, options.slideHeight)
+    if (!options.example && options.slideHeight !== undefined) document = setSlides(document, true, options.slideHeight)
     const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
     const retain = options.example || options.modified
     const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, dirty: retain, draft: true, updatedAt: now,

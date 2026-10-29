@@ -87,7 +87,7 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
               onChange={() => { setLanguage('zh-Hans'); setModified(true) }} /><span lang="zh-Hans">简体中文</span></label>
           </div>
         </fieldset>
-        <small>For document text, not the interface.</small>
+        <small>{example ? 'Chooses the example language, not the interface.' : 'For document text, not the interface.'}</small>
       </div>
     </div>
     <div className="files-form-row">

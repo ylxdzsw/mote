@@ -386,15 +386,22 @@ test('segment and paragraph clipboards retain target slots without transferring 
   }
 })
 
-test('the example embeds image, table, and widget captions but no drawing caption', () => {
-  const example = createDocument()
-  const objects = example.objects
-  assert.equal(objects.filter(object => object.kind === 'image').every(object => !!object.caption), true)
-  assert.equal(objects.filter(object => object.kind === 'table').every(object => !!object.caption), true)
-  assert.equal(objects.filter(object => object.kind === 'html').every(object => !!object.caption), true)
-  assert.equal(objects.filter(object => object.caption).every(object => object.caption.content.type === 'doc'), true)
-  assert.equal(objects.filter(object => object.kind === 'drawing').every(object => !object.caption), true)
-  initializeDocument(example)
+test('all four examples have native objects, owned captions, and the chosen language and layout', () => {
+  for (const language of ['en', 'zh-Hans']) for (const slideHeight of [undefined, 540]) {
+    const example = createDocument({ language, slideHeight })
+    const objects = example.objects
+    assert.equal(example.language, language)
+    assert.equal(example.version, slideHeight ? 2 : 1)
+    assert.equal(example.page.slideHeight, slideHeight)
+    assert.equal(example.content.content.filter(block => block.type === 'slideBreak').length, slideHeight ? 9 : 0)
+    assert.deepEqual([...new Set(objects.map(object => object.kind))].sort(), ['code', 'drawing', 'formula', 'html', 'image', 'table', 'text'])
+    assert.equal(objects.filter(object => object.kind === 'image').every(object => !!object.caption), true)
+    assert.equal(objects.filter(object => object.kind === 'table').every(object => !!object.caption), true)
+    assert.equal(objects.filter(object => object.kind === 'html').every(object => !!object.caption), true)
+    assert.equal(objects.filter(object => object.caption).every(object => object.caption.content.type === 'doc'), true)
+    assert.equal(objects.filter(object => object.kind === 'drawing').every(object => !object.caption), true)
+    initializeDocument(example)
+  }
 })
 
 test('deleting an ordinary anchor converts page coordinates when its predecessor is Flow', () => {
