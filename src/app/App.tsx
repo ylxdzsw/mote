@@ -46,6 +46,8 @@ import { objectSlideIndex, slideRanges } from '../document/slides'
 import { uiThemeVariables } from '../theme/ui'
 import { Launchpad } from './Launchpad'
 import { DocumentNotes } from './DocumentNotes'
+import { ReaderPage } from '../reader/ReaderPage'
+import { usePreview } from '../reader/usePreview'
 
 export function App() {
   return <CloudWorkspace renderDocument={(copy, onFiles, onOpen) => <DraftSession key={copy.getSnapshot().record.key} copy={copy} onFiles={onFiles} onOpen={onOpen} />} />
@@ -103,10 +105,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }, [copy, assistant.flushLocal])
   const latest = useRef(doc)
   latest.current = doc
-  const [mode, setMode] = useState<'edit' | 'read'>('edit')
+  const preview = usePreview()
   const mobile = useMedia('(max-width: 767px)')
   const smallScreen = useMedia('(max-width: 1050px)')
-  const editable = writable && assistant.loaded && !mobile && mode === 'edit'
+  const editable = writable && assistant.loaded && !mobile
   const screenshot = useWidgetScreenshot(history, editable, assistant.lockedIds)
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -451,8 +453,33 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     : cloud.error ? 'Sync needs attention' : cloud.local === 'saving' ? 'Saving locally…'
     : cloud.record.dirty ? 'Saved locally · changes pending' : cloud.record.draft ? 'Empty draft · not saved to cloud' : 'Synced'
 
+  const syncNotice = (cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
+      <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
+        : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`
+        : cloud.deleted ? 'This document was deleted on the server. Your working copy is preserved.' : cloud.error}</p>
+      {cloud.auth && <a href={loginURL()} target="_blank" rel="noopener noreferrer">Sign in</a>}
+      {cloud.local === 'error' && <button onClick={copy.retryLocal}>Retry local save</button>}
+      {(cloud.conflict || cloud.deleted) ? <>
+        <button disabled={cloud.syncing} onClick={() => {
+          const name = window.prompt('Name for the new cloud document', `${cloud.record.meta.name} (copy)`)
+          if (name?.trim()) void copy.saveAs(name.trim()).then(result => { if (result) onOpen(result.id) })
+        }}>Save as copy</button>
+        <button disabled={cloud.syncing} onClick={() => {
+          if (!window.confirm("Discard this local working copy's changes? This cannot be undone.")) return
+          if (cloud.deleted) {
+            void copy.flushLocal().then(() => deleteWorkingCopy(cloud.record.key)).then(() => { location.assign('/') }).catch(() => copy.retryLocal())
+          } else void copy.discard()
+        }}>Discard local changes</button>
+        {cloud.conflict && <button disabled={cloud.syncing} onClick={() => {
+          if (window.confirm('Overwrite the cloud version with this working copy? No recovery copy will be created.')) void copy.overwrite()
+        }}>Overwrite cloud version</button>}
+      </> : <button disabled={cloud.syncing} onClick={() => void copy.sync()}>Retry sync</button>}
+    </div>
+
+  if (mobile) return <ReaderPage initial={doc} notice={syncNotice} />
+
   return <HistoryContext value={history}><div className="app" style={uiStyle}>
-    <header className={`app-header cloud-header ${editable ? '' : 'floating-header'}`}>
+    <header className="app-header cloud-header">
       <button className="document-switch" onClick={onFiles} aria-label={`Switch document: ${cloud.record.meta.name}`} title={`${cloud.record.meta.name} · Switch document`}>
         <span>{cloud.record.meta.name}</span><PanelIcon name="chevron" />
       </button>
@@ -485,34 +512,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           <button className="header-icon-btn" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
             onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen) }}><PanelIcon name="settings" /></button>
         </>}
-        {!mobile && <button className="read-button" aria-label={mode === 'edit' ? 'Read document' : 'Edit document'} aria-pressed={mode === 'read'}
-          onClick={() => setMode(mode === 'edit' ? 'read' : 'edit')}><PanelIcon name={mode === 'edit' ? 'book' : 'edit'} /><span>{mode === 'edit' ? 'Read' : 'Edit'}</span></button>}
+        <button className="preview-button" aria-label="Preview document" title="Preview in a new tab or window" disabled={preview.busy}
+          onClick={() => void preview.open(doc)}><span>Preview</span><PanelIcon name="export" /></button>
       </div>
     </header>
 
     <ShareWindow open={editable && shareOpen} onClose={() => setShareOpen(false)} copy={copy} documentId={doc.id} name={cloud.record.meta.name} privateDocument={sharingBlocked} />
-    {(cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
-      <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'
-        : cloud.conflict ? `The cloud document changed (${new Date(cloud.conflict.updatedAt).toLocaleString()}). Your working copy is preserved.`
-        : cloud.deleted ? 'This document was deleted on the server. Your working copy is preserved.' : cloud.error}</p>
-      {cloud.auth && <a href={loginURL()} target="_blank" rel="noopener noreferrer">Sign in</a>}
-      {cloud.local === 'error' && <button onClick={copy.retryLocal}>Retry local save</button>}
-      {(cloud.conflict || cloud.deleted) ? <>
-        <button disabled={cloud.syncing} onClick={() => {
-          const name = window.prompt('Name for the new cloud document', `${cloud.record.meta.name} (copy)`)
-          if (name?.trim()) void copy.saveAs(name.trim()).then(result => { if (result) onOpen(result.id) })
-        }}>Save as copy</button>
-        <button disabled={cloud.syncing} onClick={() => {
-          if (!window.confirm("Discard this local working copy's changes? This cannot be undone.")) return
-          if (cloud.deleted) {
-            void copy.flushLocal().then(() => deleteWorkingCopy(cloud.record.key)).then(() => { location.assign('/') }).catch(() => copy.retryLocal())
-          } else void copy.discard()
-        }}>Discard local changes</button>
-        {cloud.conflict && <button disabled={cloud.syncing} onClick={() => {
-          if (window.confirm('Overwrite the cloud version with this working copy? No recovery copy will be created.')) void copy.overwrite()
-        }}>Overwrite cloud version</button>}
-      </> : <button disabled={cloud.syncing} onClick={() => void copy.sync()}>Retry sync</button>}
-    </div>}
+    {preview.error && <div className="image-error" role="alert">{preview.error}<button aria-label="Dismiss preview error" onClick={preview.dismiss}>×</button></div>}
+    {syncNotice}
 
     <input ref={imageInput} type="file" hidden aria-label="Image file" accept="image/png,image/jpeg,image/webp,image/gif,image/avif"
       onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; if (file && imageTarget.current) void uploadImages([file], imageTarget.current) }} />

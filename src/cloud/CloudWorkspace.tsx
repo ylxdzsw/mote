@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { ReadDocument } from '../canvas/ReadDocument'
+import { ReaderPage } from '../reader/ReaderPage'
 import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
 import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
@@ -31,16 +31,14 @@ function sharedDocument(token: string) {
 function SharedPage({ token }: { token: string }) {
   const [loaded, setLoaded] = useState<{ name: string; document: MoteDocument }>()
   const [error, setError] = useState('')
-  const small = useMedia('(max-width: 1050px)')
-  const style = useMemo(() => loaded && uiThemeVariables(loaded.document.theme), [loaded])
   useEffect(() => {
     let active = true
     void sharedDocument(token).then(value => { if (active) { setLoaded(value); document.title = `${value.name} · Mote` } },
-      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1 document.` : 'This shared document could not be opened.') })
+      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1 or V2 document.` : 'This shared document could not be opened.') })
     return () => { active = false }
   }, [token])
   if (!loaded) return <main className="loading"><h1>Mote</h1><p role={error ? 'alert' : 'status'}>{error || 'Opening shared document…'}</p></main>
-  return <div className="app" style={style}><main className="workspace reader"><ReadDocument initial={loaded.document} minimap={!small} /></main></div>
+  return <ReaderPage initial={loaded.document} />
 }
 
 type RenderDocument = (copy: WorkingCopy, files: () => void, open: (id: string) => void) => ReactNode
@@ -55,6 +53,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   path: string; onPath: (path: string) => void; renderDocument: RenderDocument
 }) {
   const id = /^\/d\/([\da-f-]+)\/?$/.exec(path)?.[1] ?? ''
+  const mobile = useMedia('(max-width: 767px)')
   const [copy, setCopy] = useState<WorkingCopy>()
   const [filesOpen, setFilesOpen] = useState(!id)
   const [loading, setLoading] = useState(!!id)
@@ -225,11 +224,11 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       <p>{loading ? 'Opening document…' : error || 'Your private document workspace.'}</p>
       {!!error && <button onClick={() => setRetry(value => value + 1)}>Retry</button>}
       {unopened && <button onClick={() => void downloadRecovery(unopened)}>Download recovery</button>}
-      <button onClick={() => setFilesOpen(true)}>Files</button>
+      {(!mobile || !id) && <button onClick={() => setFilesOpen(true)}>Files</button>}
     </main>}
     <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
-    <FilesWindow open={filesOpen} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument} onImport={importDocument}
+    <FilesWindow open={filesOpen && (!mobile || !id)} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument} onImport={importDocument}
       onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
       pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
     {recoveryOpen && <LocalRecovery onClose={() => setRecoveryOpen(false)}>

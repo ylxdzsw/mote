@@ -87,7 +87,7 @@ R(\theta)&=\begin{bmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{bmat
       { type: 'link', attrs: { href: text('https://en.wikipedia.org/wiki/Curiosity', 'https://zh.wikipedia.org/wiki/好奇心') } },
       { type: 'color', attrs: { color: 'secondary' } },
     ] },
-    { type: 'text', text: text('. Ctrl/⌘-click while editing; click normally in Read.', '。编辑时按住 Ctrl/⌘ 点击；阅读时直接点击。') },
+    { type: 'text', text: text('. Ctrl/⌘-click while editing; click normally in Preview or a reader.', '。编辑时按住 Ctrl/⌘ 点击；阅读时直接点击。') },
   ] }
 
   const sections: JSONContent[][] = [
@@ -116,7 +116,7 @@ R(\theta)&=\begin{bmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{bmat
     [p('Keep the source close', '让源码就在手边', 'heading'),
       p('Code keeps whitespace, line numbers, syntax colors, and an exact-source Copy action. It is displayed, not executed.', '代码保留空白、行号和语法高亮，还能一键复制原始源码。代码对象只展示内容，不执行程序。'), code],
     [p('Invite the reader to explore', '让读者也能动手探索', 'heading'),
-      p(slides ? 'Choose a rhythm below. This widget works offline, too.' : 'Select the widget once in Edit, then try its buttons. In Read, interact directly. Its HTML, CSS, and JavaScript run in a sandbox, with no external dependencies.',
+      p(slides ? 'Choose a rhythm below. This widget works offline, too.' : 'Select the widget once in the editor, then try its buttons. In Preview or a reader, interact directly. Its HTML, CSS, and JavaScript run in a sandbox, with no external dependencies.',
         slides ? '选择下方的一种节奏。这个组件离线也能使用。' : '编辑时先选中组件，再点击按钮；阅读时可以直接交互。它的 HTML、CSS 和 JavaScript 在沙盒中运行，不依赖外部资源。'), widget],
     [p(slides ? 'A pause, inside a page' : 'Whitespace is content, too', slides ? '一页之内，也可以停顿' : '留白，也是内容', 'heading'),
       p('The gap below is explicit space. Hold Alt near a block boundary to add or resize it; objects in Flow already make their own room.', '下方的间隔是显式留白。在块边界附近按住 Alt 拖动，可以添加或调整它；随文对象已经会自动撑开空间。'),
@@ -126,7 +126,7 @@ R(\theta)&=\begin{bmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{bmat
         slides ? '每页幻灯片都有保存的裁切范围。在 Settings → Document → Layout 中调整高度，用 Add → Slide break 开始新的一页。' : '想分成一页一页来讲？在 Settings → Document → Layout 中启用 Slides。独立的幻灯片示例按 960 × 540 页面编排。')],
     [p('Make this space yours', '把这里变成你的工作台', 'heading'),
       p('Use semantic Title, Heading, and Body styles. Settings → Document → Theme changes the palette, typography, and Light / Dark appearance together.', '使用语义化的标题、章节与正文样式。在 Settings → Document → Theme 中统一调整配色、字体与明暗外观。'),
-      p('Open the title to find Files. Changes save locally and sync to the cloud; Ctrl/⌘S syncs now.', '点击顶栏文件名打开 Files。修改会保存在本地并同步到云端；按 Ctrl/⌘S 立即同步。', 'list'),
+      p('In the editor, open the title to find Files. Changes save locally and sync to the cloud; Ctrl/⌘S syncs now.', '编辑时点击顶栏文件名打开 Files。修改会保存在本地并同步到云端；按 Ctrl/⌘S 立即同步。', 'list'),
       p('Use Notes for private scratch work. Notes stay out of public links, PNG, and HTML.', '用 Notes 记下内部草稿。公开链接、PNG 和 HTML 都不会包含这些笔记。', 'list'),
       p('Reserve a passage in Assistant, describe a change, and review the candidate before accepting.', '在 Assistant 中预留一段内容，描述修改需求，查看候选结果后再接受。', 'list'),
       p('Share offers an optional reading link and exports to .mote, HTML, or PNG. Private blocks public links, not local exports.', 'Share 提供可选的阅读链接，以及 .mote、HTML 和 PNG 导出。Private 会禁止公开链接，但不影响本地导出。', 'list'),

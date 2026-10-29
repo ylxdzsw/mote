@@ -983,7 +983,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           return renderObject(original)
         })}
 
-        {editable && canvasReview && <SegmentBorders sheet={sheet} tasks={canvasReview.tasks} previews={projection.previews}
+        {editable && canvasReview && <SegmentBorders tasks={canvasReview.tasks} previews={projection.previews}
           owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>

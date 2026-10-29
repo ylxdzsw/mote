@@ -1,19 +1,20 @@
-import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import { extentBounds, type Box, type Geometries } from '../canvas/floatingGeometry'
 import { nativeSize } from '../canvas/measurement'
 import type { SegmentPreview } from './segmentProjection'
 import type { AITask } from './types'
 
 // An overlay, not a wrapper: paragraph margin collapse and Flow mounts stay native.
-export function SegmentBorders({ sheet, tasks, previews, owners, geometry, activeId }: {
-  sheet: RefObject<HTMLDivElement | null>; tasks: AITask[]; previews: SegmentPreview[]
+export function SegmentBorders({ tasks, previews, owners, geometry, activeId }: {
+  tasks: AITask[]; previews: SegmentPreview[]
   owners: Map<string, string>; geometry: Geometries; activeId: string | null
 }) {
   const root = useRef<HTMLDivElement>(null)
   const previewIds = new Set(previews.flatMap(preview => preview.taskIds))
   const ids = tasks.filter(task => task.target.kind === 'segment').map(task => task.id)
   useLayoutEffect(() => {
-    const surface = sheet.current!, rect = surface.getBoundingClientRect()
+    // A child's layout effect runs before its parent's sheet ref is attached.
+    const surface = root.current!.parentElement!, rect = surface.getBoundingClientRect()
     const scale = rect.width / nativeSize(surface).width
     const boxes = new Map(ids.map(id => [id, [] as Box[]]))
     for (const element of surface.querySelectorAll<HTMLElement>('.ai-segment-preview > [data-ai-segment-owner], .ai-segment-reserved:not([data-ai-empty])')) {
