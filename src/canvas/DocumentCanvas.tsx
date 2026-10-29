@@ -161,7 +161,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     () => { onToolChange(null); onActive(mainEditor) }, tool === 'slideBreak' ? index => {
       if (commitDocument(insertSlideBreak(doc, index))) { segments.clear(); onToolChange(null) }
     } : undefined)
-  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.page.margins.left, doc.theme, () => { select([]); onActive(mainEditor) })
+  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.page.margins.left, doc.theme, slides, () => { select([]); onActive(mainEditor) })
   const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage,
     onStart: () => { cancel(); segments.clear(); setActiveSegmentId(null); select([]); onActive(null); onToolChange(null) },
     onReady: (image, ratio) => onToolChange({ image, ratio }),

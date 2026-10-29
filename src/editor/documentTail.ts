@@ -3,7 +3,8 @@ import { GapCursor } from '@tiptap/pm/gapcursor'
 import { Plugin, TextSelection, type EditorState } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
-export const atDocumentTail = (state: EditorState) => state.selection instanceof GapCursor && state.selection.head === state.doc.content.size
+export const atDocumentTail = (state: EditorState) => state.selection instanceof GapCursor
+  && (state.selection.head === state.doc.content.size || state.selection.$head.nodeAfter?.type.name === 'slideBreak')
 
 export const DocumentTail = Extension.create({
   name: 'documentTail',
@@ -13,7 +14,7 @@ export const DocumentTail = Extension.create({
       Enter: () => {
         if (!atDocumentTail(this.editor.state)) return false
         return this.editor.commands.command(({ tr, state }) => {
-          const end = tr.doc.content.size
+          const end = tr.selection.head
           const paragraph = () => state.schema.nodes.paragraph.create({ id: crypto.randomUUID(), semantic: 'body' })
           tr.insert(end, [paragraph(), paragraph()])
             .setSelection(TextSelection.create(tr.doc, end + 3)).setStoredMarks([]).setMeta('historyBoundary', true).scrollIntoView()

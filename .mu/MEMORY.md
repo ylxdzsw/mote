@@ -1784,3 +1784,7 @@ Extended the measured section-preview border to original segment reservations: o
 ## 2026-10-28 — Stable slide layout measurements
 
 A reported Edge/Windows blank screen with React error #185 exposed a synchronous layout feedback loop: fresh measurement-context identities recreated an unchanged layout document, and tiny transformed-coordinate differences repeatedly updated React state. Layout memoization now follows the projected document itself, while measured anchor/segment coordinates and slide offsets use a consistent 1/64-document-pixel precision. This is view geometry only, not a document rewrite. Injected subpixel measurement jitter reproduced the crash before the fix; layout must converge rather than merely defer an endless loop to animation frames.
+
+## 2026-10-29 — Per-slide writing tails
+
+Unused space below a slide’s last main-flow block now uses the existing document-tail interaction instead of letting browser caret hit testing jump to the next slide. Measured, editing-expanded slide bounds choose the owner; its next native break is the insertion limit. Final paragraphs reuse their text-end caret, while trailing spaces and Flow compositions reuse the transient GapCursor, including caption-aware hints, slide-relative visual offsets, Enter, Escape, and IME history handling. Activation remains view-only and the last slide retains scroll-past-bottom targeting. Borders, gutters, objects, modifiers, and reading keep their existing interactions; native data and slide boundaries are unchanged until the user writes.

@@ -3,6 +3,7 @@
 .sheet[data-slides] > .main-text > .text-content > .tiptap { display: flow-root; min-height: 0; height: max(0px, calc(var(--slides-height) - var(--margin-top) - var(--margin-bottom))); }
 .sheet[data-slides] .main-text :is(.main-paragraph, [data-flow], [data-spacer], [data-space-preview], [data-slide-break]) { position: relative; top: var(--slide-offset, 0px); }
 .main-text [data-slide-break] { display: flow-root; height: 0; margin: 0; padding: 0; border: 0; }
+.sheet[data-slides] .has-tail-caret > .ProseMirror-gapcursor { transform: translateY(var(--tail-slide-offset, 0px)); }
 .slide-rulers { position: absolute; inset: 0 auto auto 0; z-index: 4; pointer-events: none; transform-origin: top left; }
 .slide-ruler { position: absolute; left: 0; right: 0; border-top: calc(1px / var(--ruler-scale)) solid var(--ui-border); }
 .slide-ruler > span { position: absolute; right: calc(100% + 8px / var(--ruler-scale)); top: calc(5px / var(--ruler-scale)); color: var(--ui-muted); font: calc(10px / var(--ruler-scale))/1.2 var(--ui-font-family, sans-serif); font-variant-numeric: tabular-nums; }
