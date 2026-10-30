@@ -142,7 +142,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .canvas-pane { --minimap-width: 100px; --bookmark-width: 96px; --bookmark-folded-width: 10px; position: relative; min-width: 0; height: 100%; min-height: 0; background: var(--page-background, var(--ui-canvas)); }
 .canvas-pane.has-minimap { display: grid; grid-template-columns: calc(var(--minimap-width) + var(--bookmark-folded-width)) minmax(0, 1fr); }
 .has-minimap .stage { grid-column: 2; grid-row: 1; }
-.stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 32px 24px 64px; min-width: 0; background: inherit; }
+.stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 24px; min-width: 0; background: inherit; }
 .stage::-webkit-scrollbar { display: none; }
 .minimap-pane { position: relative; z-index: 1; grid-column: 1; grid-row: 1; display: grid; grid-template-columns: var(--minimap-width); min-height: 0; }
 .minimap { position: relative; overflow: hidden; min-height: 0; background: var(--ui-minimap); border-right: 1px solid var(--ui-workspace-border); touch-action: none; user-select: none; cursor: pointer; }
@@ -295,7 +295,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
   .app-header .document-switch { flex: 0 1 auto; max-width: min(240px, 100%); min-height: 36px; padding-inline: 6px; font-size: 13px; }
   .save-message { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
   .zoom-feedback { display: block; }
-  .stage { padding-top: 24px; }
   .workspace { display: block; }
   .inspector { position: absolute; top: 0; left: 0; bottom: 0; width: min(280px, 85vw); z-index: 2; box-shadow: 4px 0 16px var(--ui-shadow); }
   .canvas-pane { --minimap-width: 72px; --bookmark-width: 66px; }

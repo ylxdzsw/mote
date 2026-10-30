@@ -26,6 +26,8 @@ npm run test:ai # Essential Flow model, reservation, and fake-backend checks; no
 
 Editing uses a compact document workbench: 28px standard controls, 12px UI text with 11px secondary labels, aligned property rows, and flat sections rather than stacked cards. The 50px title bar and stable 288px / 268px Context–Assistant lane keep the document in place. Settings, Files, Share/export, creation menus, and drawing/source editors use the same control scale. Prompts and source editors retain useful writing space; page-layout and typography explanations sit in contextual disclosures.
 
+The canvas stage has 24px padding on all sides outside the document border, separate from authored text margins and the editing-only scroll-past-bottom room. Reading retains zero horizontal stage padding.
+
 Interface density does not change document typography, geometry, or zoom. Light/Dark appearance and the Primary hue apply throughout, including Files and Local recovery. Below 768px, Mote remains reading-only. Opening Mote without a selected document shows Files with larger touch targets; choosing a document opens the chrome-free reader. Browser Back or returning to `/` brings back Files.
 
 Native paragraphs, text boxes, table cells, and captions use automatic CSS hyphenation with the document's text language, without changing alignment. Editing, reading, minimap, PNG, and standalone HTML share this styling. Available hyphenation dictionaries depend on the browser and operating system; Code, Drawing, and embedded widget source are unaffected.

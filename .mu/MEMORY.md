@@ -1827,3 +1827,7 @@ Pending AI tasks were the deciding constraint. Agents work from a coherent old s
 ## 2026-10-30 — Table color pairs
 
 Tables now reuse the Context Strong/Soft pair picker: Simple fills its header with Soft, while Business uses Strong for its header band and Soft for alternating rows. Academic stays monochrome and hides the picker, retaining the selected pair for switching back. The choice belongs to the table, not its cell typography, and shares the object renderer across reading, minimaps, and exports. Omitted colors preserve the previous Gray Simple / Secondary Business appearance. This optional field introduces V3 with a non-breaking V2→V3 version-only migration; older task snapshots still reject the new field. Slides edits retain newer versions instead of downgrading them.
+
+## 2026-10-30 — Uniform canvas surround spacing
+
+Stage padding is now 24px on every side instead of 32px top / 24px sides / 64px bottom, reducing excess surround space without changing authored margins or document geometry. The reader keeps its zero horizontal padding, and editing-only scroll-past-bottom room remains independent.
