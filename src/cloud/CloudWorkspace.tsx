@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactN
 import { ReaderPage } from '../reader/ReaderPage'
 import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
+import { DOCUMENT_VERSION, migrationBreaking } from '../../shared/document.mjs'
+import { aiRequest, assistantRequest } from '../ai/api'
+import type { AITask } from '../ai/types'
 import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
 import { setSlides } from '../document/slides'
 import { loadDraft } from '../document/storage'
@@ -12,7 +15,7 @@ import { FilesWindow } from './FilesWindow'
 import type { NewFileOptions } from './NewFileForm'
 import { WorkingCopy } from './WorkingCopy'
 import { createCopyRecord, deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
-import { loadAssistantRecovery, listAssistantRecoveries } from '../ai/storage'
+import { loadAssistantRecovery, listAssistantRecoveries, saveAssistantRecovery } from '../ai/storage'
 import './workspace.css'
 import { connectionSnapshot, isRecord, requestJSON } from './connection'
 
@@ -41,6 +44,18 @@ function SharedPage({ token }: { token: string }) {
   return <ReaderPage initial={loaded.document} />
 }
 
+const unresolved = (tasks: AITask[] = []) => tasks.filter(task => !task.acceptance && !task.released)
+
+// Before a breaking upgrade, the owner's choice ends unresolved tasks explicitly.
+async function releaseTasks(record: WorkingRecord, tasks: AITask[]) {
+  for (const task of tasks) await aiRequest(`/tasks/${task.id}/release`, 'POST').catch(error => { if (error?.status !== 404) throw error })
+  const ids = new Set(tasks.map(task => task.id)), release = (list: AITask[]) => list.map(task => ids.has(task.id) ? { ...task, released: true } : task)
+  const local = await loadAssistantRecovery(record.key, record.meta.id)
+  if (local) { await saveAssistantRecovery({ ...local, tasks: release(local.tasks), dirty: true }); return }
+  const cloud = await assistantRequest(record.meta.id)
+  await assistantRequest(record.meta.id, { baseRevision: cloud.revision, tasks: release(cloud.tasks), operationId: crypto.randomUUID() })
+}
+
 type RenderDocument = (copy: WorkingCopy, files: () => void, open: (id: string) => void) => ReactNode
 export function CloudWorkspace({ renderDocument }: { renderDocument: RenderDocument }) {
   const [path, setPath] = useState(location.pathname)
@@ -59,6 +74,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const [loading, setLoading] = useState(!!id)
   const [error, setError] = useState('')
   const [unopened, setUnopened] = useState<WorkingRecord>()
+  const [upgrade, setUpgrade] = useState<{ record: WorkingRecord; tasks: AITask[]; busy?: boolean; error?: string }>()
+  const [readOnly, setReadOnly] = useState<{ record: WorkingRecord; document: MoteDocument }>()
+  const [upgradeChoice, setUpgradeChoice] = useState<'upgrade' | 'decline'>()
   const [retry, setRetry] = useState(0)
   const [legacy, setLegacy] = useState<unknown>()
   const [recoveries, setRecoveries] = useState<WorkingRecord[]>([])
@@ -101,7 +119,8 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
 
   useEffect(() => {
     let active = true
-    setError(''); setUnopened(undefined); setCopy(undefined); setLoading(!!id)
+    setError(''); setUnopened(undefined); setUpgrade(undefined); setReadOnly(undefined); setCopy(undefined); setLoading(!!id)
+    const choice = upgradeChoice; setUpgradeChoice(undefined)
     if (!id) { setFilesOpen(true); return }
     async function open() {
       try {
@@ -134,10 +153,23 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
           if (cloud) local.meta = mergePrivacyMeta(local.meta, cloud)
           if (privacy) local.meta = mergePrivacyMeta(local.meta, privacy)
         }
-        try { local!.document = initializeDocument(local!.document) }
-        catch (error) {
+        const stored = local!.document
+        try {
+          // A breaking upgrade of a document with unresolved AI tasks waits for the owner.
+          if (stored.version < DOCUMENT_VERSION && migrationBreaking(stored.version) && choice !== 'upgrade') {
+            const document = initializeDocument(stored, true)
+            if (choice === 'decline') { setReadOnly({ record: local!, document }); setLoading(false); return }
+            const [saved, cloud] = await Promise.all([loadAssistantRecovery(key, id), local!.draft ? undefined : assistantRequest(id)])
+            const tasks = unresolved((saved ?? cloud)?.tasks)
+            if (!active) return
+            if (tasks.length) { setUpgrade({ record: local!, tasks }); setLoading(false); return }
+          }
+          local!.document = initializeDocument(stored)
+          // Loading never writes to the cloud; the next ordinary save persists the upgrade.
+          if (local!.document !== stored) local!.migratedFrom ??= stored
+        } catch (error) {
           setUnopened(local)
-          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a recognized V1 file.`)
+          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a supported V1 or V2 document.`)
         }
         if (!active) return
         await saveWorkingCopy(local!)
@@ -155,6 +187,13 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     void open()
     return () => { active = false }
   }, [id, retry])
+
+  async function confirmUpgrade() {
+    if (!upgrade) return
+    setUpgrade({ ...upgrade, busy: true, error: '' })
+    try { await releaseTasks(upgrade.record, upgrade.tasks); setUpgradeChoice('upgrade'); setRetry(value => value + 1) }
+    catch (error) { setUpgrade({ ...upgrade, busy: false, error: `${error instanceof Error ? error.message : 'Release failed'}. Nothing was upgraded; tasks and the document are unchanged.` }) }
+  }
 
   async function navigate(next: string, reload = false, draft?: WorkingRecord) {
     if (next === id && copy && !reload) { setFilesOpen(false); return true }
@@ -220,7 +259,21 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   }
 
   return <>
-    {copy ? renderDocument(copy, () => { setFilesOpen(true); void refreshRecovery() }, next => void navigate(next)) : <main className="loading cloud-home"><h1>Mote</h1>
+    {readOnly ? <ReaderPage initial={readOnly.document} notice={<div className="cloud-sync-actions" role="status">
+      <p>Read-only at V{readOnly.document.version}. Upgrading needs your confirmation because unresolved AI tasks would be released.</p>
+      <button onClick={() => void downloadRecovery(readOnly.record)}>Download recovery</button>
+      <button onClick={() => setRetry(value => value + 1)}>Review upgrade</button>
+      <button onClick={() => setFilesOpen(true)}>Files</button>
+    </div>} />
+    : upgrade ? <main className="loading cloud-home"><h1>Upgrade document?</h1>
+      <p>This document is V{upgrade.record.document.version}. Upgrading to V{DOCUMENT_VERSION} releases {upgrade.tasks.length === 1 ? 'its unresolved AI task' : `its ${upgrade.tasks.length} unresolved AI tasks`} and
+        permanently revokes their agent access. Their inputs and candidates stay downloadable. Open read-only to keep them at the stored version.</p>
+      {upgrade.error && <p role="alert">{upgrade.error}</p>}
+      <button disabled={upgrade.busy} onClick={() => void confirmUpgrade()}>Upgrade and release</button>
+      <button disabled={upgrade.busy} onClick={() => { setUpgradeChoice('decline'); setRetry(value => value + 1) }}>Open read-only</button>
+      <button disabled={upgrade.busy} onClick={() => void downloadRecovery(upgrade.record)}>Download recovery</button>
+    </main>
+    : copy ? renderDocument(copy, () => { setFilesOpen(true); void refreshRecovery() }, next => void navigate(next)) : <main className="loading cloud-home"><h1>Mote</h1>
       <p>{loading ? 'Opening document…' : error || 'Your private document workspace.'}</p>
       {!!error && <button onClick={() => setRetry(value => value + 1)}>Retry</button>}
       {unopened && <button onClick={() => void downloadRecovery(unopened)}>Download recovery</button>}

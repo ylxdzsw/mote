@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
-import { HttpError, UUID, record, text, validateDocument, publishDocument } from './validation.mjs'
+import { HttpError, UUID, record, text, validateDocument, loadDocument, publishDocument } from './validation.mjs'
 import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
@@ -188,7 +188,7 @@ export class CloudStore {
     let saved
     try { saved = token === undefined ? this.saved(sourceId, row.revision) : this.saved(sourceId, revision(token, 'revision')) }
     catch { throw new HttpError(404, 'document not found') }
-    return { ...metadata(row), revision: saved.revision, document: validateDocument(this.unpack(saved.body)) }
+    return { ...metadata(row), revision: saved.revision, document: loadDocument(this.unpack(saved.body)) }
   }
   indexDocuments() {
     return this.db.prepare(`SELECT d.id,d.name,d.revision,r.createdAt,d.private,

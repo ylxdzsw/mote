@@ -1,6 +1,6 @@
 # Mote native format reference — V1 and V2
 
-This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1 and V2 are closed schemas. A document has `format:"mote"` and numeric `version:1` or `2`; V1 remains unchanged, while V2 adds Slides as described below. Unknown versions and unknown fields are unsupported. Preserve unsupported inputs and report the issue; do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
+This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1 and V2 are closed schemas. A document has `format:"mote"` and numeric `version:1` or `2`; V1 remains unchanged, while V2 adds Slides as described below. Mote loads V1 as V2 with Slides off and saves new work as V2; a task snapshot keeps its pinned version. Unknown versions and unknown fields are unsupported. Preserve unsupported inputs and report the issue; do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
 
 ## Document envelope and theme
 

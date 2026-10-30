@@ -108,6 +108,8 @@ export class WorkingCopy {
     const record = this.state.record
     // An explicit AI request retains its input, even when that input is blank.
     if (record.draft && !retainDraft && !record.pendingCreate && !record.pendingPrivacy && isPristineBlankDocument(record.document, record.draftDefaults)) return null
+    // Task inputs are the saved revision, so an AI request persists a pending upgrade first.
+    if (retainDraft && record.migratedFrom && !record.dirty && !record.pending) this.publish({ record: { ...record, dirty: true } })
     this.flight = this.performSync().finally(() => { this.flight = undefined; this.publish({ syncing: false }) })
     return this.flight
   }
@@ -153,7 +155,8 @@ export class WorkingCopy {
         const dirty = !sameDocument(current.document, pending.document)
         const { document: _document, ...resultMeta } = result
         const meta = mergeDocumentMeta(current.meta, resultMeta)
-        this.publish({ record: { ...current, meta, pending: undefined, dirty }, conflict: undefined, deleted: false })
+        const { migratedFrom: _migratedFrom, ...acknowledged } = current
+        this.publish({ record: { ...acknowledged, meta, pending: undefined, dirty }, conflict: undefined, deleted: false })
         await this.persist()
         if (!dirty) return { ...meta, document: current.document }
         // Drain edits made during the request without reusing its operation ID.
@@ -185,7 +188,8 @@ export class WorkingCopy {
     const meta = mergeDocumentMeta(this.state.record.meta, incomingMeta)
     const document = initializeDocument(saved)
     this.generation++
-    this.publish({ record: { ...this.state.record, meta, document, dirty: false, pending: undefined, updatedAt: Date.now() },
+    const { migratedFrom: _migratedFrom, ...record } = this.state.record
+    this.publish({ record: { ...record, meta, document, dirty: false, pending: undefined, updatedAt: Date.now(), ...(document !== saved && { migratedFrom: saved }) },
       error: '', auth: false, conflict: undefined, deleted: false, epoch: this.state.epoch + 1 })
     await this.persist()
   }

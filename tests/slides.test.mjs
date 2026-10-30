@@ -79,9 +79,11 @@ test('multi-slide candidates preserve internal boundaries and slide-top Float an
   assert.equal(cleared.objects.length, 0)
 })
 
-test('V1 stays exact; only V2 Slides accepts closed marker/page shapes', () => {
-  const v1 = document(), original = structuredClone(v1)
-  assert.equal(loadDocument(v1), v1)
+test('V1 loads as V2 with Slides off; only V2 Slides accepts closed marker/page shapes', () => {
+  const v1 = { ...document(), version: 1 }, original = structuredClone(v1)
+  const loaded = loadDocument(v1)
+  assert.deepEqual(loaded, { ...v1, version: 2 })
+  assert.equal(loaded.page.slideHeight, undefined)
   const v2 = insertSlideBreak(v1, 1)
   assert.equal(v2.version, 2)
   assert.equal(v2.page.slideHeight, 540)

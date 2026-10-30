@@ -2,6 +2,7 @@ import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
 export const DOCUMENT_VERSION = 2
+export const DOCUMENT_VERSIONS = [1, 2]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -315,7 +316,7 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (value.version !== 1 && value.version !== 2) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1 and V2 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1 and V2 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
@@ -347,12 +348,26 @@ export function validateDocument(value) {
   return value
 }
 
-// Loading validates the saved version unchanged. Enabling Slides explicitly
-// creates V2; V1 remains strict and V0 deliberately has no converter.
-export function loadDocument(value) {
-  return validateDocument(value)
+// Ordered, pure, ID-preserving steps; step `from` upgrades to `from + 1`. A step
+// is non-breaking only when every valid old document and candidate stays valid
+// with the same meaning. V0 deliberately has no step.
+const MIGRATIONS = [
+  { from: 1, breaking: false, migrate: document => ({ ...document, version: 2 }) },
+]
+
+export function migrationBreaking(version) {
+  return MIGRATIONS.some(step => step.from >= version && step.breaking)
 }
 
+// Validates at the stored version, then upgrades a copy to DOCUMENT_VERSION and
+// revalidates. The input is never mutated; current documents are returned as is.
+export function loadDocument(value) {
+  let document = validateDocument(value)
+  for (const step of MIGRATIONS) if (step.from === document.version) document = step.migrate(document)
+  return document === value ? value : validateDocument(document)
+}
+
+// Publishing keeps the given version; callers load first when they need the current one.
 export function publishDocument(value) {
   validateDocument(value)
   const { authoring: _authoring, ...published } = value

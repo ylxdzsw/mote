@@ -13,7 +13,7 @@ import { MAX_BODY, PROD_ORIGIN } from './validation.mjs'
 const origin = 'http://localhost:5173'
 const image = 'data:image/png;base64,iVBORw0KGgo='
 function document(id = randomUUID(), value = 'Hello') {
-  return { id, format: 'mote', version: 1, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
+  return { id, format: 'mote', version: 2, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
     theme: { appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true, defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } }, paragraphs: {}, objects: {}, flow: {} },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text: value }] }] },
     objects: [{ id: 'image-1', kind: 'image', src: image, alt: 'test', layout: { width: 100, placement: { type: 'float', anchorId: 'block-1', x: 0, y: 0 } } }],

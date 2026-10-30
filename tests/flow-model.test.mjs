@@ -391,7 +391,7 @@ test('all four examples have native objects, owned captions, and the chosen lang
     const example = createDocument({ language, slideHeight })
     const objects = example.objects
     assert.equal(example.language, language)
-    assert.equal(example.version, slideHeight ? 2 : 1)
+    assert.equal(example.version, 2)
     assert.equal(example.page.slideHeight, slideHeight)
     assert.equal(example.content.content.filter(block => block.type === 'slideBreak').length, slideHeight ? 9 : 0)
     assert.deepEqual([...new Set(objects.map(object => object.kind))].sort(), ['code', 'drawing', 'formula', 'html', 'image', 'table', 'text'])

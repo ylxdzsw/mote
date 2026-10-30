@@ -1,3 +1,4 @@
+import { DOCUMENT_VERSIONS } from '../../shared/document.mjs'
 import { objectY, objectAnchorId } from '../document/model'
 import { canonicalEditorContent } from '../editor/canonical'
 import type { JSONContent } from '@tiptap/core'
@@ -180,7 +181,7 @@ export function reservedText(content: JSONContent, ids: string[]) {
 }
 
 export function inactiveTaskReason(task: AITask, doc: MoteDocument): string | null {
-  if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0) || task.snapshotDocument?.format !== 'mote' || task.snapshotDocument.version !== task.documentVersion) return 'Unsupported task protocol or document version. The original request, snapshot, and result are retained for recovery. Create a new reservation to generate.'
+  if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) || task.snapshotDocument?.format !== 'mote' || task.snapshotDocument.version !== task.documentVersion) return 'Unsupported task protocol or document version. The original request, snapshot, and result are retained for recovery. Create a new reservation to generate.'
   if (task.documentId !== doc.id) return 'This task belongs to another document. Its request and result are retained for recovery.'
   if (task.acceptance) return 'Applied to a local working copy. The result is retained until that exact document is saved to the cloud; it does not lock this document.'
   if (task.released) return 'This reservation has been released. Its original input and result remain available for recovery, without document locks or agent access.'

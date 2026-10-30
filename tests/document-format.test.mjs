@@ -1,7 +1,7 @@
 import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
-import { DocumentFormatError, loadDocument, validateDocument, publishDocument } from '../shared/document.mjs'
+import { DocumentFormatError, loadDocument, migrationBreaking, validateDocument, publishDocument } from '../shared/document.mjs'
 import { validateDocument as validateServerDocument } from '../server/validation.mjs'
 
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
@@ -9,6 +9,15 @@ after(() => server.close())
 const { createBlankDocument, createDocument } = await server.ssrLoadModule('/src/document/model.ts')
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
+
+test('loading migrates V1 to V2 losslessly without mutating input', () => {
+  const v1 = { ...createDocument(), version: 1 }, before = structuredClone(v1)
+  assert.equal(migrationBreaking(1), false)
+  const loaded = loadDocument(v1)
+  assert.deepEqual(v1, before)
+  assert.deepEqual(loaded, { ...before, version: 2 })
+  validateDocument(v1)
+})
 
 test('V1 has one strict browser/server contract and initialization never strips input', () => {
   const document = createDocument(), before = structuredClone(document)

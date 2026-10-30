@@ -181,7 +181,7 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 }
 
 export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 1, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+  return { format: 'mote', version: 2, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }

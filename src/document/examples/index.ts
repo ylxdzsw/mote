@@ -134,7 +134,6 @@ R(\theta)&=\begin{bmatrix}\cos\theta&-\sin\theta\\\sin\theta&\cos\theta\end{bmat
   ]
 
   if (slides) {
-    document.version = 2
     document.page.slideHeight = slideHeight
     document.theme.paragraphs.title = { ...document.theme.paragraphs.title, spaceBefore: em(0), spaceAfter: em(1.5) }
     document.theme.paragraphs.heading = { ...document.theme.paragraphs.heading, spaceBefore: em(0), spaceAfter: em(1) }

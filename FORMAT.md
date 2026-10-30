@@ -1,29 +1,65 @@
 # Mote document formats V1 and V2
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1` or `2`. V1 is the unchanged
+exactly `"mote"`; `version` is the number `1` or `2`. V1 is the original
 continuous-page format. V2 adds Slides as specified below; all other shapes
 and meanings are shared. Unknown versions and unknown fields are rejected;
 there is no extension bag or implicit compatibility mode.
 
-## Version dispatch and preservation
+## Versioning and migration
 
-The single load boundary is `loadDocument(value)`. It dispatches by version and
-validates the supplied V1 or V2 without cloning, mutating, or rewriting it.
-Enabling Slides is an explicit document edit that upgrades V1 to V2, not an
-automatic load conversion. No migration registry or V0 converter exists. An unsupported or
-malformed document produces an actionable error and remains unchanged and
-recoverable; it is never replaced with an example. A failed or unsupported
-import leaves the current document untouched. **From example** remains an
-explicit New File choice.
+Every schema or meaning change, additive or not, gets a new version. Versions
+are cheap: a closed schema needs the bump so that older app builds and stale
+tabs reject newer documents clearly instead of dropping fields on save, and so
+that a task's pinned version states exactly what its agent saw. V1 is the
+oldest supported version; V0 is permanently unsupported and has no converter.
 
-Cloud documents and unresolved AI state are preserved as stored. Old task
-snapshots are not converted: operations that would interpret or mutate an
-unsupported task input fail explicitly, without deleting the task or
-automatically retrying generation. A document-format change is a new document
-version, not an optional extension. The agent transport identifier
-`mote-agent-v1` is a separate protocol version and does not replace the
-document's numeric `version`.
+The single load boundary is `loadDocument(value)`. It reads `version`, applies
+the ordered migration steps from that version to the current one, and then
+validates the result with the closed validator of the current version. Every
+reader uses this path: editor, Files/import, public share, standalone HTML
+reimport, indexer, and server validation. No other code interprets an older
+shape. Steps are pure and lossless. They preserve block, object, and rich-text
+IDs and keep the meaning of the content. A lossy rearrangement (such as Slides
+partitioning) is a confirmed user edit, not a migration.
+
+Each step declares whether it is **breaking**. A step is non-breaking only if
+every valid old document and every valid old candidate remains valid under the
+new version with the same meaning, so that the step only changes `version`.
+Typical examples are a new optional field whose absence keeps the old
+behavior, or a new enum value or object kind. Removing or renaming a field,
+changing a default or meaning, adding a required field, or tightening
+validation is breaking. A migration path is breaking if any of its steps is.
+
+| Step | Breaking | Effect |
+| --- | --- | --- |
+| V1 → V2 | No | Sets `version: 2`; no `slideHeight`, so Slides stay off |
+
+Migration happens in memory. Loading never writes by itself. The next ordinary
+revision-checked save persists the upgraded document, and readers that cannot
+save (public shares, standalone HTML) migrate only their own snapshot. The
+pre-migration document remains recoverable until the upgraded save is
+cloud-acknowledged. A newer or unknown version, or malformed data, produces an
+actionable error and remains unchanged and recoverable. It is never replaced
+with an example. A failed or unsupported import leaves the current document
+untouched. **From example** remains an explicit New File choice.
+
+Unresolved AI tasks keep their pinned input version. Under a non-breaking
+path, they keep working. Their candidates validate against the pinned version
+and pass through the same steps when accepted. Under a breaking path, opening
+a document that has unresolved tasks asks the owner first. **Upgrade**
+releases those tasks, permanently revokes their grants, and then migrates.
+**Decline** opens the document read-only at its stored version, with its tasks
+and candidates inspectable and the full task JSON downloadable. Without
+unresolved tasks, a breaking path migrates silently. Generation is never
+retried automatically. The agent transport identifier `mote-agent-v1` is a
+separate protocol version and does not replace the document's numeric
+`version`.
+
+V1 loads as V2 with Slides off. New documents, saves of opened documents,
+exports, and new task inputs use the current version. `validateDocument`
+still accepts every supported version, so pinned task snapshots and stored
+revisions stay readable as they are.
 
 ## Top-level document
 

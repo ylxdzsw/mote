@@ -1,4 +1,4 @@
-import { DocumentFormatError, validateDocument as nativeDocument, validateObject, validateContent, validateComposition, publishDocument as nativePublish } from '../shared/document.mjs'
+import { DocumentFormatError, DOCUMENT_VERSIONS, validateDocument as nativeDocument, loadDocument as nativeLoad, validateObject, validateContent, validateComposition, publishDocument as nativePublish } from '../shared/document.mjs'
 
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -44,7 +44,9 @@ function native(check) {
 }
 
 export function validateDocument(value) { return native(() => nativeDocument(value)) }
-export function publishDocument(value) { return native(() => nativePublish(value)) }
+export function loadDocument(value) { return native(() => nativeLoad(value)) }
+export function publishDocument(value) { return native(() => nativePublish(nativeLoad(value))) }
+export { DOCUMENT_VERSIONS }
 export function validateNativeObject(value, options = {}) { return native(() => validateObject(value, options)) }
 function composition(blocks, objects, options = {}) { return native(() => validateComposition(blocks, objects, options)) }
 function content(value, mode = 'main') { return native(() => validateContent(value, mode)) }

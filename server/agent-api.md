@@ -19,8 +19,8 @@ See [FORMAT.md](../FORMAT.md) for the normative schema.
 
 Cloud documents use the V1 or V2 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
-each object's `layout`. There is no V0 runtime adapter, extension bag, or
-implicit conversion. V1 keeps its existing strict continuous-page schema. V2
+each object's `layout`. There is no V0 runtime adapter or extension bag;
+older supported versions migrate only through `loadDocument`. V1 keeps its existing strict continuous-page schema. V2
 adds Slides without changing the meaning of other fields. Unknown fields and
 unsupported versions are rejected.
 
@@ -135,7 +135,9 @@ and hues.
 
 ## Private task API
 
-New tasks pin their exact V1 or V2 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Old task snapshots are not converted: any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation. Retained V1 snapshots stay V1 and unchanged.
+New tasks pin their exact V1 or V2 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
+
+Document migration follows [FORMAT.md → Versioning and migration](../FORMAT.md#versioning-and-migration). When the owner's document migrates past a task's pinned version along a non-breaking path, the task continues unchanged. Its candidates validate against the pinned version and pass through the same migration steps on acceptance. A breaking path requires owner confirmation first. Upgrade releases every unresolved task on that document and permanently revokes its grants (HTTP 404 afterward). Decline keeps the document read-only at its stored version and leaves tasks inspectable. Any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation.
 
 Authenticated `/api/ai/tasks` routes retain their exact-Origin check.
 `RemoteTask` includes `executor: 'builtin' | 'external'`, `executorRevision`,

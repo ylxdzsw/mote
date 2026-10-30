@@ -1,4 +1,4 @@
-import { validateObject, validateContent } from '../../shared/document.mjs'
+import { DOCUMENT_VERSIONS, validateObject, validateContent } from '../../shared/document.mjs'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
@@ -25,7 +25,7 @@ function previewFailure(error: unknown) {
 }
 
 function creationBody(task: AITask) {
-  if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0) || task.snapshotDocument?.version !== task.documentVersion) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
+  if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) || task.snapshotDocument?.version !== task.documentVersion) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
   if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
   return { ...task.creation, id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
     baseRevision: task.baseRevision, target: task.target, workspaceRead: task.workspaceRead ?? false }
@@ -44,7 +44,7 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 }
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
-  if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
+  if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
   return memoizedCandidate(doc, candidate, task.id, task.target.kind === 'segment' ? context : undefined, () => {
     const target = task.target
@@ -230,7 +230,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     if (!externalBlocked) return
     for (const task of state.current) {
-      if (task.protocol === 'mote-agent-v1' && [1, 2].includes(task.documentVersion ?? 0) && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
+      if (task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
         rejectPrivateExternalDraft(task.id)
       }
     }
@@ -242,7 +242,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!loaded) return
     let changed = false
     const normalized = state.current.map(task => {
-      if (task.protocol !== 'mote-agent-v1' || ![1, 2].includes(task.documentVersion ?? 0)) return task
+      if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0)) return task
       if (!Array.isArray(task.candidates) || !task.candidates.length || task.selectedCandidate || task.candidateNotice) return task
       const selected = candidateSelection(defaultCandidateVersion(task))
       if (!selected) return task
@@ -258,7 +258,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     let active = true, pending = false, authPaused = false
     const failures = new Map<string, number>(), paused = new Set<string>(), nextAt = new Map<string, number>(), requested = new Set<string>()
     const authPausedTasks = new Set<string>()
-    const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && [1, 2].includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
+    const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
       && !task.acceptance && !task.remoteMissing
       && (task.submitted || task.requestSent)
     function setIssue(id: string, value?: { message: string; paused: boolean }) {
@@ -801,7 +801,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     // Parent effects first copy the committed history document into its sync
     // controller. Calling sync during this hook's effect would save the old doc.
     const timer = window.setTimeout(() => {
-      for (const task of allTasks) if (task.protocol === 'mote-agent-v1' && [1, 2].includes(task.documentVersion ?? 0) && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
+      for (const task of allTasks) if (task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
         acceptanceAttempts.current.add(task.id); void syncAcceptance(task.id)
       }
     }, 0)

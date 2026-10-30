@@ -20,6 +20,8 @@ export interface WorkingRecord {
   pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument; private?: boolean }
   pendingPrivacy?: { private: boolean; basePrivacyRevision: number; baseShareRevision?: number; operationId: string }
   pendingCopy?: { key: string; document: MoteDocument }
+  // Stored pre-migration document, kept until an upgraded save is cloud-acknowledged.
+  migratedFrom?: unknown
 }
 
 export function createCopyRecord(source: MoteDocument, name: string, session: string, privateDocument = false): WorkingRecord {

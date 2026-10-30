@@ -1,102 +1,86 @@
 # Mote
 
-## Working agreement
-
 Mote is an early-development private, AI-native cloud document workspace: semantic rich text, explicit vertical space, and Flow/Float objects share a continuous page or optional Slides layout.
 
-- The recognized native formats are **V1 and V2**. Read [FORMAT.md](../FORMAT.md) for their closed schemas. V1 remains unchanged and continuous; V2 adds optional Slides. The single `loadDocument` boundary validates either version without rewriting it. V0 and unknown versions are unsupported: show an actionable error, retain the original/recoverable data, and never convert, extend, or reset it to an example. Enabling Slides is an explicit, undoable V1-to-V2 edit, not a load conversion; disabling Slides can leave a continuous V2 document. No V0 converter or migration registry exists. Any schema or meaning change requires a new version. **From example** remains a New File choice. Preserve cloud documents and unresolved AI state; existing task snapshots are not converted, deleted, or automatically retried.
-- Preserve cloud documents and unresolved AI state. Never rewrite production documents to accommodate a schema change. Backups are manual, only at the user's discretion; do not run or schedule deployment backups.
-- Keep HTTP caching disabled everywhere: `Cache-Control: no-store`, no service worker. IndexedDB working copies are intentional persistence, separate from HTTP caching.
-- Redeploy the demo after each task. Follow the deployment steps below. Revisit these early-development policies before a release.
+This file holds durable invariants and the working agreement. Current behavior and procedures live in the linked guides; design rationale lives in memory.
 
-## Read the relevant source of truth
+## Working agreement
+
+- Native formats start at **V1**; V0 is permanently unsupported ([FORMAT.md](../FORMAT.md)). Every schema or meaning change gets a new version. Versions are cheap, so never bend a change to avoid one.
+- `loadDocument` migrates older versions to the current one in memory. It uses ordered, pure, ID-preserving steps, then the closed validator, and every reader uses it. Each step is labeled breaking or non-breaking. Loading never saves; the next ordinary save writes the upgrade. Breaking steps need owner confirmation only when unresolved AI tasks exist. Unknown and newer versions get an actionable error and stay recoverable.
+- Preserve cloud documents, unresolved AI state, and backups. Backups are manual and only at the user's discretion; never run or schedule them.
+- Keep HTTP caching disabled everywhere: `Cache-Control: no-store`, no service worker. IndexedDB working copies are intentional persistence, separate from HTTP caching.
+- Redeploy the demo after each task (see Deployment).
+- With a design change, update the affected guide and append its rationale to [MEMORY.md](MEMORY.md). Memory is chronological and later entries supersede earlier ones; leave out check logs, deployment logs, test counts, and trivial edits. When a note conflicts with code, verify against the code.
+- Revisit these early-development policies before a release.
+
+## Sources of truth
 
 | Topic | Start here |
 | --- | --- |
-| Product behavior, local setup, checks, exports, deployment | [README.md](../README.md) |
-| Native V1/V2 document schema and validation | [FORMAT.md](../FORMAT.md) |
-| UI design principles, visual patterns, and interaction review | [mote-ui skill](mote-ui.md) |
-| Sync/recovery, privacy, sharing, indexing/retrieval, storage | [CLOUD.md](../CLOUD.md) |
-| New agent workflow, native authoring, preview, and submission | [public skills](../public/skills/external/SKILL.md) and shared references in `../public/skills/` |
+| Product behavior, setup, checks, exports, deployment, code structure | [README.md](../README.md) |
+| Native V1/V2 schema and validation | [FORMAT.md](../FORMAT.md) |
+| UI principles, patterns, and interaction review | [mote-ui skill](mote-ui.md) |
+| Sync/recovery, privacy, sharing, indexing/retrieval, storage, backup/restore | [CLOUD.md](../CLOUD.md) |
+| Agent workflow, native authoring, preview, submission | [public skills](../public/skills/external/SKILL.md) and `../public/skills/` |
 | Task/capability API, executor grants, concurrency | [server/agent-api.md](../server/agent-api.md) |
-| Prior decisions and their rationale | [MEMORY.md](MEMORY.md) (search the topic; later decisions supersede earlier ones) |
+| Prior decisions and rationale | [MEMORY.md](MEMORY.md) |
 
-These instructions hold durable invariants; detailed user interactions and operational procedures belong in the linked docs. Verify current behavior against code when a historical note conflicts. Update the affected guide with a design change and append its rationale to memory. Keep memory chronological; do not treat past test counts, deployment logs, or temporary artifact paths as current requirements. Avoid copying routine check logs or trivial file edits into memory.
+## Core invariants
 
-## Document and rendering invariants
+### Document and rendering
 
-- Desktop supports editing and reading; viewports **under 768px are reading-only**. Default width is **960px**, with **32px left/right** and **48px top/bottom** margins. Zoom and editing scroll-past-bottom are view state, not saved geometry. Mobile readers have no zoom control: pinch zoom shows a transient text-only percentage, shared by private/public reading and standalone HTML; PNG and minimap snapshots omit it.
-- Slides are optional per-document layout, Off by default. `page.slideHeight` is positive document pixels (540px default when enabled or chosen in New file); only V2 supports it. The first slide is implicit, and top-level `slideBreak` atoms separate slides in the same flat content array. V1 stays strict; enabling Slides explicitly upgrades it to V2. Disabling removes slide height/breaks but leaves V2. Automatic Title/Heading starts (not Subheading or object-contained text) and whole-block height packing are best-effort, undoable, and run only on enable; this lossy arrangement change is not a round-trip promise. Height changes never repartition. Each slide has independent Flow, margins, repulsion, and anchors. Editing expands to fit main flow and Flow captions, not direct Float height; Floats can remain visible while overlapping/covering later slides. When expanded, a dashed ruler marks the saved cutoff. Reading, standalone HTML, and PNG crop each slide to its fixed saved height without slide controls or a slide navigator; PNG is one long image, while HTML's embedded native document retains overflow.
-- Paragraph typography comes from semantic classes and the document theme. Inline formatting composes Bold, fixed palette colors, None/Box decoration, and a native Link mark with a safe, credential-free absolute HTTP(S) href; no relative paths, controls, `mailto:`, or `tel:`. No arbitrary inline fonts/sizes. Underline-decoration marks are unsupported in V1. Links apply to main text, text boxes, table cells, and captions, never Code or Drawing. Table cells and captions have fixed semantic styling. Code is a plain-source object with its own syntax scheme, never a paragraph class.
-- Supported object kinds are text, table, image, drawing, Code, formula (`formula`, rendered by KaTeX), and HTML widget (`html`). Every kind supports **Flow / Float**. Line, rectangle, ellipse, and standalone Label kinds are removed.
-- Objects stay in ordered `objects`; all saved geometry is nested in `layout`. Every Flow has exactly one top-level `flow` atom with distinct block ID and `objectId`; the atom supplies its position and Flow layout stores no anchor, y, or centered flag. Flow uses a real normal-flow mount, column-relative horizontal placement, and `x: "center"` for persistent centering. Never emulate it with spacers or absolute overlays.
-- Floats use page-space x and nonnegative anchor-relative y, except Flow-anchored Floats use signed offsets from the owner's measured top-left on both axes. Main text uses only the interval to a Float's left. Floats may overlap other Floats and Flow objects; there is no Overlap/Repel mode.
-- Document `theme.flow` supplies paragraph-like Before/After spacing. Signed per-object `margins` adjust the body-and-caption layout footprint for both Flow and Float, independently of content size. Layout uses that footprint; hit testing, resizing, and annotation anchors use actual content/body bounds. Visible extents must survive negative margins. Individual AI tasks preserve user-owned margins; section reservations lock them.
-- **Captions belong only to images, HTML widgets, and tables.** The shape is `caption: { content, width? }`, with a doc containing one rich paragraph whose attrs contain only its ID. They always sit below, centered on the owner. Omitted width follows the owner; explicit width may overhang within the page. Captions have separate selection/editing/width controls but no floating ID, placement, free position, or detach operation. Caption-only deletion/cut preserves the owner. Composition bounds and Flow height include captions.
-- Flow blocks, owned captions, and anchored Floats must remain coherent across selection, movement, deletion, clipboard, history, validation, AI reservations, and exports. Copy/paste refreshes block/object/rich-text IDs and remaps anchors while retaining fixed palette references.
-- Native text and objects share 22 fixed palette slots: eight Strong/Soft pairs (Primary, Secondary, Red, Amber, Green, Pink, Blue, Violet) and six adaptive grays. Each document saves Light/Dark mode and two hues; mode controls the page and UI, Primary controls UI accents, and Secondary is for content. There are no custom palettes or page backgrounds. Text boxes are borderless by default or decorated with a Left or All-sides border that picks one color pair (eight families or the single Gray 4/5 pair): Strong border, Soft background, no generated headings/icons or text-color overrides; omitted padding is 0.75em when decorated. Code syntax colors follow the saved mode but not the hues; embedded images and widget source remain independent.
-- Drawings store editable strokes and typed labels. Resizing scales positions but preserves document-pixel stroke widths and label font sizes. A requested AI drawing revision may convert to another supported object kind.
-- Editing, public reading, minimap, PNG, and standalone HTML share rendering concepts. Widget execution is sandboxed; PNG/minimap use saved screenshots. Do not introduce a separate approximate export renderer.
-- In Slides, full-slide or cross-slide segment selection promotes to whole-slide selection. Whole-slide ownership includes every anchored Float, even overflow beyond the crop, and owned captions. **Add → Slide break** inserts at a block boundary; Context can **Join with previous**. Copy/cut/delete operate on whole selected slides. Slide clipboard has its own payload; paste into Slides inserts after the current/last-selected slide or at an explicit slide border, adopts destination height without scaling, and paste into a continuous document flattens boundaries. Ordinary AI segment transfers remain version 1; slide-aware version-2 segments carry native break atoms. AI application preserves the reserved boundary count, IDs, and marker-anchored Floats; a leading marker may be omitted, while internal boundaries must remain. Empty output clears content without deleting slides.
-- Internal **Notes** are user-owned plain-text scratchpads in `authoring.notes`, saved in native V1/V2 documents and recovery but excluded from public shares, PNG, and HTML (including its reimport payload). Authorized agents may read them as tentative context, never edit them or treat plans as published content.
+- Desktop supports editing and reading; viewports under 768px are reading-only. Zoom and scroll-past-bottom are view state, never saved geometry.
+- Slides are an optional per-document layout, Off by default and V2-only: `page.slideHeight` plus top-level `slideBreak` atoms in the flat content array. Enabling is an explicit, undoable V1→V2 edit; disabling leaves V2. Each slide has independent Flow, margins, and anchors; height changes never repartition. Reading and exports crop each slide without slide chrome.
+- Typography comes from semantic paragraph classes and the document theme. Inline formatting is limited to Bold, fixed palette colors, None/Box decoration, and Links to safe, credential-free absolute HTTP(S) URLs. No arbitrary inline fonts or sizes. Code is an object, never a paragraph class.
+- Object kinds are text, table, image, drawing, Code, formula, and HTML widget, and every kind supports Flow and Float. Objects stay in ordered `objects`, with all geometry in `layout`.
+- Each Flow object has exactly one top-level `flow` atom and a real normal-flow mount. Never emulate it with spacers or absolute overlays. Floats use page-space x and anchor-relative y, and they may overlap anything.
+- Only images, HTML widgets, and tables have captions. A caption is an owned subobject that always sits below its owner, centered on it.
+- Flow blocks, owned captions, and anchored Floats stay coherent across selection, movement, deletion, clipboard, history, validation, AI reservations, and exports. Paste refreshes IDs and remaps anchors.
+- Colors come only from the 22 fixed palette slots and the saved Light/Dark mode and hues. No custom palettes or page backgrounds.
+- Notes (`authoring.notes`) are user-owned. Public shares, PNG, and HTML exclude them. Agents may read them as tentative context but never edit them.
+- Editing, reading, minimap, PNG, and standalone HTML share one rendering path; never add a separate approximate export renderer. Widgets run sandboxed, and PNG/minimap use saved screenshots.
 
-## Interaction design
+### Interaction
 
-For UI design, implementation, or review, load the **mote-ui** skill. It explains the principles and reusable patterns behind these current decisions; stylistic guidance leaves room for deliberate design improvements.
+Load the mote-ui skill for any UI work. README → Editing and reading / AI assistant describe the exact current behavior. Durable structure:
 
-- Keep the stable right **Context / Assistant** lane (288px desktop, 268px compact), a fixed Text strip only for eligible native rich text, and the minimap on the left with bookmarks expanding toward the page. Settings opens Document/Workspace/Browser in one dialog without resizing the canvas.
-- **Settings → Document → Layout** keeps Slides as a per-document Off/On choice, Off by default, with a positive slide-height field when On (540px default). Height edits preserve existing boundaries; the setting is part of the undoable document layout.
-- The 50px title bar has no logo. The title opens the search-first Files switcher in editing. On mobile, Files appears only with no document selected; choosing a document or opening `/d/:id` uses the same chrome-free reader as public links and HTML, without a Files/title bar. Browser Back or `/` returns to Files. The plain sync indicator is clickable with a pointer cursor and “Click to sync” tooltip. Editing always exposes flat Share and Settings icons; no collapsing header menu. Share has Link/Export tabs; Link controls at most one latest-version URL per document, initially disabled. Opening never creates a link; enabling syncs first. Confirmed Disable permanently revokes; re-enabling and confirmed Replace create fresh URLs. Private disables Link, not local export. Preview replaces Read/Edit and opens a local current-document HTML snapshot in a separate tab/window, reusing it on subsequent clicks. It includes unsynced edits, excludes authoring/AI previews, works for Private, and never creates public access. All readers share one shell and automatic minimap behavior. Assistant access stays in its panel tab.
-- Creation uses header **Add** or a single-right-click launchpad. Paragraph is first; all tools, including Code/Formula/HTML widget, appear directly in the same grid. **Slide break** appears when Slides is enabled and uses the same top-level boundary picker to start a new slide. Right-click on canvas/objects opens creation only; object actions stay in Context. Ordinary objects use a shared top-level boundary picker: click for centered Flow, Alt-drag for explicitly sized Float; Alt-click alone inserts nothing. Auto-height kinds take only the drawn width, images keep proportions, and drawings/widgets take both dimensions. Paragraph stays boundary-only; AI retains distinct object-area and gutter-section reservation gestures. Picked/pasted images use the common picker; file drops remain direct Floats. Selected text, links, inputs, source editors, widgets, and reading retain native/editor-specific menus. Alt is for space/object manipulation.
-- The Text strip has Bold, color, Box, and Link; no Underline or Clear formatting action. Link replaces Underline, toggles existing links off, and edits the absolute HTTP(S) URL in a row below the strip. Choosing Link for unlinked text focuses the row; a caret inside a link reveals it without stealing focus; Ctrl/⌘K focuses it. Enter/blur commits, Escape cancels, and an empty value removes the mark. A link inserted at an empty caret labels itself with its URL. Link color is inherited and it is always underlined; Bold, Box, and color compose with it. Typing URLs does not auto-link. Ordinary paste may detect explicit HTTP(S) URLs and preserves safe rich links; Ctrl/⌘Shift+V strips incoming links and skips detection, except paste inside an existing link inherits its destination. Ctrl/⌘-click opens in a new tab while editing; ordinary reading clicks open in a new tab. No link popovers.
-- Context places a shared **Flow / Float** segmented control before type-specific object properties. Captions have their own inspector. Selecting once enables subsequent content editing; object/section actions remain undoable without routine confirmation.
-- Files is a search-first switcher with keyboard row navigation, New/From example, Import, per-row Share/Rename/Delete, and footer Local recovery. New/From example opens one creation form for file name, appearance, text language, Slides, slide height (default 540px), and Private; Slides are Off by default, and cancel preserves the switcher state. Untouched defaults keep blank drafts local; entering a name or changing any creation field retains the file. Private selected at creation applies atomically on its first cloud save. Share reuses the Link/Export dialog without opening the target document, including on the mobile start screen. Exports use the active document’s working copy or an unopened document’s freshly fetched cloud snapshot; enabling a link syncs only the target’s active working copy, if present. Delete is explicitly confirmed and revision-checked. Workspace model/index settings belong in Settings, not Files.
-- Context/Assistant is a persistent session-local tab choice. Canvas selection updates the chosen panel, never switches it; Assistant follows reserved content to its task and offers **Reserve for Assistant** for unreserved content. There are no task tabs or normal task lists: clearing canvas selection clears the task view, panel focus preserves it, and mixed reservations ask for one area. A conditional Recovery disclosure retains access to tasks without active reservations. Reservation creation lives only in Assistant, not Context. Opening Assistant preserves canvas selection, including gutter sections. Settings clears selection but preserves the chosen tab; Preview and releasing the last task preserve it too. Explicit task-opening and AI-creation actions may open Assistant. Keep one task heading with locate, visible executor/read-permission controls, and full task JSON download for recovery.
+- A stable right Context/Assistant lane, a fixed Text strip only for eligible rich text, and the minimap on the left.
+- Creation happens only through Add or the right-click launchpad. Object actions live in Context, and Alt is for space/object manipulation.
+- Reservations are created only in Assistant. Canvas selection changes the panel's target, never its tab.
 
-## Cloud and agent boundaries
+### Cloud and agents
 
-Read **`CLOUD.md` → Document Private policy** before changing privacy, sharing, indexing, or retrieval.
+Read **CLOUD.md → Document Private policy** before changing privacy, sharing, indexing, or retrieval.
 
-- Tabs own independent local working copies, not exclusive document locks. Cloud sync uses revision compare-and-swap every 10 seconds and on Ctrl/⌘S; preserve operation IDs across uncertain replies. No merging or silent overwrite. Explicit overwrite is a normal revision-checked save, without an extra recovery copy.
-- Public-share state has a separate server-owned revision and atomic CAS/retry-safe mutations, outside document undo and export settings. AI capabilities and immutable task-input revisions are unchanged by public-link management.
-- Network failures preserve local edits and pending AI work. Validated reconnection resumes sync/status/transcripts; it must never automatically resubmit generation. Model failure must not block manual document work.
-- Private blocks public sharing, external handoff, and all other-document agent access to content **and derived indexes**. Its own built-in agent and trusted indexer remain allowed. Current source privacy governs historical reads too. Disabling Private never revives revoked links.
-- Auto-indexing is opt-in; workspace retrieval is a separate, server-confirmed per-session permission, reset on executor changes. Agents search the permission-filtered index, then read relevant native sources before reference/reuse. Retrieval never expands the reserved write target.
-- Built-in and external agents use the same validated candidate protocol with immutable full-document V1 or V2 input; task transport remains `mote-agent-v1`, with `documentVersion` 1 or 2. New tasks use public, unversioned skills/references and do not pin a skill version or guide digest; document inputs remain pinned. Preserve legacy task snapshots/artifacts without conversion; retained V1 snapshots stay unchanged. Candidate records have stable IDs, per-record revisions/history, and a task-wide `candidateRevision` CAS; follow-ups name the exact candidate revision. Alternatives are opt-in, and agents remove them only on an explicit user request. The client persists the exact selected candidate revision without automatic switching; acceptance applies exactly what the owner saw, closes the reservation locally and requests server revocation immediately, and keeps acceptance data until cloud acknowledgment. Alternative cleanup waits until the exact accepted document is acknowledged.
-- External grants use only `/a/<22-character-base64url-token>` URLs. The public `/api/agent/` route is retired (404, no access logging); its 43-character internal transport remains socket-only. A one-time credential rotation replaces pre-rollout external tokens without changing task contents or pause windows; unsupported tasks are not converted. Explicit open-document privacy polls (`?open=1`), content saves, and creation renew a persisted 24-hour external access window. Recovery downloads and unmarked owner reads never renew it. Agent activity never renews it; after inactivity all external reads/mutations pause with HTTP 423 and ask the owner to reopen the same document. The same token resumes; HTTP 404 means permanently revoked/unavailable. No keepalive. Acceptance, release, executor switch, task/document deletion, and Private permanently revoke grants; public-share URLs are separate and unaffected. Public `/skills/` content/helpers contain no task data, use `Cache-Control: no-store`, and remain accessible after grant revocation.
-- Individual reserved objects may move; body dimensions lock at preparation/submission. Caption width remains user-owned for individual tasks; caption content/removal stays reserved. Section reservations lock the whole composition. Candidate omission preserves an owned caption; explicit empty content clears it.
+- Each tab owns an independent working copy. Sync is a revision compare-and-swap that keeps operation IDs across uncertain replies. No merging and no silent overwrite.
+- Public-share state has its own server-owned revision and atomic CAS, outside document undo. Each document has at most one latest-version link, and opening Share never creates one.
+- Network failures preserve local edits and pending AI work. Reconnection never resubmits generation, and model failures never block manual work.
+- Private blocks public sharing, external handoff, and other-document agent access to content and derived indexes. The document's own built-in agent and the trusted indexer remain allowed. Disabling Private never revives revoked links.
+- Auto-indexing is opt-in. Workspace retrieval is a server-confirmed, per-session permission and never expands the reserved write target.
+- Built-in and external agents share one validated candidate protocol with immutable full-document input (`mote-agent-v1`). Legacy task snapshots are preserved without conversion. Acceptance applies exactly the candidate revision the owner saw.
+- External grants use only `/a/<token>` URLs. They pause after 24 hours of owner inactivity (HTTP 423) and return 404 once revoked. Acceptance, release, executor switch, deletion, and Private revoke them permanently. Public `/skills/` content holds no task data.
+- Reservation geometry: individual tasks lock body dimensions and leave caption width user-owned, while section reservations lock the whole composition.
 
-## Development and verification
+## Development
 
-Use Node.js 22.12+ and npm. Follow **README → Run / Fake-first development**. Keep dev and preview bound to `127.0.0.1`; the npm scripts default to loopback, and direct Vite invocations must do the same. The isolated fake backend runs on port 5174; its `MOTED_DEV_ORIGIN` must match the browser's exact hostname and port, including preview. Use fresh temporary state/data directories, never production storage, and never expose fake services publicly.
+Use Node.js 22.12+ and npm, and follow README → Fake-first development. Bind dev and preview to `127.0.0.1`. The fake backend runs on port 5174, and its `MOTED_DEV_ORIGIN` must match the exact browser origin. Use fresh temporary state/data directories, never production storage, and never expose fake services publicly.
 
 - `npm run check`: TypeScript.
-- `npm run build`: TypeScript plus app and standalone reader production bundles.
-- `npm run test:ai`: essential model/clipboard/Slides, reservations, network recovery, fake backend, cloud CAS/privacy, indexing, and retrieval invariants without model calls.
-- Use scoped Chromium checks for changed UI and affected reader/export paths; cover compact editing and fresh mobile reading. Test essential invariants, not implementation details; do not add a general regression suite by default. CI builds/tests on Node 22 and 24; it does not deploy or run browsers.
+- `npm run build`: TypeScript plus app and standalone reader bundles.
+- `npm run test:ai`: essential model, clipboard, Slides, reservation, recovery, cloud, privacy, and indexing invariants without model calls.
+- For changed UI, run scoped Chromium checks: compact editing, fresh mobile reading, and affected reader/export paths. Test essential invariants only; there is no general regression suite.
 
 ## Deployment
 
-Demo: `https://mote.ylxdzsw.com`. Static root: `/var/www/mote`. Nginx config: `/etc/nginx/conf.d/mote.conf`; repository example: `deploy/mote.nginx.conf`.
+Demo: `https://mote.ylxdzsw.com`. Static root: `/var/www/mote`. Nginx: `/etc/nginx/conf.d/mote.conf` (example in `deploy/mote.nginx.conf`). Follow README → Deployment:
 
-1. Build and complete checks appropriate to the change. Publish assets from `dist/` before `index.html`, with Nginx-readable file permissions (normally 0644, e.g. `install -m 644`). Do not preserve restrictive source permissions. Server code stays in `/root/mote/server`, outside the public root.
-2. Validate/reload Nginx (`nginx -t && systemctl reload nginx`). For backend changes, check active tasks/workers before restarting `moted.service`; static-only changes do not require a backend restart.
-3. Verify live HTML and referenced assets match the build and retain `Cache-Control: no-store`; private APIs must remain login-gated. Preserve `/var/lib/mote`, `/var/lib/mote-ai`, and `/var/backups/mote`. Do not reset/import/edit production documents as a deployment check.
+1. Build and run the checks the change needs. Publish `dist/` assets before `index.html`, with Nginx-readable permissions (`install -m 644`). Server code stays in `/root/mote/server`.
+2. Run `nginx -t && systemctl reload nginx`. Restart `moted.service` only for backend changes, after checking active tasks and workers.
+3. Confirm the live HTML and assets match the build and send `Cache-Control: no-store`, and that private APIs stay login-gated.
 
-The existing server-wide `/var/www/login.html` cookie gate protects private routes. Public routes include `/s/:token`, scoped `GET /api/shared/:token`, reservation capabilities `/a/:token`, and static assets/favicons/skills. The retired `/api/agent/` route denies public requests without logging tokens. Public skills contain no document data. All HTTP responses, including static skills/helpers, use `Cache-Control: no-store`. `moted.service` owns SQLite, sharing, tasks, and indexing. Workers cannot read cloud data, backups, Nginx secrets, or sibling task directories. See `CLOUD.md` for the operational boundary and manual backup/restore procedures.
+Preserve `/var/lib/mote`, `/var/lib/mote-ai`, and `/var/backups/mote`. Never reset, import, or edit production documents as a deployment check. CLOUD.md → Storage and service covers the access boundary.
 
-## Code map
+## Deferred scope
 
-- `src/cloud/`: working-copy sync, transport recovery, workspace routing, Files/Share/Settings/recovery dialogs.
-- `src/app/`: shell, inspectors, settings, Notes/drawing/widget editors, CSS.
-- `src/document/`: V1/V2 model/validation, Flow/caption/Slides/clipboard transformations, examples, history, local storage, file codecs/PNG export.
-- `src/editor/`: constrained Tiptap schemas, inline formatting, editor interactions.
-- `src/canvas/`: measured anchors, Flow mounts, Float layer, captions, spatial interactions, shared reader, zoom/minimap.
-- `src/theme/`, `src/reader/`: semantic palette/theme styling; standalone reader/export entry.
-- `src/ai/`: reservations, task state, protocol client, review UI.
-- `server/`: moted, cloud store, isolation, indexing/retrieval, private task API, retained legacy guide, preview/delivery helpers, fake runner.
-- `public/skills/`: unversioned public built-in/external entry skills, shared authoring references, and portable helpers.
-
-## Deferred, not current scope
-
-Rediscuss before implementing: slide templates, slide navigators, PPTX/PDF export, Markdown/additional interchange formats; editable sharing, individual accounts, collaborative merging, and broader offline synchronization; native bundled binary; direct user queries over the workspace index. Current interchange is V1/V2 `.mote`, PNG export, and standalone HTML export/reimport. HTML import accepts V1/V2 Mote exports only, not arbitrary HTML conversion.
+Discuss these before implementing: slide templates and navigators, PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1/V2 `.mote`, PNG, and standalone HTML export/reimport (Mote exports only).
