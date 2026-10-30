@@ -7,6 +7,7 @@ import type { AITarget, AITask } from './types'
 import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
 import { patchFloating } from '../canvas/patchFloating.ts'
+import { resolveSegmentRange } from './segments'
 
 const supportsCaption = (object: FloatingObject): object is Extract<FloatingObject, { kind: 'image' | 'html' | 'table' }> =>
   object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
@@ -63,35 +64,6 @@ function segmentDocument(doc: Pick<MoteDocument, 'content' | 'objects'>): MoteDo
 
 const segmentCompare = (a: SegmentPoint, b: SegmentPoint) => a.index - b.index || a.offset - b.offset
 const segmentBlockHeight = (node: JSONContent) => typeof node.attrs?.height === 'number' ? node.attrs.height : 0
-function resolveSegmentRange(doc: MoteDocument, target: Extract<AITarget, { kind: 'segment' }>): SegmentRange | null {
-  const blocks = doc.content.content ?? []
-  const point = (value: SegmentPoint) => {
-    if (!Number.isInteger(value.index) || value.index < 0 || value.index > blocks.length || value.offset < 0) return null
-    if (value.index === blocks.length) return value.offset === 0 ? value : null
-    const block = blocks[value.index]
-    if (block.type !== 'spacer') return value.offset === 0 ? { index: value.index, offset: 0 } : null
-    if (value.offset > segmentBlockHeight(block)) return null
-    return value.offset === segmentBlockHeight(block) ? { index: value.index + 1, offset: 0 } : value
-  }
-  const start = target.bookmarks ? (() => {
-    const bookmark = target.bookmarks.start
-    if (bookmark.blockId === null) return { index: bookmark.after ? blocks.length : 0, offset: 0 }
-    const index = blocks.findIndex(node => node.attrs?.id === bookmark.blockId)
-    if (index < 0) return null
-    if (bookmark.after) return { index: index + 1, offset: 0 }
-    return { index, offset: bookmark.offset }
-  })() : target.range.start
-  const end = target.bookmarks ? (() => {
-    const bookmark = target.bookmarks.end
-    if (bookmark.blockId === null) return { index: bookmark.after ? blocks.length : 0, offset: 0 }
-    const index = blocks.findIndex(node => node.attrs?.id === bookmark.blockId)
-    if (index < 0) return null
-    if (bookmark.after) return { index: index + 1, offset: 0 }
-    return { index, offset: bookmark.offset }
-  })() : target.range.end
-  const canonicalStart = start && point(start), canonicalEnd = end && point(end)
-  return canonicalStart && canonicalEnd && segmentCompare(canonicalStart, canonicalEnd) <= 0 ? { start: canonicalStart, end: canonicalEnd } : null
-}
 
 function segmentBlockIds(doc: MoteDocument, range: SegmentRange) {
   const ids: string[] = [], blocks = doc.content.content ?? []
@@ -209,7 +181,12 @@ export function overlaps(a: AITarget, b: AITarget, doc?: MoteDocument): boolean 
     }
     const left = rangeOf(a), right = rangeOf(b)
     if (left && right && (segmentCompare(left.start, left.end) === 0 || segmentCompare(right.start, right.end) === 0)) {
-      if (segmentCompare(left.start, right.end) <= 0 && segmentCompare(right.start, left.end) <= 0) return true
+      const leftEmpty = segmentCompare(left.start, left.end) === 0
+      const rightEmpty = segmentCompare(right.start, right.end) === 0
+      if (leftEmpty && rightEmpty) return segmentCompare(left.start, right.start) === 0
+      const point = leftEmpty ? left.start : right.start, range = leftEmpty ? right : left
+      // A section may end at the marker, but cannot consume its following anchor.
+      return segmentCompare(range.start, point) <= 0 && segmentCompare(point, range.end) < 0
     }
   }
   if (a.kind === 'object' && b.kind === 'object') return a.objectId === b.objectId

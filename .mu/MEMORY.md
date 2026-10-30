@@ -1831,3 +1831,8 @@ Tables now reuse the Context Strong/Soft pair picker: Simple fills its header wi
 ## 2026-10-30 — Uniform canvas surround spacing
 
 Stage padding is now 24px on every side instead of 32px top / 24px sides / 64px bottom, reducing excess surround space without changing authored margins or document geometry. The reader keeps its zero horizontal padding, and editing-only scroll-past-bottom room remains independent.
+
+
+## 2026-10-30 — Zero-height AI insertion reservations
+
+Empty segment reservations now resolve to one right-affine point rather than a pair of neighboring edges. Enter and other insertions before the marker move it forward without expanding the reserved region; a separate paragraph or segment reservation may end there, and replacing that preceding section preserves the insertion task. Document-end markers follow the logical end. Existing pending tasks use the same resolution without rewriting their immutable snapshots or adding saved placeholder blocks. Guards, overlap checks, preview, and acceptance share the segment resolver so they agree on the current position. A range crossing the marker or consuming its following anchor remains protected; this keeps boundary loss from silently invalidating pending work.

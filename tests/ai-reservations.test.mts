@@ -9,6 +9,7 @@ const server = await createServer({ configFile: false, optimizeDeps: { noDiscove
 after(() => server.close())
 const { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } = await server.ssrLoadModule('/src/ai/reservations.ts')
 const { candidateVersions, reconcileCandidateState, selectedCandidateVersion } = await server.ssrLoadModule('/src/ai/candidates.ts')
+const { makeSegmentTarget, resolveSegmentRange, applySegmentCandidate } = await server.ssrLoadModule('/src/ai/segments.ts')
 const { patchFloating } = await server.ssrLoadModule('/src/canvas/patchFloating.ts')
 const { createBlankDocument, patchObject } = await server.ssrLoadModule('/src/document/model.ts')
 
@@ -213,13 +214,41 @@ const segmentTask = (target: ReturnType<typeof segmentTarget>, blocks: ReturnTyp
   segmentOriginalBlocks: structuredClone(blocks), segmentOriginalObjects: structuredClone(objects), status: 'draft', submitted: false,
 } as unknown as AITask)
 
-test('empty segment anchors survive unrelated text edits but not anchor loss', () => {
-  const target = segmentTarget({ start: { index: 1, offset: 0 }, end: { index: 1, offset: 0 } }, [], [], {
+test('empty reservations stay zero-width when preceding paragraphs are inserted or replaced', () => {
+  const source = { ...doc, objects: [] }
+  const range = { start: { index: 1, offset: 0 }, end: { index: 1, offset: 0 } }
+  const legacy = segmentTarget(range, [], [], {
     start: { blockId: 'b', offset: 0 }, end: { blockId: 'a', offset: 0, after: true },
   })
-  const task = segmentTask(target, [])
-  assert.equal(permits([task], doc, { ...doc, content: { ...doc.content, content: [paragraph('a', 'edited'), paragraph('b'), paragraph('new')] } }), true)
-  assert.equal(permits([task], doc, { ...doc, content: { ...doc.content, content: [paragraph('a')] } }), false)
+  for (const target of [legacy, makeSegmentTarget(source, range, legacy.area)]) {
+    const task = segmentTask(target, [])
+    const inserted = { ...source, content: { ...source.content, content: [paragraph('a'), paragraph('new'), ...source.content.content!.slice(1)] } }
+    assert.equal(permits([task], source, inserted), true)
+    assert.equal(permitsEditor([task], 'main', source.content, inserted.content), true)
+    assert.deepEqual(resolveSegmentRange(inserted, target), { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } })
+    assert.equal(permits([task], inserted, source), true)
+    const preceding = makeSegmentTarget(source, { start: { index: 0, offset: 0 }, end: range.start }, legacy.area)
+    assert.equal(overlaps(target, preceding, source), false)
+    assert.equal(overlaps(preceding, target, source), false)
+    assert.equal(overlaps(target, { ...textTask.target, blockIds: ['a'] }, source), false)
+    const replacement = { version: 1, type: 'segment', content: [paragraph('replacement')], objects: [], geometry: {}, anchorTops: {}, originTop: 0 }
+    const accepted = applySegmentCandidate(source, preceding, replacement, { anchors: [], geometry: {} })
+    assert.equal(permits([task], source, accepted), true)
+    assert.deepEqual(resolveSegmentRange(accepted, target), range)
+    const withCandidate = applySegmentCandidate(inserted, target, replacement, { anchors: [], geometry: {} })
+    assert.deepEqual(withCandidate.content.content.map((node: { content?: { text: string }[] }) => node.content?.[0]?.text), ['a', 'new', 'replacement', 'b', 'c', 'd'])
+    assert.equal(permits([task], source, { ...source, content: { ...source.content, content: [paragraph('a')] } }), false)
+    assert.equal(overlaps(target, { ...textTask.target, blockIds: ['b'] }, source), true)
+  }
+  const tailRange = { start: { index: 4, offset: 0 }, end: { index: 4, offset: 0 } }
+  const tail = segmentTarget(tailRange, [], [], {
+    start: { blockId: 'd', offset: 0, after: true }, end: { blockId: 'd', offset: 0, after: true },
+  })
+  for (const target of [tail, makeSegmentTarget(source, tailRange, tail.area)]) {
+    const inserted = { ...source, content: { ...source.content, content: [...source.content.content!, paragraph('new')] } }
+    assert.equal(permits([segmentTask(target, [])], source, inserted), true)
+    assert.deepEqual(resolveSegmentRange(inserted, target), { start: { index: 5, offset: 0 }, end: { index: 5, offset: 0 } })
+  }
 })
 
 test('partial spacer reservations lock the touched spacer without locking surrounding paragraphs', () => {

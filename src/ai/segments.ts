@@ -89,18 +89,25 @@ export function makeSegmentTarget(doc: MoteDocument, range: SegmentRange, area: 
   const canonical = canonicalRange(doc, range)
   if (!canonical) throw new Error('Invalid segment range.')
   const blocks = blocksOf(doc)
+  const empty = compare(canonical.start, canonical.end) === 0
+  const start = empty && canonical.start.index === blocks.length
+    ? { blockId: null, offset: 0, after: true } : bookmarkAt(blocks, canonical.start, 'start')
   return {
     kind: 'segment', range: canonical, blockIds: touchedBlocks(blocks, canonical),
     objectIds: [...segmentObjectIds(doc, canonical)], area: { ...area },
     selectedText: selectedText(blocks, canonical),
-    bookmarks: { start: bookmarkAt(blocks, canonical.start, 'start'), end: bookmarkAt(blocks, canonical.end, 'end') },
+    bookmarks: { start, end: empty ? { ...start } : bookmarkAt(blocks, canonical.end, 'end') },
   }
 }
 
 export function resolveSegmentRange(doc: MoteDocument, target: SegmentTarget): SegmentRange | null {
   const blocks = blocksOf(doc)
   if (target.bookmarks) {
-    const start = resolveBookmark(blocks, target.bookmarks.start), end = resolveBookmark(blocks, target.bookmarks.end)
+    // Empty reservations follow the right-hand boundary, not the paragraph before it.
+    // Older tasks kept two neighboring bookmarks; resolve them as the same point too.
+    const empty = compare(target.range.start, target.range.end) === 0
+    const start = empty && target.bookmarks.start.after ? edge(blocks.length) : resolveBookmark(blocks, target.bookmarks.start)
+    const end = empty ? start : resolveBookmark(blocks, target.bookmarks.end)
     if (!start || !end || compare(start, end) > 0) return null
     return canonicalRange(doc, { start, end })
   }
