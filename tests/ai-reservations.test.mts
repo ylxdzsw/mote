@@ -16,7 +16,7 @@ const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, 
 const captionContent = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }, width: 240 }
 const object: FloatingHTMLWidget = { id: 'box', kind: 'html', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, html: 'before', screenshot: 'png', alt: 'Figure', caption: captionContent }
 const doc = { ...createBlankDocument(), id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, objects: [object] } as MoteDocument
-const taskVersion = { protocol: 'mote-agent-v1', documentVersion: 2, snapshotDocument: doc }
+const taskVersion = { protocol: 'mote-agent-v1', documentVersion: doc.version, snapshotDocument: doc }
 const textTask = { ...taskVersion, target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
 const objectTask = { ...taskVersion, target: { kind: 'object', objectId: 'box' } } as AITask
 

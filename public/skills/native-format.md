@@ -1,16 +1,16 @@
-# Mote native format reference — V1 and V2
+# Mote native format reference — V1–V3
 
-This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1 and V2 are closed schemas. A document has `format:"mote"` and numeric `version:1` or `2`; V1 remains unchanged, while V2 adds Slides as described below. Mote loads V1 as V2 with Slides off and saves new work as V2; a task snapshot keeps its pinned version. Unknown versions and unknown fields are unsupported. Preserve unsupported inputs and report the issue; do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
+This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1–V3 are closed schemas. A document has `format:"mote"` and numeric `version:1`, `2`, or `3`; V2 adds Slides and V3 adds optional table color pairs. Mote loads V1/V2 as V3 without changing their appearance and saves new work as V3; a task snapshot keeps its pinned version. Unknown versions and unknown fields are unsupported. Preserve unsupported inputs and report the issue; do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
 
 ## Document envelope and theme
 
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2
+  version: 1 | 2 | 3
   id: string
   language: 'en' | 'zh-Hans'
-  page: { width: number; margins: Insets; slideHeight?: number } // slideHeight is V2-only
+  page: { width: number; margins: Insets; slideHeight?: number } // slideHeight is V2+
   theme: Theme
   content: MainDoc
   objects: Object[]
@@ -45,7 +45,7 @@ type Theme = {
 }
 ```
 
-Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Font weight is finite from 1 through 1000. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
+Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2+. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Font weight is finite from 1 through 1000. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
 
 `theme.defaults` is complete. Paragraph/object style overrides are sparse and inherit omitted properties from Defaults. `theme.objects` has only the shown table, code, and formula overrides. Flow Before omission means zero; Flow After omission follows resolved Body `spaceAfter`. Do not add a palette, page-background field, or custom theme key.
 
@@ -53,9 +53,9 @@ The fixed palette is 22 slots: Strong/Soft pairs for Primary, Secondary, Red, Am
 
 `authoring.notes` are internal user scratchpads. They can appear in authorized input as tentative context, but they are not automatic instructions or published content. Never edit Notes or include `authoring` in a candidate. Public shares and HTML exports omit `authoring`; native `.mote` files retain it.
 
-## Slides (V2 only)
+## Slides (V2+ only)
 
-Slides are active only when V2 `page.slideHeight` is present; its default when
+Slides are active only when V2+ `page.slideHeight` is present; its default when
 the user enables Slides is 540px, but any positive finite height is valid.
 V1 rejects both `slideHeight` and slide-break atoms. V2 without `slideHeight`
 is a continuous document and rejects slide-break atoms too.
@@ -76,7 +76,7 @@ unmeasured block heights; a single oversized block stays intact. This is a
 lossy, undoable layout conversion, not a round-trip promise. It runs only when
 enabling; changing the saved height never repartitions existing boundaries.
 Disabling removes `slideHeight` and the markers, concatenates the blocks, and
-leaves the document V2.
+retains its version (V2 or newer).
 
 Each slide lays out Flow, margins, text repulsion, and anchors independently.
 During editing, a slide expands to fit its main flow and Flow captions but not
@@ -99,7 +99,7 @@ scope; do not change unrelated slide structure or `slideHeight`.
 
 ```ts
 type MainDoc = { type: 'doc'; content: [MainBlock, ...MainBlock[]] }
-type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // SlideBreak only in V2 with page.slideHeight
+type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // SlideBreak only in V2+ with page.slideHeight
 type MainParagraph = {
   type: 'paragraph'
   attrs:
@@ -190,7 +190,7 @@ All saved geometry is inside `layout`. Never put top-level `x`, `y`, `width`, `h
 | Kind | Required fields (besides `id`, `kind`, `layout`) | Optional fields |
 | --- | --- | --- |
 | `text` | `content` | `padding`, `decoration` |
-| `table` | `content` | `style`, `headerRow`, `caption` |
+| `table` | `content` | `style`, `headerRow`, `caption`, `color` (V3 only) |
 | `image` | `src`, `alt` | `caption` |
 | `drawing` | `strokes`, `labels`, `background` | — |
 | `formula` | `latex` | — |
@@ -198,7 +198,7 @@ All saved geometry is inside `layout`. Never put top-level `x`, `y`, `width`, `h
 | `html` | `html`, `screenshot`, `alt` | `caption` |
 
 - **Text:** `content` is a nonempty rich `TextDoc`. Optional `padding` is a nonnegative `Length`; omission means zero unless decorated, when presentation uses `0.75em`. Optional `decoration` is exactly `{kind:'left'|'box',color:PairColor}`. Omit it rather than storing null. Do not add `background` or `borderColor`.
-- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner.
+- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3 only, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Never add `color` to a candidate pinned to V1/V2.
 - **Image:** `src` is embedded image data, never a path or remote URL; `alt` is accessible descriptive text. Image dimensions derive from intrinsic ratio and layout width.
 - **Drawing:** positive layout height; `strokes` is an array of `{points:[[x,y],...],color,width}`. Each stroke has at least one finite point relative to the drawing top-left, a fixed-palette color, and positive document-pixel width. `labels` is an array of `{x,y,text,color,size}` with finite top-left-relative positions, fixed-palette color, and positive pixel font size. `background` is exactly `"gray6"` or `null`. Resizing scales point/label positions but preserves stroke widths and label sizes.
 - **Formula:** `latex` is the source string rendered by KaTeX; there is no saved height. Candidate LaTeX has no `$`/`$$` delimiters.
@@ -352,4 +352,4 @@ The segment `content` array may be empty only for an intentional empty replaceme
 
 ## Validation and practical limits
 
-Validation is strict over received JSON. Unknown fields are rejected; do not normalize input through an editor schema before validating it. No arbitrary extension bag, custom colors, custom nodes/marks, or legacy conversion exists. V1 and V2 are the only supported native versions; unsupported document inputs and retained task snapshots are not converted. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and drawing caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).
+Validation is strict over received JSON. Unknown fields are rejected; do not normalize input through an editor schema before validating it. No arbitrary extension bag, custom colors, custom nodes/marks, or legacy conversion exists. V1–V3 are the supported native versions; unsupported document inputs and retained task snapshots are not converted. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and drawing caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).

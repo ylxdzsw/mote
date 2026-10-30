@@ -124,6 +124,11 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
           <input type="checkbox" checked={!!object.headerRow} onChange={event => onChange({ headerRow: event.target.checked })} />
           <span>Header row</span>
         </label>
+        {object.style !== 'academic' && <InspectorField label="Color" layout="stack">
+          <PaletteControl theme={theme} label="Table color" value={object.color ?? (object.style === 'business' ? 'secondary' : 'gray4')} pairs
+            onFocus={() => onHistoryBegin('table-color')} onBlur={onHistoryEnd}
+            onChange={color => color && onChange({ color })} />
+        </InspectorField>}
       </InspectorGroup>}
       {text && <InspectorGroup title="Appearance">
         <InspectorField label="Border" className="inspector-field-segmented">

@@ -391,7 +391,7 @@ test('all four examples have native objects, owned captions, and the chosen lang
     const example = createDocument({ language, slideHeight })
     const objects = example.objects
     assert.equal(example.language, language)
-    assert.equal(example.version, 2)
+    assert.equal(example.version, 3)
     assert.equal(example.page.slideHeight, slideHeight)
     assert.equal(example.content.content.filter(block => block.type === 'slideBreak').length, slideHeight ? 9 : 0)
     assert.deepEqual([...new Set(objects.map(object => object.kind))].sort(), ['code', 'drawing', 'formula', 'html', 'image', 'table', 'text'])
@@ -427,7 +427,7 @@ test('V1 loading validates without rewriting input; unknown versions and fields 
   const source = createDocument(), before = JSON.stringify(source)
   assert.equal(initializeDocument(source), source)
   assert.equal(JSON.stringify(source), before)
-  for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 3 }, { ...source, extra: true }]) {
+  for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 4 }, { ...source, extra: true }]) {
     const raw = JSON.stringify(invalid)
     assert.throws(() => initializeDocument(invalid))
     assert.equal(JSON.stringify(invalid), raw)

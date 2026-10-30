@@ -9,7 +9,7 @@ export interface SlideSelection { first: number; last: number }
 export interface SlidesClipboard {
   version: 1
   type: 'slides'
-  documentVersion: 2
+  documentVersion: 2 | 3
   slideHeight: number
   content: JSONContent[]
   objects: FloatingObject[]
@@ -45,7 +45,7 @@ export function copySlides(doc: MoteDocument, selection: SlideSelection): Slides
   const content = structuredClone(doc.content.content!.slice(first.start + (first.id === null ? 0 : 1), last.end))
   const objects = doc.objects.filter(object => ids.has(object.id)).map(object => object.layout.placement.type === 'float' && objectAnchorId(object) === first.id
     ? patchObject(structuredClone(object), { anchorId: null }) : structuredClone(object))
-  const payload: SlidesClipboard = { version: 1, type: 'slides', documentVersion: 2, slideHeight: doc.page.slideHeight!, content, objects }
+  const payload: SlidesClipboard = { version: 1, type: 'slides', documentVersion: doc.version === 1 ? 2 : doc.version, slideHeight: doc.page.slideHeight!, content, objects }
   validateSlides(payload)
   return payload
 }
@@ -53,10 +53,10 @@ export function copySlides(doc: MoteDocument, selection: SlideSelection): Slides
 function validateSlides(value: unknown): asserts value is SlidesClipboard {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Mote slides')
   const payload = value as SlidesClipboard
-  if (payload.version !== 1 || payload.type !== 'slides' || payload.documentVersion !== 2) throw new Error('Unsupported Mote slides version')
+  if (payload.version !== 1 || payload.type !== 'slides' || ![2, 3].includes(payload.documentVersion)) throw new Error('Unsupported Mote slides version')
   if (Object.keys(payload).some(key => !['version', 'type', 'documentVersion', 'slideHeight', 'content', 'objects'].includes(key))
     || typeof payload.slideHeight !== 'number' || !Number.isFinite(payload.slideHeight) || payload.slideHeight <= 0) throw new Error('Invalid Mote slides')
-  validateComposition(payload.content, payload.objects, { slides: true })
+  validateComposition(payload.content, payload.objects, { slides: true, version: payload.documentVersion })
   if (payload.content[0].type === 'slideBreak' || payload.content.at(-1)!.type === 'slideBreak'
     || payload.content.some((block, i) => block.type === 'slideBreak' && payload.content[i - 1]?.type === 'slideBreak')) throw new Error('Each copied slide requires content')
 }

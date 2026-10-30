@@ -1,5 +1,5 @@
 import { objectAnchorId } from '../document/model'
-import { useRef, type PointerEvent } from 'react'
+import { useRef, type CSSProperties, type PointerEvent } from 'react'
 import type { Editor } from '@tiptap/core'
 import { isText, supportsCaption, type FloatingObject, type FloatingPatch } from '../document/model'
 import { TextEditor } from '../editor/TextEditor'
@@ -36,6 +36,11 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
   const candidatePreview = aiTask?.preview && !!selectedCandidateVersion(aiTask)
   const footprint = layoutBounds({ ...box, margins: note.layout.margins })
   const decoration = isText(note) ? note.decoration : null
+  const tableColor = note.kind === 'table' ? note.color ?? (note.style === 'business' ? 'secondary' : 'gray4') : null
+  const tableStyle = tableColor ? {
+    '--table-strong': paletteCSS(tableColor),
+    '--table-soft': paletteCSS(tableColor === 'gray4' ? 'gray5' : `${tableColor}:soft`),
+  } as CSSProperties : {}
   const textStyle = isText(note) ? {
     padding: pixels(note.padding ?? ({ value: decoration ? .75 : 0, unit: 'em' }), defaultFontSize),
     ...(decoration && { backgroundColor: `var(--palette-${decoration.color}-soft)`, borderColor: paletteCSS(decoration.color),
@@ -74,7 +79,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
     data-ai-segment-candidate={editable && aiTask?.target.kind === 'segment' && candidatePreview ? '' : undefined}
     data-ai-segment-owner={editable && aiTask?.target.kind === 'segment' ? aiTask.id : undefined}
     data-table-style={note.kind === 'table' ? note.style ?? 'simple' : undefined} data-table-header={note.kind === 'table' && note.headerRow ? '' : undefined}
-    style={{ ...textStyle, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
+    style={{ ...textStyle, ...tableStyle, position: inFlow ? 'relative' : 'absolute', zIndex: order + 1, left: box.x, top: inFlow ? undefined : box.y,
       marginTop: inFlow ? note.layout.margins?.top : undefined, marginBottom: inFlow ? note.layout.margins?.bottom : undefined,
       width: Math.max(1, box.width), height: kind === 'drawing' ? Math.max(1, note.kind === 'drawing' ? note.layout.height : box.height) : undefined }}
     tabIndex={editable ? 0 : undefined} aria-label={`Floating ${kind === 'text' ? 'text box' : kind}`} aria-describedby={captionVisible ? `${note.id}-caption` : undefined}

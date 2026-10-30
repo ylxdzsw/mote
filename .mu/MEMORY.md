@@ -1822,3 +1822,8 @@ Pending AI tasks were the deciding constraint. Agents work from a coherent old s
 ## 2026-10-30 — Migration chain implemented
 
 `shared/document.mjs` holds the ordered `MIGRATIONS` steps and `migrationBreaking(version)`. `loadDocument` validates at the stored version, upgrades a copy, and revalidates; `validateDocument` keeps accepting every supported version for pinned snapshots and stored revisions. The client keeps a clean migrated working copy with `migratedFrom` (the stored document) until a cloud save is acknowledged, so opening never writes. An AI request marks it dirty first because task snapshots must equal the saved revision. Server workspace reads, indexing, and public shares migrate; owner reads and task snapshots stay raw. The breaking-path dialog (Upgrade and release / Open read-only) is in the open flow, and read-only uses the reader at the stored version. It is unreachable while V1→V2 is the only step and non-breaking.
+
+
+## 2026-10-30 — Table color pairs
+
+Tables now reuse the Context Strong/Soft pair picker: Simple fills its header with Soft, while Business uses Strong for its header band and Soft for alternating rows. Academic stays monochrome and hides the picker, retaining the selected pair for switching back. The choice belongs to the table, not its cell typography, and shares the object renderer across reading, minimaps, and exports. Omitted colors preserve the previous Gray Simple / Secondary Business appearance. This optional field introduces V3 with a non-breaking V2→V3 version-only migration; older task snapshots still reject the new field. Slides edits retain newer versions instead of downgrading them.

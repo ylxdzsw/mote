@@ -10,13 +10,30 @@ const { createBlankDocument, createDocument } = await server.ssrLoadModule('/src
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
 
-test('loading migrates V1 to V2 losslessly without mutating input', () => {
+test('loading migrates V1 to V3 losslessly without mutating input', () => {
   const v1 = { ...createDocument(), version: 1 }, before = structuredClone(v1)
   assert.equal(migrationBreaking(1), false)
   const loaded = loadDocument(v1)
   assert.deepEqual(v1, before)
-  assert.deepEqual(loaded, { ...before, version: 2 })
+  assert.deepEqual(loaded, { ...before, version: 3 })
   validateDocument(v1)
+})
+
+test('V3 table color pairs round-trip while V2 migrates without recoloring', async () => {
+  const v2 = { ...createDocument(), version: 2 }, before = structuredClone(v2)
+  const document = loadDocument(v2), table = document.objects.find(object => object.kind === 'table')
+  assert.deepEqual(document, { ...before, version: 3 })
+  assert.equal(migrationBreaking(2), false)
+  assert.deepEqual(v2, before)
+  for (const color of ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink', 'gray4']) {
+    const colored = { ...document, objects: document.objects.map(object => object === table ? { ...table, color } : object) }
+    validateServerDocument(colored)
+    assert.deepEqual(await decodeMote(new File([await encodeMote(colored)], 'table.mote')), colored)
+    for (const version of [1, 2]) assert.throws(() => validateDocument({ ...colored, version }))
+  }
+  for (const color of ['red:soft', 'gray5', '#ff0000', null]) {
+    assert.throws(() => validateDocument({ ...document, objects: document.objects.map(object => object === table ? { ...table, color } : object) }))
+  }
 })
 
 test('V1 has one strict browser/server contract and initialization never strips input', () => {
@@ -52,7 +69,7 @@ test('V1 has one strict browser/server contract and initialization never strips 
 })
 
 test('unsupported versions are rejected without conversion or mutation', () => {
-  for (const version of ['V0', 0, 3, 'V1', undefined]) {
+  for (const version of ['V0', 0, 4, 'V1', undefined]) {
     const value = { ...createBlankDocument(), version }, before = structuredClone(value)
     assert.throws(() => loadDocument(value), error => error instanceof DocumentFormatError && error.code === 'unsupported' && /has not been changed/.test(error.message))
     assert.deepEqual(value, before)

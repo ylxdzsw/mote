@@ -19,7 +19,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 | Topic | Start here |
 | --- | --- |
 | Product behavior, setup, checks, exports, deployment, code structure | [README.md](../README.md) |
-| Native V1/V2 schema and validation | [FORMAT.md](../FORMAT.md) |
+| Native V1–V3 schema and validation | [FORMAT.md](../FORMAT.md) |
 | UI principles, patterns, and interaction review | [mote-ui skill](mote-ui.md) |
 | Sync/recovery, privacy, sharing, indexing/retrieval, storage, backup/restore | [CLOUD.md](../CLOUD.md) |
 | Agent workflow, native authoring, preview, submission | [public skills](../public/skills/external/SKILL.md) and `../public/skills/` |
@@ -31,7 +31,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 ### Document and rendering
 
 - Desktop supports editing and reading; viewports under 768px are reading-only. Zoom and scroll-past-bottom are view state, never saved geometry.
-- Slides are an optional per-document layout, Off by default and V2-only: `page.slideHeight` plus top-level `slideBreak` atoms in the flat content array. Enabling is an explicit, undoable V1→V2 edit; disabling leaves V2. Each slide has independent Flow, margins, and anchors; height changes never repartition. Reading and exports crop each slide without slide chrome.
+- Slides are an optional per-document layout, Off by default and V2+: `page.slideHeight` plus top-level `slideBreak` atoms in the flat content array. Enabling is an explicit, undoable edit (V1→V2 if needed); disabling retains the document version. Each slide has independent Flow, margins, and anchors; height changes never repartition. Reading and exports crop each slide without slide chrome.
 - Typography comes from semantic paragraph classes and the document theme. Inline formatting is limited to Bold, fixed palette colors, None/Box decoration, and Links to safe, credential-free absolute HTTP(S) URLs. No arbitrary inline fonts or sizes. Code is an object, never a paragraph class.
 - Object kinds are text, table, image, drawing, Code, formula, and HTML widget, and every kind supports Flow and Float. Objects stay in ordered `objects`, with all geometry in `layout`.
 - Each Flow object has exactly one top-level `flow` atom and a real normal-flow mount. Never emulate it with spacers or absolute overlays. Floats use page-space x and anchor-relative y, and they may overlap anything.
@@ -83,4 +83,4 @@ Preserve `/var/lib/mote`, `/var/lib/mote-ai`, and `/var/backups/mote`. Never res
 
 ## Deferred scope
 
-Discuss these before implementing: slide templates and navigators, PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1/V2 `.mote`, PNG, and standalone HTML export/reimport (Mote exports only).
+Discuss these before implementing: slide templates and navigators, PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1–V3 `.mote`, PNG, and standalone HTML export/reimport (Mote exports only).

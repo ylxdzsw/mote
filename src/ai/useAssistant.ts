@@ -52,7 +52,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
     if (target.kind === 'object') {
       const original = doc.objects.find(object => object.id === target.objectId)
       if (!original || !candidate.object || candidate.content || candidate.segment) throw new Error('The candidate must deliver exactly one floating object.')
-      validateObject(candidate.object)
+      validateObject(candidate.object, { version: task.documentVersion })
       if (candidate.object.id !== target.objectId) throw new Error('A revision must retain the target object ID.')
       if (!target.isNew && original.kind !== 'drawing' && candidate.object.kind !== original.kind) throw new Error('A revision must retain the object kind.')
       result = { ...doc, objects: doc.objects.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
@@ -67,6 +67,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
     } else {
       if (!candidate.segment || candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one V1 segment.')
       if (!context) throw new Error('Segment geometry is not available for this preview.')
+      candidate.segment.objects.forEach(object => validateObject(object, { version: task.documentVersion }))
       result = applySegmentCandidate(doc, target, candidate.segment, context)
     }
     validateDocument(result)

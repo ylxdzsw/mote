@@ -140,7 +140,7 @@ export function setSlides(doc: MoteDocument, enabled: boolean, height = DEFAULT_
     }) }
   }
   if (!Number.isFinite(height) || height <= 0) throw new RangeError('Slide height must be a positive finite number.')
-  const next: MoteDocument = { ...doc, version: 2, page: { ...doc.page, slideHeight: height } }
+  const next: MoteDocument = { ...doc, version: doc.version === 1 ? 2 : doc.version, page: { ...doc.page, slideHeight: height } }
   if (doc.page.slideHeight !== undefined) return next
   const measured = boxes(doc, context)
   const content: JSONContent[] = []
@@ -186,7 +186,7 @@ export function insertSlideBreak(doc: MoteDocument, index: number): MoteDocument
   const split = blocks[index]
   const splitBox = split && local.get(split.attrs!.id)
   const offset = splitBox ? Math.max(0, splitBox.top - inset(doc, splitBox)) : Infinity
-  return { ...doc, version: 2, page: { ...doc.page, slideHeight: doc.page.slideHeight ?? DEFAULT_SLIDE_HEIGHT },
+  return { ...doc, version: doc.version === 1 ? 2 : doc.version, page: { ...doc.page, slideHeight: doc.page.slideHeight ?? DEFAULT_SLIDE_HEIGHT },
     content: { ...doc.content, content: filledSlides([...blocks.slice(0, index), boundary, ...blocks.slice(index)]) },
     objects: doc.objects.map(object => {
       const placement = object.layout.placement

@@ -1,9 +1,9 @@
-# Mote document formats V1 and V2
+# Mote document formats V1–V3
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1` or `2`. V1 is the original
-continuous-page format. V2 adds Slides as specified below; all other shapes
-and meanings are shared. Unknown versions and unknown fields are rejected;
+exactly `"mote"`; `version` is the number `1`, `2`, or `3`. V1 is the original
+continuous-page format. V2 adds Slides; V3 adds optional table color pairs.
+All other shapes and meanings are shared. Unknown versions and unknown fields are rejected;
 there is no extension bag or implicit compatibility mode.
 
 ## Versioning and migration
@@ -34,6 +34,7 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | Step | Breaking | Effect |
 | --- | --- | --- |
 | V1 → V2 | No | Sets `version: 2`; no `slideHeight`, so Slides stay off |
+| V2 → V3 | No | Sets `version: 3`; omitted table colors retain prior styling |
 
 Migration happens in memory. Loading never writes by itself. The next ordinary
 revision-checked save persists the upgraded document, and readers that cannot
@@ -56,7 +57,7 @@ retried automatically. The agent transport identifier `mote-agent-v1` is a
 separate protocol version and does not replace the document's numeric
 `version`.
 
-V1 loads as V2 with Slides off. New documents, saves of opened documents,
+V1 and V2 load as V3; V1 keeps Slides off. New documents, saves of opened documents,
 exports, and new task inputs use the current version. `validateDocument`
 still accepts every supported version, so pinned task snapshots and stored
 revisions stay readable as they are.
@@ -68,13 +69,13 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2
+  version: 1 | 2 | 3
   id: string
   language: 'en' | 'zh-Hans'
   page: {
     width: number                 // document pixels, > 0
     margins: Insets               // document pixels, all sides >= 0
-    slideHeight?: number          // V2 only; positive finite document pixels
+    slideHeight?: number          // V2+ only; positive finite document pixels
   }
   theme: Theme
   content: MainDoc
@@ -94,7 +95,7 @@ is required. The optional `authoring` object, when present, requires `notes`;
 omitting `authoring` means there are no notes or document model override.
 Notes are user-owned plain-text scratchpads, not published page content.
 
-### Slides (V2 only)
+### Slides (V2+ only)
 
 Presence of `page.slideHeight` activates Slides; omission means continuous
 layout, including in V2. The default height on enabling is 540px; any positive
@@ -124,7 +125,7 @@ IDs, Flow anchors, and captions. Empty newly inserted slides receive writable
 paragraphs. Float offsets are translated best-effort when their slide-top
 anchor changes; ordinary paragraph/Flow associations stay intact. Disabling
 Slides removes `slideHeight` and markers, concatenates content, and translates
-marker-anchored Floats into continuous coordinates. The document stays V2.
+marker-anchored Floats into continuous coordinates. The document keeps its version (V2 or newer).
 
 A new document starts in Light mode with Primary hue 29°, Secondary hue 262°,
 mixed-script autospace enabled, and a 16px Sans default in Gray 2 at weight
@@ -231,11 +232,11 @@ colors, or page-background fields.
 ## Main content and rich-text grammar
 
 `content` is a nonempty `{type:'doc',content:[...]}`. Its top-level nodes are
-paragraphs, explicit spaces, and Flow atoms, plus slide boundaries in V2 Slides:
+paragraphs, explicit spaces, and Flow atoms, plus slide boundaries in V2+ Slides:
 
 ```ts
 type MainDoc = { type: 'doc'; content: [MainBlock, ...MainBlock[]] }
-type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // last case: V2 Slides only
+type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // last case: V2+ Slides only
 type MainParagraph = {
   type: 'paragraph'
   attrs:
@@ -356,7 +357,7 @@ Flow atom supplies its position in block order; numeric Flow x is an offset
 from the text-column left, and `'center'` centers within the column.
 
 Float `anchorId` is null (document/first-slide top) or a main paragraph, spacer,
-Flow atom, or V2 Slides marker ID. For document-top, slide-top and ordinary paragraph/space anchors, x is in page
+Flow atom, or V2+ Slides marker ID. For document-top, slide-top and ordinary paragraph/space anchors, x is in page
 coordinates and y is a nonnegative offset from the anchor's measured top. A
 Float anchored to a Flow atom instead uses signed x and y offsets from its
 Flow owner's measured top-left. Floats may overlap other Floats and Flow
@@ -379,7 +380,7 @@ and `layout`.
 | Kind | Required fields | Optional fields |
 | --- | --- | --- |
 | `text` | `content` | `padding`, `decoration` |
-| `table` | `content` | `style`, `headerRow`, `caption` |
+| `table` | `content` | `style`, `headerRow`, `caption`, `color` (V3 only) |
 | `image` | `src`, `alt` | `caption` |
 | `drawing` | `strokes`, `labels`, `background` | — |
 | `formula` | `latex` | — |
@@ -396,7 +397,11 @@ and `layout`.
   Text has no `background` or `borderColor` field.
 * **Table:** a single constrained table doc, optional style and header-row
   settings, and optional owned caption. Omitted style means `simple`; omitted
-  `headerRow` means false. Cell paragraph styling is fixed.
+  `headerRow` means false. V3 permits optional `color: PairColor`, using the same
+  nine Strong/Soft pairs as text decorations. Simple uses Soft for the header;
+  Business uses Strong for its header band/border and Soft for stripes. Academic
+  ignores color but retains it. Omission preserves Gray 4/Gray 5 for Simple and
+  Secondary for Business. V1/V2 reject `color`. Cell paragraph styling is fixed.
 * **Image:** `src` is embedded image data, not a path or remote URL. `alt` is
   accessible descriptive text. Image dimensions derive from its intrinsic
   ratio and saved layout width. An image may own a caption.
@@ -447,7 +452,7 @@ as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
 per image; PNG signatures are checked. Drawings allow at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain the V1 or V2 document and embedded assets; native saves
+Native `.mote` files contain the V1, V2, or V3 document and embedded assets; native saves
 preserve `authoring`. Public projection validates the document and returns a
 clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
@@ -460,11 +465,14 @@ They use `version:1`, `type:'segment'|'objects'`, and `objects` (never
 Transient `geometry`, `anchorTops`, and `originTop` may accompany these
 payloads for placement/coordinate translation. They are not fields of
 `MoteDocument` or object `layout`. Main block/object/caption records inside
-these envelopes use the V1 shapes above.
+these envelopes use the current native shapes above; AI candidates must use
+their task’s pinned native version. The transfer version is separate from the
+native document version.
 
 Slide-aware segment transfers use `version:2` with the same envelope fields,
 permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
-whole-slide clipboard uses its distinct `type:"slides"` envelope. AI V2 segments
+whole-slide clipboard uses its distinct `type:"slides"` envelope with
+`documentVersion:2|3` declaring its native object schema. AI V2 segments
 require a Slides document and retain internal boundaries in the reserved range.
 The leading boundary may be omitted; application preserves the original boundary
 IDs and remaps marker-anchored Floats. Empty candidates clear content without

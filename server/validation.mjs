@@ -91,7 +91,7 @@ function validateSegmentPayload(value, document, selectedTarget, options = {}) {
   if (!Array.isArray(payload.content) || payload.content.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.content must be an array')
   if (!Array.isArray(payload.objects) || payload.objects.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.objects must be an array')
   const screenshotIds = options.screenshotIds ?? new Set()
-  composition(payload.content, payload.objects, { allowEmpty: true, slides: payload.version === 2, allowMissingScreenshotIds: screenshotIds })
+  composition(payload.content, payload.objects, { version: document.version, allowEmpty: true, slides: payload.version === 2, allowMissingScreenshotIds: screenshotIds })
   if (Object.keys(payload).some(key => !['version', 'type', 'content', 'objects', 'geometry', 'anchorTops', 'originTop'].includes(key))) throw new HttpError(400, 'candidate.segment contains an unsupported field')
   const topIds = new Set(payload.content.map(node => node.attrs.id))
   const objects = new Map(payload.objects.map(object => [object.id, object]))
@@ -281,7 +281,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
       const sameKind = candidateObject.kind === original.kind
       if (sameKind && original.caption !== undefined && !Object.hasOwn(candidateObject, 'caption')) candidateObject = { ...candidateObject, caption: structuredClone(original.caption) }
       if (Object.hasOwn(candidateObject, 'caption')) {
-        validateNativeObject(candidateObject, { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
+        validateNativeObject(candidateObject, { version: document.version, allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
         const caption = { ...candidateObject.caption }
         const width = sameKind ? original.caption?.width : undefined
         if (width === undefined) delete caption.width
@@ -289,7 +289,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
         candidateObject = { ...candidateObject, caption }
       }
     }
-    validateNativeObject(candidateObject, { allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
+    validateNativeObject(candidateObject, { version: document.version, allowMissingScreenshot: hasScreenshotPath && options.allowScreenshotPath })
     candidateObject = { ...candidateObject, layout: { ...candidateObject.layout } }
     if (original.layout.margins === undefined) delete candidateObject.layout.margins
     else candidateObject.layout.margins = structuredClone(original.layout.margins)

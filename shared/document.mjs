@@ -1,8 +1,8 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
-export const DOCUMENT_VERSION = 2
-export const DOCUMENT_VERSIONS = [1, 2]
+export const DOCUMENT_VERSION = 3
+export const DOCUMENT_VERSIONS = [1, 2, 3]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -207,12 +207,12 @@ export function validateContent(value, mode = 'main', options = {}) {
 }
 
 function object(value, path, state, options) {
-  record(value, path, ['id', 'kind', 'layout'], ['content', 'padding', 'decoration', 'style', 'headerRow', 'caption', 'src', 'alt', 'strokes', 'labels', 'background', 'latex', 'source', 'language', 'html', 'screenshot'])
+  record(value, path, ['id', 'kind', 'layout'], ['content', 'padding', 'decoration', 'style', 'headerRow', 'color', 'caption', 'src', 'alt', 'strokes', 'labels', 'background', 'latex', 'source', 'language', 'html', 'screenshot'])
   identifier(value.id, `${path}.id`, state.ids)
   choice(value.kind, KINDS, `${path}.kind`)
   const kind = value.kind
   const fields = {
-    text: [['content'], ['padding', 'decoration']], table: [['content'], ['style', 'headerRow', 'caption']],
+    text: [['content'], ['padding', 'decoration']], table: [['content'], ['style', 'headerRow', 'caption', ...((options.version ?? DOCUMENT_VERSION) >= 3 ? ['color'] : [])]],
     image: [['src', 'alt'], ['caption']], drawing: [['strokes', 'labels', 'background'], []],
     formula: [['latex'], []], code: [['source', 'language'], []],
     html: [['html', 'alt', ...(options.allowMissingScreenshot ? [] : ['screenshot'])], ['caption', ...(options.allowMissingScreenshot ? ['screenshot'] : [])]],
@@ -245,6 +245,7 @@ function object(value, path, state, options) {
   } else if (kind === 'table') {
     if (present(value, 'style')) choice(value.style, ['simple', 'academic', 'business'], `${path}.style`)
     if (present(value, 'headerRow')) boolean(value.headerRow, `${path}.headerRow`)
+    if (present(value, 'color')) choice(value.color, boxColorIds, `${path}.color`)
   } else if (kind === 'image') image(value.src, `${path}.src`)
   else if (kind === 'formula') text(value.latex, `${path}.latex`)
   else if (kind === 'code') {
@@ -293,7 +294,7 @@ export function validateComposition(blocks, objects, options = {}) {
   array(objects, 'objects')
   const state = { count: 0, ids: new Set(), slides: options.slides }
   rich({ type: 'doc', content: blocks }, 'content', 'main', ['doc'], state, 0, options.allowEmpty)
-  objects.forEach((value, index) => object(value, `objects[${index}]`, state, { allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) }))
+  objects.forEach((value, index) => object(value, `objects[${index}]`, state, { version: options.version, allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) }))
   const byId = new Map(objects.map(value => [value.id, value]))
   const blockIds = new Set(blocks.map(block => block.attrs.id))
   const flowAnchors = new Set(), flows = new Set()
@@ -316,12 +317,12 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1 and V2 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V3 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
   choice(value.language, ['en', 'zh-Hans'], 'language')
-  record(value.page, 'page', ['width', 'margins'], value.version === 2 ? ['slideHeight'] : [])
+  record(value.page, 'page', ['width', 'margins'], value.version >= 2 ? ['slideHeight'] : [])
   number(value.page.width, 'page.width', Number.MIN_VALUE)
   if (present(value.page, 'slideHeight')) number(value.page.slideHeight, 'page.slideHeight', Number.MIN_VALUE)
   insets(value.page.margins, 'page.margins', 0)
@@ -329,7 +330,7 @@ export function validateDocument(value) {
   record(value.content, 'content', ['type', 'content'])
   choice(value.content.type, ['doc'], 'content.type')
   const slides = present(value.page, 'slideHeight')
-  validateComposition(value.content.content, value.objects, { slides })
+  validateComposition(value.content.content, value.objects, { slides, version: value.version })
   if (slides) {
     const blocks = value.content.content
     if (blocks[0].type === 'slideBreak' || blocks.at(-1).type === 'slideBreak'
@@ -353,6 +354,7 @@ export function validateDocument(value) {
 // with the same meaning. V0 deliberately has no step.
 const MIGRATIONS = [
   { from: 1, breaking: false, migrate: document => ({ ...document, version: 2 }) },
+  { from: 2, breaking: false, migrate: document => ({ ...document, version: 3 }) },
 ]
 
 export function migrationBreaking(version) {

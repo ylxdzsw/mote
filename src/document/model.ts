@@ -74,6 +74,7 @@ export interface FloatingTable extends FloatingGeometry {
   content: JSONContent
   style?: TableStyle // Omitted means simple.
   headerRow?: boolean
+  color?: string // Strong/Soft pair; omitted preserves the style's default.
   caption?: Caption
 }
 
@@ -121,7 +122,7 @@ export type FloatingPatch = Partial<{ anchorId: string | null; x: number; y: num
   caption?: Caption | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string
-  style?: TableStyle; headerRow?: boolean
+  style?: TableStyle; headerRow?: boolean; color?: string
   strokes?: FloatingDrawing['strokes']; labels?: FloatingDrawing['labels']
   background?: string | null; padding?: ThemeLength; decoration?: BoxDecoration | null
 }
@@ -135,7 +136,7 @@ export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
   format: 'mote'
-  version: 1 | 2
+  version: 1 | 2 | 3
   id: string
   language: DocumentLanguage
   page: { width: number; margins: Margins; slideHeight?: number }
@@ -181,7 +182,7 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 }
 
 export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 2, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+  return { format: 'mote', version: 3, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }

@@ -10,14 +10,14 @@ pins its immutable document inputs and target. Existing task artifacts and
 unresolved work are preserved; legacy task-local guides are not converted or
 rewritten.
 
-The supported native document formats are V1 and V2 (`format: 'mote',
-version: 1 | 2`); the separate task transport protocol remains
+The supported native document formats are V1–V3 (`format: 'mote',
+version: 1 | 2 | 3`); the separate task transport protocol remains
 `mote-agent-v1`. New tasks pin the exact native version and snapshot.
 See [FORMAT.md](../FORMAT.md) for the normative schema.
 
 ## Native Flow and Float contract
 
-Cloud documents use the V1 or V2 `MoteDocument` directly in storage and on the wire.
+Cloud documents use the V1, V2, or V3 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
 each object's `layout`. There is no V0 runtime adapter or extension bag;
 older supported versions migrate only through `loadDocument`. V1 keeps its existing strict continuous-page schema. V2
@@ -129,13 +129,13 @@ Inline rich text accepts only `bold`, fixed-palette `color`, Box `decoration`,
 and safe absolute HTTP(S) `link` marks. Link hrefs have no credentials or
 control characters and cannot be relative, `mailto:`, or `tel:`. Marks have
 exact attributes and cannot be duplicated. `theme.palette`, arbitrary raw
-colors, and custom color definitions are not part of V1 or V2. Clipboard/candidate
+colors, and custom color definitions are not part of V1, V2, or V3. Clipboard/candidate
 payloads carry no palette definitions; fixed references adopt destination mode
 and hues.
 
 ## Private task API
 
-New tasks pin their exact V1 or V2 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
+New tasks pin their exact V1, V2, or V3 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2 | 3`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
 
 Document migration follows [FORMAT.md → Versioning and migration](../FORMAT.md#versioning-and-migration). When the owner's document migrates past a task's pinned version along a non-breaking path, the task continues unchanged. Its candidates validate against the pinned version and pass through the same migration steps on acceptance. A breaking path requires owner confirmation first. Upgrade releases every unresolved task on that document and permanently revokes its grants (HTTP 404 afterward). Decline keeps the document read-only at its stored version and leaves tasks inspectable. Any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation.
 
