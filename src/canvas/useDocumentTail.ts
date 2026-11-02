@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type PointerEvent, type RefObject } from 'react'
 import type { Editor } from '@tiptap/core'
 import { GapCursor } from '@tiptap/pm/gapcursor'
 import { TextSelection } from '@tiptap/pm/state'
@@ -9,7 +9,6 @@ import { slideAtPoint, type SlideGeometry } from './floatingGeometry'
 type TailPointer = Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey' | 'shiftKey' | 'ctrlKey' | 'metaKey'>
 
 export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, leftMargin: number, theme: Theme, slides: SlideGeometry[], onActivate: () => void) {
-  const [hint, setHint] = useState<number | null>(null)
   const pointer = useRef<TailPointer | null>(null)
   const focusedBlank = useRef(false)
 
@@ -29,22 +28,18 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
   }
 
   useLayoutEffect(() => {
-    if (!editor || !active) { setHint(null); return }
+    if (!editor || !active) return
     const surface = sheet.current!
     function update() {
       const focused = editor!.isFocused && atDocumentTail(editor!.state)
       const hovered = pointer.current && target(pointer.current)
       surface.classList.toggle('can-continue-writing', hovered !== null)
       const end = focused ? editor!.state.selection.head : hovered
-      if (end === null) { setHint(null); return }
+      if (end === null) return
       const last = editor!.state.doc.resolve(end).nodeBefore!
-      if (last.type.name === 'paragraph') { setHint(null); return }
+      if (last.type.name === 'paragraph') return
       const element = editor!.view.nodeDOM(end - last.nodeSize) as HTMLElement
       surface.style.setProperty('--tail-slide-offset', element.style.getPropertyValue('--slide-offset') || '0px')
-      const style = getComputedStyle(surface)
-      const before = parseFloat(style.getPropertyValue('--body-spaceBefore')) || 0
-      const after = last.type.name === 'flow' ? parseFloat(style.getPropertyValue('--flow-spaceAfter')) || 0 : 0
-      setHint((element.getBoundingClientRect().bottom - surface.getBoundingClientRect().top) / scale - surface.clientTop + Math.max(before, after))
     }
     const move = (event: globalThis.PointerEvent) => { pointer.current = event; update() }
     const leave = () => { pointer.current = null; update() }
@@ -86,5 +81,5 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
     onActivate()
     return true
   }
-  return { hint: active ? hint : null, begin }
+  return { begin }
 }

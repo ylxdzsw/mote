@@ -968,7 +968,6 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
         </div>
-        {tail.hint !== null && <div className="document-tail-hint" aria-hidden="true" style={{ top: tail.hint, left: doc.page.margins.left }}>Continue writing…</div>}
         {editable && spaces.hint && <div className={`space-hint ${spaces.hint.dragging ? 'is-dragging' : ''}`} aria-hidden="true"
           style={{ top: spaces.hint.top + (spaces.hint.dragging ? spaces.hint.height : 0) }}>
           {spaces.hint.dragging ? spaces.hint.height < spaceRemovalThreshold ? 'Release to remove' : `${Math.round(spaces.hint.height)}px` : !spaces.hint.existing ? '↕' : null}
