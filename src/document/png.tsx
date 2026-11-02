@@ -19,7 +19,7 @@ async function settle(surface: HTMLElement) {
   while (stable < 3) {
     await frame()
     const signature = surface.innerHTML
-    stable = signature === previous ? stable + 1 : 0
+    stable = signature === previous && !surface.querySelector('[data-code-loading]') ? stable + 1 : 0
     previous = signature
     if (performance.now() > deadline) throw new Error('The document layout has not settled. Please try exporting again.')
   }

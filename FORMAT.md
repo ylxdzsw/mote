@@ -417,8 +417,9 @@ and `layout`.
   saved height.
 * **Code:** `source` is exact plain text and `language` is a safe identifier
   matching `[A-Za-z0-9][A-Za-z0-9_+.-]{0,63}`. The editor offers
-  `javascript`, `typescript`, `python`, `json`, `html`, `css`, `shell`, `sql`,
-  and `plaintext`. Code syntax colors follow `appearance.mode`, not the saved
+  `plaintext`, `c`, `css`, `html`, `javascript`, `python`, `rust`, `shell`,
+  and `sql`. Other safe identifiers remain valid and render as plain text;
+  loading does not rewrite the identifier or source. Code syntax colors follow `appearance.mode`, not the saved
   hues. Code is never a paragraph class, has no saved height, and is not
   executed.
 * **HTML:** `html` is authored widget source, `screenshot` is embedded saved

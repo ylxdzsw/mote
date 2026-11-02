@@ -8,10 +8,11 @@
 .widget-editor-heading p { margin: 4px 0 0; color: var(--ui-muted); font-size: 12px; line-height: 1.6; }
 .widget-editor-heading button { flex: 0 0 auto; width: var(--ui-control-height); height: var(--ui-control-height); padding: 0; font-size: 20px; }
 .widget-editor-source { display: grid; gap: 6px; font-size: 12px; color: var(--ui-muted); }
-.widget-editor-source textarea { width: 100%; min-height: min(58dvh, 520px); resize: vertical; padding: 8px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); background: var(--ui-surface-raised); color: var(--ui-ink); font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.widget-editor-source > .code-view { height: min(58dvh, 520px); overflow: auto; overscroll-behavior: contain; font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.widget-editor-source .code-source, .widget-editor-source .code-body, .widget-editor-source .code-source-track { min-height: 100%; }
 .widget-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--ui-border); }
 .widget-editor-actions button { border-color: var(--border); min-height: var(--ui-control-height); }
 @media (max-width: 767px) {
   .widget-editor { width: calc(100vw - 20px); padding: 18px; }
-  .widget-editor-source textarea { min-height: 50dvh; }
+  .widget-editor-source > .code-view { height: 50dvh; }
 }

@@ -49,7 +49,7 @@ export function DocumentNotes({ value, onFocus }: {
     setSelected(index)
   }
   function focusInput() {
-    requestAnimationFrame(() => pane.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus())
+    requestAnimationFrame(() => pane.current?.querySelector<HTMLElement>('[data-code-source]')?.focus())
   }
   function removeNote(index: number) {
     history.boundary()

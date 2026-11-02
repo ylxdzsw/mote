@@ -40,7 +40,7 @@ function readerBundlePlugin(): Plugin {
         cssCodeSplit: false,
         assetsInlineLimit: Infinity,
         rolldownOptions: {
-          output: { globals: id => `moteReaderFont${fonts.indexOf(id)}` },
+          output: { codeSplitting: false, globals: id => `moteReaderFont${fonts.indexOf(id)}` },
         },
       },
     })

@@ -96,8 +96,8 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       {!reserved && <>
       {object.kind === 'drawing' && <button onClick={onDrawingEdit}>Edit drawing…</button>}
       {object.kind === 'code' && <label className="inspector-field inspector-field-native"><span className="field-heading">Language</span><select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
-          {!codeLanguages.some(language => language.value === object.language) && <option value={object.language}>{object.language || 'Plain text'}</option>}
           {codeLanguages.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
+          {!codeLanguages.some(language => language.value === object.language) && <option value={object.language} disabled>{object.language || 'Unknown'} (plain text)</option>}
         </select></label>}
       {widget && <HTMLWidgetControls value={widget} onChange={onChange} screenshotStatus={screenshotStatus} screenshotOffline={screenshotOffline} onUpdateScreenshot={onUpdateScreenshot}
         onRun={() => onWidgetRun(widget.id)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />}
@@ -233,7 +233,7 @@ function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffli
       </details>
     </InspectorGroup>
     {editorOpen && createPortal(<WidgetEditor widget={value} onChange={html => onChange({ html })} onRun={onRun}
-      onClose={() => setEditorId(null)} onHistoryBegin={onHistoryBegin} onHistoryEnd={onHistoryEnd} />, document.querySelector('.app')!)}
+      onClose={() => setEditorId(null)} onHistoryEnd={onHistoryEnd} />, document.querySelector('.app')!)}
   </>
 }
 
@@ -241,7 +241,7 @@ function FloatingHelp({ object, count }: { object: FloatingObject; count: number
   if (count > 1) return <p>Drag any selected object to move the group. Select one object alone to edit its contents. Shift-click adds or removes objects from the selection.</p>
   switch (object.kind) {
     case 'drawing': return <><p>Click the centered pen, double-click, or press Enter to open the full-screen drawing editor. Done or Escape returns to the document. Each stroke can be undone.</p><p>Drag to move; the right border and corners resize with proportions intact. To crop or extend a side without stretching, drag the editor's edge handles. Pen widths stay in document pixels. Reserve the sketch in Assistant to turn it into a figure.</p></>
-    case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter inserts a line break; Tab / Shift+Tab indents or outdents. Paste keeps plain text and line breaks, not formatting.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. Syntax colors follow the document's Light or Dark appearance, independently of the palette hues.</p></>
+    case 'code': return <><p>Select the object, then click its source to edit. Enter / Shift+Enter carries indentation forward; Tab / Shift+Tab indents or outdents. Brackets and quotes pair automatically in supported languages. Paste keeps plain text and line breaks, not formatting.</p><p>Ctrl/⌘+/ toggles comments. Alt+↑/↓ moves lines; Shift+Alt+↑/↓ duplicates them. Ctrl+M (Alt+Shift+M on macOS) toggles Tab between indentation and keyboard focus.</p><p>Drag the language header to move it. The right border changes its width; height follows all source lines. Long lines scroll horizontally, with a scrollbar only when needed. Copy excludes the header and line numbers. Escape returns focus to the object.</p><p>Code style controls typography. Syntax colors follow the document's Light or Dark appearance, independently of the palette hues.</p></>
     case 'html': return <><p>Select the widget to interact with it. Click elsewhere to deselect, then drag its interior to move it. The top, left, and bottom borders move it; the right border or corner handles resize it.</p><p>The saved screenshot is used for the minimap and PNG export, not the widget’s current interaction state.</p><p>Changes to code save immediately. Run / Restart executes the saved source in a fresh widget. CDN resources may not work offline. Update screenshot runs the saved code separately on the server; it does not restart the widget on this page. Refresh it after changing code or dimensions.</p></>
     case 'image': return <><p>Drag the image or its top, left, or bottom border to move it. The right border resizes with proportions intact. Double-click the image to add or edit its caption.</p><p>Paste an external image, then click to place or drag to size. Enter places at the insertion point; Escape cancels. Up to 10 MB per image; images synchronize with the document.</p></>
     case 'table': return <><p>Select the table, then click a cell to edit. Enter / Shift+Enter adds a newline; Tab / Shift+Tab moves between cells. All cells use Table style, with bold, palette colors, and decorations.</p><p>Appearance → Style chooses Simple grid lines, Academic horizontal rules, or Business striped rows. Header row emphasizes the first row.</p><p>Internal dividers resize adjacent columns without changing table width. The right border resizes the whole table; the other borders move it. Click elsewhere to deselect and drag from any cell to move.</p></>

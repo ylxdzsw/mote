@@ -1,6 +1,15 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Compartment, EditorSelection, EditorState, Transaction } from '@codemirror/state'
+import { EditorView, highlightActiveLine, keymap, placeholder as editorPlaceholder } from '@codemirror/view'
+import { bracketMatching, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language'
+import {
+  copyLineDown, copyLineUp, indentLess, indentMore, insertNewlineKeepIndent,
+  moveLineDown, moveLineUp, standardKeymap, toggleComment, toggleTabFocusMode,
+} from '@codemirror/commands'
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { useHistory } from '../document/history'
-import { highlightCode, type CodeToken } from '../document/code'
+import { normalizeCodeLanguage, type CodeToken } from '../document/code'
+import { codeHighlightStyle, getCodeLanguage, highlightCode, loadCodeLanguage } from './codeLanguages'
 import '../canvas/code.css'
 
 function rowsFor(tokens: CodeToken[]): CodeToken[][] {
@@ -17,19 +26,6 @@ function rowsFor(tokens: CodeToken[]): CodeToken[][] {
     }
   }
   return rows
-}
-
-function lineStarts(source: string, start: number, end: number) {
-  const lineStart = (position: number) => position ? source.lastIndexOf('\n', position - 1) + 1 : 0
-  const first = lineStart(start)
-  const endAtLineStart = end > start && source[end - 1] === '\n'
-  const last = lineStart(endAtLineStart ? end - 1 : end)
-  const starts = [first]
-  for (let index = first; index < last;) {
-    index = source.indexOf('\n', index) + 1
-    if (index > 0 && index <= last) starts.push(index)
-  }
-  return starts
 }
 
 function htmlText(html: string) {
@@ -49,128 +45,213 @@ function htmlText(html: string) {
   return textOf(document.body).replace(/\r\n?/g, '\n')
 }
 
-function pasteText(event: React.ClipboardEvent<HTMLTextAreaElement>, insert: (text: string) => void) {
-  const transfer = event.clipboardData
-  const types = Array.from(transfer.types)
-  let text: string
-  if (types.includes('text/plain')) text = transfer.getData('text/plain')
-  else if (types.includes('text/html')) text = htmlText(transfer.getData('text/html'))
-  else return
-  event.preventDefault()
-  insert(text.replace(/\r\n?/g, '\n'))
+function indentation(source: string) {
+  const prefixes = source.match(/^[\t ]+(?=\S)/gm) ?? []
+  if (prefixes.some(prefix => prefix.includes('\t'))) return '\t'
+  const size = prefixes.length ? Math.min(...prefixes.map(prefix => prefix.length)) : 2
+  return ' '.repeat(size)
 }
 
-export function SourceEditor({ source, language = 'plaintext', editorId, canEdit, label, inputId, placeholder, onChange, onActive, onEscape }: {
-  source: string; language?: string; editorId: string; canEdit: boolean; label: string; inputId?: string; placeholder?: string
-  onChange?: (source: string) => void; onActive?: () => void; onEscape?: () => void
+function revealCaret(view: EditorView, head = view.state.selection.main.head) {
+  if (!view.hasFocus) return
+  const caret = view.coordsAtPos(head)
+  if (!caret) return
+  const scroll = view.dom.closest<HTMLElement>('.code-source-scroll')!
+  const bounds = scroll.getBoundingClientRect()
+  const scale = bounds.width / scroll.offsetWidth
+  if (caret.left < bounds.left + 8) scroll.scrollLeft += (caret.left - bounds.left - 8) / scale
+  else if (caret.right > bounds.right - 16) scroll.scrollLeft += (caret.right - bounds.right + 16) / scale
+  const stage = view.dom.closest<HTMLElement>('[data-source-viewport], .stage')
+  if (stage) {
+    const viewport = stage.getBoundingClientRect()
+    if (caret.bottom > viewport.bottom - 16) stage.scrollTop += caret.bottom - viewport.bottom + 16
+    else if (caret.top < viewport.top + 16) stage.scrollTop += caret.top - viewport.top - 16
+  }
+}
+
+export function SourceEditor({ source, language = 'plaintext', editorId, canEdit, label, inputId, describedBy, placeholder, onChange, onActive, onEscape, onFiles }: {
+  source: string; language?: string; editorId: string; canEdit: boolean; label: string; inputId?: string; describedBy?: string; placeholder?: string
+  onChange?: (source: string) => void; onActive?: () => void; onEscape?: () => void; onFiles?: (files: File[]) => void
 }) {
   const history = useHistory()
+  const mount = useRef<HTMLDivElement>(null)
+  const editor = useRef<EditorView | null>(null)
+  const syncing = useRef(false)
   const composition = useRef<number | undefined>(undefined)
-  const textarea = useRef<HTMLTextAreaElement>(null)
-  const caretMeasure = useRef<HTMLSpanElement>(null)
-  const pendingSelection = useRef<{ start: number; end: number } | null>(null)
-  const [composing, setComposing] = useState(false)
-  const lines = useMemo(() => rowsFor(highlightCode(source, language)), [source, language])
-  function change(next: string, atomic = false) {
-    if (atomic) history?.boundary()
-    if (history) history.edit({ group: editorId, editorId, composition: composition.current }, () => onChange?.(next))
-    else onChange?.(next)
-    if (atomic) history?.boundary()
-  }
-  function revealCaret() {
-    const input = textarea.current, measure = caretMeasure.current
-    if (!input || !measure || document.activeElement !== input) return
-    const position = input.selectionDirection === 'backward' ? input.selectionStart : input.selectionEnd
-    const before = input.value.slice(0, position)
-    measure.textContent = before.slice(before.lastIndexOf('\n') + 1)
-    const scroll = input.closest<HTMLElement>('.code-source-scroll')!
-    const x = measure.offsetWidth
-    if (x < scroll.scrollLeft + 8) scroll.scrollLeft = Math.max(0, x - 8)
-    else if (x > scroll.scrollLeft + scroll.clientWidth - 24) scroll.scrollLeft = x - scroll.clientWidth + 24
-    input.scrollLeft = 0
-    const line = input.parentElement!.querySelectorAll<HTMLElement>('.code-line')[before.split('\n').length - 1]
-    const stage = input.closest<HTMLElement>('[data-source-viewport], .stage')
-    if (line && stage) {
-      const caret = line.getBoundingClientRect(), viewport = stage.getBoundingClientRect()
-      if (caret.bottom > viewport.bottom - 16) stage.scrollTop += caret.bottom - viewport.bottom + 16
-      else if (caret.top < viewport.top + 16) stage.scrollTop += caret.top - viewport.top - 16
-    }
-  }
-
-  useLayoutEffect(() => {
-    const selection = pendingSelection.current
-    const input = textarea.current
-    if (selection && input) {
-      pendingSelection.current = null
-      input.setSelectionRange(selection.start, selection.end)
-    }
-    revealCaret()
-  }, [source])
+  const revision = useRef(history?.revision)
+  const live = useRef({ source, history, onChange, onActive, onEscape, onFiles })
+  live.current = { source, history, onChange, onActive, onEscape, onFiles }
+  const configuration = useMemo(() => new Compartment(), [])
+  const [loaded, setLoaded] = useState({ id: language, language: getCodeLanguage(language), error: false })
+  const [attempt, setAttempt] = useState(0)
+  const [activeLine, setActiveLine] = useState(1)
+  const syntax = loaded.id === language ? loaded.language : getCodeLanguage(language)
+  const lines = useMemo(() => rowsFor(highlightCode(source, syntax)), [source, syntax])
 
   useEffect(() => {
-    const input = textarea.current
-    if (!input || !history) return
-    const beforeInput = (event: InputEvent) => {
-      if (event.isComposing || composition.current !== undefined || !['historyUndo', 'historyRedo'].includes(event.inputType)) return
-      event.preventDefault()
-      if (event.inputType === 'historyUndo') history.undo(); else history.redo()
-    }
-    input.addEventListener('beforeinput', beforeInput)
-    return () => input.removeEventListener('beforeinput', beforeInput)
-  }, [canEdit, history])
-
-  const replaceRange = (input: HTMLTextAreaElement, text: string, start = input.selectionStart, end = input.selectionEnd) => {
-    const next = source.slice(0, start) + text + source.slice(end)
-    if (next === source) return
-    pendingSelection.current = { start: start + text.length, end: start + text.length }
-    change(next, true)
-  }
-
-  const editLines = (input: HTMLTextAreaElement, outdent: boolean) => {
-    const start = input.selectionStart
-    const end = input.selectionEnd
-    if (!outdent && start === end) { replaceRange(input, '  '); return }
-    const starts = lineStarts(source, start, end)
-    const edits = starts.flatMap(at => {
-      if (!outdent) return [{ at, remove: 0, add: '  ' }]
-      const prefix = source.slice(at).match(/^(?: {1,2}|\t)/)?.[0]
-      return prefix ? [{ at, remove: prefix.length, add: '' }] : []
+    let active = true
+    loadCodeLanguage(language).then(value => {
+      if (active) setLoaded({ id: language, language: value, error: false })
+    }).catch(() => {
+      if (active) setLoaded({ id: language, language: null, error: true })
     })
-    if (!edits.length) return
-    let next = source
-    for (const edit of [...edits].reverse()) next = next.slice(0, edit.at) + edit.add + next.slice(edit.at + edit.remove)
-    const mapPosition = (position: number) => edits.reduce((mapped, edit) => {
-      if (edit.add) return mapped + (edit.at <= position ? edit.add.length : 0)
-      const removed = position >= edit.at + edit.remove ? edit.remove : position > edit.at ? position - edit.at : 0
-      return mapped - removed
-    }, position)
-    pendingSelection.current = { start: mapPosition(start), end: mapPosition(end) }
-    change(next, true)
-  }
+    return () => { active = false }
+  }, [language, attempt])
 
-  const onKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing || event.keyCode === 229) return
-    if (event.key.startsWith('Arrow') || ['Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) history?.boundary()
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (onEscape) onEscape(); else event.currentTarget.closest<HTMLElement>('[data-note-id]')?.focus(); return }
-    if (event.key !== 'Tab') return
-    event.preventDefault()
-    event.stopPropagation()
-    editLines(event.currentTarget, event.shiftKey)
-  }
+  useLayoutEffect(() => {
+    if (!canEdit || !mount.current) return
+    const view = new EditorView({
+      parent: mount.current,
+      state: EditorState.create({
+        doc: live.current.source,
+        extensions: [
+          configuration.of([]),
+          syntaxHighlighting(codeHighlightStyle),
+          highlightActiveLine(),
+          EditorView.contentAttributes.of({
+            'data-code-source': '', 'aria-label': label, 'aria-multiline': 'true',
+            ...(inputId ? { id: inputId } : {}), ...(describedBy ? { 'aria-describedby': describedBy } : {}),
+            spellcheck: 'false', autocapitalize: 'off', autocorrect: 'off',
+          }),
+          placeholder ? editorPlaceholder(placeholder) : [],
+          keymap.of([
+            { key: 'Tab', run: target => {
+              if (!target.state.selection.main.empty) return indentMore(target)
+              target.dispatch(target.state.update(target.state.replaceSelection(target.state.facet(indentUnit)), { userEvent: 'input', scrollIntoView: true }))
+              return true
+            }, shift: indentLess },
+            { key: 'Mod-/', run: toggleComment },
+            { key: 'Mod-[', run: indentLess },
+            { key: 'Mod-]', run: indentMore },
+            { key: 'Alt-ArrowUp', run: moveLineUp },
+            { key: 'Alt-ArrowDown', run: moveLineDown },
+            { key: 'Alt-Shift-ArrowUp', run: copyLineUp },
+            { key: 'Alt-Shift-ArrowDown', run: copyLineDown },
+            { key: 'Ctrl-m', mac: 'Alt-Shift-m', run: toggleTabFocusMode },
+            ...standardKeymap,
+          ]),
+          EditorView.scrollHandler.of((target, range) => { revealCaret(target, range.head); return true }),
+          EditorView.domEventHandlers({
+            focus: () => { live.current.history?.boundary(); live.current.onActive?.() },
+            blur: () => { live.current.history?.boundary() },
+            pointerdown: event => { live.current.history?.boundary(); event.stopPropagation() },
+            keydown: (event, target) => {
+              if (event.isComposing || event.keyCode === 229) return false
+              if (event.key === 'Escape') {
+                event.preventDefault(); event.stopPropagation()
+                if (live.current.onEscape) live.current.onEscape()
+                else target.dom.closest<HTMLElement>('[data-note-id]')?.focus()
+                return true
+              }
+              event.stopPropagation()
+              return false
+            },
+            beforeinput: event => {
+              if (event.isComposing || editor.current?.compositionStarted || !['historyUndo', 'historyRedo'].includes(event.inputType)) return false
+              event.preventDefault()
+              if (event.inputType === 'historyUndo') live.current.history?.undo(); else live.current.history?.redo()
+              return true
+            },
+            paste: (event, target) => {
+              const transfer = event.clipboardData
+              if (!transfer) return false
+              const types = Array.from(transfer.types)
+              const text = types.includes('text/plain') ? transfer.getData('text/plain')
+                : types.includes('text/html') ? htmlText(transfer.getData('text/html')) : null
+              if (text === null) return false
+              event.preventDefault(); event.stopPropagation()
+              target.dispatch(target.state.update(target.state.replaceSelection(text.replace(/\r\n?/g, '\n')), { userEvent: 'input.paste', scrollIntoView: true }))
+              return true
+            },
+            dragover: event => {
+              if (!live.current.onFiles || !event.dataTransfer?.types.includes('Files')) return false
+              event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'
+              return true
+            },
+            drop: event => {
+              if (!live.current.onFiles || !event.dataTransfer?.types.includes('Files')) return false
+              event.preventDefault(); event.stopPropagation()
+              live.current.onFiles([...event.dataTransfer.files])
+              return true
+            },
+            compositionstart: () => { composition.current = Date.now(); live.current.history?.boundary() },
+          }),
+        ],
+      }),
+      dispatchTransactions: (transactions, target) => {
+        target.update(transactions)
+        if (syncing.current) return
+        const changed = transactions.some(transaction => transaction.docChanged)
+        const selection = target.state.selection.main
+        setActiveLine(target.state.doc.lineAt(selection.head).number)
+        if (changed) {
+          const current = live.current
+          const composing = target.compositionStarted || transactions.some(transaction => transaction.isUserEvent('input.type.compose'))
+          if (!composing) composition.current = undefined
+          else if (composition.current === undefined || transactions.some(transaction => transaction.isUserEvent('input.type.compose.start'))) composition.current = Date.now()
+          const atomic = !composing && !transactions.every(transaction => transaction.isUserEvent('input.type') || transaction.isUserEvent('delete'))
+          if (atomic) current.history?.boundary()
+          const before = transactions[0].startState.selection.main
+          const next = target.state.doc.toString()
+          if (current.history) current.history.edit({ group: editorId, editorId, before: { type: 'source', anchor: before.anchor, head: before.head }, composition: composition.current }, () => current.onChange?.(next))
+          else current.onChange?.(next)
+          if (atomic) current.history?.boundary()
+        } else if (!target.compositionStarted && transactions.some(transaction => transaction.selection)) live.current.history?.boundary()
+      },
+    })
+    editor.current = view
+    const unregister = live.current.history?.register(editorId, {
+      selection: () => ({ type: 'source', anchor: view.state.selection.main.anchor, head: view.state.selection.main.head }),
+      composing: () => view.compositionStarted,
+    })
+    return () => { unregister?.(); editor.current = null; composition.current = undefined; view.destroy() }
+  }, [canEdit, editorId, configuration, label, inputId, describedBy, placeholder])
 
-  return <div className={`code-body${composing ? ' is-composing' : ''}`}>
-    <div className="code-gutter" aria-hidden="true">{lines.map((_, index) => <span className="code-line-number" key={index}>{index + 1}</span>)}</div>
-    <div className="code-source-scroll" onPointerDown={event => { if (canEdit) event.stopPropagation() }}>
-      <div className="code-source-track">
-        <pre className={canEdit ? 'code-highlight' : 'code-readonly'} aria-hidden={canEdit || undefined}><code>{lines.map((line, index) => <span className="code-line" key={index}>{line.map((token, tokenIndex) => token.kind
-          ? <span className={`code-token code-${token.kind}`} key={tokenIndex}>{token.text}</span>
-          : <span key={tokenIndex}>{token.text}</span>)}{index < lines.length - 1 ? '\n' : null}</span>)}</code></pre>
-        {canEdit && <><span ref={caretMeasure} className="code-caret-measure" aria-hidden="true" /><textarea ref={textarea} data-code-source="" className="code-editor" id={inputId} aria-label={label} placeholder={placeholder} spellCheck={false} autoCapitalize="off" autoComplete="off" autoCorrect="off"
-            wrap="off" rows={lines.length} value={source} onFocus={() => { history?.boundary(); onActive?.() }} onBlur={() => history?.boundary()} onChange={event => change(event.currentTarget.value.replace(/\r\n?/g, '\n'))}
-            onKeyDown={onKeyDown} onPaste={event => pasteText(event, text => replaceRange(event.currentTarget, text))}
-            onSelect={revealCaret} onKeyUp={revealCaret} onPointerDown={() => history?.boundary()}
-            onCompositionStart={() => { composition.current = Date.now(); history?.boundary(); setComposing(true) }}
-            onCompositionEnd={() => { setComposing(false); queueMicrotask(() => { composition.current = undefined; history?.boundary() }) }} /></>}
+  useLayoutEffect(() => {
+    const view = editor.current
+    if (!view) return
+    view.dispatch({ effects: configuration.reconfigure([
+      EditorState.tabSize.of(4), indentUnit.of(indentation(source)),
+      syntax ? [syntax, indentOnInput(), bracketMatching(), closeBrackets(), keymap.of(closeBracketsKeymap)]
+        : keymap.of([{ key: 'Enter', run: insertNewlineKeepIndent, shift: insertNewlineKeepIndent }]),
+    ]) })
+  }, [syntax, language, canEdit, configuration, editorId])
+
+  useLayoutEffect(() => {
+    const view = editor.current
+    const replay = history?.revision !== revision.current
+    revision.current = history?.revision
+    if (!view) return
+    const changed = view.state.doc.toString() !== source
+    const saved = replay && history?.restoredSelection(editorId)
+    if (!changed && !saved) return
+    const selection = saved?.type === 'source' ? saved : view.state.selection.main
+    const clamp = (position: number) => Math.min(position, source.length)
+    syncing.current = true
+    try {
+      view.dispatch({
+        ...(changed ? { changes: { from: 0, to: view.state.doc.length, insert: source } } : {}),
+        selection: EditorSelection.single(clamp(selection.anchor), clamp(selection.head)),
+        annotations: Transaction.addToHistory.of(false),
+        scrollIntoView: view.hasFocus,
+      })
+      setActiveLine(view.state.doc.lineAt(view.state.selection.main.head).number)
+    } finally { syncing.current = false }
+  }, [source, history?.revision, editorId, canEdit])
+
+  const failed = loaded.id === language && loaded.error
+  const supported = normalizeCodeLanguage(language)
+  return <div className="code-source" data-code-loading={supported && supported !== 'plaintext' && !syntax && !failed ? '' : undefined}>
+    {failed && canEdit && <p className="code-source-status" role="status">Language tools unavailable; editing plain text. <button onClick={() => setAttempt(value => value + 1)}>Retry</button></p>}
+    <div className="code-body">
+      <div className="code-gutter" aria-hidden="true">{lines.map((_, index) => <span className={`code-line-number${index + 1 === activeLine ? ' is-active' : ''}`} key={index}>{index + 1}</span>)}</div>
+      <div className="code-source-scroll" onPointerDown={event => { if (canEdit) event.stopPropagation() }}>
+        <div className="code-source-track">
+          <pre className="code-readonly" aria-hidden={canEdit || undefined}><code>{lines.map((line, index) => <span className="code-line" key={index}>{line.map((token, tokenIndex) => token.kind
+            ? <span className={`code-token code-${token.kind}`} key={tokenIndex}>{token.text}</span>
+            : <span key={tokenIndex}>{token.text}</span>)}{index < lines.length - 1 ? '\n' : null}</span>)}</code></pre>
+          {canEdit && <div ref={mount} className="code-editor" />}
+        </div>
       </div>
     </div>
   </div>

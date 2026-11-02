@@ -25,7 +25,7 @@ export function useImagePlacement({ doc, editable, scale, tool, stage, onStart, 
     if (!editable) return
     async function paste(event: ClipboardEvent) {
       const data = event.clipboardData, target = document.activeElement
-      if (!data || !(target instanceof HTMLElement) || !stage.current?.contains(target) || target.closest('input, textarea, select, iframe')) return
+      if (!data || !(target instanceof HTMLElement) || !stage.current?.contains(target) || target.closest('input, textarea, select, iframe, [data-code-source]')) return
       const html = data.getData('text/html')
       if ([...data.types].some(type => type.startsWith('application/x-mote-')) || /data-mote-(floating|segment|paragraphs)/.test(html)) return
       if (data.getData('text/plain').trim()) return

@@ -3,6 +3,7 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import type { MoteDocument } from './model'
 
 type SelectionJSON = ReturnType<Editor['state']['selection']['toJSON']>
+interface HistoryEditor { selection: () => SelectionJSON; composing: () => boolean }
 interface Snapshot { doc: MoteDocument; selections: Record<string, SelectionJSON> }
 interface EditOptions { group?: string; composition?: number; normalize?: boolean; editorId?: string; before?: SelectionJSON }
 type Update = MoteDocument | null | ((doc: MoteDocument | null) => MoteDocument | null)
@@ -14,12 +15,12 @@ export function useDocumentHistory(initial: MoteDocument) {
   const [doc, render] = useState<MoteDocument | null>(initial)
   const [revision, setRevision] = useState(0)
   const state = useRef({ doc, past: [] as Snapshot[], future: [] as Snapshot[],
-    editors: new Map<string, Editor>(), restored: {} as Snapshot['selections'],
+    editors: new Map<string, HistoryEditor>(), restored: {} as Snapshot['selections'],
     options: {} as EditOptions, control: '', group: '', time: 0 })
   const s = state.current
 
   function selections() {
-    return Object.fromEntries([...s.editors].map(([id, editor]) => [id, editor.state.selection.toJSON()]))
+    return Object.fromEntries([...s.editors].map(([id, editor]) => [id, editor.selection()]))
   }
   function boundary() { s.group = ''; s.control = '' }
   function setDoc(update: Update) {
@@ -51,7 +52,7 @@ export function useDocumentHistory(initial: MoteDocument) {
     render(next)
   }
   function travel(redo = false) {
-    if ([...s.editors.values()].some(editor => editor.view.composing)) return
+    if ([...s.editors.values()].some(editor => editor.composing())) return
     const from = redo ? s.future : s.past
     const to = redo ? s.past : s.future
     const snapshot = from.at(-1)
@@ -72,7 +73,10 @@ export function useDocumentHistory(initial: MoteDocument) {
   return { doc, setDoc, revision, guard, guardEditor, lockedBlocks, canUndo: !!s.past.length, canRedo: !!s.future.length,
     undo: () => travel(), redo: () => travel(true), boundary, edit,
     begin: (key: string) => { if (s.control !== key) { boundary(); s.control = key } },
-    register: (id: string, editor: Editor) => { s.editors.set(id, editor); return () => { s.editors.delete(id) } },
+    register: (id: string, editor: Editor | HistoryEditor) => {
+      s.editors.set(id, 'state' in editor ? { selection: () => editor.state.selection.toJSON(), composing: () => editor.view.composing } : editor)
+      return () => { s.editors.delete(id) }
+    },
     restoredSelection: (id: string) => s.restored[id],
   }
 }

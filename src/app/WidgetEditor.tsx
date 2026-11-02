@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FloatingHTMLWidget } from '../document/model'
 import { useHistory } from '../document/history'
+import { SourceEditor } from '../editor/SourceEditor'
 
 interface Props {
   widget: FloatingHTMLWidget
   onChange: (html: string) => void
   onRun: () => void
   onClose: () => void
-  onHistoryBegin: (name: string) => void
   onHistoryEnd: () => void
 }
 
-export function WidgetEditor({ widget, onChange, onRun, onClose, onHistoryBegin, onHistoryEnd }: Props) {
+export function WidgetEditor({ widget, onChange, onRun, onClose, onHistoryEnd }: Props) {
   const dialog = useRef<HTMLDialogElement>(null)
   const generation = useRef(0)
   const [fileError, setFileError] = useState('')
@@ -19,8 +19,11 @@ export function WidgetEditor({ widget, onChange, onRun, onClose, onHistoryBegin,
 
   useEffect(() => () => { generation.current++ }, [widget.id, widget.html, revision])
 
-  useEffect(() => {
-    if (!dialog.current?.open) dialog.current?.showModal()
+  useLayoutEffect(() => {
+    const element = dialog.current!
+    element.showModal()
+    element.querySelector<HTMLElement>('[data-code-source]')?.focus()
+    return () => { element.close() }
   }, [])
 
   async function dropFile(files: File[]) {
@@ -49,20 +52,13 @@ export function WidgetEditor({ widget, onChange, onRun, onClose, onHistoryBegin,
       <div><h1 id="widget-editor-title">Edit HTML widget</h1><p id="widget-editor-hint">Changes save immediately. Run / Restart executes the saved source in a fresh widget.</p></div>
       <button aria-label="Close HTML widget editor" onClick={onClose}>×</button>
     </div>
-    <label className="widget-editor-source">HTML / CSS / JS
-      <textarea autoFocus spellCheck={false} value={widget.html} aria-describedby="widget-editor-file-hint"
-        onFocus={() => onHistoryBegin(`html-widget-source:${widget.id}`)} onBlur={onHistoryEnd}
-        onChange={event => { generation.current++; setFileError(''); onChange(event.target.value) }}
-        onDragOver={event => {
-          if (!event.dataTransfer.types.includes('Files')) return
-          event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'copy'
-        }}
-        onDrop={event => {
-          if (!event.dataTransfer.types.includes('Files')) return
-          event.preventDefault(); event.stopPropagation()
-          void dropFile([...event.dataTransfer.files])
-        }} />
-    </label>
+    <div className="widget-editor-source"><span>HTML / CSS / JS</span>
+      <div className="code-view" data-source-viewport>
+        <SourceEditor source={widget.html} language="html" editorId={`html-widget-source:${widget.id}`} canEdit label="HTML / CSS / JS source"
+          describedBy="widget-editor-file-hint" onChange={text => { generation.current++; setFileError(''); onChange(text) }}
+          onEscape={onClose} onFiles={files => { void dropFile(files) }} />
+      </div>
+    </div>
     <p className="hint" id="widget-editor-file-hint">Drop an .html or .htm file into the editor to replace its source.</p>
     {fileError && <p role="alert">{fileError}</p>}
     <p className="hint">CDN references are used as-is; online resources may not work offline.</p>

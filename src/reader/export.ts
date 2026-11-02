@@ -1,5 +1,4 @@
 import { publishDocument } from '../../shared/document.mjs'
-import bundle from 'virtual:mote-reader-bundle'
 import type { MoteDocument } from '../document/model'
 
 function safeJson(value: MoteDocument) {
@@ -17,6 +16,9 @@ function safeInline(value: string, tag: 'script' | 'style') {
 }
 
 export async function exportHtml(doc: MoteDocument): Promise<Blob> {
+  const { default: bundle } = await import('virtual:mote-reader-bundle').catch(() => {
+    throw new Error('The HTML reader could not load. Reconnect and try again; your document is unchanged.')
+  })
   const published = publishDocument(doc)
   const html = `<!doctype html>
 <html lang="en">

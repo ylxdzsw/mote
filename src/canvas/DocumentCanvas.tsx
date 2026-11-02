@@ -674,7 +674,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     if (!editable) return
     function ownsClipboard() {
       const element = document.activeElement as HTMLElement | null
-      return !!element && stage.current!.contains(element) && !element.closest('input, textarea, select') && element.tagName !== 'IFRAME'
+      return !!element && stage.current!.contains(element) && !element.closest('input, textarea, select, [data-code-source]') && element.tagName !== 'IFRAME'
     }
     function copy(event: ClipboardEvent) {
       if (!selectedIds.length || !ownsClipboard() || (document.activeElement as HTMLElement).isContentEditable || !event.clipboardData) return

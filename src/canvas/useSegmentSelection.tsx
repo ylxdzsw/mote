@@ -245,7 +245,7 @@ export function useSegmentSelection(props: Props) {
   }
   function ownedFocus() {
     const element = document.activeElement
-    return !!element && live.current.stage.current!.contains(element) && !element.matches('input, textarea, select')
+    return !!element && live.current.stage.current!.contains(element) && !element.closest('input, textarea, select, [data-code-source]')
   }
   function reserved(current: SegmentRange) {
     const { doc, history, lockedIds } = live.current

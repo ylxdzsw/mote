@@ -478,7 +478,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   if (mobile) return <ReaderPage initial={doc} notice={syncNotice} />
 
-  return <HistoryContext value={history}><div className="app" style={uiStyle}>
+  return <HistoryContext value={history}><div className="app" data-mode={doc.theme.appearance.mode} style={uiStyle}>
     <header className="app-header cloud-header">
       <button className="document-switch" onClick={onFiles} aria-label={`Switch document: ${cloud.record.meta.name}`} title={`${cloud.record.meta.name} · Switch document`}>
         <span>{cloud.record.meta.name}</span><PanelIcon name="chevron" />
