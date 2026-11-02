@@ -287,6 +287,21 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     history.boundary(); history.setDoc(next); history.boundary()
     return true
   }
+  function appendSlide() {
+    if (!mainEditor) return
+    const next = insertSlideBreak(doc, doc.content.content!.length)
+    if (!commitDocument(next)) return
+    cancel(); segments.clear(); setActiveSegmentId(null); select([]); onToolChange(null)
+    const id = next.content.content!.at(-1)!.attrs!.id
+    requestAnimationFrame(() => {
+      if (mainEditor.isDestroyed || mainEditor.state.doc.lastChild?.attrs.id !== id) return
+      mainEditor.commands.setTextSelection(mainEditor.state.doc.content.size - 1)
+      mainEditor.view.focus(); onActive(mainEditor)
+      const viewport = stage.current!, last = reflow().slides.at(-1)!
+      viewport.scrollTop += sheet.current!.getBoundingClientRect().top + last.top * scale
+        - viewport.getBoundingClientRect().top - viewport.clientTop - Math.min(120, viewport.clientHeight * .15)
+    })
+  }
   function insertObjects(objects: FloatingObject[]) {
     if (!editable) return
     if (!objects.some(object => object.layout.placement.type === 'flow')) { setInserting(current => [...current, ...objects]); return }
@@ -1000,7 +1015,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       </div>}
       {segments.overlay}
       {editable && <SlideRulers slides={slides} width={doc.page.width} scale={scale}
-        onSelect={segments.selectSlideRange} onBorder={segments.targetSlideBoundary} />}
+        onSelect={segments.selectSlideRange} onBorder={segments.targetSlideBoundary} onAppend={appendSlide} />}
       {editable && creationObject && insertionHint?.boundary && !creating && <div className="segment-layer creation-guides" aria-hidden="true"><div className="segment-drop" style={{ top: (insertionHint.boundary.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>{tool === 'ai' ? 'Reserve AI section' : 'Insert Flow'}</span></div></div>}
       {flowDrop && <div className="segment-layer flow-drag-guides" aria-hidden="true">
         {flowDrop.top !== undefined && <div className="segment-drop" style={{ top: (flowDrop.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Move Flow here</span></div>}

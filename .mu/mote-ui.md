@@ -21,7 +21,7 @@ Organize by what the user is doing and what the action affects. Extend an existi
 
 | User intent | Current home and design rationale |
 | --- | --- |
-| Create content | Add / right-click launchpad: one coherent creation vocabulary |
+| Create content | Add / right-click launchpad: one coherent creation vocabulary; a local Add slide shortcut extends the layout at the Slides endpoint |
 | Format native rich text | Fixed Text strip: short, stable access to frequent formatting |
 | Change the selected object or caption | Context: properties stay with their target |
 | Reserve content or work with an AI task | Assistant: reservation, request, access, and review stay together |

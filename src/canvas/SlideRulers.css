@@ -12,3 +12,5 @@
 .slide-border-target:hover, .slide-border-target:focus-visible { background: var(--ui-accent-tint); }
 .slide-number { position: absolute; right: 100%; top: calc(4px / var(--ruler-scale)); width: calc(24px / var(--ruler-scale)); min-height: calc(24px / var(--ruler-scale)); padding: 0; border: 0; background: var(--ui-surface); color: var(--ui-muted); font-size: calc(11px / var(--ruler-scale)); pointer-events: auto; }
 .slide-ruler-saved > span { right: auto; left: calc(4px / var(--ruler-scale)); top: calc(3px / var(--ruler-scale)); background: var(--ui-surface); }
+.slide-append { position: absolute; left: 50%; margin-top: calc(24px / var(--ruler-scale)); display: inline-flex; align-items: center; gap: 6px; height: var(--ui-control-height); padding: 0 8px; border: 1px solid var(--ui-border); background: var(--ui-surface); color: var(--ui-muted); font-size: var(--ui-font-size); white-space: nowrap; pointer-events: auto; transform: translateX(-50%) scale(calc(1 / var(--ruler-scale))); transform-origin: top center; }
+.slide-append:hover:not(:disabled) { color: var(--ui-ink); background: var(--ui-surface-hover); }

@@ -46,7 +46,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 Load the mote-ui skill for any UI work. README → Editing and reading / AI assistant describe the exact current behavior. Durable structure:
 
 - A stable right Context/Assistant lane, a fixed Text strip only for eligible rich text, and the minimap on the left.
-- Creation happens only through Add or the right-click launchpad. Object actions live in Context, and Alt is for space/object manipulation.
+- Creation happens through Add or the right-click launchpad, with an Add slide shortcut at the Slides endpoint. Object actions live in Context, and Alt is for space/object manipulation.
 - Reservations are created only in Assistant. Canvas selection changes the panel's target, never its tab.
 
 ### Cloud and agents

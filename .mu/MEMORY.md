@@ -1848,3 +1848,7 @@ The picker puts Plain text first, then C, CSS, HTML, JavaScript, Python, Rust, S
 ## 2026-11-02 — Quiet document-tail writing position
 
 Removed the “Continue writing…” hint on hover and at the active document-tail caret because it distracted from the document. The temporary paragraph still uses the native GapCursor, preserving click-to-write, typing/paste, Enter, Escape, history, and per-slide caret positioning without saving an empty paragraph. The blank-document “Start writing…” placeholder remains unchanged. This supersedes the tail-hint presentation in the earlier document-tail decision.
+
+## 2026-11-02 — Add slide at the document endpoint
+
+Slides now has a quiet “＋ Add slide” shortcut below its final expanded editing boundary. A visible label distinguishes appending a slide from the existing blank-area click-to-continue-writing behavior; the border remains a separate paste target. The button lives in scroll-past-end room, stays screen-sized across zoom levels, and needs neither hover nor a scroll-triggered reveal. Appending reuses the native slide-break edit, adds one empty Body paragraph with the current document layout/theme, and reveals/focuses the new slide in one undoable step without repartitioning existing content. It stays outside the document renderer so reading, minimaps, previews, and exports have no new chrome or saved geometry.

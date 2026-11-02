@@ -1,12 +1,14 @@
 import type { CSSProperties } from 'react'
+import { PanelIcon } from '../app/PanelIcon'
 import type { SlideGeometry } from './floatingGeometry'
 import './SlideRulers.css'
 
 // Mount beside the sheet, inside its footprint. It stays above every object,
 // but outside the DOM captured by minimap and PNG snapshots.
-export function SlideRulers({ slides, width, scale, style, onSelect, onBorder }: {
+export function SlideRulers({ slides, width, scale, style, onSelect, onBorder, onAppend }: {
   slides: SlideGeometry[]; width: number; scale: number; style?: CSSProperties
   onSelect?: (index: number) => void; onBorder?: (index: number) => void
+  onAppend?: () => void
 }) {
   if (!slides.length) return null
   return <div className="slide-rulers" aria-label="Slide boundaries"
@@ -24,5 +26,9 @@ export function SlideRulers({ slides, width, scale, style, onSelect, onBorder }:
       <button className="slide-border-target" data-slide-control aria-label="Insert after last slide" title="Paste slides at this border"
         onPointerDown={event => { event.preventDefault(); event.stopPropagation(); onBorder?.(slides.length) }} onClick={event => { if (event.detail === 0) onBorder?.(slides.length) }} />
     </div>
+    {onAppend && <button className="slide-append" data-slide-control style={{ top: slides.at(-1)!.top + slides.at(-1)!.height }}
+      onPointerDown={event => { event.preventDefault(); event.stopPropagation() }} onClick={onAppend}>
+      <PanelIcon name="plus" />Add slide
+    </button>}
   </div>
 }
