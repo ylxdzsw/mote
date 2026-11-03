@@ -179,6 +179,11 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .reading-canvas .stage { padding-inline: 0; }
 .reading-canvas .sheet-footprint { overflow-x: clip; }
 .reading-canvas .sheet-footprint > .sheet { left: calc((100% - var(--scaled-page-width)) * var(--crop-left)); }
+.present-button { position: absolute; z-index: 3; top: 12px; right: 16px; min-height: 32px; padding: 0 12px; background: var(--ui-surface); color: var(--ui-muted); border: 1px solid var(--ui-border); opacity: 0; pointer-events: none; transition: opacity .2s; }
+.present-button:is(.is-visible, :focus-visible, :hover) { opacity: 1; pointer-events: auto; }
+.reading-canvas.is-presenting .stage { display: flex; align-items: center; justify-content: center; padding: 0; overflow: clip; touch-action: manipulation; }
+.is-presenting .canvas-scroll-floor { width: 100%; }
+.reading-canvas.is-presenting .sheet-footprint { overflow: clip; }
 .main-text { padding: var(--margin-top) var(--margin-right) var(--margin-bottom) var(--margin-left); }
 /* Panel and canvas share one surface, so the divider is a faint guide rather than a seam. */
 .inspector { background: var(--ui-surface); border-left: 1px solid color-mix(in srgb, var(--ui-border) 55%, transparent); min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--ui-panel-padding); }

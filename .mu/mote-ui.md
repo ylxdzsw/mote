@@ -13,7 +13,7 @@ Use these principles to make design choices, not as a frozen component specifica
 
 Keep chrome visually quiet and let authored content supply most of the visual variety. Favor a continuous working surface, restrained borders, modest corners, and whitespace that makes relationships legible. A document may also use saved Slides boundaries without becoming a presentation editor: keep its layout controls in Document settings, show boundary/crop cues only while editing, and let reading/export present the authored slides without slide chrome. Use elevation where it explains layering, such as a menu or dialog. A card is useful when it groups a real choice or composition; it need not surround every property group.
 
-The main header, panels, text tools, and minimap share the document's page background; the exposed canvas surround stays neutral. Editing outlines, guides, and handles explain the current interaction and recede when it ends. Reading and export present the authored page without editing controls.
+The main header, panels, text tools, and minimap share the document's page background; the exposed canvas surround stays neutral. Editing outlines, guides, and handles explain the current interaction and recede when it ends. Reading and export present the authored page without editing controls. Slides presentation belongs to the shared reader, not a separate editor: a transient Present entry gives way to one fitted slide with its page background extended seamlessly to the viewport. Click/arrow navigation and Escape replace persistent presentation chrome, while links and widgets keep their normal interactions.
 
 ## Give each action an understandable home
 

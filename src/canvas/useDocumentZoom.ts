@@ -3,7 +3,7 @@ import { isComposingKey } from '../editor/composition'
 
 interface Point { x: number; y: number }
 
-export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number) {
+export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number, paused = false) {
   const [autoScale, setAutoScale] = useState(1)
   // Counts explicit zoom actions so readers can show transient feedback, excluding automatic fitting.
   const [zoomed, setZoomed] = useState(0)
@@ -16,9 +16,10 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   const topPadding = useRef<number | null>(null)
   const wheelGesture = useRef<{ scale: number; time: number } | null>(null)
 
-  useLayoutEffect(() => { wheelGesture.current = null; pinch.current = null }, [autoScale, editable])
+  useLayoutEffect(() => { wheelGesture.current = null; pinch.current = null }, [autoScale, editable, paused])
 
   const measure = useEffectEvent(() => {
+    if (paused) return
     const viewport = stage.current!
     const style = getComputedStyle(viewport)
     const paddingTop = parseFloat(style.paddingTop)
@@ -40,11 +41,12 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   })
 
   useLayoutEffect(() => {
+    if (paused) return
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(stage.current!)
     return () => observer.disconnect()
-  }, [stage, width, editable])
+  }, [stage, width, editable, paused])
 
   function rememberFocal(client: Point, paddingChange = 0) {
     const page = sheet.current!.getBoundingClientRect()
@@ -82,6 +84,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   }, [scale, sheet, stage])
 
   const wheel = useEffectEvent((event: WheelEvent) => {
+    if (paused) return
     if (!event.ctrlKey && !event.metaKey) return
     event.preventDefault()
     if (!stage.current!.contains(event.target as Node)) return
@@ -96,6 +99,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     wheelGesture.current = { scale: next, time: event.timeStamp }
   })
   const key = useEffectEvent((event: KeyboardEvent) => {
+    if (paused) return
     if (isComposingKey(event)) return
     if ((event.target as Element).closest('.drawing-editor')) return
     if (!(event.ctrlKey || event.metaKey) || !['+', '=', '-', '0'].includes(event.key)) return
@@ -105,6 +109,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   })
   const pinch = useRef<{ distance: number; scale: number } | null>(null)
   const touch = useEffectEvent((event: TouchEvent) => {
+    if (paused) return
     if (event.touches.length !== 2) { pinch.current = null; return }
     event.preventDefault()
     if (!stage.current!.contains(event.target as Node)) return

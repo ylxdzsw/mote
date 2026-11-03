@@ -3,7 +3,7 @@ import type { FloatingHTMLWidget } from '../document/model'
 import './embeds.css'
 
 function page(html: string) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;width:100%;height:100%;background:transparent}</style></head>${html}`
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;width:100%;height:100%;background:transparent}</style><script>window.addEventListener('keydown',event=>{if(event.isTrusted&&!event.defaultPrevented&&event.key==='Escape')parent.postMessage({type:'mote-widget-escape'},'*')})</script></head>${html}`
 }
 
 export function HTMLWidgetView({ note, editable, selected, run, staticOnly, restoreRevision }: {

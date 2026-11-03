@@ -13,7 +13,7 @@ export function ReaderPage({ initial, notice }: { initial: MoteDocument; notice?
   return <div className="app" style={style}>
     {notice}
     <main className="workspace reader">
-      <ReadDocument initial={published} minimap={!smallScreen} />
+      <ReadDocument initial={published} minimap={!smallScreen} presentation />
     </main>
   </div>
 }
