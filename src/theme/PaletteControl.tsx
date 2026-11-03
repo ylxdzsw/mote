@@ -24,6 +24,9 @@ export function PaletteControl({ theme, label, value, onChange, optional, fallba
   const entries = pairs
     ? paletteEntries(theme).filter(entry => boxColorIds.includes(entry.id)).map(entry => entry.soft ? entry : { ...entry, name: 'Gray', soft: paletteColor(theme, 'gray5') })
     : paletteEntries(theme)
+  const sections = pairs
+    ? [[...entries.slice(0, 2), ...entries.slice(8), ...entries.slice(2, 8)]]
+    : [entries.slice(0, 2), entries.slice(2, 8), entries.slice(8)]
   const choice = (reference: string | null, name: string, color?: string, soft?: string) => <input type="radio" name={group}
     id={`${group}-${reference ?? 'optional'}`} className={`palette-choice${color ? '' : ' is-empty'}${soft ? ' is-pair' : ''}`}
     aria-label={name} title={name} checked={value === reference} value={reference ?? ''}
@@ -35,7 +38,7 @@ export function PaletteControl({ theme, label, value, onChange, optional, fallba
     {optional && <label className="palette-optional">
       {choice(null, optionalName, optional === 'default' && fallback ? paletteColor(theme, fallback) : undefined)}{optionalName}
     </label>}
-    {[entries.slice(0, 2), entries.slice(2, 8), entries.slice(8)].map((section, index) => <div key={index} className={`palette-group palette-group-${index}`}>
+    {sections.map((section, index) => <div key={index} className={`palette-group${pairs ? '' : ` palette-group-${index}`}`}>
       {section.map(entry => <div className="palette-pair" key={entry.id}>
         {pairs ? choice(entry.id, entry.name, entry.strong, entry.soft) : <>
           {choice(entry.id, entry.soft ? `${entry.name} · Strong` : entry.name, entry.strong)}
