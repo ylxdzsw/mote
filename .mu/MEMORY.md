@@ -1883,3 +1883,9 @@ V4 makes saved theme weights explicitly Regular (400) or Bold (700), matching th
 ## 2026-11-03 — Pixel-first letter spacing
 
 New themes seed letter spacing as 0px rather than 0em so the inherited control starts with pixel-sized adjustments. Both units remain available, existing saved values retain their units, and zero spacing renders identically. This changes only the new-document preset, not the native schema or interpretation of saved documents.
+
+## 2026-11-03 — Precomputed export highlighting; deferred minimap startup
+
+Preview and standalone HTML now compute Code tokens from the immutable published snapshot using the existing Lezer highlighter, loading only the languages used by nonempty Code objects. A versioned export-only JSON payload carries those tokens separately from the native document; reimport still uses exact source and ignores derived highlighting. The standalone build substitutes a small token adapter for the source editor and shares its extracted source-display markup, so it no longer ships CodeMirror or language grammars. Preparation can need the relevant language assets as well as the reader bundle; completed files remain self-contained. This replaces the earlier all-languages reader bundle without introducing a second document renderer or changing native formats.
+
+The minimap reserves its lane immediately but defers its first DOM snapshot until after a paint opportunity, then idle scheduling with a bounded timeout. Startup mutations coalesce while controls remain hidden and inert; later updates retain the existing frame scheduler. This keeps secondary navigation work off the initial paint path without shifting document centering/zoom or storing a thumbnail that could disagree with the destination browser's actual layout.

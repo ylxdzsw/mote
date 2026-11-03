@@ -8,25 +8,9 @@ import {
 } from '@codemirror/commands'
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { useHistory } from '../document/history'
-import { normalizeCodeLanguage, type CodeToken } from '../document/code'
+import { normalizeCodeLanguage } from '../document/code'
 import { codeHighlightStyle, getCodeLanguage, highlightCode, loadCodeLanguage } from './codeLanguages'
-import '../canvas/code.css'
-
-function rowsFor(tokens: CodeToken[]): CodeToken[][] {
-  const rows: CodeToken[][] = [[]]
-  for (const token of tokens) {
-    let start = 0
-    while (start < token.text.length) {
-      const newline = token.text.indexOf('\n', start)
-      const end = newline < 0 ? token.text.length : newline
-      if (end > start) rows.at(-1)!.push({ text: token.text.slice(start, end), kind: token.kind })
-      if (newline < 0) break
-      rows.push([])
-      start = newline + 1
-    }
-  }
-  return rows
-}
+import { SourceDisplay } from './SourceDisplay'
 
 function htmlText(html: string) {
   const document = new DOMParser().parseFromString(html, 'text/html')
@@ -86,7 +70,7 @@ export function SourceEditor({ source, language = 'plaintext', editorId, canEdit
   const [attempt, setAttempt] = useState(0)
   const [activeLine, setActiveLine] = useState(1)
   const syntax = loaded.id === language ? loaded.language : getCodeLanguage(language)
-  const lines = useMemo(() => rowsFor(highlightCode(source, syntax)), [source, syntax])
+  const tokens = useMemo(() => highlightCode(source, syntax), [source, syntax])
 
   useEffect(() => {
     let active = true
@@ -243,16 +227,8 @@ export function SourceEditor({ source, language = 'plaintext', editorId, canEdit
   const supported = normalizeCodeLanguage(language)
   return <div className="code-source" data-code-loading={supported && supported !== 'plaintext' && !syntax && !failed ? '' : undefined}>
     {failed && canEdit && <p className="code-source-status" role="status">Language tools unavailable; editing plain text. <button onClick={() => setAttempt(value => value + 1)}>Retry</button></p>}
-    <div className="code-body">
-      <div className="code-gutter" aria-hidden="true">{lines.map((_, index) => <span className={`code-line-number${index + 1 === activeLine ? ' is-active' : ''}`} key={index}>{index + 1}</span>)}</div>
-      <div className="code-source-scroll" onPointerDown={event => { if (canEdit) event.stopPropagation() }}>
-        <div className="code-source-track">
-          <pre className="code-readonly" aria-hidden={canEdit || undefined}><code>{lines.map((line, index) => <span className="code-line" key={index}>{line.map((token, tokenIndex) => token.kind
-            ? <span className={`code-token code-${token.kind}`} key={tokenIndex}>{token.text}</span>
-            : <span key={tokenIndex}>{token.text}</span>)}{index < lines.length - 1 ? '\n' : null}</span>)}</code></pre>
-          {canEdit && <div ref={mount} className="code-editor" />}
-        </div>
-      </div>
-    </div>
+    <SourceDisplay tokens={tokens} activeLine={activeLine} canEdit={canEdit}>
+      {canEdit && <div ref={mount} className="code-editor" />}
+    </SourceDisplay>
   </div>
 }

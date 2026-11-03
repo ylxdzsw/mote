@@ -20,6 +20,7 @@ function readerBundlePlugin(): Plugin {
       configFile: false,
       mode: 'production',
       root: projectRoot,
+      resolve: { alias: { '../editor/SourceEditor': `${projectRoot}src/reader/SourceReader.tsx` } },
       plugins: [react(), {
         name: 'mote-reader-fonts',
         enforce: 'pre',
