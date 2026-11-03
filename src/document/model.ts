@@ -39,7 +39,7 @@ export interface Theme {
 export const defaultTheme: Theme = {
   appearance: { mode: 'light', primaryHue: defaultHue, secondaryHue: defaultSecondaryHue }, autospace: true,
   flow: { spaceBefore: em(1.5), spaceAfter: em(1.5) },
-  defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: em(1.5), spaceBefore: em(0), spaceAfter: em(1), letterSpacing: em(0) },
+  defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: em(1.5), spaceBefore: em(0), spaceAfter: em(1), letterSpacing: px(0) },
   paragraphs: {
     title: { size: em(2.5), color: 'gray2', weight: 700, lineHeight: em(3.5), spaceBefore: em(3), spaceAfter: em(3) },
     heading: { size: em(1.5), color: 'gray2', weight: 700, lineHeight: em(2), spaceBefore: em(2), spaceAfter: em(1.5) },

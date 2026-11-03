@@ -1879,3 +1879,7 @@ Document autosave now runs every 30 seconds and skips clean working copies; prom
 ## 2026-11-03 — Binary theme weights in native V4
 
 V4 makes saved theme weights explicitly Regular (400) or Bold (700), matching the compact Settings choice instead of preserving unsupported intermediate weights. The breaking V3→V4 migration maps only explicit saved weights to their nearest endpoint (below 550 to 400; 550 and above to 700), preserving sparse inheritance, IDs, and unrelated document data. It does not create Heading overrides; otherwise an old custom theme would be silently redesigned. V1–V3 validation remains broad for pinned snapshots. Table header appearance is 700 only in V4; older versions preserve 600. Inline Bold becomes unavailable when effective typography already makes every selected paragraph bold, preventing an apparent “Bold off” action from downgrading already-bold text; other marks remain independent. Unresolved AI work keeps the existing breaking-migration confirmation and release/revocation boundary.
+
+## 2026-11-03 — Pixel-first letter spacing
+
+New themes seed letter spacing as 0px rather than 0em so the inherited control starts with pixel-sized adjustments. Both units remain available, existing saved values retain their units, and zero spacing renders identically. This changes only the new-document preset, not the native schema or interpretation of saved documents.

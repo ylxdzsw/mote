@@ -141,7 +141,7 @@ marker-anchored Floats into continuous coordinates. The document keeps its versi
 A new document starts in Light mode with Primary hue 29°, Secondary hue 262°,
 mixed-script autospace enabled, and a 16px Sans default in Gray 2 at weight
 400. Its default line height is 1.5em, Before is 0em, After is 1em, and
-letter spacing is 0em. New themes seed Title, Heading, Subheading, Body,
+letter spacing is 0px. New themes seed Title, Heading, Subheading, Body,
 Caption, and List paragraph styles; Table, Code, and Formula object styles;
 and Flow spacing of 1.5em Before and After. The seeded Title, Heading, and
 Subheading styles each explicitly use weight 700. Subheading is 1.125em, with
