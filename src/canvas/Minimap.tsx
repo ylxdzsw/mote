@@ -62,24 +62,15 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     const rail = track.current!
     const navigation = labels.current!
     const container = pane.current!
-    let frame: number | null = null
-    let startupFrame: number | null = null
-    let startupIdle: number | null = null
-    let startupTimeout: number | null = null
-    let built = false
+    let frame = 0
     let dirty = true
     let scrollHeight = 0
     let bookmarks: Bookmark[] = []
 
-    container.classList.add('is-pending')
-    container.inert = true
-    container.setAttribute('aria-hidden', 'true')
-    rail.tabIndex = -1
-
     function bookmarkFocusOffset() { return Math.min(120, viewport.clientHeight * .15) }
 
     function paint() {
-      frame = null
+      frame = 0
       if (dirty) {
         // An inert DOM snapshot shares the real layout and theme, without another editor.
         const miniature = source.cloneNode(true) as HTMLDivElement
@@ -183,29 +174,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       visible.forEach(({ button }, index) => { button.style.top = `${tops[index]}px` })
     }
 
-    function buildInitial() {
-      startupIdle = null
-      startupTimeout = null
-      paint()
-      built = true
-      container.classList.remove('is-pending')
-      container.inert = false
-      container.removeAttribute('aria-hidden')
-      rail.tabIndex = 0
-    }
-
-    function afterPaintOpportunity() {
-      if (window.requestIdleCallback) {
-        startupIdle = window.requestIdleCallback(buildInitial, { timeout: 250 })
-      } else {
-        startupTimeout = window.setTimeout(buildInitial, 0)
-      }
-    }
-
-    function schedule() {
-      if (!built) { dirty = true; return }
-      if (frame === null) frame = requestAnimationFrame(paint)
-    }
+    function schedule() { if (!frame) frame = requestAnimationFrame(paint) }
     function refresh() { dirty = true; schedule() }
     const mutation = new MutationObserver(refresh)
     mutation.observe(source, { subtree: true, childList: true, characterData: true, attributes: true })
@@ -226,19 +195,9 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       viewport.scrollTop += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1)
     }
     container.addEventListener('wheel', wheel, { passive: false })
-    // One rAF still runs before paint. Let a frame pass before queuing the
-    // initial clone; observers coalesce changes without bypassing this gate.
-    startupFrame = requestAnimationFrame(() => {
-      startupFrame = requestAnimationFrame(() => {
-        startupFrame = null
-        afterPaintOpportunity()
-      })
-    })
+    paint()
     return () => {
-      if (frame !== null) cancelAnimationFrame(frame)
-      if (startupFrame !== null) cancelAnimationFrame(startupFrame)
-      if (startupIdle !== null) window.cancelIdleCallback(startupIdle)
-      if (startupTimeout !== null) window.clearTimeout(startupTimeout)
+      cancelAnimationFrame(frame)
       mutation.disconnect()
       workspace.disconnect()
       resize.disconnect()

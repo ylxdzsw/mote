@@ -145,7 +145,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .stage { height: 100%; overflow: auto; scrollbar-width: none; overscroll-behavior: contain; overflow-anchor: none; padding: 24px; min-width: 0; background: inherit; }
 .stage::-webkit-scrollbar { display: none; }
 .minimap-pane { position: relative; z-index: 1; grid-column: 1; grid-row: 1; display: grid; grid-template-columns: var(--minimap-width); min-height: 0; }
-.minimap-pane.is-pending { visibility: hidden; }
 .minimap { position: relative; overflow: hidden; min-height: 0; background: var(--ui-minimap); border-right: 1px solid var(--ui-workspace-border); touch-action: none; user-select: none; cursor: pointer; }
 .minimap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .minimap-image { position: absolute; inset: 0; pointer-events: none; }
