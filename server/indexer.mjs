@@ -158,7 +158,6 @@ export class DocumentIndexer {
     const sources = this.store.indexDocuments()
     if (this.running && !sources.some(source => source.id === this.running.id)) void this.cancel(this.running, 'deleted')
     for (const source of sources) {
-      if (this.closed || !this.store.settings().indexingEnabled) break
       if (source.targetRevision === source.revision && (source.targetFingerprint || source.status === 'failed')) continue
       try {
         const envelope = this.store.workspaceDocument(source.id, source.id, source.revision)

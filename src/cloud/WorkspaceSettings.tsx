@@ -277,8 +277,8 @@ export function WorkspaceSettings({ active }: { active: boolean }) {
     else { setIndexingExpanded(true); void loadIndexing() }
   }
 
-  const retryable = indexing?.documents.filter(item => item.status === 'failed' || item.status === 'stopped').length ?? 0
   const problemDocuments = indexing?.documents.filter(item => item.status === 'failed' || item.status === 'stopped') ?? []
+  const retryable = problemDocuments.length
 
   return <section className="cloud-management" aria-label="Workspace management">
     <div className="cloud-management-panel">

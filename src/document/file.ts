@@ -80,7 +80,7 @@ function parseDocument(json: string): MoteDocument {
   catch (error) {
     if (error instanceof MoteFileError) throw error
     const detail = error instanceof Error && error.message ? `: ${error.message}` : ''
-    throw new MoteFileError(`The document content is not valid for V1 or V2${detail}`)
+    throw new MoteFileError(`The document content is not valid for a supported Mote document version${detail}`)
   }
 }
 

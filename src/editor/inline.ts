@@ -6,7 +6,7 @@ import { InlineLink } from './links'
 const paletteReference = /^[A-Za-z0-9_-]+(?::soft)?$/
 const reservedReferences = new Set(['__proto__', 'constructor', 'prototype'])
 
-export function safePaletteReference(value: unknown): value is string {
+function safePaletteReference(value: unknown): value is string {
   if (typeof value !== 'string' || !paletteReference.test(value)) return false
   return !reservedReferences.has(value.split(':', 1)[0])
 }
@@ -19,7 +19,7 @@ function paletteSurfaceVariable(reference: string) {
   return `var(--palette-${reference.split(':', 1)[0]}-surface)`
 }
 
-export const InlineColor = Mark.create({
+const InlineColor = Mark.create({
   name: 'color',
   priority: 110,
   addAttributes() {
@@ -49,7 +49,7 @@ export const InlineColor = Mark.create({
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
 
-export const InlineDecoration = Mark.create({
+const InlineDecoration = Mark.create({
   name: 'decoration',
   priority: 109,
   addAttributes() {
@@ -77,7 +77,7 @@ export const InlineDecoration = Mark.create({
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
 
-export const InlineBold = Mark.create({
+const InlineBold = Mark.create({
   name: 'bold',
   priority: 108,
   parseHTML: () => [
@@ -99,9 +99,9 @@ export const InlineBold = Mark.create({
 
 export const inlineMarks = [InlineColor, InlineDecoration, InlineBold, InlineLink]
 
-export type InlineDecorationValue = 'box'
+type InlineDecorationValue = 'box'
 
-export interface InlineSelection {
+interface InlineSelection {
   bold: boolean | 'mixed'
   color: string | null | 'mixed'
   decoration: InlineDecorationValue | null | 'mixed'

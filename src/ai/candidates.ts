@@ -1,6 +1,6 @@
 import type { AITask, Candidate, CandidateSelection, CandidateVersion, RemoteTask, TaskCandidate } from './types'
 
-export interface CandidateOption extends CandidateVersion { id?: string; current: boolean; legacy?: boolean }
+interface CandidateOption extends CandidateVersion { id?: string; current: boolean; legacy?: boolean }
 
 function validCandidate(value: unknown): value is Candidate {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -40,7 +40,7 @@ export function candidateVersions(task: Pick<AITask, 'candidate' | 'candidates' 
     : []
 }
 
-export function sameCandidate(a: Candidate, b: Candidate) {
+function sameCandidate(a: Candidate, b: Candidate) {
   const sort = (value: unknown): unknown => Array.isArray(value) ? value.map(sort)
     : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => [key, sort(child)]))
       : value

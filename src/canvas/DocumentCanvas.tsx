@@ -360,10 +360,14 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     return { x: (event.clientX - rect.left) / scale - sheet.current!.clientLeft, y: (event.clientY - rect.top) / scale - sheet.current!.clientTop }
   }
   function spaceAt(p: Point) {
-    const rect = sheet.current!.getBoundingClientRect()
-    return [...sheet.current!.querySelectorAll<HTMLElement>('.main-text [data-spacer]')].map(element => ({ element,
-      x: 0, y: (element.getBoundingClientRect().top - rect.top) / scale - sheet.current!.clientTop, width: doc.page.width, height: element.getBoundingClientRect().height / scale,
-    })).find(space => contains(space, p))
+    const surface = sheet.current!
+    const rect = surface.getBoundingClientRect()
+    for (const element of surface.querySelectorAll<HTMLElement>('.main-text [data-spacer]')) {
+      const box = element.getBoundingClientRect()
+      if (contains({ x: 0, y: (box.top - rect.top) / scale - surface.clientTop,
+        width: doc.page.width, height: box.height / scale }, p)) return true
+    }
+    return false
   }
   function snap(p: Point, alt: boolean): Point {
     return alt ? p : { x: Math.round(p.x / gridSize) * gridSize, y: Math.round(p.y / gridSize) * gridSize }

@@ -89,10 +89,15 @@ export function useSegmentSelection(props: Props) {
     const { editor, sheet, scale } = live.current
     if (!editor || !sheet.current) return []
     const rect = sheet.current.getBoundingClientRect(), border = sheet.current.clientTop
+    const candidates = new Map<string, HTMLElement | null>()
+    for (const element of sheet.current.querySelectorAll<HTMLElement>('[data-ai-block]')) {
+      const id = element.dataset.aiBlock!
+      if (!candidates.has(id)) candidates.set(id, element.closest<HTMLElement>('.main-paragraph'))
+    }
     const blocks: Block[] = []
     editor.state.doc.forEach((node, from) => {
       const element = editor.view.nodeDOM(from) as HTMLElement
-      const candidate = sheet.current!.querySelector<HTMLElement>(`[data-ai-block="${node.attrs.id}"]`)?.closest('.main-paragraph')
+      const candidate = candidates.get(node.attrs.id)
       const box = (candidate ?? element).getBoundingClientRect()
       const top = layoutPixel((box.top - rect.top) / scale - border), space = node.type.name === 'spacer'
       let bottom = layoutPixel((box.bottom - rect.top) / scale - border)
@@ -123,8 +128,14 @@ export function useSegmentSelection(props: Props) {
       }
     }
     // One logical break may have two visual edges, separated only by theme spacing.
-    const candidates = blocks.flatMap((block, index) => [{ point: edge(index), y: block.top }, { point: edge(index + 1), y: block.bottom }])
-    return candidates.reduce((best, candidate) => Math.abs(candidate.y - y) < Math.abs(best.y - y) ? candidate : best).point
+    let nearest = edge(0), distance = Math.abs(blocks[0].top - y)
+    for (const [index, block] of blocks.entries()) {
+      const startDistance = Math.abs(block.top - y)
+      if (startDistance < distance) { nearest = edge(index); distance = startDistance }
+      const endDistance = Math.abs(block.bottom - y)
+      if (endDistance < distance) { nearest = edge(index + 1); distance = endDistance }
+    }
+    return nearest
   }
   function boundaryY(point: SegmentPoint, side: 'start' | 'end', blocks: Block[]) {
     if (!blocks.length) return 0

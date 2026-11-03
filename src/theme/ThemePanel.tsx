@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { px, themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type LineHeight, type BlockClass, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
-import { paletteColor, paletteEntries, pageColor } from './palette'
+import { paletteEntries, pageColor } from './palette'
 import { PaletteControl, PaletteEditor } from './PaletteControl'
 import { MathView } from '../canvas/MathView'
 import { CodeView } from '../canvas/CodeView'
@@ -22,7 +22,9 @@ function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme
 }
 
 export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
-  const neutralSoft = paletteColor(theme, 'gray5')
+  const entries = paletteEntries(theme)
+  const colors = new Map<string, string>()
+  const neutralSoft = entries.find(entry => entry.id === 'gray5')!.strong
   const body = { ...theme.defaults, ...(theme.paragraphs.body ?? {}) }
   const variables: Record<string, string> = {
     '--page-background': pageColor(theme),
@@ -30,7 +32,9 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
     '--flow-spaceBefore': `${pixels(theme.flow?.spaceBefore ?? 0, theme.defaults.size)}px`,
     '--flow-spaceAfter': `${pixels(theme.flow?.spaceAfter ?? body.spaceAfter, theme.defaults.size)}px`,
   }
-  for (const entry of paletteEntries(theme)) {
+  for (const entry of entries) {
+    colors.set(entry.id, entry.strong)
+    if (entry.soft) colors.set(`${entry.id}:soft`, entry.soft)
     const soft = entry.soft ?? neutralSoft
     variables[`--palette-${entry.id}`] = entry.strong
     variables[`--palette-${entry.id}-soft`] = soft
@@ -39,8 +43,8 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
   for (const name of themeBlockClasses) {
     const style = { ...theme.defaults, ...blockOverrides(theme, name) }
     if (name === 'formula') {
-      variables[`--${name === 'formula' ? 'math' : name}-size`] = `${pixels(style.size, theme.defaults.size)}px`
-      variables[`--${name === 'formula' ? 'math' : name}-color`] = paletteColor(theme, style.color)
+      variables['--math-size'] = `${pixels(style.size, theme.defaults.size)}px`
+      variables['--math-color'] = colors.get(style.color)!
       continue
     }
     variables[`--${name}-family`] = name === 'code' || style.family === 'mono' ? 'ui-monospace, SFMono-Regular, Consolas, "Sarasa Mono SC", "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace'
@@ -49,7 +53,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage): CSSPro
     if (name === 'code') variables['--code-family'] = variables['--code-family'].replace('"Microsoft YaHei", ', '')
     for (const property of ['size', 'spaceBefore', 'spaceAfter', 'letterSpacing'] as const) variables[`--${name}-${property}`] = `${pixels(style[property], theme.defaults.size)}px`
     variables[`--${name}-lineHeight`] = `${pixels(style.lineHeight, theme.defaults.size, pixels(style.size, theme.defaults.size))}px`
-    variables[`--${name}-color`] = paletteColor(theme, style.color)
+    variables[`--${name}-color`] = colors.get(style.color)!
     variables[`--${name}-weight`] = String(style.weight)
   }
   return variables as CSSProperties

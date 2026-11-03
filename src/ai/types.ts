@@ -4,7 +4,7 @@ import type { SegmentClipboard, SegmentRange } from '../document/segment'
 
 export interface Area { x: number; y: number; width: number; height: number }
 export interface SegmentBookmark { blockId: string | null; offset: number; after?: boolean }
-export interface SegmentBookmarks { start: SegmentBookmark; end: SegmentBookmark }
+interface SegmentBookmarks { start: SegmentBookmark; end: SegmentBookmark }
 export interface SegmentTarget {
   kind: 'segment'
   range: SegmentRange

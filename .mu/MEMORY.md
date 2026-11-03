@@ -1862,3 +1862,9 @@ Presentation crops a viewport onto the same mounted reader sheet, preserving lay
 ## 2026-11-03 — Compact paired-color grid
 
 The shared Strong/Soft pair picker places Gray beside Primary and Secondary, followed by the six fixed hues in a single 3×3 grid. This removes a mostly empty gray row and its divider without shrinking the swatches. DOM order follows visual order for native radio navigation; the full individual-tone palette and saved color references are unchanged.
+
+## 2026-11-03 — Remove stale branches; index within operations
+
+Removed the unused UI palette validator in favor of the closed native validator, the retired reader-settings persistence option, and the recent-color reconciliation machinery for a palette whose reference slots are fixed. Recent colors retain the same initial choices and replacement order; appearance changes alter their colors, not slot validity. Box formatting now has one direct toggle rather than a singleton collection and unused mode argument. Internal-only exports and unused PNG helpers no longer imply additional supported APIs. Native import and AI screenshot preparation use ordinary imports for the codecs already loaded eagerly by export controls, rather than ineffective lazy imports; the standalone HTML bundle remains on demand. V1–V3 loading and legacy task compatibility remain intact.
+
+Repeated anchor, reservation-block, presentation-object, and slide-group scans now build local indexes within the existing operation. Segment DOM measurement similarly collects candidate nodes once, and spacer hit-testing reads each rectangle only once before returning the boolean its caller needs. Theme-variable construction and drawing extraction reuse one derived palette per operation instead of recomputing it for each style or drawing. These are bounded indexes, not persistent caches or new storage abstractions; document geometry, native formats, privacy, and task-recovery semantics are unchanged.

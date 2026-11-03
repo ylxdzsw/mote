@@ -1,16 +1,12 @@
 import { DOCUMENT_VERSIONS } from '../../shared/document.mjs'
-import { objectY, objectAnchorId } from '../document/model'
+import { objectY, objectAnchorId, supportsCaption, type FloatingObject, type MoteDocument } from '../document/model'
 import { canonicalEditorContent } from '../editor/canonical'
 import type { JSONContent } from '@tiptap/core'
-import type { FloatingObject, MoteDocument } from '../document/model'
 import type { AITarget, AITask } from './types'
 import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
 import { patchFloating } from '../canvas/patchFloating.ts'
 import { resolveSegmentRange } from './segments'
-
-const supportsCaption = (object: FloatingObject): object is Extract<FloatingObject, { kind: 'image' | 'html' | 'table' }> =>
-  object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
 
 export function paragraphSelection(doc: Node, from: number, to: number) {
   const blockIds: string[] = []
@@ -32,7 +28,7 @@ function sortedKeys(_key: string, value: unknown): unknown {
     ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) : value
 }
 // Placement and margins belong to the user; content and size belong to the reserved task.
-export function objectContent(object: FloatingObject) {
+function objectContent(object: FloatingObject) {
   const { layout, ...body } = object
   const content = { ...body, layout: { width: layout.width, ...(layout.height !== undefined && { height: layout.height }) } }
   if (supportsCaption(object) && object.caption) return { ...content, caption: { content: object.caption.content } }
@@ -40,7 +36,7 @@ export function objectContent(object: FloatingObject) {
 }
 
 export const canResizeReservation = (task: AITask) => !task.submitted && !task.requestSent && !task.pendingExecutor && ['draft', 'error', 'stopped'].includes(task.status)
-export function reservedObjectContent(task: AITask, object: FloatingObject) {
+function reservedObjectContent(task: AITask, object: FloatingObject) {
   const content = objectContent(object)
   if (!canResizeReservation(task)) return content
   // Normalize only positions: repeated resize arithmetic must not release a draft.
@@ -100,7 +96,9 @@ function segmentBlocks(doc: Pick<MoteDocument, 'content' | 'objects'>, target: E
   if (!range) return null
   const blocks = doc.content.content ?? [], ids = segmentBlockIds(segmentDocument(doc), range)
   if (ids.length !== target.blockIds.length || ids.some((id, index) => id !== target.blockIds[index])) return null
-  return { range, blocks: ids.map(id => blocks.find(block => block.attrs?.id === id)!) }
+  const byId = new Map<string, JSONContent>()
+  for (const block of blocks) if (typeof block.attrs?.id === 'string' && !byId.has(block.attrs.id)) byId.set(block.attrs.id, block)
+  return { range, blocks: ids.map(id => byId.get(id)!) }
 }
 
 function segmentOriginalBlocks(task: AITask): JSONContent[] {

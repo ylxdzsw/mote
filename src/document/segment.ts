@@ -40,6 +40,7 @@ interface SelectedSegment {
   spacers: Map<string, SpacerSlice>
   blockIds: Set<string>
   indices: Set<number>
+  blockIndexes: Map<string, number>
 }
 
 interface AnchorPlace {
@@ -126,23 +127,26 @@ function selectedSegment(blocks: JSONContent[], range: SegmentRange): SelectedSe
   const spacers = new Map<string, SpacerSlice>()
   const blockIds = new Set<string>()
   const indices = new Set<number>()
+  const blockIndexes = new Map<string, number>()
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index]
+    const id = blockId(block)
+    if (id && !blockIndexes.has(id)) blockIndexes.set(id, index)
     if (isSpacer(block)) {
       const height = blockHeight(block)
       const start = index === range.start.index ? range.start.offset : 0
       const end = index === range.end.index ? range.end.offset : height
       if (index >= range.start.index && index <= range.end.index && end > start) {
-        spacers.set(blockId(block) ?? `index:${index}`, { start, end })
+        spacers.set(id ?? `index:${index}`, { start, end })
         indices.add(index)
-        if (blockId(block)) blockIds.add(blockId(block)!)
+        if (id) blockIds.add(id)
       }
     } else if (index >= range.start.index && index < range.end.index) {
       indices.add(index)
-      if (blockId(block)) blockIds.add(blockId(block)!)
+      if (id) blockIds.add(id)
     }
   }
-  return { spacers, blockIds, indices }
+  return { spacers, blockIds, indices, blockIndexes }
 }
 
 function spacerSliceFor(block: JSONContent, selected: SelectedSegment) {
@@ -152,8 +156,8 @@ function spacerSliceFor(block: JSONContent, selected: SelectedSegment) {
 
 function anchorIsSelected(anchorId: string | null, y: number, blocks: JSONContent[], selected: SelectedSegment) {
   if (anchorId === null) return false
-  const index = blocks.findIndex(block => blockId(block) === anchorId)
-  if (index < 0 || !selected.indices.has(index)) return false
+  const index = selected.blockIndexes.get(anchorId)
+  if (index === undefined || !selected.indices.has(index)) return false
   const block = blocks[index]
   if (!isSpacer(block)) return true
   const slice = spacerSliceFor(block, selected)
@@ -191,7 +195,8 @@ function transformCopiedObject(object: FloatingObject, blocks: JSONContent[], se
   const result = clone(object)
   const shiftAnchor = (id: string | null, y: number) => {
     if (id === null) return { anchorId: null, y }
-    const block = blocks.find(node => blockId(node) === id)
+    const index = selected.blockIndexes.get(id)
+    const block = index === undefined ? undefined : blocks[index]
     const slice = block && spacerSliceFor(block, selected)
     return slice ? { anchorId: id, y: Math.max(0, y - slice.start) } : { anchorId: id, y }
   }

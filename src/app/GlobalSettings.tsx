@@ -23,16 +23,15 @@ function readSettings(): ViewSettings {
 }
 
 // Each surface owns its preference keys, without rerendering unrelated surfaces.
-export function useViewSettings<K extends keyof ViewSettings>(keys: readonly K[], persist = true) {
+export function useViewSettings<K extends keyof ViewSettings>(keys: readonly K[]) {
   const [settings, setSettings] = useState<Pick<ViewSettings, K>>(() => {
-    const saved = persist ? readSettings() : defaults
+    const saved = readSettings()
     return Object.fromEntries(keys.map(key => [key, saved[key]])) as Pick<ViewSettings, K>
   })
   const [saveError, setSaveError] = useState(false)
 
   function update(next: Pick<ViewSettings, K>) {
     setSettings(next)
-    if (!persist) return
     try { localStorage.setItem(storageKey, JSON.stringify({ ...readSettings(), ...next })); setSaveError(false) }
     catch { setSaveError(true) }
   }
@@ -40,11 +39,10 @@ export function useViewSettings<K extends keyof ViewSettings>(keys: readonly K[]
   return { settings, update, saveError }
 }
 
-export function GlobalSettings({ settings, onChange, saveError, persist = true }: {
+export function GlobalSettings({ settings, onChange, saveError }: {
   settings: Pick<ViewSettings, 'minimap' | 'minimapSize'>
   onChange: (settings: Pick<ViewSettings, 'minimap' | 'minimapSize'>) => void
   saveError: boolean
-  persist?: boolean
 }) {
   return <section className="panel-section browser-properties">
     <h2>Display</h2>
@@ -66,7 +64,7 @@ export function GlobalSettings({ settings, onChange, saveError, persist = true }
     <p className="hint">{settings.minimapSize === 'proportional'
       ? 'Keeps page proportions; the miniature scrolls with the document.'
       : 'Shows the whole document, compressing long notes vertically.'}</p>
-    <p className="hint">Automatic hides on small screens. {persist ? 'Settings stay in this browser.' : 'Settings apply only until this reader is closed.'}</p>
+    <p className="hint">Automatic hides on small screens. Settings stay in this browser.</p>
     {saveError && <p className="hint error" role="status">Couldn’t save these settings. They still apply until you reload.</p>}
   </section>
 }

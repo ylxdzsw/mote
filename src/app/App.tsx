@@ -88,15 +88,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const { doc, setDoc } = history
   const cloud = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
   const connection = useConnection()
-  const writable = true
   const [shareOpen, setShareOpen] = useState(false)
   const privateDocument = cloud.record.meta.private
   const creatingPrivate = cloud.record.pendingCreate?.private === true
   const sharingBlocked = privateDocument || creatingPrivate || cloud.privacy.pending?.private === true
-  const recentColors = useRecentColors(doc?.id ?? initial.id, doc?.theme ?? initial.theme)
+  const recentColors = useRecentColors(doc?.id ?? initial.id)
   const uiStyle = useMemo(() => doc ? uiThemeVariables(doc.theme, doc.language ?? 'en') : undefined, [doc?.theme, doc?.language])
   const actions = useRef<CanvasActions | null>(null)
-  const assistant = useAssistant(history, writable, id => actions.current?.without([id]),
+  const assistant = useAssistant(history, true, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
     { documentId: cloud.record.meta.id, sync: () => copy.sync(true), workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
   useLayoutEffect(() => {
@@ -108,7 +107,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const preview = usePreview()
   const mobile = useMedia('(max-width: 767px)')
   const smallScreen = useMedia('(max-width: 1050px)')
-  const editable = writable && assistant.loaded && !mobile
+  const editable = assistant.loaded && !mobile
   const screenshot = useWidgetScreenshot(history, editable, assistant.lockedIds)
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
   const [settingsOpen, setSettingsOpen] = useState(false)

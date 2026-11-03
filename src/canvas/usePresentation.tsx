@@ -78,8 +78,9 @@ export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefO
       block.inert = slide !== index
     }
     const objects = [...page.querySelectorAll<HTMLElement>('[data-note-id]')]
+    const objectsById = new Map(doc.objects.map(object => [object.id, object]))
     for (const element of objects) {
-      const object = doc.objects.find(object => object.id === element.dataset.noteId)
+      const object = objectsById.get(element.dataset.noteId!)
       if (object) element.inert = objectSlideIndex(doc, object) !== index
     }
     return () => { for (const element of [...blocks, ...objects]) element.inert = false }

@@ -9,7 +9,7 @@ import { objectSlideIndex, slideRanges } from '../document/slides'
 import './SlideRulers.css'
 
 export interface Placement { x: number; top: number }
-export type FloatingPreview = FloatingPatch & { top?: number }
+type FloatingPreview = FloatingPatch & { top?: number }
 export type FloatingPreviews = Record<string, FloatingPreview>
 interface Obstacle { left: number; right: number; top: number; bottom: number }
 interface Layout { anchors: Anchor[]; tops: Record<string, number>; geometry: Geometries; minHeight: number; sideInsets: { left: number; right: number }; flowMounts: Record<string, HTMLElement>; slides: SlideGeometry[] }
@@ -176,7 +176,8 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       // Relative offsets preserve each block's native measurement and editing DOM.
       // Reading may move a whole slide back over the preceding slide's overflow;
       // that overflow is clipped separately, never allowed to move its successor.
-      const groups = slideHeight ? ranges.map(range => blocks.filter(block => block.slideIndex === range.index)) : [blocks]
+      const groups: VisibleBlock[][] = slideHeight ? ranges.map(() => []) : [blocks]
+      if (slideHeight) for (const block of blocks) groups[block.slideIndex].push(block)
       for (const [groupIndex, group] of groups.entries()) {
         const range = ranges[groupIndex]
         const slideTop = slides.at(-1) ? slides.at(-1)!.top + slides.at(-1)!.height : 0

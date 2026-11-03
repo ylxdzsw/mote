@@ -7,8 +7,8 @@ import { alignColumns, changeColumns } from '../editor/table'
 import { classLabel } from '../theme/ThemePanel'
 import { blockClasses, type BlockClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
-import { selectedInlineMarks, type InlineDecorationValue } from '../editor/inline'
-import { paletteColor, paletteSwatches } from '../theme/palette'
+import { selectedInlineMarks } from '../editor/inline'
+import { paletteSwatches } from '../theme/palette'
 import { PaletteControl } from '../theme/PaletteControl'
 import { PanelIcon } from './PanelIcon'
 import { useLinkControl } from './LinkControl'
@@ -243,17 +243,17 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     if (color) { if (chain.setMark('color', { color }).run()) onColorApplied?.(color) }
     else chain.unsetMark('color').run()
   }
-  const applyDecoration = (decoration: InlineDecorationValue, toggle = true) => {
+  const applyDecoration = () => {
     if (!editor) return
     const chain = editor.chain().focus()
-    if (toggle && selection.decoration === decoration) chain.unsetMark('decoration').run()
-    else chain.setMark('decoration', { decoration }).run()
+    if (selection.decoration === 'box') chain.unsetMark('decoration').run()
+    else chain.setMark('decoration', { decoration: 'box' }).run()
   }
 
   const paragraph = (selection.fixed.toLowerCase() || selection.paragraph) as keyof Theme['paragraphs'] | 'table'
   const inheritedColor = (paragraph === 'table' ? theme.objects.table : theme.paragraphs[paragraph])?.color ?? theme.defaults.color
-  const colorSwatch = selection.color === 'mixed' ? undefined : paletteColor(theme, selection.color ?? inheritedColor)
   const swatches = paletteSwatches(theme)
+  const colorSwatch = swatches.find(swatch => swatch.value === (selection.color ?? inheritedColor))?.color
   return <div className="text-tools" ref={tools}>
     <div className="text-tools-row" role="toolbar" aria-label="Text formatting" onKeyDown={event => {
       if ((event.target as HTMLElement).closest('[role="menu"], [role="dialog"]')) return
@@ -294,8 +294,8 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
     </>}>
       <span className={`tt-swatch${selection.color === 'mixed' ? ' mixed' : ''}`} style={colorSwatch ? { backgroundColor: colorSwatch } : undefined} />
     </ToolPopup>
-    {(['box'] as const).map(decoration => <button key={decoration} className="tt-btn" aria-label={classLabel(decoration)} title={classLabel(decoration)}
-      aria-pressed={selection.decoration === decoration} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={() => applyDecoration(decoration)}><TIcon name={decoration} /></button>)}
+    <button className="tt-btn" aria-label="Box" title="Box"
+      aria-pressed={selection.decoration === 'box'} disabled={inlineDisabled} onMouseDown={event => event.preventDefault()} onClick={applyDecoration}><TIcon name="box" /></button>
     {link.button}
     </div>
     {link.row}

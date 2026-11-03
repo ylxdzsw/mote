@@ -4,7 +4,7 @@ import { SourceEditor } from '../editor/SourceEditor'
 import { codeLanguages, normalizeCodeLanguage } from '../document/code'
 import './code.css'
 
-export interface CodeViewProps {
+interface CodeViewProps {
   note: FloatingCode
   editable: boolean
   staticOnly?: boolean

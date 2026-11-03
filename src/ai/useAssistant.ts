@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
+import { exportPng } from '../document/png'
 import { reconcileObjectDeletions } from '../document/flow'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
@@ -498,7 +499,6 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         const input = { snapshotDocument, documentVersion: snapshotDocument.version, original, target, segmentOriginalBlocks, segmentOriginalObjects,
           cloudDocumentId: connection.documentId, baseRevision: saved.revision }
         task = { ...task, ...input }; update(id, input)
-        const { exportPng } = await import('../document/png')
         const blob = await exportPng(snapshotDocument)
         const snapshot = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)

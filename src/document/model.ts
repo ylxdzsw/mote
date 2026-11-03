@@ -113,7 +113,6 @@ export interface FloatingHTMLWidget extends FloatingGeometry<ObjectLayout & { he
   caption?: Caption
 }
 export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingFormula | FloatingHTMLWidget | FloatingCode
-export type FloatingKind = NonNullable<FloatingObject['kind']>
 export const isText = (object: FloatingObject): object is FloatingText => object.kind === 'text'
 export const supportsCaption = (object: FloatingObject): object is FloatingImage | FloatingHTMLWidget | FloatingTable =>
   object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
@@ -206,9 +205,11 @@ export function createDocument(options: ExampleOptions = {}): MoteDocument {
 export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift | null, content?: JSONContent): FloatingObject[] {
   if (!shift) return objects
   const flowAnchors = new Set(objects.filter(object => object.layout.placement.type === 'flow').map(object => objectAnchorId(object, content)))
+  const anchors = new Map<SpaceShift['anchors'][number]['id'], SpaceShift['anchors'][number]>()
+  for (const anchor of shift.anchors) if (!anchors.has(anchor.id)) anchors.set(anchor.id, anchor)
   // Later anchors already move with the text flow; only earlier anchors need offsets.
   function move<T extends { anchorId: string | null; y: number }>(point: T): T {
-    const anchor = shift!.anchors.find(anchor => anchor.id === point.anchorId)
+    const anchor = anchors.get(point.anchorId)
     const y = anchor && anchor.top + point.y >= shift!.from ? Math.max(0, point.y + shift!.delta) : point.y
     const removed = shift!.removed
     if (removed && point.anchorId === removed.id) return { ...point, anchorId: removed.anchorId, y: y + removed.offset }

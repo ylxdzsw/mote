@@ -51,12 +51,6 @@ export function validateNativeObject(value, options = {}) { return native(() => 
 function composition(blocks, objects, options = {}) { return native(() => validateComposition(blocks, objects, options)) }
 function content(value, mode = 'main') { return native(() => validateContent(value, mode)) }
 
-function objectAnchorId(document, object) {
-  return object.layout.placement.type === 'flow'
-    ? document.content.content.find(block => block.type === 'flow' && block.attrs.objectId === object.id)?.attrs.id
-    : object.layout.placement.anchorId
-}
-
 function validateSegmentGeometry(value, objectIds) {
   const geometry = record(value, 'candidate.segment.geometry')
   for (const [id, value] of Object.entries(geometry)) {
@@ -149,31 +143,34 @@ function segmentSelection(blocks, range) {
   const spacers = new Map()
   const blockIds = new Set()
   const indices = new Set()
+  const blockIndices = new Map()
+  const flowAnchors = new Map()
   for (let index = 0; index < blocks.length; index++) {
     const block = blocks[index]
+    const id = segmentBlockId(block)
+    if (id !== undefined) blockIndices.set(id, index)
+    if (block.type === 'flow' && id !== undefined) flowAnchors.set(block.attrs.objectId, id)
     if (block.type === 'spacer') {
       const height = segmentBlockHeight(block)
       const start = index === range.start.index ? range.start.offset : 0
       const end = index === range.end.index ? range.end.offset : height
       if (index >= range.start.index && index <= range.end.index && end > start) {
-        const id = segmentBlockId(block)
         spacers.set(id ?? `index:${index}`, { start, end })
         indices.add(index)
         if (id) blockIds.add(id)
       }
     } else if (index >= range.start.index && index < range.end.index) {
       indices.add(index)
-      const id = segmentBlockId(block)
       if (id) blockIds.add(id)
     }
   }
-  return { spacers, blockIds, indices }
+  return { spacers, blockIds, indices, blockIndices, flowAnchors }
 }
 
 function segmentAnchorSelected(anchorId, y, blocks, selected) {
   if (anchorId === null) return false
-  const index = blocks.findIndex(block => segmentBlockId(block) === anchorId)
-  if (index < 0 || !selected.indices.has(index)) return false
+  const index = selected.blockIndices.get(anchorId)
+  if (index === undefined || !selected.indices.has(index)) return false
   const block = blocks[index]
   if (block.type !== 'spacer') return true
   const slice = selected.spacers.get(anchorId)
@@ -189,7 +186,13 @@ function segmentPointSelected(anchorId, y, blocks, selected, range) {
 }
 
 function segmentOwnedObjects(document, blocks, range, selected) {
-  return new Set(document.objects.filter(object => segmentPointSelected(objectAnchorId(document, object), object.layout.placement.type === 'flow' ? 0 : object.layout.placement.y, blocks, selected, range)).map(object => object.id))
+  const objectIds = new Set()
+  for (const object of document.objects) {
+    const placement = object.layout.placement
+    const anchorId = placement.type === 'flow' ? selected.flowAnchors.get(object.id) : placement.anchorId
+    if (segmentPointSelected(anchorId, placement.type === 'flow' ? 0 : placement.y, blocks, selected, range)) objectIds.add(object.id)
+  }
+  return objectIds
 }
 
 function segmentScope(document, value) {
@@ -318,6 +321,3 @@ export function validateCandidate(value, document, selectedTarget, options = {})
   if (candidate.screenshotPaths !== undefined && selectedTarget.kind !== 'segment') throw new HttpError(400, 'candidate.screenshotPaths requires a segment candidate')
   return output
 }
-
-export function pngSignature(bytes) { return PNG.equals(bytes.subarray(0, 8)) }
-export function pngDataUrl(bytes) { return `data:image/png;base64,${bytes.toString('base64')}` }

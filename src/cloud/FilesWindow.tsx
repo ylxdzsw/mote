@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { PanelIcon } from '../app/PanelIcon'
 import type { MoteDocument } from '../document/model'
+import { decodeDocument } from '../document/file'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type DocumentMeta } from './api'
 import { NewFileForm, type NewFileOptions } from './NewFileForm'
 import { ShareWindow } from './ShareWindow'
@@ -66,7 +67,8 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const [newFile, setNewFile] = useState<boolean | null>(null)
   const [name, setName] = useState('')
   const [shareTarget, setShareTarget] = useState<DocumentMeta>()
-  const visible = documents.filter(item => item.name.toLocaleLowerCase().includes(filter.trim().toLocaleLowerCase()))
+  const query = filter.trim().toLocaleLowerCase()
+  const visible = documents.filter(item => item.name.toLocaleLowerCase().includes(query))
     .sort((a, b) => (sort === 'modified' ? b.updatedAt - a.updatedAt : 0) || a.name.localeCompare(b.name))
   const selected = documents.find(item => item.id === selectedId)
   const recoveryCount = Object.keys(pending).length
@@ -171,7 +173,6 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
 
   function importFile(file: File) {
     void run('Importing as a new document…', async () => {
-      const { decodeDocument } = await import('../document/file')
       const document = await decodeDocument(file)
       if (active.current) await onImport(document, file.name.replace(/\.(mote|html?)$/i, '').trim() || 'Untitled')
     })

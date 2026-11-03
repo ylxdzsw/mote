@@ -267,9 +267,12 @@ src/canvas/     measured anchors, Flow mounts, Float layer, owned captions, spat
 src/theme/      semantic styling, shared palette, theme-derived UI colors and controls
 src/reader/     offline reader entry and single-file HTML export
 src/ai/         reservations, task state, service client, review UI
+shared/         closed native validation/migrations, fixed palette and safe-link rules
 public/skills/  unversioned public agent entries, shared references, and portable helpers
 server/         moted, cloud store, indexing/retrieval, worker isolation, private task API, legacy guide, preview/delivery helpers, fake runner
 ```
+
+Native validation and palette-slot validity come from `shared/`; UI controls do not maintain a second document validator. Palette colors are derived once per theme-variable build or drawing-extraction operation, while recent-color slots track the fixed palette references independently of appearance. Browser preferences belong to editing surfaces; readers use their shared presentation defaults without a separate settings mode.
 
 Flow atoms expose noneditable mount points inside the main editor. `DocumentCanvas` portals the existing object renderer and any built-in caption into those mounts, using their actual normal-flow heights rather than saved-height spacers or absolute overlays. Float objects remain in the spatial layer. Editing, shared reading, minimap snapshots, PNG, and standalone HTML use this same rendering path.
 
