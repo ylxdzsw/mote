@@ -24,7 +24,7 @@ export interface BlockStyle {
 export const em = (value: number): ThemeLength => ({ value, unit: 'em' })
 export const px = (value: number): ThemeLength => ({ value, unit: 'px' })
 export const defaultSubheadingStyle: Partial<BlockStyle> = {
-  size: em(1.125), weight: 600, lineHeight: em(1.5), spaceBefore: em(2), spaceAfter: em(.5),
+  size: em(1.125), weight: 700, lineHeight: em(1.5), spaceBefore: em(2), spaceAfter: em(.5),
 }
 export const boxDecorationKinds = ['left', 'box'] as const
 export type BoxDecoration = { kind: typeof boxDecorationKinds[number]; color: string }
@@ -41,8 +41,8 @@ export const defaultTheme: Theme = {
   flow: { spaceBefore: em(1.5), spaceAfter: em(1.5) },
   defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: em(1.5), spaceBefore: em(0), spaceAfter: em(1), letterSpacing: em(0) },
   paragraphs: {
-    title: { size: em(2.5), color: 'gray2', weight: 600, lineHeight: em(3.5), spaceBefore: em(3), spaceAfter: em(3) },
-    heading: { size: em(1.5), color: 'gray2', lineHeight: em(2), spaceBefore: em(2), spaceAfter: em(1.5) },
+    title: { size: em(2.5), color: 'gray2', weight: 700, lineHeight: em(3.5), spaceBefore: em(3), spaceAfter: em(3) },
+    heading: { size: em(1.5), color: 'gray2', weight: 700, lineHeight: em(2), spaceBefore: em(2), spaceAfter: em(1.5) },
     subheading: defaultSubheadingStyle,
     body: { size: em(1) }, caption: { size: em(.75), color: 'gray3', lineHeight: em(1.25) },
     list: { size: em(1), spaceAfter: em(.375) },
@@ -135,7 +135,7 @@ export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
   format: 'mote'
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   id: string
   language: DocumentLanguage
   page: { width: number; margins: Margins; slideHeight?: number }
@@ -181,7 +181,7 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 }
 
 export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 3, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+  return { format: 'mote', version: 4, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }

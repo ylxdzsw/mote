@@ -13,4 +13,4 @@ function readDocument(): MoteDocument {
 
 const root = createRoot(document.getElementById('root')!)
 try { root.render(<StrictMode><ReaderPage initial={readDocument()} /></StrictMode>) }
-catch (error) { root.render(<main className="loading"><h1>Mote</h1><p role="alert">{error instanceof Error ? error.message : 'Unsupported document format'}. The embedded data has not been changed. Open a supported V1 or V2 document or retain this file for recovery.</p></main>) }
+catch (error) { root.render(<main className="loading"><h1>Mote</h1><p role="alert">{error instanceof Error ? error.message : 'Unsupported document format'}. The embedded data has not been changed. Open a supported V1–V4 document or retain this file for recovery.</p></main>) }

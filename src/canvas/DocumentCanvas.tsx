@@ -988,7 +988,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
           event.preventDefault(); event.stopPropagation()
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors, slides))
         }}
-        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en'), '--canvas-ui-layer': layoutDoc.objects.length + 1, '--margin-top': `${doc.page.margins.top}px`, '--margin-right': `${doc.page.margins.right}px`, '--margin-bottom': `${doc.page.margins.bottom}px`, '--margin-left': `${doc.page.margins.left}px`, width: doc.page.width, transform: `scale(${scale})${presenting.active ? ` translateY(${-presenting.index! * doc.page.slideHeight!}px)` : ''}`, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en', doc.version), '--canvas-ui-layer': layoutDoc.objects.length + 1, '--margin-top': `${doc.page.margins.top}px`, '--margin-right': `${doc.page.margins.right}px`, '--margin-bottom': `${doc.page.margins.bottom}px`, '--margin-left': `${doc.page.margins.left}px`, width: doc.page.width, transform: `scale(${scale})${presenting.active ? ` translateY(${-presenting.index! * doc.page.slideHeight!}px)` : ''}`, minHeight } as React.CSSProperties}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
@@ -1013,7 +1013,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       </div>
       {/* Outside the sheet so layout measurement, minimaps, and exports never see it. */}
       {editable && creationObject && insertionHint && !creating && (tool === 'ai' ? !insertionHint.boundary : !!insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert data-mode={doc.theme.appearance.mode}
-        style={{ ...themeVariables(doc.theme, doc.language ?? 'en'), width: doc.page.width, transform: `scale(${scale})` } as React.CSSProperties}>
+        style={{ ...themeVariables(doc.theme, doc.language ?? 'en', doc.version), width: doc.page.width, transform: `scale(${scale})` } as React.CSSProperties}>
         {(() => {
           const flow = !!insertionHint.boundary, object = objectAt(insertionHint.position, flow)
           const x = flow ? doc.page.margins.left + flowX(patchObject(object, { centered: true }), pageWidth() - doc.page.margins.left - doc.page.margins.right) : insertionHint.position.x

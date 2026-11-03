@@ -1,10 +1,11 @@
-# Mote document formats V1–V3
+# Mote document formats V1–V4
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1`, `2`, or `3`. V1 is the original
-continuous-page format. V2 adds Slides; V3 adds optional table color pairs.
-All other shapes and meanings are shared. Unknown versions and unknown fields are rejected;
-there is no extension bag or implicit compatibility mode.
+exactly `"mote"`; `version` is the number `1`, `2`, `3`, or `4`. V1 is the
+original continuous-page format. V2 adds Slides; V3 adds optional table color
+pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
+Unknown versions and unknown fields are rejected; there is no extension bag or
+implicit compatibility mode.
 
 ## Versioning and migration
 
@@ -19,9 +20,10 @@ the ordered migration steps from that version to the current one, and then
 validates the result with the closed validator of the current version. Every
 reader uses this path: editor, Files/import, public share, standalone HTML
 reimport, indexer, and server validation. No other code interprets an older
-shape. Steps are pure and lossless. They preserve block, object, and rich-text
-IDs and keep the meaning of the content. A lossy rearrangement (such as Slides
-partitioning) is a confirmed user edit, not a migration.
+shape. Steps are pure and ID-preserving. They preserve block, object, and
+rich-text IDs and all unrelated data; each performs only its explicitly
+documented conversion. A lossy rearrangement (such as Slides partitioning) is
+a confirmed user edit, not a migration.
 
 Each step declares whether it is **breaking**. A step is non-breaking only if
 every valid old document and every valid old candidate remains valid under the
@@ -35,6 +37,14 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | --- | --- | --- |
 | V1 → V2 | No | Sets `version: 2`; no `slideHeight`, so Slides stay off |
 | V2 → V3 | No | Sets `version: 3`; omitted table colors retain prior styling |
+| V3 → V4 | Yes | Maps each explicit saved theme font weight below 550 to 400 and each weight at least 550 to 700; omitted overrides stay omitted; V4 table headers render at 700 instead of 600 |
+
+For V3 → V4, the explicit weights are `theme.defaults.weight`, any
+`theme.paragraphs.*.weight`, and `theme.objects.table.weight` or
+`theme.objects.code.weight`. The migration does not add sparse overrides or
+special-case Heading weights; omitted values continue to inherit from the
+converted parent/default. Other fields, IDs, and data are unchanged. V4's validator accepts only 400 or 700 for these
+fields; V1–V3 retain their 1–1000 range, including for pinned snapshots.
 
 Migration happens in memory. Loading never writes by itself. The next ordinary
 revision-checked save persists the upgraded document, and readers that cannot
@@ -57,7 +67,8 @@ retried automatically. The agent transport identifier `mote-agent-v1` is a
 separate protocol version and does not replace the document's numeric
 `version`.
 
-V1 and V2 load as V3; V1 keeps Slides off. New documents, saves of opened documents,
+V1, V2, and V3 load as V4; V1 keeps Slides off. V1 → V2 and V2 → V3 are
+non-breaking; V3 → V4 is breaking. New documents, saves of opened documents,
 exports, and new task inputs use the current version. `validateDocument`
 still accepts every supported version, so pinned task snapshots and stored
 revisions stay readable as they are.
@@ -69,7 +80,7 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   id: string
   language: 'en' | 'zh-Hans'
   page: {
@@ -132,8 +143,9 @@ mixed-script autospace enabled, and a 16px Sans default in Gray 2 at weight
 400. Its default line height is 1.5em, Before is 0em, After is 1em, and
 letter spacing is 0em. New themes seed Title, Heading, Subheading, Body,
 Caption, and List paragraph styles; Table, Code, and Formula object styles;
-and Flow spacing of 1.5em Before and After. The seeded Subheading style is 1.125em at weight
-600, line height 1.5em, Before 2em, After 0.5em; absence in another theme
+and Flow spacing of 1.5em Before and After. The seeded Title, Heading, and
+Subheading styles each explicitly use weight 700. Subheading is 1.125em, with
+1.5em line height, Before 2em, and After 0.5em; absence in another theme
 still means inheritance from Defaults, not this preset.
 
 Privacy, sharing, cloud/task revisions, selection, zoom, and other view state
@@ -203,13 +215,17 @@ strings. `em` resolves against `defaults.size`; pixel values use document
 pixels. `LineHeight` may instead use `{value,unit:'ratio'}`, which multiplies
 the resolved style font size. Default size, override sizes, and line height
 must be positive. Before/After spacing and text padding are nonnegative;
-letter spacing may be signed. Font weight is finite and from 1 through 1000.
+letter spacing may be signed. Font weight is version-dependent: V1–V3 accept
+finite values from 1 through 1000; V4 accepts exactly 400 or 700. This applies
+to `theme.defaults.weight` and every saved paragraph, table, or Code weight
+override. Sparse overrides remain sparse and inherit from their saved parent.
 Flow Before omission means zero; Flow After omission follows the resolved
 Body `spaceAfter`.
 
-The default Title style inherits the Defaults family, is 2.5em, semibold (600),
+The default Title style inherits the Defaults family, is 2.5em, Bold (700),
 Gray 2, with 3.5em line height and 3em Before and After. Heading
-is 1.5em, Gray 2, 2em line height, 2em Before, and 1.5em After. Body is
+is 1.5em, Bold (700), Gray 2, 2em line height, 2em Before, and 1.5em After.
+Subheading is explicitly Bold (700). Body is
 1em. Caption is 0.75em Gray 3 with 1.25em line height. List is 1em with
 0.375em After. The default Table object style is 1em; Code is 0.875em with
 1.375em line height; Formula inherits Defaults. Other omitted style
@@ -380,7 +396,7 @@ and `layout`.
 | Kind | Required fields | Optional fields |
 | --- | --- | --- |
 | `text` | `content` | `padding`, `decoration` |
-| `table` | `content` | `style`, `headerRow`, `caption`, `color` (V3 only) |
+| `table` | `content` | `style`, `headerRow`, `caption`, `color` (V3+) |
 | `image` | `src`, `alt` | `caption` |
 | `drawing` | `strokes`, `labels`, `background` | — |
 | `formula` | `latex` | — |
@@ -397,11 +413,12 @@ and `layout`.
   Text has no `background` or `borderColor` field.
 * **Table:** a single constrained table doc, optional style and header-row
   settings, and optional owned caption. Omitted style means `simple`; omitted
-  `headerRow` means false. V3 permits optional `color: PairColor`, using the same
+  `headerRow` means false. V3+ permits optional `color: PairColor`, using the same
   nine Strong/Soft pairs as text decorations. Simple uses Soft for the header;
   Business uses Strong for its header band/border and Soft for stripes. Academic
   ignores color but retains it. Omission preserves Gray 4/Gray 5 for Simple and
   Secondary for Business. V1/V2 reject `color`. Cell paragraph styling is fixed.
+  A header row's bold appearance is weight 600 in V1–V3 and 700 in V4.
 * **Image:** `src` is embedded image data, not a path or remote URL. `alt` is
   accessible descriptive text. Image dimensions derive from its intrinsic
   ratio and saved layout width. An image may own a caption.
@@ -453,7 +470,7 @@ as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
 per image; PNG signatures are checked. Drawings allow at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain the V1, V2, or V3 document and embedded assets; native saves
+Native `.mote` files contain a V1, V2, V3, or V4 document and embedded assets; native saves
 preserve `authoring`. Public projection validates the document and returns a
 clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
@@ -473,7 +490,7 @@ native document version.
 Slide-aware segment transfers use `version:2` with the same envelope fields,
 permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
 whole-slide clipboard uses its distinct `type:"slides"` envelope with
-`documentVersion:2|3` declaring its native object schema. AI V2 segments
+`documentVersion:2|3|4` declaring its native object schema. AI V2 segments
 require a Slides document and retain internal boundaries in the reserved range.
 The leading boundary may be omitted; application preserves the original boundary
 IDs and remaps marker-anchored Floats. Empty candidates clear content without

@@ -90,6 +90,7 @@ const InlineBold = Mark.create({
         const { selection } = editor.state
         if (!editor.isEditable || selection instanceof NodeSelection) return false
         if (!selection.$from.parent.isTextblock && !(selection instanceof CellSelection)) return false
+        if (selectedParagraphsAreBold(editor)) return true
         return editor.commands.toggleMark('bold')
       },
     }
@@ -98,6 +99,21 @@ const InlineBold = Mark.create({
 })
 
 export const inlineMarks = [InlineColor, InlineDecoration, InlineBold, InlineLink]
+
+export function selectedParagraphsAreBold(editor: Editor | null): boolean {
+  if (!editor || editor.state.selection instanceof NodeSelection) return false
+  let found = false, allBold = true
+  for (const { $from, $to } of editor.state.selection.ranges) {
+    editor.state.doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
+      if (node.type.name !== 'paragraph' || $from.pos !== $to.pos && pos + 1 >= $to.pos) return
+      found = true
+      const dom = editor.view.nodeDOM(pos) as HTMLElement
+      if (Number(dom.ownerDocument.defaultView!.getComputedStyle(dom).fontWeight) < 700) allBold = false
+      return false
+    })
+  }
+  return found && allBold
+}
 
 type InlineDecorationValue = 'box'
 

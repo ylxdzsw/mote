@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { px, themeBlockClasses, type DocumentLanguage, type ThemeBlockClass, type Theme, type LineHeight, type BlockClass, type ThemeLength } from '../document/model'
+import { px, themeBlockClasses, type DocumentLanguage, type MoteDocument, type ThemeBlockClass, type Theme, type LineHeight, type BlockClass, type ThemeLength } from '../document/model'
 import { useHistory } from '../document/history'
 import { paletteEntries, pageColor } from './palette'
 import { PaletteControl, PaletteEditor } from './PaletteControl'
@@ -21,13 +21,14 @@ function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme
     : { ...theme, paragraphs: { ...theme.paragraphs, [name as BlockClass]: style } }
 }
 
-export function themeVariables(theme: Theme, language: DocumentLanguage): CSSProperties {
+export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 4): CSSProperties {
   const entries = paletteEntries(theme)
   const colors = new Map<string, string>()
   const neutralSoft = entries.find(entry => entry.id === 'gray5')!.strong
   const body = { ...theme.defaults, ...(theme.paragraphs.body ?? {}) }
   const variables: Record<string, string> = {
     '--page-background': pageColor(theme),
+    '--table-header-weight': version >= 4 ? '700' : '600',
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
     '--flow-spaceBefore': `${pixels(theme.flow?.spaceBefore ?? 0, theme.defaults.size)}px`,
     '--flow-spaceAfter': `${pixels(theme.flow?.spaceAfter ?? body.spaceAfter, theme.defaults.size)}px`,
@@ -174,7 +175,10 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         {defaults ? number('size', 'Font size', 8, 96, .5) : length('size', 'Font size', 1, 512, .5)}
       </>}
       {(isMath || isCode) && length('size', 'Font size', 1, 512, .5)}
-      {(defaults || isParagraphBlock || isMath || isCode) && !isMath && choose('weight', 'Weight', [['300', 'Light'], ['400', 'Regular'], ['500', 'Medium'], ['600', 'Semibold'], ['700', 'Bold'], ['800', 'Extra bold']], Number)}
+      {(defaults || isParagraphBlock || isCode) && field('weight', 'Weight', <div className="placement-options" role="radiogroup" aria-label="Weight">
+        {([[400, 'Regular'], [700, 'Bold']] as const).map(([weight, label]) => <label key={weight}><input type="radio" name="theme-weight" checked={resolved.weight === weight}
+          onChange={() => { history.boundary(); update('weight', weight) }} /><span>{label}</span></label>)}
+      </div>)}
       {!isFlow && !isCode && paletteField('color', 'Text color')}
       {defaults && <>
         <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {

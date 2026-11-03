@@ -1,8 +1,8 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
-export const DOCUMENT_VERSION = 3
-export const DOCUMENT_VERSIONS = [1, 2, 3]
+export const DOCUMENT_VERSION = 4
+export const DOCUMENT_VERSIONS = [1, 2, 3, 4]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -67,7 +67,7 @@ function insets(value, path, min) {
   record(value, path, SIDES)
   for (const side of SIDES) number(value[side], `${path}.${side}`, min)
 }
-function style(value, path, fields = STYLE, defaults = false) {
+function style(value, path, fields = STYLE, defaults = false, version = DOCUMENT_VERSION) {
   record(value, path, defaults ? fields : [], defaults ? [] : fields)
   for (const key of fields) {
     if (!present(value, key)) continue
@@ -75,23 +75,24 @@ function style(value, path, fields = STYLE, defaults = false) {
     if (key === 'family') choice(value[key], ['sans', 'serif', 'mono'], field)
     else if (key === 'color') color(value[key], field)
     else if (key === 'weight') {
-      if (number(value[key], field, 1) > 1000) fail(field, 'must not exceed 1000')
+      if (version >= 4) choice(value[key], [400, 700], field)
+      else if (number(value[key], field, 1) > 1000) fail(field, 'must not exceed 1000')
     } else if (key === 'size' && defaults) number(value[key], field, Number.MIN_VALUE)
     else length(value[key], field, key === 'letterSpacing' ? -Infinity : ['size', 'lineHeight'].includes(key) ? Number.MIN_VALUE : 0, key === 'lineHeight')
   }
 }
-function theme(value) {
+function theme(value, version) {
   record(value, 'theme', ['appearance', 'autospace', 'defaults', 'paragraphs', 'objects', 'flow'])
   const appearance = record(value.appearance, 'theme.appearance', ['mode', 'primaryHue', 'secondaryHue'])
   choice(appearance.mode, ['light', 'dark'], 'theme.appearance.mode')
   for (const key of ['primaryHue', 'secondaryHue']) if (number(appearance[key], `theme.appearance.${key}`, 0) >= 360) fail(`theme.appearance.${key}`, 'must be less than 360')
   boolean(value.autospace, 'theme.autospace')
-  style(value.defaults, 'theme.defaults', STYLE, true)
+  style(value.defaults, 'theme.defaults', STYLE, true, version)
   record(value.paragraphs, 'theme.paragraphs', [], CLASSES)
-  for (const name of CLASSES) if (present(value.paragraphs, name)) style(value.paragraphs[name], `theme.paragraphs.${name}`)
+  for (const name of CLASSES) if (present(value.paragraphs, name)) style(value.paragraphs[name], `theme.paragraphs.${name}`, STYLE, false, version)
   record(value.objects, 'theme.objects', [], ['table', 'code', 'formula'])
-  if (present(value.objects, 'table')) style(value.objects.table, 'theme.objects.table')
-  if (present(value.objects, 'code')) style(value.objects.code, 'theme.objects.code', ['size', 'weight', 'lineHeight', 'letterSpacing'])
+  if (present(value.objects, 'table')) style(value.objects.table, 'theme.objects.table', STYLE, false, version)
+  if (present(value.objects, 'code')) style(value.objects.code, 'theme.objects.code', ['size', 'weight', 'lineHeight', 'letterSpacing'], false, version)
   if (present(value.objects, 'formula')) style(value.objects.formula, 'theme.objects.formula', ['size', 'color'])
   record(value.flow, 'theme.flow', [], ['spaceBefore', 'spaceAfter'])
   for (const key of ['spaceBefore', 'spaceAfter']) if (present(value.flow, key)) length(value.flow[key], `theme.flow.${key}`)
@@ -317,7 +318,7 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V3 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V4 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
@@ -326,7 +327,7 @@ export function validateDocument(value) {
   number(value.page.width, 'page.width', Number.MIN_VALUE)
   if (present(value.page, 'slideHeight')) number(value.page.slideHeight, 'page.slideHeight', Number.MIN_VALUE)
   insets(value.page.margins, 'page.margins', 0)
-  theme(value.theme)
+  theme(value.theme, value.version)
   record(value.content, 'content', ['type', 'content'])
   choice(value.content.type, ['doc'], 'content.type')
   const slides = present(value.page, 'slideHeight')
@@ -355,6 +356,14 @@ export function validateDocument(value) {
 const MIGRATIONS = [
   { from: 1, breaking: false, migrate: document => ({ ...document, version: 2 }) },
   { from: 2, breaking: false, migrate: document => ({ ...document, version: 3 }) },
+  { from: 3, breaking: true, migrate: document => {
+    const weight = style => present(style, 'weight') ? { ...style, weight: style.weight < 550 ? 400 : 700 } : { ...style }
+    return { ...document, version: 4, theme: { ...document.theme,
+      defaults: weight(document.theme.defaults),
+      paragraphs: Object.fromEntries(Object.entries(document.theme.paragraphs).map(([name, style]) => [name, weight(style)])),
+      objects: Object.fromEntries(Object.entries(document.theme.objects).map(([name, style]) => [name, weight(style)])),
+    } }
+  } },
 ]
 
 export function migrationBreaking(version) {

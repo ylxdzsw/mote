@@ -7,7 +7,7 @@ import { alignColumns, changeColumns } from '../editor/table'
 import { classLabel } from '../theme/ThemePanel'
 import { blockClasses, type BlockClass, type Theme } from '../document/model'
 import { changeListLevel, setParagraphClass } from '../editor/paragraphBehavior'
-import { selectedInlineMarks } from '../editor/inline'
+import { selectedInlineMarks, selectedParagraphsAreBold } from '../editor/inline'
 import { paletteSwatches } from '../theme/palette'
 import { PaletteControl } from '../theme/PaletteControl'
 import { PanelIcon } from './PanelIcon'
@@ -219,6 +219,8 @@ export interface TextToolsRowProps {
 export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied, caption = false }: TextToolsRowProps) {
   const tools = useRef<HTMLDivElement>(null)
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor, caption) }) ?? selectedClasses(null, caption)
+  const [boldParagraphs, setBoldParagraphs] = useState(false)
+  useLayoutEffect(() => { setBoldParagraphs(selectedParagraphsAreBold(editor)) })
   const link = useLinkControl(editor, !!editor?.isEditable && selection.text)
   useEffect(() => {
     if (!selection.text) return
@@ -272,8 +274,8 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
       <span className="tt-para-label">{selection.fixed || (selection.text ? selection.paragraph ? classLabel(selection.paragraph) : 'Mixed' : 'Paragraph')}</span>
     </ToolPopup>
     <span className="tt-divider" aria-hidden="true" />
-    <button className="tt-btn tt-bold" aria-label="Bold" title="Bold · Ctrl/⌘B"
-      aria-pressed={inlineDisabled ? false : selection.bold} disabled={inlineDisabled}
+    <button className="tt-btn tt-bold" aria-label="Bold" title={boldParagraphs ? 'Already bold from paragraph style' : 'Bold · Ctrl/⌘B'}
+      aria-pressed={inlineDisabled ? false : boldParagraphs || selection.bold} disabled={inlineDisabled || boldParagraphs}
       onMouseDown={e => e.preventDefault()} onClick={applyBold}><TIcon name="bold" /></button>
     <ToolPopup label="Text color" disabled={inlineDisabled} panelClassName="tt-color-popup-panel" panelContent={close => <>
       {recentColors.length > 0 && <div className="tt-color-recent" aria-label="Recent text colors">

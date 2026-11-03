@@ -10,14 +10,14 @@ pins its immutable document inputs and target. Existing task artifacts and
 unresolved work are preserved; legacy task-local guides are not converted or
 rewritten.
 
-The supported native document formats are V1–V3 (`format: 'mote',
-version: 1 | 2 | 3`); the separate task transport protocol remains
+The supported native document formats are V1–V4 (`format: 'mote',
+version: 1 | 2 | 3 | 4`); the separate task transport protocol remains
 `mote-agent-v1`. New tasks pin the exact native version and snapshot.
 See [FORMAT.md](../FORMAT.md) for the normative schema.
 
 ## Native Flow and Float contract
 
-Cloud documents use the V1, V2, or V3 `MoteDocument` directly in storage and on the wire.
+Cloud documents use the V1, V2, V3, or V4 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
 each object's `layout`. There is no V0 runtime adapter or extension bag;
 older supported versions migrate only through `loadDocument`. V1 keeps its existing strict continuous-page schema. V2
@@ -91,8 +91,8 @@ acceptance rebinds the latest values. Omitting an existing caption preserves
 it; an explicit empty caption paragraph clears it. Caption text is reserved,
 width is user-owned, and a new caption on an existing object follows its owner.
 Section candidates may author margins. A new single-object placeholder may be
-Float. Indexing reads captions and both placements from the same native V1/V2
-document under the source's current Private policy.
+Float. Indexing reads captions and both placements from the same supported
+native document under the source's current Private policy.
 
 Slide-aware segment results use `version:2` in the same envelope, not the separate
 Slides clipboard payload. All internal boundaries in the reserved range must
@@ -129,13 +129,24 @@ Inline rich text accepts only `bold`, fixed-palette `color`, Box `decoration`,
 and safe absolute HTTP(S) `link` marks. Link hrefs have no credentials or
 control characters and cannot be relative, `mailto:`, or `tel:`. Marks have
 exact attributes and cannot be duplicated. `theme.palette`, arbitrary raw
-colors, and custom color definitions are not part of V1, V2, or V3. Clipboard/candidate
+colors, and custom color definitions are not part of any supported native version. Clipboard/candidate
 payloads carry no palette definitions; fixed references adopt destination mode
 and hues.
 
+## Native theme font weights
+
+V1–V3 theme weights remain finite values from 1 through 1000, including in
+pinned task snapshots. V4 accepts only 400 (Regular) or 700 (Bold) for
+`theme.defaults.weight`, sparse paragraph weight overrides, and table/Code
+object weight overrides. New Title, Heading, and Subheading presets explicitly
+use 700. Sparse older overrides remain sparse; the V3→V4 migration quantizes
+only explicit saved weights (below 550 to 400, at least 550 to 700) and does
+not add Heading overrides. Table header rows render at weight 600 for V1–V3
+and 700 for V4. See [FORMAT.md](../FORMAT.md) for the full migration contract.
+
 ## Private task API
 
-New tasks pin their exact V1, V2, or V3 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2 | 3`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
+New tasks pin their exact V1, V2, V3, or V4 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2 | 3 | 4`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
 
 Document migration follows [FORMAT.md → Versioning and migration](../FORMAT.md#versioning-and-migration). When the owner's document migrates past a task's pinned version along a non-breaking path, the task continues unchanged. Its candidates validate against the pinned version and pass through the same migration steps on acceptance. A breaking path requires owner confirmation first. Upgrade releases every unresolved task on that document and permanently revokes its grants (HTTP 404 afterward). Decline keeps the document read-only at its stored version and leaves tasks inspectable. Any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation.
 
@@ -274,7 +285,7 @@ and delivery details appropriate to the executor.
 Result-root `screenshotPath` or segment `screenshotPaths` name keys in the
 uploaded assets map, never server paths or URLs. Embedded native images carry
 their own data URLs. The validator never executes HTML or fetches caller-supplied
-URLs/files. Native rich text must match the shared V1/V2 grammar. PNGs are bounded and dimension-
+URLs/files. Native rich text must match the shared supported-version grammar. PNGs are bounded and dimension-
 checked: an individual HTML candidate uses the snapshot object's body
 width/height, excluding caption and margin extents in `target.area`; segment
 widgets use their authored body sizes. Each successful mutation advances the

@@ -10,20 +10,20 @@ const { createBlankDocument, createDocument } = await server.ssrLoadModule('/src
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
 
-test('loading migrates V1 to V3 losslessly without mutating input', () => {
+test('loading migrates V1 to V4 without mutating input or changing current weights', () => {
   const v1 = { ...createDocument(), version: 1 }, before = structuredClone(v1)
-  assert.equal(migrationBreaking(1), false)
+  assert.equal(migrationBreaking(1), true)
   const loaded = loadDocument(v1)
   assert.deepEqual(v1, before)
-  assert.deepEqual(loaded, { ...before, version: 3 })
+  assert.deepEqual(loaded, { ...before, version: 4 })
   validateDocument(v1)
 })
 
 test('V3 table color pairs round-trip while V2 migrates without recoloring', async () => {
   const v2 = { ...createDocument(), version: 2 }, before = structuredClone(v2)
   const document = loadDocument(v2), table = document.objects.find(object => object.kind === 'table')
-  assert.deepEqual(document, { ...before, version: 3 })
-  assert.equal(migrationBreaking(2), false)
+  assert.deepEqual(document, { ...before, version: 4 })
+  assert.equal(migrationBreaking(2), true)
   assert.deepEqual(v2, before)
   for (const color of ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink', 'gray4']) {
     const colored = { ...document, objects: document.objects.map(object => object === table ? { ...table, color } : object) }
@@ -34,6 +34,37 @@ test('V3 table color pairs round-trip while V2 migrates without recoloring', asy
   for (const color of ['red:soft', 'gray5', '#ff0000', null]) {
     assert.throws(() => validateDocument({ ...document, objects: document.objects.map(object => object === table ? { ...table, color } : object) }))
   }
+})
+
+test('V4 restricts typography to regular/bold and migrates sparse legacy weights', async () => {
+  const document = createBlankDocument()
+  assert.equal(document.version, 4)
+  for (const name of ['title', 'heading', 'subheading']) assert.equal(document.theme.paragraphs[name].weight, 700)
+  assert.equal(migrationBreaking(3), true)
+  assert.equal(migrationBreaking(4), false)
+  const legacy = { ...document, version: 3 }
+  legacy.theme.defaults.weight = 500
+  legacy.theme.paragraphs.title.weight = 600
+  delete legacy.theme.paragraphs.heading.weight
+  legacy.theme.paragraphs.body.weight = 549.9
+  legacy.theme.paragraphs.caption.weight = 550
+  legacy.theme.objects.table.weight = 1
+  legacy.theme.objects.code.weight = 1000
+  const before = structuredClone(legacy)
+  for (const version of [1, 2, 3]) validateServerDocument({ ...legacy, version })
+  assert.throws(() => validateServerDocument({ ...legacy, version: 4 }))
+  const loaded = loadDocument(legacy), expected = structuredClone(before)
+  expected.version = 4
+  expected.theme.defaults.weight = 400
+  expected.theme.paragraphs.title.weight = 700
+  expected.theme.paragraphs.body.weight = 400
+  expected.theme.paragraphs.caption.weight = 700
+  expected.theme.objects.table.weight = 400
+  expected.theme.objects.code.weight = 700
+  assert.deepEqual(loaded, expected)
+  assert.deepEqual(legacy, before)
+  validateServerDocument(loaded)
+  assert.deepEqual(await decodeMote(new File([await encodeMote(loaded)], 'weights.mote')), loaded)
 })
 
 test('V1 has one strict browser/server contract and initialization never strips input', () => {
@@ -69,7 +100,7 @@ test('V1 has one strict browser/server contract and initialization never strips 
 })
 
 test('unsupported versions are rejected without conversion or mutation', () => {
-  for (const version of ['V0', 0, 4, 'V1', undefined]) {
+  for (const version of ['V0', 0, 5, 'V1', undefined]) {
     const value = { ...createBlankDocument(), version }, before = structuredClone(value)
     assert.throws(() => loadDocument(value), error => error instanceof DocumentFormatError && error.code === 'unsupported' && /has not been changed/.test(error.message))
     assert.deepEqual(value, before)

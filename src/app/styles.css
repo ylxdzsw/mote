@@ -261,7 +261,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .floating-table td { background: var(--table-fill, none); box-shadow: var(--table-fill) 1px 0, var(--table-fill) -1px 0; }
 .floating-table td:first-child { box-shadow: var(--table-fill) 1px 0; }
 .floating-table td:last-child { box-shadow: var(--table-fill) -1px 0; }
-.floating-table[data-table-header] tr:first-child td { --table-weight: 600; }
+.floating-table[data-table-header] tr:first-child td { --table-weight: var(--table-header-weight); }
 .floating-table[data-table-style='simple'][data-table-header] tr:first-child { --table-fill: var(--table-soft); }
 .floating-table[data-table-style='academic'] td { border: 0; padding: 6px 11px; }
 .floating-table[data-table-style='academic'] tr:first-child td { border-top: 1.5px solid var(--palette-gray1); }
@@ -341,6 +341,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .class-buttons button:focus-visible { outline-offset: -2px; }
 .class-properties h2 { margin-bottom: 6px; }
 .style-field { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 4px 10px; margin-top: 10px; min-width: 0; }
+.style-field .placement-options label { margin: 0; }
 .field-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 2px 5px; min-height: 18px; margin-bottom: 0; font-size: 11px; color: var(--ui-muted); }
 .field-heading button { margin: 0; border: 0; padding: 0 4px; font-size: 15px; line-height: 18px; min-height: 24px; min-width: 24px; }
 .field-heading :is(.inherit-indicator, .inherit-reset) { display: inline-flex; align-items: center; justify-content: center; flex: none; width: var(--ui-control-height); height: var(--ui-control-height); padding: 0; }
