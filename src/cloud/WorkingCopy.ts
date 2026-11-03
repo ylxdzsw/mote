@@ -41,6 +41,8 @@ export class WorkingCopy {
   private copyFlight?: Promise<CloudDocument | null>
   private checkingRemote = false
   private checkingPrivacy = false
+  private remoteAgain = false
+  private privacyAgain = false
   private generation = 0
   private state: CopyState
   constructor(record: WorkingRecord) {
@@ -110,7 +112,10 @@ export class WorkingCopy {
     if (record.draft && !retainDraft && !record.pendingCreate && !record.pendingPrivacy && isPristineBlankDocument(record.document, record.draftDefaults)) return null
     // Task inputs are the saved revision, so an AI request persists a pending upgrade first.
     if (retainDraft && record.migratedFrom && !record.dirty && !record.pending) this.publish({ record: { ...record, dirty: true } })
-    this.flight = this.performSync().finally(() => { this.flight = undefined; this.publish({ syncing: false }) })
+    this.flight = this.performSync().finally(() => {
+      this.flight = undefined; this.publish({ syncing: false })
+      if (this.remoteAgain) void this.checkRemote()
+    })
     return this.flight
   }
   private async performSync(): Promise<CloudDocument | null> {
@@ -137,6 +142,7 @@ export class WorkingCopy {
       }
       if (!this.state.record.dirty && !this.state.record.pending) {
         const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
+        if (this.state.deleted) return null
         if (!this.state.record.dirty && !this.state.record.pending) {
           if (result.revision !== this.state.record.meta.revision) await this.adopt(result)
           return { ...this.state.record.meta, document: this.state.record.document }
@@ -151,6 +157,7 @@ export class WorkingCopy {
         if (!record.pending) this.publish({ record: { ...record, pending } })
         await this.persist()
         const result = await cloudRequest<CloudDocument>(`/api/documents/${record.meta.id}`, 'PUT', pending)
+        if (this.state.deleted) return null
         const current = this.state.record
         const dirty = !sameDocument(current.document, pending.document)
         const { document: _document, ...resultMeta } = result
@@ -181,8 +188,10 @@ export class WorkingCopy {
     } catch (error) { this.failure(error); return false }
   }
   async adopt(result: CloudDocument) {
+    if (this.state.deleted) return
     const generation = this.generation
     await this.preserveAssistant?.()
+    if (this.state.deleted) return
     if (generation !== this.generation) throw new Error('The working copy changed while preserving local input. Retry with the current document.')
     const { document: saved, ...incomingMeta } = result
     const meta = mergeDocumentMeta(this.state.record.meta, incomingMeta)
@@ -194,12 +203,14 @@ export class WorkingCopy {
     await this.persist()
   }
   async checkRemote() {
-    if (this.state.record.draft || this.checkingRemote || this.flight || this.state.record.dirty || this.state.conflict || this.state.deleted) return
+    if (this.state.record.draft || this.state.conflict || this.state.deleted) return
+    if (this.checkingRemote || this.flight || this.state.record.dirty) { this.remoteAgain = true; return }
+    this.remoteAgain = false
     this.checkingRemote = true
     const generation = this.generation
     try {
       const result = await cloudRequest<CloudDocument>(`/api/documents/${this.state.record.meta.id}`)
-      if (generation !== this.generation || this.state.record.dirty) return
+      if (generation !== this.generation || this.state.record.dirty || this.state.deleted) return
       this.publish({ error: '', auth: false })
       if (result.revision !== this.state.record.meta.revision) await this.adopt(result)
       else {
@@ -211,8 +222,10 @@ export class WorkingCopy {
         }
       }
     } catch (error) { this.failure(error) }
-    finally { this.checkingRemote = false }
+    finally { this.checkingRemote = false; if (this.remoteAgain) void this.checkRemote() }
   }
+
+  remoteDeleted = () => { this.failure(new CloudError('This cloud document has been deleted. Your local edits have not been discarded.', 410)) }
 
   private async mergePrivacy(metadata: DocumentMeta): Promise<DocumentMeta> {
     const record = this.state.record
@@ -243,15 +256,26 @@ export class WorkingCopy {
   }
 
   refreshPrivacy = async () => {
-    if (this.state.record.draft || this.checkingPrivacy) return
+    if (this.state.record.draft || this.state.deleted) return
+    if (this.checkingPrivacy) { this.privacyAgain = true; return }
+    this.privacyAgain = false
     this.checkingPrivacy = true
     try {
       const metadata = await cloudRequest<DocumentMeta>(`/api/documents/${this.state.record.meta.id}/privacy?open=1`)
+      if (this.state.deleted) return
       await this.mergePrivacy(normalizeDocumentMeta(metadata))
       const change = this.state.privacy.pending
       if (change && this.state.record.meta.privacyRevision > change.basePrivacyRevision) this.finishPrivacy(change)
-    } catch { /* Privacy polling is independent of content sync; explicit changes expose retry/reconcile errors. */ }
-    finally { this.checkingPrivacy = false }
+    } catch (error) {
+      if (error instanceof CloudError && [401, 404, 410].includes(error.status)) this.failure(error)
+    }
+    finally { this.checkingPrivacy = false; if (this.privacyAgain) void this.refreshPrivacy() }
+  }
+
+  renewOwnerActivity = async () => {
+    if (this.state.record.draft || this.state.deleted || this.state.auth) return
+    try { await cloudRequest(`/api/documents/${this.state.record.meta.id}/open`, 'POST') }
+    catch (error) { if (error instanceof CloudError && [401, 404, 410].includes(error.status)) this.failure(error) }
   }
 
   private async reconcilePendingPrivacy(change: PrivacyChange, failure: string) {

@@ -532,6 +532,165 @@ async function reservations(value, original, tasks) {
   return value.call('PUT', `documents/${original.id}/assistant`, { baseRevision: state.revision, tasks, operationId: randomUUID() })
 }
 
+async function until(predicate) {
+  for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)) }
+  assert.fail('document update did not arrive')
+}
+async function documentUpdates(value, id) {
+  const response = await fetch(`http://127.0.0.1:${value.server.address().port}/api/documents/${id}/events`)
+  assert.equal(response.status, 200)
+  assert.match(response.headers.get('content-type'), /^text\/event-stream/)
+  assert.match(response.headers.get('cache-control'), /no-store/)
+  assert.equal(response.headers.get('x-accel-buffering'), 'no')
+  const reader = response.body.getReader(), messages = [], decoder = new TextDecoder()
+  const done = (async () => {
+    let buffer = ''
+    while (true) {
+      const next = await reader.read(); if (next.done) break
+      buffer += decoder.decode(next.value, { stream: true })
+      let split
+      while ((split = buffer.indexOf('\n\n')) >= 0) {
+        const frame = buffer.slice(0, split); buffer = buffer.slice(split + 2)
+        if (frame.startsWith('event: update\n')) messages.push(JSON.parse(frame.slice('event: update\ndata: '.length)))
+      }
+    }
+  })().catch(() => {})
+  await until(() => messages.length > 0)
+  assert.deepEqual(messages[0], { kind: 'ready' })
+  return { messages, done, cancel: () => reader.cancel().catch(() => {}) }
+}
+
+test('document streams deliver only committed scoped changes, do not renew activity, and end after deletion', { timeout: 8000 }, async t => {
+  const value = await app(t, { transcriptHeartbeatMs: 10 }), original = await create(value), other = await create(value)
+  const base = `documents/${original.id}`
+  const missing = await value.call('GET', `documents/${randomUUID()}/events`)
+  assert.equal(missing.status, 404); assert.match(missing.headers.get('content-type'), /^application\/json/)
+  const oldActivity = Date.now() - 120_000
+  value.store.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=?').run(oldActivity, original.id)
+  const stream = await documentUpdates(value, original.id), isolated = await documentUpdates(value, other.id)
+  t.after(stream.cancel); t.after(isolated.cancel)
+  assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
+  await value.call('GET', base); await value.call('GET', `${base}/privacy`); await value.call('GET', `${base}/assistant`)
+  await new Promise(resolve => setTimeout(resolve, 35))
+  assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
+  assert.deepEqual(stream.messages, [{ kind: 'ready' }])
+  assert.equal((await value.call('POST', `${base}/open`, undefined, { origin: 'http://untrusted.test' })).status, 403)
+  assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
+  const renewed = await value.call('POST', `${base}/open`)
+  assert.equal(renewed.status, 200); assert.deepEqual(renewed.body, { ok: true })
+  assert.ok(value.store.documentAccessUntil(original.id) > oldActivity + 24 * 60 * 60 * 1000)
+  assert.deepEqual(stream.messages, [{ kind: 'ready' }])
+  assert.equal((await value.call('PATCH', `documents/${other.id}`, { name: 'Other document' })).status, 200)
+  await until(() => isolated.messages.length === 2)
+  const remember = value.store.remember
+  value.store.remember = () => { throw new Error('fake rollback after update') }
+  assert.throws(() => value.store.put(original.id, save(original, 'Rolled back')))
+  value.store.remember = remember
+  assert.equal(value.store.get(original.id).revision, original.revision)
+  const operation = save(original, 'Committed')
+  const saved = await value.call('PUT', base, operation)
+  assert.equal(saved.status, 200)
+  await until(() => stream.messages.length === 2)
+  assert.equal((await value.call('PUT', base, operation)).status, 200)
+  assert.equal((await value.call('PUT', base, save(original, 'Conflict'))).status, 409)
+  assert.equal((await value.call('PATCH', base, { name: 'Renamed' })).status, 200)
+  assert.equal((await value.call('PUT', `${base}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() })).status, 200)
+  assert.equal((await reservations(value, original, [])).status, 200)
+  await until(() => stream.messages.length === 5)
+  assert.deepEqual(stream.messages.map(message => message.kind), ['ready', 'document', 'document', 'privacy', 'assistant'])
+  assert.deepEqual(isolated.messages, [{ kind: 'ready' }, { kind: 'document' }])
+  assert.equal((await value.call('DELETE', base, { baseRevision: saved.body.revision })).status, 200)
+  await stream.done
+  assert.deepEqual(stream.messages.at(-1), { kind: 'deleted' })
+  const deleted = await value.call('GET', `${base}/events`)
+  assert.equal(deleted.status, 410); assert.match(deleted.headers.get('content-type'), /^application\/json/)
+})
+
+test('document stream includes newly created task logs and committed candidate, permission, privacy and removal updates', { timeout: 10000 }, async t => {
+  const value = await app(t), original = await create(value), other = await create(value)
+  const stream = await documentUpdates(value, original.id), isolated = await documentUpdates(value, other.id)
+  t.after(stream.cancel); t.after(isolated.cancel)
+  const request = { ...portableRequest(original), executor: 'builtin', prompt: 'Stream this new task' }
+  assert.equal((await reservations(value, original, [request])).status, 200)
+  assert.equal((await value.call('POST', 'ai/tasks', request)).status, 202)
+  const task = value.manager.tasks.get(request.id)
+  await until(() => task.meta.status === 'ready' && !task.current && !task.executions.size && !task.transcript.pending)
+  await until(() => stream.messages.some(message => message.kind === 'transcript' && message.entry.kind === 'stderr'))
+  assert.ok(stream.messages.some(message => message.kind === 'task' && message.taskId === task.id))
+  const transcript = stream.messages.filter(message => message.kind === 'transcript').map(message => message.entry)
+  assert.deepEqual(transcript, task.transcript.events)
+  assert.equal(transcript[0].text, request.prompt)
+  const replay = await value.call('GET', `ai/tasks/${task.id}/transcript?after=1`)
+  assert.equal(replay.status, 200); assert.equal(replay.headers.get('cache-control'), 'no-store')
+  assert.deepEqual(replay.body, { events: transcript.slice(1), reset: false, warning: '' })
+  assert.equal((await value.call('GET', `ai/tasks/${task.id}/transcript?after=-1`)).status, 400)
+  const seen = []
+  const unsubscribe = value.manager.documentEvents.subscribe(original.id, message => {
+    if (message.kind === 'task') seen.push(value.manager.view(task))
+  }, () => {})
+  t.after(unsubscribe)
+  const permission = { enabled: true, baseWorkspaceReadRevision: 0, operationId: randomUUID() }
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/workspace-read`, permission)).status, 200)
+  assert.equal(seen.at(-1).workspaceRead, true)
+  const persist = value.manager.persist.bind(value.manager), committed = seen.length
+  value.manager.persist = async () => { throw new Error('fake commit failure') }
+  await assert.rejects(value.manager.mutate(task, () => value.manager.setWorkspaceRead(task,
+    { enabled: false, baseWorkspaceReadRevision: 1, operationId: randomUUID() })))
+  value.manager.persist = persist
+  assert.equal(seen.length, committed)
+  const external = await value.call('POST', `ai/tasks/${task.id}/executor`, { executor: 'external', baseExecutorRevision: 0, operationId: randomUUID() })
+  assert.equal(external.status, 200); assert.equal(seen.at(-1).executor, 'external')
+  assert.equal(seen.at(-1).workspaceRead, false)
+  const submitted = await value.call('POST', `${external.body.externalPath}/submit`, { ...submission(original.document), executorRevision: 1, candidateRevision: 1 })
+  assert.equal(submitted.status, 200); assert.equal(seen.at(-1).candidateRevision, 2)
+  const removed = await value.call('POST', `${external.body.externalPath}/candidates/C2/remove`, { executorRevision: 1, candidateRevision: 2, operationId: randomUUID() })
+  assert.equal(removed.status, 200); assert.equal(seen.at(-1).candidateRevision, 3)
+  assert.equal((await value.call('PUT', `documents/${original.id}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() })).status, 200)
+  assert.equal(seen.at(-1).executor, 'builtin')
+  const beforeReads = seen.length
+  await value.call('GET', `ai/tasks/${task.id}`); await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)
+  assert.equal(seen.length, beforeReads)
+  task.transcript.warn('Bounded test warning')
+  await until(() => stream.messages.some(message => message.kind === 'transcript-warning' && message.message === 'Bounded test warning'))
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/release`, {})).status, 200)
+  assert.equal(seen.at(-1).released, true)
+  const directory = task.dir, closeTranscript = task.transcript.close.bind(task.transcript)
+  task.transcript.close = async () => { await closeTranscript(); task.dir = path.join(value.root, 'missing-task') }
+  try { await assert.rejects(value.manager.remove(task), { code: 'ENOENT' }) }
+  finally { task.dir = directory; task.transcript.close = closeTranscript }
+  assert.equal(value.manager.tasks.has(task.id), true)
+  assert.equal(stream.messages.some(message => message.kind === 'transcript-closed' && message.taskId === task.id), false)
+  assert.equal((await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)).status, 200)
+  assert.equal((await value.call('DELETE', `ai/tasks/${task.id}`)).status, 200)
+  await until(() => stream.messages.some(message => message.kind === 'transcript-closed' && message.taskId === task.id))
+  assert.equal((await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)).status, 404)
+  assert.deepEqual(isolated.messages, [{ kind: 'ready' }])
+})
+
+test('JSON transcript replay survives bounded truncation and restart; shutdown closes document and legacy streams', { timeout: 10000 }, async t => {
+  const value = await app(t, { transcriptMaxEvents: 3 }), original = await create(value)
+  const request = { ...portableRequest(original), executor: 'builtin', prompt: 'Bounded transcript' }
+  await reservations(value, original, [request]); await value.call('POST', 'ai/tasks', request)
+  const task = value.manager.tasks.get(request.id)
+  await until(() => task.meta.status === 'ready' && !task.current && !task.executions.size && !task.transcript.pending)
+  const before = await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)
+  assert.equal(before.body.reset, true); assert.deepEqual(before.body.events.map(event => event.id), [3, 4, 5])
+  const external = { ...portableRequest(original), prompt: 'External initial request' }
+  await reservations(value, original, [request, external]); await value.call('POST', 'ai/tasks', external)
+  const externalHistory = await value.call('GET', `ai/tasks/${external.id}/transcript?after=0`)
+  assert.deepEqual(externalHistory.body.events, [{ id: 1, attempt: 1, kind: 'request', text: external.prompt }])
+  const stream = await documentUpdates(value, original.id)
+  const legacy = await fetch(`http://127.0.0.1:${value.server.address().port}/api/ai/tasks/${task.id}/events`)
+  const reader = legacy.body.getReader(); await reader.read()
+  await value.close(); await stream.done
+  try { while (!(await reader.read()).done) {} } catch {}
+  const restarted = await app(t, { root: value.root, transcriptMaxEvents: 3 })
+  const after = await restarted.call('GET', `ai/tasks/${task.id}/transcript?after=0`)
+  assert.deepEqual(after.body, before.body)
+  assert.deepEqual((await restarted.call('GET', `ai/tasks/${external.id}/transcript?after=0`)).body, externalHistory.body)
+  assert.deepEqual((await restarted.call('GET', `ai/tasks/${task.id}/transcript?after=5`)).body, { events: [], reset: false, warning: '' })
+})
+
 test('cloud reservation authorizes creation and permanently revokes grants on acceptance/removal even if artifact persistence fails', async t => {
   const value = await app(t), original = await create(value), request = portableRequest(original)
   assert.equal((await value.call('POST', 'ai/tasks', request)).status, 410)

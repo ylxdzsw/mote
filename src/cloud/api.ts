@@ -71,6 +71,7 @@ function validMeta(value: unknown) {
 function validResponse(path: string, method: string, value: unknown) {
   const pathname = new URL(path, 'http://moted.local').pathname
   if (!isRecord(value)) return false
+  if (pathname.endsWith('/open') && method === 'POST') return value.ok === true
   if (method === 'DELETE') return value.ok === true
   if (pathname.startsWith('/api/shared/')) return typeof value.name === 'string' && isRecord(value.document)
   if (pathname.endsWith('/shares')) return Number.isSafeInteger(value.revision) && Number(value.revision) >= 0

@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AnsiUp } from 'ansi_up'
-import { aiRequest, AIServiceError, transcriptSource } from './api'
-import { connectionFailed, isRecord, retryConnection, useConnection } from '../cloud/connection'
+import { AIServiceError, transcriptRequest } from './api'
+import { retryConnection, useConnection } from '../cloud/connection'
+import { subscribeDocumentUpdates, type DocumentUpdate, type TranscriptEntry } from '../cloud/documentEvents'
 
-interface Entry { id: number; attempt: number; kind: 'request' | 'stdout' | 'stderr'; text: string }
 const limit = 512 * 1024
 function converter() {
   const ansi = new AnsiUp()
@@ -12,35 +12,53 @@ function converter() {
   ansi.url_allowlist = {}
   return ansi
 }
+function emptyRender() {
+  return { attempt: -1, agentLabel: false, stdout: converter(), stderr: converter(), bytes: 0, nodes: [] as { element: HTMLElement; bytes: number }[] }
+}
 
-export default function Transcript({ taskId, active, submitted, onMissing }: { taskId: string; active: boolean; submitted: boolean; onMissing: () => void }) {
+export default function Transcript({ taskId, documentId, active, submitted, onMissing }: {
+  taskId: string; documentId: string; active: boolean; submitted: boolean; onMissing: () => void
+}) {
   const network = useConnection()
+  const networkRef = useRef(network)
+  networkRef.current = network
+  const scope = useRef({ taskId, documentId })
+  scope.current = { taskId, documentId }
   const root = useRef<HTMLDivElement>(null), viewport = useRef<HTMLDivElement>(null)
   const cursor = useRef(0), following = useRef(true)
+  const reloadHistory = useRef<(() => Promise<void>) | undefined>(undefined)
+  const missing = useRef(onMissing)
+  missing.current = onMissing
   const [paused, setPaused] = useState(false), [connection, setConnection] = useState(''), [truncated, setTruncated] = useState(false)
-  const [warning, setWarning] = useState('')
-  const [retry, setRetry] = useState(0)
-  const render = useRef({ attempt: -1, agentLabel: false, stdout: converter(), stderr: converter(), bytes: 0, nodes: [] as { element: HTMLElement; bytes: number }[] })
+  const [warning, setWarning] = useState(''), [retrying, setRetrying] = useState(false)
+  const render = useRef(emptyRender())
+
+  useLayoutEffect(() => {
+    cursor.current = 0
+    following.current = true
+    root.current?.replaceChildren()
+    render.current = emptyRender()
+    setPaused(false); setTruncated(false); setWarning(''); setConnection('')
+  }, [taskId, documentId])
+
   useEffect(() => {
-    if (!active || !submitted) return
-    if (network.offline) { setConnection('Offline · waiting to reconnect.'); return }
-    let disposed = false, source: EventSource | undefined, frame = 0, pending: Entry[] = [], pendingBytes = 0
-    function interrupted() {
-      if (disposed) return
-      source?.close(); source = undefined
-      setConnection('Transcript connection interrupted. Reconnect to try again.')
-      connectionFailed('The AI connection was interrupted. Local changes and AI requests are retained.')
-    }
-    function decode(event: Event): Record<string, unknown> | undefined {
-      try { const value: unknown = JSON.parse((event as MessageEvent).data); if (isRecord(value)) return value } catch { /* Reconnect after invalid event data. */ }
-      interrupted()
-    }
+    if (!active || !submitted) { reloadHistory.current = undefined; return }
+    let disposed = false, reading = false, replaying = true, readAgain = false, frame = 0
+    let pendingBytes = 0
+    const pending = new Map<number, TranscriptEntry>()
+    const buffered = new Map<number, TranscriptEntry>()
+    let bufferedBytes = 0
+    let transcriptClosed = false
+
     function flush() {
       frame = 0
-      const state = render.current, container = root.current!, scroll = viewport.current!
+      const state = render.current, container = root.current, scroll = viewport.current
+      if (!container || !scroll) return
       const oldHeight = scroll.scrollHeight
-      for (const entry of pending) {
-        if (entry.attempt !== state.attempt) { state.attempt = entry.attempt; state.agentLabel = false; state.stdout = converter(); state.stderr = converter() }
+      for (const entry of [...pending.values()].sort((a, b) => a.id - b.id)) {
+        if (entry.attempt !== state.attempt) {
+          state.attempt = entry.attempt; state.agentLabel = false; state.stdout = converter(); state.stderr = converter()
+        }
         const block = document.createElement('div')
         block.className = `ai-transcript-entry ${entry.kind}`
         if (entry.kind === 'request') {
@@ -54,7 +72,7 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
           }
           block.innerHTML = state[entry.kind].ansi_to_html(entry.text)
           // Extended terminal colors bypass ANSI classes and may assume a dark
-          // terminal. Use the guarded UI colors; retain bold/italic formatting.
+          // terminal. Use guarded UI colors; retain bold/italic formatting.
           for (const span of block.querySelectorAll<HTMLElement>('[style]')) {
             span.style.removeProperty('color')
             span.style.removeProperty('background-color')
@@ -64,7 +82,7 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
         }
         container.append(block); state.nodes.push({ element: block, bytes: entry.text.length }); state.bytes += entry.text.length
       }
-      pending = []; pendingBytes = 0
+      pending.clear(); pendingBytes = 0
       const beforeTrim = scroll.scrollHeight
       while ((state.bytes > limit || state.nodes.length > 2000) && state.nodes.length > 1) {
         const removed = state.nodes.shift()!; removed.element.remove(); state.bytes -= removed.bytes; setTruncated(true)
@@ -73,44 +91,126 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
       else if (beforeTrim !== scroll.scrollHeight) scroll.scrollTop -= beforeTrim - scroll.scrollHeight
       if (!following.current && oldHeight !== scroll.scrollHeight) setPaused(true)
     }
-    setConnection('Connecting…')
-    void aiRequest(`/tasks/${taskId}`).then(() => {
-      if (disposed) return
-      source = transcriptSource(taskId, cursor.current)
-      source.onopen = () => { if (!disposed) setConnection('') }
-      source.onerror = interrupted
-      source.addEventListener('warning', event => {
-        if (disposed) return
-        const value = decode(event)
-        if (typeof value?.message === 'string') setWarning(value.message)
-        else interrupted()
-      })
-      source.addEventListener('reset', () => {
-        if (disposed) return
-        pending = []; pendingBytes = 0; cursor.current = 0
-        root.current!.replaceChildren()
-        render.current = { attempt: -1, agentLabel: false, stdout: converter(), stderr: converter(), bytes: 0, nodes: [] }
+
+    function queue(entry: TranscriptEntry) {
+      if (entry.id <= cursor.current) return
+      cursor.current = entry.id
+      pending.set(entry.id, entry); pendingBytes += entry.text.length
+      if (pendingBytes >= 32768) { cancelAnimationFrame(frame); flush() }
+      else if (!frame) frame = requestAnimationFrame(flush)
+    }
+
+    function buffer(entry: TranscriptEntry) {
+      if (buffered.has(entry.id)) return
+      buffered.set(entry.id, entry); bufferedBytes += entry.text.length
+      while (buffered.size > 2000 || bufferedBytes > limit) {
+        const oldestId = buffered.keys().next().value
+        if (oldestId === undefined) break
+        bufferedBytes -= buffered.get(oldestId)!.text.length
+        buffered.delete(oldestId)
         setTruncated(true)
-      })
-      source.addEventListener('transcript', event => {
-        if (disposed) return
-        const value = decode(event)
-        if (!value || !Number.isSafeInteger(value.id) || !Number.isSafeInteger(value.attempt)
-          || !['request', 'stdout', 'stderr'].includes(String(value.kind)) || typeof value.text !== 'string') { interrupted(); return }
-        const entry = value as unknown as Entry
-        if (entry.id <= cursor.current) return
-        cursor.current = entry.id; pending.push(entry); pendingBytes += entry.text.length
-        if (pendingBytes >= 32768) { cancelAnimationFrame(frame); flush() }
-        else if (!frame) frame = requestAnimationFrame(flush)
-      })
-    }).catch(error => {
+      }
+    }
+
+    function recentEntries(entries: Iterable<TranscriptEntry>) {
+      const unique = new Map<number, TranscriptEntry>()
+      for (const entry of entries) unique.set(entry.id, entry)
+      const ordered = [...unique.values()].sort((a, b) => a.id - b.id)
+      const recent: TranscriptEntry[] = []
+      let bytes = 0, omitted = false
+      for (let index = ordered.length - 1; index >= 0; index--) {
+        const entry = ordered[index]
+        if (recent.length === 2000 || bytes + entry.text.length > limit) { omitted = true; continue }
+        recent.push(entry); bytes += entry.text.length
+      }
+      if (omitted) setTruncated(true)
+      return recent.reverse()
+    }
+
+    async function readHistory() {
       if (disposed) return
-      if (error instanceof AIServiceError && error.status === 404) { onMissing(); setConnection('This session’s transcript is no longer available.') }
-      else setConnection((error as Error).message)
-    })
-    return () => { disposed = true; source?.close(); cancelAnimationFrame(frame); if (pending.length && root.current && viewport.current) flush() }
-  }, [taskId, active, submitted, retry, network.offline, network.revision])
+      if (networkRef.current.offline) { setConnection('Offline · waiting to reconnect.'); return }
+      if (reading) { readAgain = true; return }
+      reading = true; replaying = true
+      if (frame) { cancelAnimationFrame(frame); frame = 0 }
+      flush()
+      const after = cursor.current
+      setConnection('Connecting…')
+      try {
+        const history = await transcriptRequest(taskId, after)
+        if (disposed) return
+        const floor = history.reset ? 0 : after
+        if (history.reset) {
+          root.current?.replaceChildren()
+          render.current = emptyRender()
+          cursor.current = 0
+          setTruncated(true)
+        }
+        if (history.warning) setWarning(history.warning)
+        const incoming = new Map<number, TranscriptEntry>()
+        for (const entry of history.events) if (entry.id > floor) incoming.set(entry.id, entry)
+        for (const entry of buffered.values()) if (entry.id > floor) incoming.set(entry.id, entry)
+        buffered.clear(); bufferedBytes = 0
+        replaying = false
+        for (const entry of recentEntries(incoming.values())) queue(entry)
+        if (!transcriptClosed) setConnection('')
+      } catch (error) {
+        if (disposed) return
+        if (error instanceof AIServiceError && error.status === 404) {
+          transcriptClosed = true
+          missing.current()
+          setConnection('This session’s transcript is no longer available.')
+        } else {
+          setConnection(error instanceof Error ? error.message : 'Transcript unavailable. Reconnect to try again.')
+        }
+      } finally {
+        reading = false
+        if (!disposed && readAgain) { readAgain = false; void readHistory() }
+      }
+    }
+
+    function onUpdate(event: DocumentUpdate) {
+      if (event.kind === 'ready') { replaying = true; void readHistory(); return }
+      if (!('taskId' in event) || event.taskId !== taskId) return
+      if (event.kind === 'transcript') {
+        if (replaying) buffer(event.entry)
+        else queue(event.entry)
+      } else if (event.kind === 'transcript-warning') setWarning(event.message)
+      else if (event.kind === 'transcript-closed') {
+        transcriptClosed = true
+        missing.current()
+        setConnection('This session’s transcript is no longer available.')
+      }
+    }
+
+    const unsubscribe = subscribeDocumentUpdates(documentId, onUpdate)
+    reloadHistory.current = readHistory
+    return () => {
+      disposed = true; replaying = false
+      if (frame) cancelAnimationFrame(frame)
+      if (scope.current.taskId === taskId && scope.current.documentId === documentId
+        && pending.size && root.current && viewport.current) flush()
+      unsubscribe()
+      if (reloadHistory.current === readHistory) reloadHistory.current = undefined
+    }
+  }, [taskId, documentId, active, submitted])
+
+  useEffect(() => {
+    if (!active || !submitted) return
+    if (network.offline) { setConnection('Offline · waiting to reconnect.'); return }
+    void reloadHistory.current?.()
+  }, [taskId, documentId, active, submitted, network.offline, network.revision])
+
   useLayoutEffect(() => { if (active && following.current && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight }, [active, truncated])
+
+  async function reconnect() {
+    if (retrying) return
+    setRetrying(true); setConnection('Connecting…')
+    try {
+      if (!await retryConnection()) { setConnection('Could not reconnect. Local changes and AI requests are retained.'); return }
+    } finally { setRetrying(false) }
+  }
+
   return <div className="ai-transcript-wrap">
     <div className="ai-transcript" ref={viewport} role="region" aria-label="Agent transcript" tabIndex={0} onScroll={() => {
       const element = viewport.current!
@@ -123,6 +223,6 @@ export default function Transcript({ taskId, active, submitted, onMissing }: { t
     </div>
     {paused && <button className="ai-latest" onClick={() => { following.current = true; setPaused(false); viewport.current!.scrollTop = viewport.current!.scrollHeight }}>↓ Latest</button>}
     {warning && <p className="ai-connection" role="status">{warning}</p>}
-    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button onClick={() => network.offline ? void retryConnection() : setRetry(value => value + 1)}>Reconnect</button>}</div>}
+    {connection && <div className="ai-connection" role="status">{connection} {connection !== 'Connecting…' && <button disabled={retrying} onClick={() => void reconnect()}>{retrying ? 'Reconnecting…' : 'Reconnect'}</button>}</div>}
   </div>
 }

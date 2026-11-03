@@ -15,6 +15,7 @@ import { useWidgetScreenshot } from './useWidgetScreenshot'
 import { CloudWorkspace, loginURL } from '../cloud/CloudWorkspace'
 import { WorkingCopy } from '../cloud/WorkingCopy'
 import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
+import { subscribeDocumentUpdates, useDocumentStream } from '../cloud/documentEvents'
 import { ShareWindow } from '../cloud/ShareWindow'
 import { deleteWorkingCopy } from '../cloud/workingCopies'
 import type { ThemeClass } from '../theme/ThemePanel'
@@ -56,6 +57,7 @@ export function App() {
 interface CloudEditorProps { copy: WorkingCopy; onFiles: () => void; onOpen: (id: string) => void }
 function DraftSession({ copy, onFiles, onOpen }: CloudEditorProps) {
   const state = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
+  useDocumentStream(state.record.meta.id, !state.record.draft && !state.deleted && !state.auth)
   return <DraftApp key={state.epoch} initial={state.record.document} copy={copy} onFiles={onFiles} onOpen={onOpen} />
 }
 
@@ -177,12 +179,18 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useEffect(() => {
     void copy.refreshPrivacy()
     if (copy.getSnapshot().record.pendingCreate) void copy.sync()
-    const timer = window.setInterval(() => {
-      if (connectionSnapshot().offline) { void retryConnection(); return }
-      void copy.refreshPrivacy()
-      if (copy.getSnapshot().record.dirty) void copy.sync()
-      else void copy.checkRemote()
-    }, 10000)
+    const autosave = window.setInterval(() => {
+      if (!connectionSnapshot().offline && copy.getSnapshot().record.dirty) void copy.sync()
+    }, 30000)
+    const reconnect = window.setInterval(() => { if (connectionSnapshot().offline) void retryConnection() }, 10000)
+    // Browser-origin renewal preserves external access while this document is open;
+    // server-sent heartbeats are not owner activity.
+    const ownerActivity = window.setInterval(() => { if (!connectionSnapshot().offline) void copy.renewOwnerActivity() }, 60000)
+    const unsubscribe = subscribeDocumentUpdates(copy.getSnapshot().record.meta.id, event => {
+      if (event.kind === 'deleted') { copy.remoteDeleted(); return }
+      if (event.kind === 'ready' || event.kind === 'privacy' || event.kind === 'document') void copy.refreshPrivacy()
+      if (event.kind === 'ready' || event.kind === 'document') void copy.checkRemote()
+    })
     const online = () => { void retryConnection() }
     window.addEventListener('online', online)
     function saveShortcut(event: KeyboardEvent) {
@@ -192,13 +200,17 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       }
     }
     window.addEventListener('keydown', saveShortcut, true)
-    return () => { clearInterval(timer); window.removeEventListener('online', online); window.removeEventListener('keydown', saveShortcut, true) }
+    return () => {
+      clearInterval(autosave); clearInterval(reconnect); clearInterval(ownerActivity); unsubscribe()
+      window.removeEventListener('online', online); window.removeEventListener('keydown', saveShortcut, true)
+    }
   }, [copy])
 
   useEffect(() => {
     if (connection.offline || !connection.revision) return
     void copy.refreshPrivacy()
-    void copy.sync()
+    if (copy.getSnapshot().record.dirty) void copy.sync()
+    else void copy.checkRemote()
   }, [copy, connection.offline, connection.revision])
 
   useEffect(() => {

@@ -22,6 +22,10 @@ export async function cloudApi(store, request, pathname, readBody) {
   } else if (action === 'privacy' && parts.length === 3) {
     if (method === 'GET') body = store.privacyMeta(id)
     else if (method === 'PUT') body = store.putPrivacy(id, await readBody(request))
+  } else if (action === 'open' && parts.length === 3 && method === 'POST') {
+    store.privacyMeta(id)
+    store.noteDocumentOpen(id)
+    body = { ok: true }
   } else if (action === 'assistant' && parts.length === 3) {
     if (method === 'GET') body = store.assistant(id)
     else if (method === 'PUT') body = store.putAssistant(id, await readBody(request))

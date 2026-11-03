@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import { DOCUMENT_VERSIONS, HttpError, MAX_BODY, MAX_RESULT, MAX_SCREENSHOT, PROD_ORIGIN, UUID, validateRequest, validateDocument } from './validation.mjs'
 import { fakeRunner, muRunner, readSessionId, stopWorkerUnit, workerUnit } from './runner.mjs'
 import { TranscriptJournal } from './transcript.mjs'
+import { DocumentEvents } from './document-events.mjs'
 import { cloudApi } from './cloud-api.mjs'
 import { storagePaths } from './storage-paths.mjs'
 import { AGENT_PROTOCOL, TOKEN, counter, fingerprint, operationId, validateDelivery } from './agent-protocol.mjs'
@@ -108,7 +109,7 @@ function routeTemplate(requestUrl) {
   if (segments[0] === 'api' && segments[1] === 'agent' && segments.length >= 3) return segments.length === 3 ? '/api/agent/:token' : '/api/agent/:token/:resource'
   if (segments[0] === 'api' && segments[1] === 'documents') {
     if (segments.length === 2) return '/api/documents'
-    const resource = ['assistant', 'privacy', 'recovery', 'shares'].includes(segments[3]) ? segments[3] : ':resource'
+    const resource = ['assistant', 'privacy', 'recovery', 'shares', 'events', 'open'].includes(segments[3]) ? segments[3] : ':resource'
     return `/api/documents/:id${segments.length > 3 ? `/${resource}` : ''}${segments.length > 4 ? '/:resource' : ''}`
   }
   if (segments[0] === 'api' && segments[1] === 'shared' && segments.length >= 3) return '/api/shared/:token'
@@ -191,7 +192,7 @@ function responseHeaders(origin, env) {
 function send(response, status, body, origin, env) { response.writeHead(status, responseHeaders(origin, env)); response.end(body === undefined ? '' : JSON.stringify(body)) }
 
 function cursor(url, request) {
-  const value = request.headers['last-event-id'] ?? url.searchParams.get('after')
+  const value = request?.headers['last-event-id'] ?? url.searchParams.get('after')
   if (value === null || value === undefined || value === '') return null
   if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new HttpError(400, 'event cursor must be a non-negative integer')
   return Number(value)
@@ -265,6 +266,45 @@ async function streamTranscript(task, response, origin, env, after, heartbeatMs)
   return closedPromise
 }
 
+function streamDocument(events, id, response, origin, env, heartbeatMs) {
+  const headers = { ...responseHeaders(origin, env), 'content-type': 'text/event-stream; charset=utf-8',
+    'cache-control': 'no-store, no-transform', connection: 'keep-alive', 'x-accel-buffering': 'no' }
+  let closed = false, ending = false, writing = false, queuedBytes = 0, heartbeat
+  const queue = []
+  const close = destroy => {
+    if (closed) return
+    closed = true; clearInterval(heartbeat); unsubscribe(); queue.length = 0
+    if (destroy) response.destroy()
+  }
+  const pump = async () => {
+    if (writing || closed) return
+    writing = true
+    try {
+      while (queue.length && !closed) {
+        const frame = queue.shift(); queuedBytes -= Buffer.byteLength(frame)
+        if (!response.write(frame)) await waitDrain(response)
+      }
+      if (ending && !closed) { close(false); response.end() }
+    } catch { close(true) }
+    finally { writing = false }
+  }
+  const enqueue = frame => {
+    if (closed || ending) return
+    queuedBytes += Buffer.byteLength(frame)
+    if (queue.length >= 128 || queuedBytes > 512 * 1024) { close(true); return }
+    queue.push(frame); void pump()
+  }
+  const unsubscribe = events.subscribe(id,
+    update => enqueue(`event: update\ndata: ${JSON.stringify(update)}\n\n`),
+    () => { ending = true; clearInterval(heartbeat); void pump() })
+  response.once('close', () => close(false)); response.once('error', () => close(true))
+  response.writeHead(200, headers); response.flushHeaders?.()
+  enqueue('event: update\ndata: {"kind":"ready"}\n\n')
+  if (closed) return
+  heartbeat = setInterval(() => enqueue(': heartbeat\n\n'), heartbeatMs)
+  heartbeat.unref?.()
+}
+
 export async function loadCandidate(outputDir, document, target) {
   const { candidate, assets } = await localDelivery(outputDir)
   return validateDelivery(candidate, assets, document, target)
@@ -275,6 +315,7 @@ export class TaskManager {
     this.env = { ...process.env, ...(options.env || {}) }
     Object.assign(this, storagePaths(options, this.env))
     this.store = options.store
+    this.documentEvents = new DocumentEvents()
     this.allowDirectTasks = options.allowDirectTasks ?? this.env.MOTED_FAKE_RUNNER === '1'
     this.tasksDir = path.join(this.stateDir, 'tasks')
     this.sourcePath = path.resolve(options.sourcePath || this.env.MOTED_SOURCE_PATH || path.resolve(SERVER_ROOT, '..'))
@@ -305,7 +346,7 @@ export class TaskManager {
       if (!['queued', 'running', 'ready', 'stopped', 'error', 'waiting'].includes(meta.status)) continue
       const transcript = new TranscriptJournal(dir, this.transcriptOptions); await transcript.init()
       const task = { executions: new Set(), id: entry.name, dir, meta, generation: Number(meta.generation || 0), current: null, abandoned: false, transcript }
-      this.tasks.set(task.id, task)
+      this.addTask(task)
       if (this.supported(task)) {
         Object.assign(meta, { executor: meta.executor ?? 'builtin', executorRevision: meta.executorRevision ?? 0, candidateRevision: meta.candidateRevision ?? (meta.candidate ? 1 : 0) })
         meta.workspaceRead ??= false; meta.workspaceReadRevision ??= 0
@@ -337,9 +378,23 @@ export class TaskManager {
 
   async persist(task, meta = task.meta) {
     const json = JSON.stringify(meta)
-    const pending = (this.persistence.get(task) ?? Promise.resolve()).catch(() => {}).then(() => writeAtomic(path.join(task.dir, 'meta.json'), json))
+    const pending = (this.persistence.get(task) ?? Promise.resolve()).catch(() => {}).then(async () => {
+      await writeAtomic(path.join(task.dir, 'meta.json'), json)
+      task.meta = meta
+      if (this.tasks.get(task.id) === task) this.taskUpdate(task)
+    })
     this.persistence.set(task, pending)
     try { await pending } finally { if (this.persistence.get(task) === pending) this.persistence.delete(task) }
+  }
+  taskUpdate(task) { this.documentEvents.publish(task.meta.documentId, { kind: 'task', taskId: task.id }) }
+  addTask(task) {
+    this.tasks.set(task.id, task)
+    const publish = update => this.documentEvents.publish(task.meta.documentId, { ...update, taskId: task.id })
+    task.transcript.subscribe(entry => publish({ kind: 'transcript', entry }),
+      () => {}, message => publish({ kind: 'transcript-warning', message }))
+    this.taskUpdate(task)
+    for (const entry of task.transcript.replay(null)) publish({ kind: 'transcript', entry })
+    if (task.transcript.warning) publish({ kind: 'transcript-warning', message: task.transcript.warning })
   }
   async mutate(task, action) {
     const operation = (this.operations.get(task) ?? Promise.resolve()).catch(() => {}).then(() => this.documentMutation(task.meta.documentId, async () => {
@@ -371,7 +426,6 @@ export class TaskManager {
     try { await this.loadRequest(task) } catch { return }
     const next = { ...task.meta, externalToken: crypto.randomBytes(16).toString('base64url'), externalGrantVersion: 1 }
     await this.persist(task, next)
-    task.meta = next
   }
   async reconcilePrivacy(task) {
     if (!this.supported(task)) return
@@ -381,7 +435,6 @@ export class TaskManager {
       status: task.meta.candidate ? 'ready' : 'stopped', progress: 'External access revoked by document privacy; built-in agent available' }
     delete next.externalToken; delete next.builtinToken; delete next.unit; delete next.error
     await this.persist(task, next)
-    task.meta = next
     this.invalidateRun(task)
   }
   candidateRecords(task) {
@@ -513,7 +566,6 @@ export class TaskManager {
       next.progress = body.executor === 'external' ? 'Waiting for external candidate' : 'Builtin selected; send a request to run'
     }
     await this.persist(task, next)
-    task.meta = next
     if (changed) this.invalidateRun(task)
     return this.view(task)
   }
@@ -533,7 +585,6 @@ export class TaskManager {
       workspaceReadRevision: task.meta.workspaceReadRevision + (body.enabled === task.meta.workspaceRead ? 0 : 1),
       workspaceReadOperations: { ...operations, [body.operationId]: digest } }
     await this.persist(task, next)
-    task.meta = next
     return this.view(task)
   }
 
@@ -609,7 +660,6 @@ export class TaskManager {
       delete next.error
       if (Buffer.byteLength(JSON.stringify(next)) > MAX_BODY) throw new HttpError(413, 'Task candidate history is too large. Remove unwanted candidates before submitting more. Existing candidates are unchanged.')
       await this.persist(task, next)
-      task.meta = next
       return receipt
     })
   }
@@ -652,7 +702,6 @@ export class TaskManager {
         next.progress = 'Candidate removed'
       }
       await this.persist(task, next)
-      task.meta = next
       return receipt
     })
   }
@@ -842,10 +891,10 @@ MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' 
         generation: 0, attempt: external ? 0 : 1, model, prompt: request.prompt, target: request.target,
         ...(body.cloudDocumentId ? { documentId: body.cloudDocumentId, revision: body.baseRevision } : {}),
       } }
-      if (request.prompt) await task.transcript.append(task.meta.attempt, 'request', request.prompt).catch(() => {})
+      if (request.prompt) await task.transcript.append(Math.max(1, task.meta.attempt), 'request', request.prompt).catch(() => {})
       await this.persist(task)
       if (body.cloudDocumentId) this.store.bindTask(task.id, body.cloudDocumentId, body.baseRevision)
-      this.tasks.set(task.id, task)
+      this.addTask(task)
       if (!external) { this.queue.push(task); this.schedule() }
       return this.view(task)
     } catch (error) { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); throw error }
@@ -1003,7 +1052,6 @@ MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' 
     else next.candidateRef = { candidateId, candidateVersion }
     delete next.builtinToken; delete next.unit; delete next.error
     await this.persist(task, next)
-    task.meta = next
     this.invalidateRun(task)
     await task.transcript.append(next.attempt, 'request', prompt).catch(() => {})
     this.queue.push(task); this.schedule(); return this.view(task)
@@ -1047,6 +1095,8 @@ MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' 
       await task.transcript.close()
       await fs.rm(task.dir, { recursive: true, force: false })
       this.tasks.delete(task.id)
+      this.documentEvents.publish(task.meta.documentId, { kind: 'transcript-closed', taskId: task.id })
+      this.taskUpdate(task)
     })
   }
 
@@ -1075,10 +1125,16 @@ export async function createMotedServer(options = {}) {
   const { DocumentIndexer } = await import('./indexer.mjs')
   const manager = new TaskManager(options)
   const store = await CloudStore.open(options, manager.env); manager.store = store
+  store.documentEvents = manager.documentEvents
   const indexer = new DocumentIndexer(manager, options.indexing)
   manager.indexer = indexer
   try { await manager.init(); await indexer.init() } catch (error) { await indexer.shutdown(); await manager.shutdown(); store.close(); throw error }
   const screenshots = new WidgetScreenshots(manager.env)
+  const streams = new Set()
+  const trackStream = response => {
+    if (manager.closing) throw new HttpError(503, 'service is shutting down')
+    streams.add(response); response.once('close', () => streams.delete(response))
+  }
   const server = http.createServer(async (request, response) => {
     const requestId = crypto.randomUUID()
     response.setHeader('x-request-id', requestId)
@@ -1121,13 +1177,21 @@ export async function createMotedServer(options = {}) {
       }
       if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/') || url.pathname.startsWith('/api/shared/')) {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
+        const documentEvents = /^\/api\/documents\/([^/]+)\/events$/.exec(url.pathname)
+        if (request.method === 'GET' && documentEvents && UUID.test(documentEvents[1])) {
+          const id = documentEvents[1]
+          store.privacyMeta(id)
+          trackStream(response)
+          streamDocument(manager.documentEvents, id, response, origin, manager.env, manager.heartbeatMs); return
+        }
         const privacyChange = request.method === 'PUT' && /^\/api\/documents\/[^/]+\/privacy$/.test(url.pathname)
+        const ownerOpen = request.method === 'POST' && /^\/api\/documents\/[^/]+\/open$/.test(url.pathname)
         const privacyBody = privacyChange ? await readBody(request) : undefined
         const result = privacyChange
           ? await manager.documentMutation(url.pathname.split('/')[3], () => cloudApi(store, request, url.pathname, async () => privacyBody))
           : await cloudApi(store, request, url.pathname, readBody)
-        if (request.method !== 'GET' && url.pathname.startsWith('/api/documents/')) await manager.reconcileReservations(url.pathname.split('/')[3])
-        if (request.method !== 'GET') indexer.wake()
+        if (request.method !== 'GET' && !ownerOpen && url.pathname.startsWith('/api/documents/')) await manager.reconcileReservations(url.pathname.split('/')[3])
+        if (request.method !== 'GET' && !ownerOpen) indexer.wake()
         send(response, result.status, result.body, origin, manager.env); return
       }
       if (url.pathname === '/api/ai' || url.pathname.startsWith('/api/ai/')) {
@@ -1140,7 +1204,12 @@ export async function createMotedServer(options = {}) {
         if (request.method === 'POST' && suffix === 'tasks') { send(response, 202, await manager.create(await readBody(request)), origin, manager.env); return }
         if (request.method === 'GET' && id && action === 'events') {
           const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found')
-          await streamTranscript(task, response, origin, manager.env, cursor(url, request), manager.heartbeatMs); return
+          const after = cursor(url, request); trackStream(response)
+          await streamTranscript(task, response, origin, manager.env, after, manager.heartbeatMs); return
+        }
+        if (request.method === 'GET' && id && action === 'transcript') {
+          const task = manager.tasks.get(id); if (!task?.transcript) throw new HttpError(404, 'transcript not found')
+          send(response, 200, task.transcript.snapshot(cursor(url)), origin, manager.env); return
         }
         if (request.method === 'GET' && id && !action) { const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found'); send(response, 200, manager.supported(task) ? await manager.mutate(task, () => manager.view(task)) : manager.view(task), origin, manager.env); return }
         const task = manager.tasks.get(id); if (!task) throw new HttpError(404, 'task not found')
@@ -1156,7 +1225,7 @@ export async function createMotedServer(options = {}) {
     } catch (error) { sendRequestError(request, response, error, origin, manager.env, requestId) }
   })
   let closing
-  return { manager, store, indexer, screenshots, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { await Promise.all([screenshots.shutdown(), indexer.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
+  return { manager, store, indexer, screenshots, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { manager.closing = true; for (const response of streams) response.destroy(); await Promise.all([screenshots.shutdown(), indexer.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

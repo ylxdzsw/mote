@@ -3,7 +3,8 @@ import { assistantRequest } from './api'
 import { AssistantState } from './cloudState'
 import { loadAssistantRecovery, loadTasks, saveAssistantRecovery } from './storage'
 import type { AITask, AssistantCloud } from './types'
-import { connectionSnapshot, useConnection } from '../cloud/connection'
+import { useConnection } from '../cloud/connection'
+import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 
 export function useAssistantState(cloud: AssistantCloud | undefined, writable: boolean) {
   const latestCloud = useRef(cloud)
@@ -15,9 +16,11 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
   const engine = useRef<AssistantState | null>(null)
   const [retry, setRetry] = useState(0)
   const recoveredConnection = useRef(0)
+  const refreshRequested = useRef(false)
   const flushLocal = useCallback(async () => { await engine.current?.flushLocal() }, [])
   useEffect(() => {
     let active = true
+    refreshRequested.current = false
     setLoaded(false); state.current = []; setTasks([]); engine.current = null
     if (!cloud || !writable) { setLoaded(true); return }
     const { workingCopyId, documentId } = cloud
@@ -69,23 +72,20 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
     else void current.refresh()
   }, [loaded, writable, connection.offline, connection.revision, tick, cloud?.draft])
   useEffect(() => {
-    if (!loaded || !writable || cloud?.draft) return
-    let active = true, timer = 0
-    async function refreshWhenReady() {
-      const current = engine.current
-      try {
-        if (!connectionSnapshot().offline && current && !current.busy && !current.warning && !current.localWarning && !current.conflict) {
-          if (!current.ready) await current.initialize()
-          else if (current.record.dirty || current.record.pending) await current.flush()
-          else await current.refresh()
-        }
-      } finally {
-        if (active) timer = window.setTimeout(() => { void refreshWhenReady() }, 5000)
-      }
-    }
-    timer = window.setTimeout(() => { void refreshWhenReady() }, 5000)
-    return () => { active = false; window.clearTimeout(timer) }
-  }, [loaded, writable, cloud?.draft])
+    if (!writable || !cloud || cloud.draft) return
+    return subscribeDocumentUpdates(cloud.documentId, event => {
+      if (event.kind !== 'ready' && event.kind !== 'assistant') return
+      refreshRequested.current = true; render(tick => tick + 1)
+    })
+  }, [writable, cloud?.documentId, cloud?.draft])
+  useEffect(() => {
+    const current = engine.current
+    if (!refreshRequested.current || !loaded || !writable || cloud?.draft || connection.offline || !current
+      || current.busy || current.warning || current.localWarning || current.conflict || current.record.dirty || current.record.pending) return
+    refreshRequested.current = false
+    if (!current.ready) void current.initialize()
+    else void current.refresh()
+  }, [loaded, writable, cloud?.draft, connection.offline, tick])
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
       const current = engine.current

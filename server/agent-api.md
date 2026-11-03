@@ -286,12 +286,14 @@ revisions or changed operation input return 409. Invalid delivery returns
 
 ## External-grant presence and revocation
 
-The open document's existing privacy poll and initial opening request use
-`GET /api/documents/:id/privacy?open=1`. Only a successful marked privacy read
-renews the persisted 24-hour external access window; unmarked owner GETs,
-including `/assistant` recovery downloads, do not. Document creation and
-content saves also renew the window. The marker adds no new polling loop.
-Agent requests do not renew it. When 24 hours pass without owner-open activity,
+Successful marked `GET /api/documents/:id/privacy?open=1` opening reads renew
+the persisted 24-hour external access window. The mounted document's browser also renews owner
+activity once a minute with authenticated `POST /api/documents/:id/open`, which
+returns only `{ ok: true }`; opening an update stream and server-sent heartbeats
+never renew activity.
+Unmarked owner GETs, including `/assistant` recovery downloads, do not renew it.
+Document creation and content saves also renew the window. Agent requests do not
+renew it. When 24 hours pass without owner-open activity,
 all external task-resource reads and mutations pause. Reopening the document
 resumes the same token and task; no agent keepalive is used. This inactivity
 pause does not delete task artifacts or release the reservation.

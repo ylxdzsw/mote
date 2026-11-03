@@ -11,6 +11,7 @@ import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permit
 import { aiRequest, AIServiceError } from './api'
 import { candidateSelection, candidateVersions, defaultCandidateVersion, reconcileCandidateState, selectedCandidateVersion } from './candidates'
 import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
+import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 import { useAssistantState } from './useAssistantState'
 import type { AssistantState } from './cloudState'
 import type { Area, AITarget, AITask, AssistantCloud, Executor, RemoteTask } from './types'
@@ -254,11 +255,12 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (changed) persistence.replace(normalized)
   }, [loaded, savedTasks])
 
+  const statusTargets = savedTasks.filter(task => (task.submitted || task.requestSent) && !task.acceptance && !task.remoteMissing).map(task => task.id).join(',')
   useEffect(() => {
     if (!writable || !loaded) { checkStatusRef.current = () => {}; setStatusIssues({}); return }
     setStatusIssues({})
     let active = true, pending = false, authPaused = false
-    const failures = new Map<string, number>(), paused = new Set<string>(), nextAt = new Map<string, number>(), requested = new Set<string>()
+    const failures = new Map<string, number>(), paused = new Set<string>(), retries = new Map<string, number>(), requested = new Set<string>()
     const authPausedTasks = new Set<string>()
     const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
       && !task.acceptance && !task.remoteMissing
@@ -281,7 +283,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
         if (!valid()) return
         failures.delete(task.id); paused.delete(task.id)
-        nextAt.set(task.id, Date.now() + (['queued', 'running', 'waiting'].includes(remote.status) ? 1200 : 10_000)); setIssue(task.id)
+        setIssue(task.id)
         receive(remote, { creation: undefined, ...(privateDocument ? { pendingExecutor: undefined } : {}) })
       } catch (error) {
         if (!valid()) return
@@ -313,23 +315,30 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
           setIssue(task.id, { message: `Status checks paused after ${count} consecutive failures: ${message} Choose Check status to try again. Generation was not retried.`, paused: true })
         } else {
           const delay = Math.min(60_000, 10_000 * 2 ** (count - 1))
-          nextAt.set(task.id, Date.now() + delay)
+          retries.set(task.id, window.setTimeout(() => {
+            retries.delete(task.id); requested.add(task.id); void drain()
+          }, delay))
           setIssue(task.id, { message: `Status check failed (${count}/4): ${message} Retrying status in ${delay / 1000}s. Generation was not retried.`, paused: false })
         }
       }
     }
-    async function poll() {
+    async function drain() {
       if (pending || !active || authPaused || connectionSnapshot().offline) return
       pending = true
-      const now = Date.now()
-      const due = state.current.filter(task => awaitingResult(task) && !preparations.current.has(task.id)
-        && !paused.has(task.id) && (requested.has(task.id) || (nextAt.get(task.id) ?? 0) <= now))
-      for (const task of due) {
-        requested.delete(task.id)
-        if (!active || authPaused || connectionSnapshot().offline) break
-        await checkTask(task)
-      }
-      pending = false
+      try {
+        while (requested.size && active && !authPaused && !connectionSnapshot().offline) {
+          const ids = [...requested]; requested.clear()
+          for (const id of ids) {
+            if (!active || authPaused || connectionSnapshot().offline) break
+            const task = state.current.find(task => task.id === id)
+            if (task && awaitingResult(task) && !preparations.current.has(id) && !paused.has(id) && !retries.has(id)) await checkTask(task)
+          }
+        }
+      } finally { pending = false }
+    }
+    function requestUpdates(id?: string) {
+      for (const task of state.current) if (awaitingResult(task) && (!id || task.id === id)) requested.add(task.id)
+      void drain()
     }
     const checkStatus = (id: string) => {
       if (connectionSnapshot().offline) { void retryConnection(); return }
@@ -338,23 +347,26 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       if (authPaused) {
         authPaused = false
         for (const pausedId of authPausedTasks) {
-          paused.delete(pausedId); failures.delete(pausedId); nextAt.set(pausedId, 0)
+          paused.delete(pausedId); failures.delete(pausedId); requested.add(pausedId)
           setIssue(pausedId, { message: 'Checking status…', paused: false })
         }
         authPausedTasks.clear()
       }
-      failures.delete(id); paused.delete(id); nextAt.set(id, 0); requested.add(id)
+      failures.delete(id); paused.delete(id); window.clearTimeout(retries.get(id)); retries.delete(id); requested.add(id)
       setIssue(id, { message: 'Checking status…', paused: false })
-      void poll()
+      void drain()
     }
     checkStatusRef.current = checkStatus
-    void poll()
-    const timer = window.setInterval(() => void poll(), 1000)
+    const unsubscribe = cloud && subscribeDocumentUpdates(cloud.documentId, event => {
+      if (event.kind === 'ready') requestUpdates()
+      else if (event.kind === 'task') requestUpdates(event.taskId)
+    })
+    requestUpdates()
     return () => {
-      active = false; window.clearInterval(timer)
+      active = false; for (const timer of retries.values()) window.clearTimeout(timer); unsubscribe?.()
       if (checkStatusRef.current === checkStatus) checkStatusRef.current = () => {}
     }
-  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument, connection.offline, connection.revision])
+  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument, connection.offline, connection.revision, statusTargets])
 
   function reserve(target: AITarget, snapshot = currentDoc.current) {
     if (!loaded || !writable || !cloud || cloud.documentId !== snapshot.id || !persistence.engine.current?.ready) { setNotice('Connect this working copy to its cloud document before starting an AI task.'); return }

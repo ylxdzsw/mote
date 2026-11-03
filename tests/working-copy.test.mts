@@ -105,6 +105,39 @@ test('open privacy refresh marks the request and validates its query response', 
   assert.equal(connectionSnapshot().offline, false)
 })
 
+test('stream deletion stays final across in-flight reads, saves, and local preservation', async () => {
+  for (const operation of ['read', 'save', 'adopt']) {
+    await reset()
+    const record = draft()
+    delete record.draft; delete record.pendingCreate
+    record.dirty = operation === 'save'; record.meta.revision = '1'
+    cloud.set(record.meta.id, { ...record.meta, document: record.document })
+    const copy = new WorkingCopy(record), original = record.document
+    const incoming = { ...record.meta, revision: '2', document: edited(record, 'Remote content') }
+    let started!: () => void, release!: () => void
+    const requested = new Promise<void>(resolve => { started = resolve })
+    const gate = new Promise<void>(resolve => { release = resolve })
+    const fetch = globalThis.fetch
+    try {
+      if (operation === 'adopt') copy.preserveAssistant = async () => { started(); await gate }
+      else {
+        if (operation === 'read') cloud.set(record.meta.id, incoming)
+        globalThis.fetch = async (input, options) => {
+          const response = await fetch(input, options)
+          if (String(input) === `/api/documents/${record.meta.id}`) { started(); await gate }
+          return response
+        }
+      }
+      const pending = operation === 'save' ? copy.sync() : operation === 'read' ? copy.checkRemote() : copy.adopt(incoming)
+      await requested
+      copy.remoteDeleted(); release(); await pending
+      assert.equal(copy.getSnapshot().deleted, true, operation)
+      assert.equal(copy.getSnapshot().record.document, original, operation)
+      assert.equal(copy.getSnapshot().epoch, 0, operation)
+    } finally { globalThis.fetch = fetch }
+  }
+})
+
 test('creation identity, privacy, and copy recovery', async t => {
   await t.test('Settings Private creates a blank draft privately, without a follow-up PUT', async () => {
     await reset()

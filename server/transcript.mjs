@@ -80,13 +80,13 @@ export class TranscriptJournal {
     if (before !== this.events.length || beforeText !== this.events.map(event => event.text).join('\u0000') || lines.length - 1 !== this.events.length) this.needsRewrite = true
   }
 
-  prune() {
-    let bytes = this.events.reduce((total, event) => total + byteLength(lineFor(event)), 0)
-    while (this.events.length > this.maxEvents || (this.events.length > 1 && bytes > this.maxBytes)) {
-      bytes -= byteLength(lineFor(this.events.shift()))
+  prune(events = this.events) {
+    let bytes = events.reduce((total, event) => total + byteLength(lineFor(event)), 0)
+    while (events.length > this.maxEvents || (events.length > 1 && bytes > this.maxBytes)) {
+      bytes -= byteLength(lineFor(events.shift()))
     }
-    if (this.events.length === 1 && bytes > this.maxBytes) {
-      const event = this.events[0]
+    if (events.length === 1 && bytes > this.maxBytes) {
+      const event = events[0]
       // JSON escaping can use six bytes for one control character.
       const room = Math.max(0, this.maxBytes - byteLength(lineFor({ ...event, text: '' })))
       while (byteLength(JSON.stringify(event.text)) - 2 > room) event.text = truncateUtf8(event.text, Math.floor(byteLength(event.text) / 2))
@@ -100,18 +100,19 @@ export class TranscriptJournal {
     const event = { id: this.nextId++, attempt, kind, text: truncateUtf8(text, this.maxEventText) }
     this.pending++
     const write = this.writeChain.then(async () => {
-      this.events.push(event)
-      this.maxAttempt = Math.max(this.maxAttempt, event.attempt)
-      const before = this.events.length
+      const events = [...this.events, event]
+      const before = events.length
       const beforeText = event.text
-      this.prune()
-      const evicted = before !== this.events.length || beforeText !== event.text || this.needsRewrite
+      this.prune(events)
+      const evicted = before !== events.length || beforeText !== event.text || this.needsRewrite
       if (evicted) {
-        await atomicWrite(this.file, this.events.map(lineFor).join(''))
+        await atomicWrite(this.file, events.map(lineFor).join(''))
         this.needsRewrite = false
       } else {
         await fs.appendFile(this.file, lineFor(event), { mode: 0o600 })
       }
+      this.events = events
+      this.maxAttempt = Math.max(this.maxAttempt, event.attempt)
       for (const listener of this.listeners) listener.event(event)
       return true
     }).catch(error => {
@@ -125,6 +126,10 @@ export class TranscriptJournal {
 
   replay(after) { return this.events.filter(event => after === null || event.id > after) }
   wasTruncated(after) { return after !== null && (after >= this.nextId || this.events.length > 0 && this.events[0].id > after + 1) }
+  snapshot(after) {
+    const reset = this.wasTruncated(after)
+    return { events: this.replay(reset ? null : after), reset, warning: this.warning }
+  }
 
   warn(message) {
     if (this.warning === message) return
@@ -140,10 +145,11 @@ export class TranscriptJournal {
   }
 
   close() {
-    if (this.closed) return this.writeChain
+    if (this.closed) return this.closePromise
     this.closed = true
-    for (const listener of this.listeners) listener.close()
-    this.listeners.clear()
-    return this.writeChain
+    return this.closePromise = this.writeChain.then(() => {
+      for (const listener of this.listeners) listener.close()
+      this.listeners.clear()
+    })
   }
 }

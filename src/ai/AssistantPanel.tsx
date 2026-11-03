@@ -118,7 +118,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
         </button>
         <div className="ai-activity-body" id={`ai-activity-${task.id}`} hidden={!expanded}>
           <Suspense fallback={<p className="ai-note">Loading activity…</p>}>
-            <Transcript taskId={task.id} active={active && expanded} submitted={task.submitted} onMissing={() => assistant.missingRemote(task.id)} />
+            <Transcript taskId={task.id} documentId={task.documentId} active={active && expanded} submitted={task.submitted} onMissing={() => assistant.missingRemote(task.id)} />
           </Suspense>
         </div>
       </div>}

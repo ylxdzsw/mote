@@ -127,8 +127,17 @@ export class CloudStore {
   }
   transaction(action) {
     this.db.exec('BEGIN IMMEDIATE')
-    try { const result = action(); this.db.exec('COMMIT'); return result } catch (error) { this.db.exec('ROLLBACK'); throw error }
+    const updates = []; this.pendingUpdates = updates
+    let result
+    try { result = action(); this.db.exec('COMMIT') } catch (error) { this.db.exec('ROLLBACK'); throw error }
+    finally { this.pendingUpdates = undefined }
+    for (const { id, kind, end } of updates) {
+      this.documentEvents?.publish(id, { kind })
+      if (end) this.documentEvents?.end(id)
+    }
+    return result
   }
+  notify(id, kind, end = false) { this.pendingUpdates.push({ id, kind, end }) }
 
   // A sidecar path map avoids interpreting authored objects/strings as asset references.
   pack(value) {
@@ -411,6 +420,7 @@ export class CloudStore {
       const document = this.document(body.document, id); const title = name(body.name); const time = now(); const token = randomUUID()
       this.db.prepare('INSERT INTO documents(id,name,revision,createdAt,updatedAt,private) VALUES (?,?,?,?,?,?)').run(id, title, token, time, time, body.private ? 1 : 0)
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
+      this.notify(id, 'document')
       return this.remember(id, 'create', body, retry.digest, this.get(id))
     })
   }
@@ -425,6 +435,7 @@ export class CloudStore {
       const document = this.document(body.document, id); const time = now(); const token = randomUUID()
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
+      this.notify(id, 'document')
       return this.remember(id, 'put', body, retry.digest, this.get(id))
     })
   }
@@ -446,6 +457,7 @@ export class CloudStore {
         const nextShareRevision = this.nextShareRevision(row)
         this.db.prepare('UPDATE documents SET private=?,privacyRevision=?,shareRevision=? WHERE id=?').run(body.private ? 1 : 0, nextPrivacyRevision, nextShareRevision, id)
         if (body.private) this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(now(), id)
+        this.notify(id, 'privacy')
       }
       return this.remember(id, 'privacy', body, retry.digest, this.privacyMeta(id))
     })
@@ -453,7 +465,7 @@ export class CloudStore {
 
   rename(id, value) {
     const title = name(record(value, 'request').name)
-    return this.transaction(() => { this.row(id); this.db.prepare('UPDATE documents SET name=?,updatedAt=? WHERE id=?').run(title, now(), id); return metadata(this.row(id)) })
+    return this.transaction(() => { this.row(id); this.db.prepare('UPDATE documents SET name=?,updatedAt=? WHERE id=?').run(title, now(), id); this.notify(id, 'document'); return metadata(this.row(id)) })
   }
   delete(id, value) {
     const body = record(value, 'request')
@@ -465,6 +477,7 @@ export class CloudStore {
       this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(time, id)
       for (const task of this.assistantTasks(id)) this.revokeTask(task.id, id)
       for (const task of this.db.prepare('SELECT taskId FROM task_revisions WHERE documentId=?').all(id)) this.revokeTask(task.taskId, id)
+      this.notify(id, 'deleted', true)
       return { ok: true }
     })
   }
@@ -506,6 +519,7 @@ export class CloudStore {
         this.db.prepare("INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,'latest',NULL,?)").run(share.id, id, share.token, time)
       }
       this.db.prepare('UPDATE documents SET shareRevision=? WHERE id=?').run(nextRevision, id)
+      this.notify(id, 'privacy')
       this.remember(id, 'shares', body, retry.digest, { ok: true })
       return this.shareState(id)
     })
@@ -536,6 +550,7 @@ export class CloudStore {
       for (const task of [...this.assistantTasks(id), ...body.tasks]) if (!active.has(task.id)) this.revokeTask(task.id, id)
       // Recovery JSON is inert. Only TaskManager.create can validate and launch work.
       this.db.prepare('UPDATE documents SET assistantRevision=?,tasks=? WHERE id=?').run(randomUUID(), this.pack(body.tasks), id)
+      this.notify(id, 'assistant')
       return this.remember(id, 'assistant', body, retry.digest, this.assistant(id))
     })
   }
