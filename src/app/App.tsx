@@ -89,6 +89,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
   const cloud = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
+  const [slowLocalSave, setSlowLocalSave] = useState(false)
+  useEffect(() => {
+    if (cloud.local !== 'saving') { setSlowLocalSave(false); return }
+    const timer = window.setTimeout(() => setSlowLocalSave(true), 500)
+    return () => window.clearTimeout(timer)
+  }, [cloud.local])
+  const showLocalSaving = cloud.local === 'saving' && slowLocalSave
   const connection = useConnection()
   const [shareOpen, setShareOpen] = useState(false)
   const privateDocument = cloud.record.meta.private
@@ -459,10 +466,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening document…</p></main>
   const status = cloud.local === 'error' || connection.offline || cloud.error || cloud.conflict || cloud.deleted ? 'error' : cloud.syncing || cloud.record.dirty ? 'saving' : 'saved'
   const statusText = cloud.local === 'error' ? 'Local save failed'
-    : connection.checking ? 'Reconnecting…' : connection.offline ? cloud.local === 'saving' ? 'Offline · saving locally…' : 'Offline · saved locally'
+    : connection.checking ? 'Reconnecting…' : connection.offline ? showLocalSaving ? 'Offline · saving locally…' : cloud.record.dirty ? 'Offline · changes pending' : 'Offline · saved locally'
     : cloud.conflict ? 'Conflict · action required' : cloud.deleted ? 'Deleted on server' : cloud.auth ? 'Sign in to sync' : cloud.syncing ? 'Syncing…'
-    : cloud.error ? 'Sync needs attention' : cloud.local === 'saving' ? 'Saving locally…'
-    : cloud.record.dirty ? 'Saved locally · changes pending' : cloud.record.draft ? 'Empty draft · not saved to cloud' : 'Synced'
+    : cloud.error ? 'Sync needs attention' : showLocalSaving ? 'Saving locally…' : cloud.record.dirty ? 'Changes pending'
+    : cloud.record.draft ? 'Empty draft · not saved to cloud' : 'Synced'
 
   const syncNotice = (cloud.conflict || cloud.deleted || cloud.error || cloud.local === 'error') && <div className="cloud-sync-actions" role="alert">
       <p>{cloud.local === 'error' ? 'Local saving failed. Keep this tab open and retry.'

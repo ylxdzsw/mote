@@ -1893,3 +1893,11 @@ The minimap reserves its lane immediately but defers its first DOM snapshot unti
 ## 2026-11-03 — Restore immediate minimap rendering
 
 Removed the deferred minimap startup at the user’s request: the initial DOM snapshot renders directly in the layout effect again, with the existing animation-frame scheduler for subsequent updates. The double-frame/idle/timer gate and hidden/inert pending state added unnecessary complexity for secondary navigation. This supersedes the preceding minimap-startup decision; precomputed Preview/HTML Code highlighting remains unchanged.
+
+## 2026-11-05 — Steady pending-sync feedback
+
+The header shows “Changes pending” throughout local writes for unsynced edits, including an offline variant, rather than alternating saving/saved text on every keystroke. This keeps typing quiet without adding presentation timers or changing prompt IndexedDB persistence. The label does not claim a completed local write; local-save errors still take priority, and cloud syncing, acknowledgment, and recovery retain their existing feedback.
+
+## 2026-11-05 — Delay local-saving feedback uniformly
+
+Local-save progress now appears only after 500 ms of continuous local saving, for any cause, online or offline. Fast writes stay quiet, slow writes remain visible, and failures are immediate. The presentation timer resets when saving ends and is canceled on unmount; persistence itself is not delayed. This supersedes hiding local-save progress behind pending edits in the preceding decision, without changing cloud-sync or recovery feedback.
