@@ -576,8 +576,11 @@ test('document streams deliver only committed scoped changes, do not renew activ
   assert.deepEqual(stream.messages, [{ kind: 'ready' }])
   assert.equal((await value.call('POST', `${base}/open`, undefined, { origin: 'http://untrusted.test' })).status, 403)
   assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
+  const opened = [], noteDocumentOpen = value.store.noteDocumentOpen.bind(value.store)
+  value.store.noteDocumentOpen = id => { opened.push(id); noteDocumentOpen(id) }
   const renewed = await value.call('POST', `${base}/open`)
   assert.equal(renewed.status, 200); assert.deepEqual(renewed.body, { ok: true })
+  assert.deepEqual(opened, [original.id])
   assert.ok(value.store.documentAccessUntil(original.id) > oldActivity + 24 * 60 * 60 * 1000)
   assert.deepEqual(stream.messages, [{ kind: 'ready' }])
   assert.equal((await value.call('PATCH', `documents/${other.id}`, { name: 'Other document' })).status, 200)
