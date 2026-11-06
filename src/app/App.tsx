@@ -125,7 +125,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useEffect(() => { if (assistant.open) setSettingsOpen(false) }, [assistant.open])
   const [settingsTab, setSettingsTab] = useState<'layout' | 'theme'>('layout')
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
-  const showInspector = editable
+  // Mounts with the stable desktop shell immediately; editing affordances still wait
+  // for assistant.loaded (lock state) via `editable`, so this never reflows later.
+  const showInspector = !mobile
   const showMinimap = settings.minimap === 'show' || (settings.minimap === 'auto' && !smallScreen)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const [activeEditor, setActiveEditor] = useState<Editor | null>(null)
@@ -536,12 +538,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         </button>
       </div>
       <div className="header-actions">
-        {editable && <div className="history-buttons" role="group" aria-label="Document history">
-          <button className="header-icon-btn" aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!history.canUndo} onClick={history.undo}><PanelIcon name="undo" /></button>
-          <button className="header-icon-btn" aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!history.canRedo} onClick={history.redo}><PanelIcon name="redo" /></button>
+        {showInspector && <div className="history-buttons" role="group" aria-label="Document history">
+          <button className="header-icon-btn" aria-label="Undo" title="Undo · Ctrl/⌘Z" disabled={!editable || !history.canUndo} onClick={history.undo}><PanelIcon name="undo" /></button>
+          <button className="header-icon-btn" aria-label="Redo" title="Redo · Ctrl/⌘Shift+Z" disabled={!editable || !history.canRedo} onClick={history.redo}><PanelIcon name="redo" /></button>
         </div>}
-        {editable && <button className="header-action-btn" aria-label="Add object" title="Add · right-click on canvas"
-          aria-haspopup="menu" aria-expanded={!!launchpadAnchor}
+        {showInspector && <button className="header-action-btn" aria-label="Add object" title="Add · right-click on canvas"
+          disabled={!editable} aria-haspopup="menu" aria-expanded={!!launchpadAnchor}
           onClick={event => {
             const box = event.currentTarget.getBoundingClientRect()
             setLaunchpadPoint(null)
@@ -550,12 +552,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           <PanelIcon name="plus" /><span>Add</span>
         </button>}
         <div className="header-zoom" ref={setZoomHost} />
-        {editable && <button className="header-icon-btn" aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'} title="Minimap" aria-pressed={showMinimap}
+        {showInspector && <button className="header-icon-btn" aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'} title="Minimap" aria-pressed={showMinimap}
           onClick={() => updateSettings({ ...settings, minimap: showMinimap ? 'hide' : 'show' })}><PanelIcon name="map" /></button>}
-        {editable && <>
-          <button className="header-icon-btn" aria-label="Share" title="Share or export" aria-haspopup="dialog" aria-expanded={shareOpen}
+        {showInspector && <>
+          <button className="header-icon-btn" aria-label="Share" title="Share or export" disabled={!editable} aria-haspopup="dialog" aria-expanded={shareOpen}
             onClick={() => setShareOpen(true)}><PanelIcon name="share" /></button>
-          <button className="header-icon-btn" aria-label="Settings" title="Settings" aria-haspopup="dialog" aria-expanded={settingsOpen}
+          <button className="header-icon-btn" aria-label="Settings" title="Settings" disabled={!editable} aria-haspopup="dialog" aria-expanded={settingsOpen}
             onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen) }}><PanelIcon name="settings" /></button>
         </>}
         <button className="preview-button" aria-label="Preview document" title="Preview in a new tab or window" disabled={preview.busy}
