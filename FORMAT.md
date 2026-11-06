@@ -224,14 +224,15 @@ override. Sparse overrides remain sparse and inherit from their saved parent.
 Flow Before omission means zero; Flow After omission follows the resolved
 Body `spaceAfter`.
 
-The default Title style inherits the Defaults family, is 2.5em, Bold (700),
-Gray 2, with 3.5em line height and 3em Before and After. Heading
-is 1.5em, Bold (700), Gray 2, 2em line height, 2em Before, and 1.5em After.
-Subheading is explicitly Bold (700). Body is
+Defaults' Before and After spacing are both 1em. The default Title style
+inherits the Defaults family, is 2.5em, Bold (700), Gray 2, with 3.5em line
+height and 3em Before and After. Heading is 1.5em, Bold (700), Gray 2, 2em
+line height, 2em Before, and 1.5em After. Subheading is explicitly Bold (700)
+with 1.5em Before, inheriting Defaults' After. Body is
 1em. Caption is 0.75em Gray 3 with 1.25em line height. List is 1em with
-0.375em After. The default Table object style is 1em; Code is 0.875em with
-1.375em line height; Formula inherits Defaults. Other omitted style
-properties inherit Defaults.
+0.375em Before and After. The default Table object style is 1em; Code is
+0.875em with 1.375em line height; Formula inherits Defaults. Other omitted
+style properties inherit Defaults.
 
 Adjacent main paragraphs and Flow blocks collapse their style spacing: the gap
 is the maximum of the preceding block's After and the following block's Before.
