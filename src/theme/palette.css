@@ -2,7 +2,7 @@
 .palette-control, .palette-preview { display: grid; gap: 8px; margin-top: 6px; min-width: 0; width: fit-content; max-width: 100%; }
 .palette-group { display: grid; grid-template-columns: repeat(3, max-content); gap: 6px 10px; }
 .palette-group-0 { grid-template-columns: repeat(2, max-content); }
-.palette-group-2 { grid-template-columns: repeat(6, max-content); gap: 6px; padding-top: 8px; border-top: 1px solid var(--ui-border); }
+.palette-group-2 { grid-template-columns: repeat(6, max-content); gap: 6px; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--ui-border); }
 .palette-pair { display: flex; gap: 6px; }
 .palette-control .palette-choice, .palette-preview-swatch { appearance: none; display: block; flex: none; width: 24px; height: 24px; margin: 0; padding: 0; border: 1px solid var(--ui-border-strong); border-radius: 3px; background: var(--swatch-color); cursor: pointer; }
 .palette-preview-swatch { cursor: default; }
