@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
-import { exportPng } from '../document/png'
+import { exportObjectPng, exportPng } from '../document/png'
 import { reconcileObjectDeletions } from '../document/flow'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
@@ -511,14 +511,15 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         const input = { snapshotDocument, documentVersion: snapshotDocument.version, original, target, segmentOriginalBlocks, segmentOriginalObjects,
           cloudDocumentId: connection.documentId, baseRevision: saved.revision }
         task = { ...task, ...input }; update(id, input)
-        const blob = await exportPng(snapshotDocument)
-        const snapshot = await new Promise<string>((resolve, reject) => {
+        const dataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
         })
+        const snapshot = await dataUrl(await exportPng(snapshotDocument))
+        const targetSnapshot = target.kind === 'object' ? await dataUrl(await exportObjectPng(snapshotDocument, target.objectId)) : undefined
         if (!preparing()) return
         const model = snapshotDocument.authoring?.aiModel?.trim()
         const creation = { executor, operationId: task.pendingExecutor?.operationId ?? task.id, prompt,
-          ...(model ? { model } : {}), snapshot }
+          ...(model ? { model } : {}), snapshot, ...(targetSnapshot ? { targetSnapshot } : {}) }
         if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
         task = { ...task, requestSent: true, creation }
         update(id, { requestSent: true, creation })

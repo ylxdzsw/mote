@@ -1,13 +1,13 @@
-# Mote native format reference — V1–V4
+# Mote native format reference — V1–V5
 
-This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1–V4 are closed schemas. A document has `format:"mote"` and numeric `version:1`, `2`, `3`, or `4`; V2 adds Slides, V3 adds optional table color pairs, and V4 restricts saved theme font weights to Regular (400) or Bold (700). Mote migrates older documents in memory at its load boundary. The breaking V3→V4 migration maps each explicit saved weight below 550 to 400 and each weight at least 550 to 700, preserving sparse inheritance, IDs, and unrelated data; it does not add Heading overrides. If unresolved AI tasks exist, the owner must choose Upgrade (releasing tasks and revoking their grants) or Decline (read-only at the stored version). New documents use V4, while task snapshots retain their pinned version. Unknown versions and fields are unsupported. Preserve unsupported inputs and report the issue; agents do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
+This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. V1–V5 are closed schemas. A document has `format:"mote"` and numeric `version:1`, `2`, `3`, `4`, or `5`; V2 adds Slides, V3 adds optional table color pairs, and V4 restricts saved theme font weights to Regular (400) or Bold (700). Mote migrates older documents in memory at its load boundary. The breaking V3→V4 migration maps each explicit saved weight below 550 to 400 and each weight at least 550 to 700, preserving sparse inheritance, IDs, and unrelated data; it does not add Heading overrides. If unresolved AI tasks exist, the owner must choose Upgrade (releasing tasks and revoking their grants) or Decline (read-only at the stored version). The non-breaking V4→V5 migration changes only `version`; V5 adds optional permanent markup to images and HTML widgets. New documents use V5, while task snapshots retain their pinned version. Unknown versions and fields are unsupported. Preserve unsupported inputs and report the issue; agents do not convert, extend, or repair them. The `mote-agent-v1` task transport protocol is separate from the native document version.
 
 ## Document envelope and theme
 
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4
+  version: 1 | 2 | 3 | 4 | 5
   id: string
   language: 'en' | 'zh-Hans'
   page: { width: number; margins: Insets; slideHeight?: number } // slideHeight is V2+
@@ -45,7 +45,7 @@ type Theme = {
 }
 ```
 
-Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2+. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Theme font weights are version-dependent: V1–V3 accept finite values from 1 through 1000; V4 accepts exactly 400 or 700. This applies to `theme.defaults.weight` and every saved paragraph, table, or Code weight override. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
+Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2+. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Theme font weights are version-dependent: V1–V3 accept finite values from 1 through 1000; V4+ accepts exactly 400 or 700. This applies to `theme.defaults.weight` and every saved paragraph, table, or Code weight override. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
 
 `theme.defaults` is complete. Paragraph/object style overrides are sparse and inherit omitted properties from Defaults. `theme.objects` has only the shown table, code, and formula overrides. New-document Title, Heading, and Subheading presets each explicitly use weight 700; missing overrides in an existing theme remain inherited, with no implicit Subheading fallback. Flow Before omission means zero; Flow After omission follows resolved Body `spaceAfter`. Do not add a palette, page-background field, or custom theme key.
 
@@ -181,7 +181,7 @@ type Placement =
   | { type: 'float'; anchorId: string | null; x: number; y: number }
 ```
 
-All saved geometry is inside `layout`. Never put top-level `x`, `y`, `width`, `height`, `margins`, `placement`, `anchorId`, or `centered` fields on a native object. `layout.width` is positive. Only Drawing and HTML require positive saved `layout.height`. If present, `layout.margins` has all four finite signed pixel sides; omission means zero. Margins change the body-and-caption layout footprint, not body dimensions.
+Saved object placement and body geometry are inside `layout`; V5 `markup.width`/`height` only describe its internal reference coordinate viewport. Never put top-level `x`, `y`, `width`, `height`, `margins`, `placement`, `anchorId`, or `centered` fields on a native object. `layout.width` is positive. Only Drawing and HTML require positive saved `layout.height`. If present, `layout.margins` has all four finite signed pixel sides; omission means zero. Margins change the body-and-caption layout footprint, not body dimensions.
 
 - **Flow:** every Flow object has exactly one top-level Flow atom with its own distinct block ID. The atom supplies block position. Its object placement is `{type:'flow',x:number|'center'}` with no anchor or saved `y`. Numeric x is relative to the text-column left; `"center"` centers in that column. The object occupies real normal flow at its natural rendered height.
 - **Style spacing:** adjacent paragraphs and Flow blocks use the maximum of the preceding After and following Before. At the document edges, style spacing also collapses with the top/bottom page margin to their maximum. Object margins extend the body-and-caption layout footprint and stay additive, never collapsed. Explicit space blocks add their height to the surrounding collapsed style gap. Omitted Flow Before is zero; omitted Flow After follows Body.
@@ -191,14 +191,14 @@ All saved geometry is inside `layout`. Never put top-level `x`, `y`, `width`, `h
 | --- | --- | --- |
 | `text` | `content` | `padding`, `decoration` |
 | `table` | `content` | `style`, `headerRow`, `caption`, `color` (V3+) |
-| `image` | `src`, `alt` | `caption` |
+| `image` | `src`, `alt` | `caption`, `markup` (V5+) |
 | `drawing` | `strokes`, `labels`, `background` | — |
 | `formula` | `latex` | — |
 | `code` | `source`, `language` | — |
-| `html` | `html`, `screenshot`, `alt` | `caption` |
+| `html` | `html`, `screenshot`, `alt` | `caption`, `markup` (V5+) |
 
 - **Text:** `content` is a nonempty rich `TextDoc`. Optional `padding` is a nonnegative `Length`; omission means zero unless decorated, when presentation uses `0.75em`. Optional `decoration` is exactly `{kind:'left'|'box',color:PairColor}`. Omit it rather than storing null. Do not add `background` or `borderColor`.
-- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3+, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Never add `color` to a candidate pinned to V1/V2. A header row's bold appearance is weight 600 in V1–V3 and 700 in V4.
+- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3+, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Never add `color` to a candidate pinned to V1/V2. A header row's bold appearance is weight 600 in V1–V3 and 700 in V4+.
 - **Image:** `src` is embedded image data, never a path or remote URL; `alt` is accessible descriptive text. Image dimensions derive from intrinsic ratio and layout width.
 - **Drawing:** positive layout height; `strokes` is an array of `{points:[[x,y],...],color,width}`. Each stroke has at least one finite point relative to the drawing top-left, a fixed-palette color, and positive document-pixel width. `labels` is an array of `{x,y,text,color,size}` with finite top-left-relative positions, fixed-palette color, and positive pixel font size. `background` is exactly `"gray6"` or `null`. Resizing scales point/label positions but preserves stroke widths and label sizes.
 - **Formula:** `latex` is the source string rendered by KaTeX; there is no saved height. Candidate LaTeX has no `$`/`$$` delimiters.
@@ -208,6 +208,42 @@ All saved geometry is inside `layout`. Never put top-level `x`, `y`, `width`, `h
 Native image data is embedded PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG; each decoded image is limited to 10 MiB. PNG signatures are checked. Do not embed remote URLs or executable image formats.
 
 Captions belong only to image, HTML, and table objects. Exact shape: `{content:CaptionDoc,width?:number}`. `CaptionDoc` has exactly one paragraph whose attrs contain only its ID; the paragraph uses shared inline grammar, not a semantic class. Optional width is positive document pixels. Captions are centered below their owner and participate in its composition/Flow height; they have no object ID, layout, independent position, or detach state. Omitted width follows owner width; explicit width stays fixed during owner resizing.
+
+### Permanent object markup (V5+)
+
+Only image and HTML objects may contain optional `markup`:
+
+```ts
+type ObjectMarkup = {
+  width: number
+  height: number
+  strokes: { points: [number, number][]; color: PaletteRef; width: number }[]
+  labels: { x: number; y: number; text: string; color: PaletteRef; size: number }[]
+}
+```
+
+Both dimensions are positive finite reference-viewport coordinates, not owner
+layout dimensions. All four fields are required, with the exact Drawing
+stroke/label grammar, fixed palette, finite coordinates, positive stroke widths
+and label sizes, and the same limits: 10,000 strokes, 100,000 total points,
+1,000 labels, and 4,096 characters per label. No `id`, `layout`, `background`,
+unknown fields, or native `null` value is allowed. V1–V4 and other object kinds
+reject `markup`.
+
+Markup is transparent, permanent owner content above the image or HTML body,
+not a separate object or caption. Its reference viewport scales to the owner's
+rendered body rectangle (independently in x/y, including strokes and labels),
+without rewriting the saved reference coordinates on resize. It does not change
+layout, source image data, HTML source, or the saved widget screenshot. Ordinary
+source edits retain it. It travels with its owner through native serialization,
+copy/paste, reservations, and exports; it adds no IDs or anchors.
+
+For an individual-object AI candidate, omit `markup` to preserve existing
+markup, or supply a complete replacement. To explicitly clear it, supply a
+valid reference viewport with `strokes:[]` and `labels:[]`; bare `{}` or `null`
+is invalid. An empty markup has no visible content. A complete segment candidate
+owns its composition and must retain any desired markup on its objects. Do not
+add markup to candidates pinned to V1–V4.
 
 ## Complete candidate examples
 
@@ -352,4 +388,4 @@ The segment `content` array may be empty only for an intentional empty replaceme
 
 ## Validation and practical limits
 
-Validation is strict over received JSON. Unknown fields are rejected; do not normalize input through an editor schema before validating it. There is no arbitrary extension bag, custom colors, custom nodes/marks, or agent-side legacy conversion. V1–V4 are the supported native versions; retained task snapshots remain pinned and are not converted. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and drawing caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).
+Validation is strict over received JSON. Unknown fields are rejected; do not normalize input through an editor schema before validating it. There is no arbitrary extension bag, custom colors, custom nodes/marks, or agent-side legacy conversion. V1–V5 are the supported native versions; retained task snapshots remain pinned and are not converted. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and per-Drawing/per-markup caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).

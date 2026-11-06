@@ -1,6 +1,6 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { isText, supportsCaption, tableStyles, type FloatingObject, type FloatingFormula, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
+import { isText, supportsCaption, supportsMarkup, tableStyles, type FloatingObject, type FloatingFormula, type FloatingHTMLWidget, type FloatingPatch, type Theme, type ThemeLength } from '../document/model'
 import { WidgetEditor } from './WidgetEditor'
 import { NumberField, pixels, classLabel } from '../theme/ThemePanel'
 import { PaletteControl } from '../theme/PaletteControl'
@@ -39,6 +39,7 @@ interface Props {
   screenshotOffline: boolean
   onReplaceImage: () => void
   onDrawingEdit: () => void
+  onMarkupEdit: () => void
   reserved?: boolean
   newAIObject?: boolean
   onOpenTask?: () => void
@@ -46,7 +47,7 @@ interface Props {
 
 export const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'formula' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, reserved, newAIObject, onOpenTask }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onMarkupEdit, reserved, newAIObject, onOpenTask }: Props) {
   const katex = object.kind === 'formula' ? object as FloatingFormula : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -96,6 +97,10 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       </div>
       {!reserved && <>
       {object.kind === 'drawing' && <button onClick={onDrawingEdit}>Edit drawing…</button>}
+      {supportsMarkup(object) && <div className="inspector-stack">
+        <button disabled={imageLoading || widget !== null && screenshotStatus?.objectId === widget.id && screenshotStatus.pending} onClick={onMarkupEdit}>Edit markup…</button>
+        {widget && <p className="hint">Markup uses the saved screenshot. Update screenshot below before drawing to refresh it.</p>}
+      </div>}
       {object.kind === 'code' && <label className="inspector-field inspector-field-native"><span className="field-heading">Language</span><select aria-label="Code language" value={object.language} onChange={event => onChange({ language: event.target.value })}>
           {codeLanguages.map(language => <option key={language.value} value={language.value}>{language.label}</option>)}
           {!codeLanguages.some(language => language.value === object.language) && <option value={object.language} disabled>{object.language || 'Unknown'} (plain text)</option>}
@@ -217,7 +222,7 @@ function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffli
     <InspectorGroup title="Content">
       <InspectorRow><button onClick={() => setEditorId(value.id)}>Edit code…</button><button onClick={onRun}>Run / Restart</button></InspectorRow>
       <button disabled={screenshotOffline || screenshotStatus?.pending} aria-busy={status?.pending || undefined}
-        title="Capture a fresh run of saved code for the minimap and PNG export"
+        title="Capture a fresh run of saved code for markup, the minimap, and PNG export; not the current interactive state"
         onClick={() => onUpdateScreenshot(value)}>{status?.pending ? 'Capturing…' : 'Update screenshot'}</button>
       {value.screenshot === WIDGET_SCREENSHOT_PLACEHOLDER && <p className="hint">No screenshot yet.</p>}
       {screenshotOffline && <p className="hint">Reconnect to update the screenshot.</p>}

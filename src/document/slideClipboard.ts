@@ -9,7 +9,7 @@ export interface SlideSelection { first: number; last: number }
 export interface SlidesClipboard {
   version: 1
   type: 'slides'
-  documentVersion: 2 | 3 | 4
+  documentVersion: 2 | 3 | 4 | 5
   slideHeight: number
   content: JSONContent[]
   objects: FloatingObject[]
@@ -53,7 +53,7 @@ export function copySlides(doc: MoteDocument, selection: SlideSelection): Slides
 function validateSlides(value: unknown): asserts value is SlidesClipboard {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Mote slides')
   const payload = value as SlidesClipboard
-  if (payload.version !== 1 || payload.type !== 'slides' || ![2, 3, 4].includes(payload.documentVersion)) throw new Error('Unsupported Mote slides version')
+  if (payload.version !== 1 || payload.type !== 'slides' || ![2, 3, 4, 5].includes(payload.documentVersion)) throw new Error('Unsupported Mote slides version')
   if (Object.keys(payload).some(key => !['version', 'type', 'documentVersion', 'slideHeight', 'content', 'objects'].includes(key))
     || typeof payload.slideHeight !== 'number' || !Number.isFinite(payload.slideHeight) || payload.slideHeight <= 0) throw new Error('Invalid Mote slides')
   validateComposition(payload.content, payload.objects, { slides: true, version: payload.documentVersion })

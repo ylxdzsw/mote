@@ -1,9 +1,10 @@
-# Mote document formats V1–V4
+# Mote document formats V1–V5
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1`, `2`, `3`, or `4`. V1 is the
+exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, or `5`. V1 is the
 original continuous-page format. V2 adds Slides; V3 adds optional table color
 pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
+V5 adds optional permanent image/HTML markup without changing unmarked objects.
 Unknown versions and unknown fields are rejected; there is no extension bag or
 implicit compatibility mode.
 
@@ -38,12 +39,13 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | V1 → V2 | No | Sets `version: 2`; no `slideHeight`, so Slides stay off |
 | V2 → V3 | No | Sets `version: 3`; omitted table colors retain prior styling |
 | V3 → V4 | Yes | Maps each explicit saved theme font weight below 550 to 400 and each weight at least 550 to 700; omitted overrides stay omitted; V4 table headers render at 700 instead of 600 |
+| V4 → V5 | No | Sets `version: 5`; omitted image/HTML markup retains the original rendering |
 
 For V3 → V4, the explicit weights are `theme.defaults.weight`, any
 `theme.paragraphs.*.weight`, and `theme.objects.table.weight` or
 `theme.objects.code.weight`. The migration does not add sparse overrides or
 special-case Heading weights; omitted values continue to inherit from the
-converted parent/default. Other fields, IDs, and data are unchanged. V4's validator accepts only 400 or 700 for these
+converted parent/default. Other fields, IDs, and data are unchanged. V4+'s validator accepts only 400 or 700 for these
 fields; V1–V3 retain their 1–1000 range, including for pinned snapshots.
 
 Migration happens in memory. Loading never writes by itself. The next ordinary
@@ -67,7 +69,7 @@ retried automatically. The agent transport identifier `mote-agent-v1` is a
 separate protocol version and does not replace the document's numeric
 `version`.
 
-V1, V2, and V3 load as V4; V1 keeps Slides off. V1 → V2 and V2 → V3 are
+V1–V4 load as V5; V1 keeps Slides off. V1 → V2, V2 → V3, and V4 → V5 are
 non-breaking; V3 → V4 is breaking. New documents, saves of opened documents,
 exports, and new task inputs use the current version. `validateDocument`
 still accepts every supported version, so pinned task snapshots and stored
@@ -80,7 +82,7 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4
+  version: 1 | 2 | 3 | 4 | 5
   id: string
   language: 'en' | 'zh-Hans'
   page: {
@@ -216,7 +218,7 @@ pixels. `LineHeight` may instead use `{value,unit:'ratio'}`, which multiplies
 the resolved style font size. Default size, override sizes, and line height
 must be positive. Before/After spacing and text padding are nonnegative;
 letter spacing may be signed. Font weight is version-dependent: V1–V3 accept
-finite values from 1 through 1000; V4 accepts exactly 400 or 700. This applies
+finite values from 1 through 1000; V4+ accepts exactly 400 or 700. This applies
 to `theme.defaults.weight` and every saved paragraph, table, or Code weight
 override. Sparse overrides remain sparse and inherit from their saved parent.
 Flow Before omission means zero; Flow After omission follows the resolved
@@ -366,7 +368,8 @@ type Placement =
   | { type: 'float'; anchorId: string | null; x: number; y: number }
 ```
 
-`layout` is the only stored location for geometry. Do not store top-level
+`layout` is the only stored location for object placement and body geometry.
+V5 `markup.width`/`height` describe only its internal reference coordinate viewport. Do not store top-level
 `x`, `y`, `width`, `height`, `margins`, `placement`, `anchorId`, or
 `centered`. Flow placement has no saved anchor or y coordinate. Its one main
 Flow atom supplies its position in block order; numeric Flow x is an offset
@@ -397,11 +400,11 @@ and `layout`.
 | --- | --- | --- |
 | `text` | `content` | `padding`, `decoration` |
 | `table` | `content` | `style`, `headerRow`, `caption`, `color` (V3+) |
-| `image` | `src`, `alt` | `caption` |
+| `image` | `src`, `alt` | `caption`, `markup` (V5+) |
 | `drawing` | `strokes`, `labels`, `background` | — |
 | `formula` | `latex` | — |
 | `code` | `source`, `language` | — |
-| `html` | `html`, `screenshot`, `alt` | `caption` |
+| `html` | `html`, `screenshot`, `alt` | `caption`, `markup` (V5+) |
 
 * **Text:** `content` is a rich doc as above. Optional `padding` is a
   nonnegative `Length`; omission is zero unless decorated, when rendering uses
@@ -418,7 +421,7 @@ and `layout`.
   Business uses Strong for its header band/border and Soft for stripes. Academic
   ignores color but retains it. Omission preserves Gray 4/Gray 5 for Simple and
   Secondary for Business. V1/V2 reject `color`. Cell paragraph styling is fixed.
-  A header row's bold appearance is weight 600 in V1–V3 and 700 in V4.
+  A header row's bold appearance is weight 600 in V1–V3 and 700 in V4+.
 * **Image:** `src` is embedded image data, not a path or remote URL. `alt` is
   accessible descriptive text. Image dimensions derive from its intrinsic
   ratio and saved layout width. An image may own a caption.
@@ -453,6 +456,42 @@ may overhang within the page. They have no own object ID, layout, position,
 placement, or detach state. Caption selection/editing and width controls are
 separate from the owner; deleting or cutting only a caption leaves its owner.
 
+### Permanent object markup (V5+)
+
+Only image and HTML objects may contain optional `markup`:
+
+```ts
+type ObjectMarkup = {
+  width: number
+  height: number
+  strokes: { points: [number, number][]; color: PaletteRef; width: number }[]
+  labels: { x: number; y: number; text: string; color: PaletteRef; size: number }[]
+}
+```
+
+Both dimensions are positive finite reference-viewport coordinates, not owner
+layout dimensions. All four fields are required, with the exact Drawing
+stroke/label grammar, fixed palette, finite coordinates, positive stroke widths
+and label sizes, and the same limits: 10,000 strokes, 100,000 total points,
+1,000 labels, and 4,096 characters per label. No `id`, `layout`, `background`,
+unknown fields, or native `null` value is allowed. V1–V4 and other object kinds
+reject `markup`.
+
+Markup is transparent, permanent owner content above the image or HTML body,
+not a separate object or caption. Its reference viewport scales to the owner's
+rendered body rectangle (independently in x/y, including strokes and labels),
+without rewriting the saved reference coordinates on resize. It does not change
+layout, source image data, HTML source, or the saved widget screenshot. Ordinary
+source edits retain it. It travels with its owner through native serialization,
+copy/paste, reservations, and exports; it adds no IDs or anchors.
+
+For an individual-object AI candidate, omit `markup` to preserve existing
+markup, or supply a complete replacement. To explicitly clear it, supply a
+valid reference viewport with `strokes:[]` and `labels:[]`; bare `{}` or `null`
+is invalid. An empty markup has no visible content. A complete segment candidate
+owns its composition and must retain any desired markup on its objects. Do not
+add markup to candidates pinned to V1–V4.
+
 ## Validation, limits, and interchange
 
 Validation is strict over the received JSON. Unknown fields are rejected; do
@@ -467,10 +506,10 @@ characters, except `alt` (4096 characters) and `authoring.aiModel` (256
 characters; no control characters).
 Documents are limited to 100,000 nodes and depth 100. Image data is embedded
 as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
-per image; PNG signatures are checked. Drawings allow at most 10,000 strokes,
+per image; PNG signatures are checked. Each Drawing or object markup allows at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain a V1, V2, V3, or V4 document and embedded assets; native saves
+Native `.mote` files contain a V1, V2, V3, V4, or V5 document and embedded assets; native saves
 preserve `authoring`. Public projection validates the document and returns a
 clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
@@ -490,7 +529,7 @@ native document version.
 Slide-aware segment transfers use `version:2` with the same envelope fields,
 permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
 whole-slide clipboard uses its distinct `type:"slides"` envelope with
-`documentVersion:2|3|4` declaring its native object schema. AI V2 segments
+`documentVersion:2|3|4|5` declaring its native object schema. AI V2 segments
 require a Slides document and retain internal boundaries in the reserved range.
 The leading boundary may be omitted; application preserves the original boundary
 IDs and remaps marker-anchored Floats. Empty candidates clear content without

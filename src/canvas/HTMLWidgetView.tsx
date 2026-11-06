@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import type { FloatingHTMLWidget } from '../document/model'
+import { MarkupView } from './DrawingView'
 import './embeds.css'
 
 function page(html: string) {
@@ -18,11 +19,12 @@ export function HTMLWidgetView({ note, editable, selected, run, staticOnly, rest
     if (execution.html !== note.html) setExecution({ run, html: note.html })
   }
   const interactive = !editable || selected
-  return <div className="html-widget">
+  return <div className="html-widget" style={{ position: 'relative' }}>
     <img className={`widget-screenshot${staticOnly ? ' is-static' : ''}`} src={note.screenshot} alt={note.alt} draggable={false} />
     {!staticOnly && <div className="widget-live" data-widget-live="">
       <iframe key={execution.run} title={note.alt || 'HTMLWidget'} sandbox="allow-scripts" srcDoc={page(execution.html)}
         tabIndex={interactive ? 0 : -1} inert={!interactive} style={{ pointerEvents: interactive ? 'auto' : 'none' }} />
     </div>}
+    {note.markup && <MarkupView markup={note.markup} />}
   </div>
 }

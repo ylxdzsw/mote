@@ -8,7 +8,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { replaceMainContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { replaceMainContent, supportsMarkup, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { useWidgetScreenshot } from './useWidgetScreenshot'
@@ -25,6 +25,7 @@ import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
 import { FloatingInspector, kindName } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
+import { MarkupEditor } from './MarkupEditor'
 import { patchFloating } from '../canvas/patchFloating'
 import { constrainCaptionResize, extentBounds } from '../canvas/floatingGeometry'
 import { reconcileObjectDeletions } from '../document/flow'
@@ -144,6 +145,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     : undefined
   const [drawingId, setDrawingId] = useState<string | null>(null)
   const drawing = doc?.objects.find(object => object.id === drawingId)
+  const [markupTarget, setMarkupTarget] = useState<{ documentId: string; id: string; size: { width: number; height: number } } | null>(null)
+  const markupObject = doc?.objects.find(object => object.id === markupTarget?.id)
+  const markupEditable = editable && markupTarget?.documentId === doc?.id && markupObject && supportsMarkup(markupObject)
+    && !assistant.lockedIds.has(markupObject.id) && selectedIds.length === 1 && selectedIds[0] === markupObject.id && !selectedCaptionId
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string } | null>(null)
   const [imageError, setImageError] = useState('')
@@ -153,6 +158,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useEffect(() => {
     if (drawingId && (!editable || drawing?.kind !== 'drawing' || assistant.lockedIds.has(drawingId))) setDrawingId(null)
   }, [drawingId, drawing, editable, assistant.lockedIds])
+
+  useEffect(() => { if (!markupEditable) setMarkupTarget(null) }, [markupEditable])
 
   useEffect(() => {
     if (editable) return
@@ -278,12 +285,33 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
 
   function editDrawing(id: string) {
+    setMarkupTarget(null)
     history.boundary(); setActiveEditor(null); setTool(null); setDrawingId(id)
   }
 
   function closeDrawing() {
     history.boundary(); setDrawingId(null)
     requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>(`[data-note-id="${drawingId}"]`)?.focus({ preventScroll: true }))
+  }
+
+  function editMarkup() {
+    if (!editable || !doc || !selectedObject || !supportsMarkup(selectedObject) || assistant.lockedIds.has(selectedObject.id)) return
+    let size = { width: selectedObject.layout.width, height: selectedObject.kind === 'html' ? selectedObject.layout.height : 0 }
+    if (selectedObject.kind === 'image') {
+      const element = workspace.current?.querySelector<HTMLElement>(`[data-note-id="${selectedObject.id}"]`)
+      const image = element?.querySelector<HTMLImageElement>('.object-body img')
+      if (!image?.naturalWidth || !image.naturalHeight) { setImageError('The image has not loaded. Try Edit markup again when it is visible.'); return }
+      const rect = image.getBoundingClientRect(), outer = element!.getBoundingClientRect()
+      const width = rect.width && outer.width ? rect.width / outer.width * selectedObject.layout.width : selectedObject.layout.width
+      size = { width, height: width * image.naturalHeight / image.naturalWidth }
+    }
+    history.boundary(); setImageError(''); setActiveEditor(null); setTool(null); setDrawingId(null)
+    setMarkupTarget({ documentId: doc.id, id: selectedObject.id, size })
+  }
+
+  function closeMarkup() {
+    history.boundary(); setMarkupTarget(null)
+    requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>(`[data-note-id="${markupTarget?.id}"]`)?.focus({ preventScroll: true }))
   }
 
   function reorder(front: boolean) {
@@ -628,6 +656,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onWidgetRun={runWidget}
                   onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
+                  onMarkupEdit={editMarkup}
                   reserved={!!selectedObjectTask}
                   newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew}
                   onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} /></>
@@ -673,6 +702,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       <DrawingEditor key={drawing.id} drawing={drawing} theme={doc.theme}
         maxWidth={drawing.layout.placement.type === 'flow' ? doc.page.width - doc.page.margins.left - doc.page.margins.right : doc.page.width}
         signedY={doc.content.content!.some(node => node.type === 'flow' && node.attrs?.id === objectAnchorId(drawing, doc.content))} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
+      document.querySelector('.app')!)}
+    {markupEditable && markupTarget && markupObject && supportsMarkup(markupObject) && createPortal(
+      <MarkupEditor key={markupObject.id} object={markupObject} size={markupTarget.size} theme={doc.theme}
+        onChange={markup => updateObject(markupObject.id, { markup })} onClose={closeMarkup} />,
       document.querySelector('.app')!)}
     {editable && <Launchpad
       slides={doc.page.slideHeight !== undefined}

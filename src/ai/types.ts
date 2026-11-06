@@ -44,7 +44,7 @@ export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
   documentId: string; target: AITarget; prompt: string; original: FloatingObject | JSONContent[] | SegmentClipboard
   status: RemoteTask['status'] | 'draft' | 'preparing'; submitted: boolean; preview: boolean
   requestSent?: boolean
-  creation?: { executor: Executor; operationId: string; prompt: string; model?: string; snapshot: string }
+  creation?: { executor: Executor; operationId: string; prompt: string; model?: string; snapshot: string; targetSnapshot?: string }
   pendingExecutor?: { executor: Executor; operationId: string; baseExecutorRevision?: number }
   pendingWorkspaceRead?: { enabled: boolean; baseWorkspaceReadRevision: number; operationId: string }
   workspaceReadConfirmed?: boolean

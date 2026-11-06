@@ -10,14 +10,14 @@ pins its immutable document inputs and target. Existing task artifacts and
 unresolved work are preserved; legacy task-local guides are not converted or
 rewritten.
 
-The supported native document formats are V1–V4 (`format: 'mote',
-version: 1 | 2 | 3 | 4`); the separate task transport protocol remains
+The supported native document formats are V1–V5 (`format: 'mote',
+version: 1 | 2 | 3 | 4 | 5`); the separate task transport protocol remains
 `mote-agent-v1`. New tasks pin the exact native version and snapshot.
 See [FORMAT.md](../FORMAT.md) for the normative schema.
 
 ## Native Flow and Float contract
 
-Cloud documents use the V1, V2, V3, or V4 `MoteDocument` directly in storage and on the wire.
+Cloud documents use the V1, V2, V3, V4, or V5 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
 each object's `layout`. There is no V0 runtime adapter or extension bag;
 older supported versions migrate only through `loadDocument`. V1 keeps its existing strict continuous-page schema. V2
@@ -107,6 +107,24 @@ user context, but candidates cannot target or edit them. Public shares and
 HTML exports omit the entire `authoring` object; native `.mote` exports retain
 it.
 
+## Native permanent markup (V5+)
+
+V5 adds optional `markup:{width,height,strokes,labels}` only to image and HTML
+objects. Width/height are positive finite reference-viewport dimensions;
+strokes/labels share Drawing's exact closed shapes, palette rules, and bounds.
+There is no markup ID, layout, or background. The reference viewport scales to
+the owner body without changing source data or the saved widget screenshot.
+V1–V4 snapshots reject markup and remain pinned without conversion.
+
+The V4→V5 load migration is non-breaking, pure, ID-preserving, and changes only
+`version`. Existing tasks continue under their pinned schemas. An ordinary
+individual-object candidate omitting markup preserves the original same-kind
+owner's markup. A supplied markup fully replaces it; positive reference dimensions
+and empty `strokes`/`labels` explicitly clear it. Native/candidate `null` and bare
+`{}` are invalid. Empty markup remains explicit through backend normalization so
+acceptance cannot mistake clearing for omission. Complete segment candidates
+must carry markup they intend to retain. See FORMAT.md for the exact grammar.
+
 ## Native fixed palette contract
 
 `theme.appearance` contains `mode:'light'|'dark'`, `primaryHue`, and
@@ -136,17 +154,17 @@ and hues.
 ## Native theme font weights
 
 V1–V3 theme weights remain finite values from 1 through 1000, including in
-pinned task snapshots. V4 accepts only 400 (Regular) or 700 (Bold) for
+pinned task snapshots. V4+ accepts only 400 (Regular) or 700 (Bold) for
 `theme.defaults.weight`, sparse paragraph weight overrides, and table/Code
 object weight overrides. New Title, Heading, and Subheading presets explicitly
 use 700. Sparse older overrides remain sparse; the V3→V4 migration quantizes
 only explicit saved weights (below 550 to 400, at least 550 to 700) and does
 not add Heading overrides. Table header rows render at weight 600 for V1–V3
-and 700 for V4. See [FORMAT.md](../FORMAT.md) for the full migration contract.
+and 700 for V4+. See [FORMAT.md](../FORMAT.md) for the full migration contract.
 
 ## Private task API
 
-New tasks pin their exact V1, V2, V3, or V4 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2 | 3 | 4`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
+New tasks pin their exact V1, V2, V3, V4, or V5 document snapshot, target, and supplied visual context; the task protocol remains `mote-agent-v1` and `documentVersion` is `1 | 2 | 3 | 4 | 5`. They do not pin public skills or a guide digest. Existing cloud documents, task artifacts, and unresolved AI state are preserved. Task snapshots are never converted; retained snapshots keep their version.
 
 Document migration follows [FORMAT.md → Versioning and migration](../FORMAT.md#versioning-and-migration). When the owner's document migrates past a task's pinned version along a non-breaking path, the task continues unchanged. Its candidates validate against the pinned version and pass through the same migration steps on acceptance. A breaking path requires owner confirmation first. Upgrade releases every unresolved task on that document and permanently revokes its grants (HTTP 404 afterward). Decline keeps the document read-only at its stored version and leaves tasks inspectable. Any operation that would interpret or mutate an unsupported task input fails explicitly, without deleting the task or automatically retrying generation.
 
@@ -162,7 +180,13 @@ without changing the persisted token. `waiting` means an external task awaits a
 candidate; existing candidate records may coexist.
 
 - **POST `/api/ai/tasks`** takes the validated snapshot body, `executor` (default
-  builtin), and an `operationId` UUID. Built-in creation uses the explicit task-request `model`
+  builtin), and an `operationId` UUID. Optional `snapshot` is a bounded PNG data
+  URL for the full document. Optional `targetSnapshot` uses the same PNG limits
+  and is accepted only for an object target; the client renders that body at 2×
+  through the shared reader, excluding its caption and neighboring objects.
+  Permanent markup is included; HTML uses the saved screenshot, without live
+  execution or capture. Both images are immutable and retained on retry.
+  Built-in creation uses the explicit task-request `model`
   (the client sources a document override from `authoring.aiModel`) or the
   workspace built-in default.
   Without either, it returns 400 with Settings guidance and creates no task;
@@ -250,7 +274,8 @@ and delivery details appropriate to the executor.
 - GET `manifest.json` provides `protocol:'mote-agent-v1'`, `taskId`, `executor`,
   `executorRevision`, global `candidateRevision`, the allowed task resource
   paths, and task instructions. It has no skill/guide version field.
-- The immutable `document.json`, `target.json`, and optional `snapshot.png`
+- The immutable `document.json`, `target.json`, optional `snapshot.png`, and
+  optional object-body `target.png` (advertised only when supplied)
   remain pinned task inputs. Built-in task briefs provide local paths and the
   task-local Unix socket. External briefs provide the HTTPS base URL. Both use
   the same resource and candidate contract.

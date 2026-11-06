@@ -498,8 +498,11 @@ export class TaskManager {
     this.assertSupported(task)
     if (task.request) return task.request
     const document = validateDocument(await jsonFile(path.join(task.dir, 'input', 'document.json'), MAX_BODY, 'document snapshot'))
-    let snapshot = undefined; try { const stat = await fs.lstat(path.join(task.dir, 'input', 'snapshot.png')); if (stat.isFile() && !stat.isSymbolicLink()) snapshot = true } catch {}
-    task.request = { id: task.id, document, target: task.meta.target, prompt: task.meta.prompt, model: task.meta.model, snapshot }
+    const visuals = {}
+    for (const [key, name] of [['snapshot', 'snapshot.png'], ['targetSnapshot', 'target.png']]) {
+      try { const stat = await fs.lstat(path.join(task.dir, 'input', name)); if (stat.isFile() && !stat.isSymbolicLink()) visuals[key] = true } catch {}
+    }
+    task.request = { id: task.id, document, target: task.meta.target, prompt: task.meta.prompt, model: task.meta.model, ...visuals }
     return task.request
   }
 
@@ -725,14 +728,15 @@ export class TaskManager {
       }
       if (request.method !== 'GET') throw new HttpError(404, 'not found')
       let data, type = 'text/plain; charset=utf-8', download = false
-      const files = { 'document.json': MAX_BODY, 'target.json': MAX_RESULT, 'snapshot.png': MAX_SCREENSHOT }
+      const files = { 'document.json': MAX_BODY, 'target.json': MAX_RESULT, 'snapshot.png': MAX_SCREENSHOT, 'target.png': MAX_SCREENSHOT }
+      const available = (name, input) => name === 'snapshot.png' ? input.snapshot : name === 'target.png' ? input.targetSnapshot : true
       if (task.meta.guideVersion) Object.assign(files, { 'guide.md': MAX_RESULT, 'submit.mjs': MAX_RESULT, 'preview.mjs': MAX_RESULT, 'preview-harness.html': MAX_RESULT })
       const workspace = () => task.meta.workspaceRead && task.meta.documentId
         ? { 'workspace-index.md': `${base}/workspace-index.md`, 'workspace-document.json': `${base}/workspace-document.json` } : {}
       if (!resource) {
         await this.loadRequest(task)
         type = 'text/markdown; charset=utf-8'
-        const names = ['manifest.json', ...Object.keys(files).filter(name => name !== 'snapshot.png' || task.request.snapshot), ...Object.keys(workspace()), 'instructions.md', 'candidate.json', 'candidates.json']
+        const names = ['manifest.json', ...Object.keys(files).filter(name => available(name, task.request)), ...Object.keys(workspace()), 'instructions.md', 'candidate.json', 'candidates.json']
         data = `${this.instructions(task, scope)}\n\n## Task resources\n${names.map(name => `- [${name}](${base}/${name})`).join('\n')}\n`
       } else if (resource === 'manifest.json') {
         const input = await this.loadRequest(task)
@@ -743,7 +747,7 @@ export class TaskManager {
           ...(task.meta.candidateRef ? { candidateRef: task.meta.candidateRef } : {}),
           workspaceRead: task.meta.workspaceRead, workspaceReadRevision: task.meta.workspaceReadRevision,
           ...(!scope ? { expiresAt: this.externalAccessUntil(task) } : {}),
-          resources: { ...Object.fromEntries(Object.keys(files).filter(name => name !== 'snapshot.png' || input.snapshot).map(name => [name, `${base}/${name}`])), ...workspace() }, instructions: `${base}/instructions.md`, candidate: `${base}/candidate.json`, candidates: `${base}/candidates.json`, removeCandidate: `${base}/candidates/{candidateId}/remove`, submit: `${base}/submit` })
+          resources: { ...Object.fromEntries(Object.keys(files).filter(name => available(name, input)).map(name => [name, `${base}/${name}`])), ...workspace() }, instructions: `${base}/instructions.md`, candidate: `${base}/candidate.json`, candidates: `${base}/candidates.json`, removeCandidate: `${base}/candidates/{candidateId}/remove`, submit: `${base}/submit` })
         type = 'application/json; charset=utf-8'
       } else if (resource === 'instructions.md') { await this.loadRequest(task); data = this.instructions(task, scope); type = 'text/markdown; charset=utf-8' }
       else if (resource === 'workspace-index.md' || resource === 'workspace-document.json') {
@@ -777,7 +781,7 @@ export class TaskManager {
         if (!version) throw new HttpError(404, 'candidate version not found')
         data = JSON.stringify(version); type = 'application/json; charset=utf-8'
       } else if (Object.hasOwn(files, resource)) {
-        if (resource === 'snapshot.png' && !(await this.loadRequest(task)).snapshot) throw new HttpError(404, 'no snapshot')
+        if (resource.endsWith('.png') && !available(resource, await this.loadRequest(task))) throw new HttpError(404, 'no snapshot')
         data = await regular(path.join(task.dir, 'input', resource), files[resource], resource)
         type = resource.endsWith('.json') ? 'application/json; charset=utf-8' : resource.endsWith('.md') ? 'text/markdown; charset=utf-8' : resource.endsWith('.png') ? 'image/png' : 'text/plain; charset=utf-8'
         download = resource.endsWith('.mjs') || resource.endsWith('.html')
@@ -824,7 +828,7 @@ export class TaskManager {
     const socket = scope ? path.join(task.dir, `a${scope.generation}.sock`) : ''
     const submitCandidateArg = task.meta.candidateRef ? ` ${task.meta.candidateRef.candidateId}` : ''
     const transport = scope
-      ? `Read ${resource('document.json')}, ${resource('target.json')}${task.request?.snapshot ? `, and ${resource('snapshot.png')}` : ''}. All http://moted.local resource URLs require Unix socket ${socket}. Fetch the manifest with \`curl --unix-socket '${socket}' '${linkBase}/manifest.json'\`. Write result.json and referenced PNG assets to ${output}.
+      ? `Read ${['document.json', 'target.json', ...(task.request?.snapshot ? ['snapshot.png'] : []), ...(task.request?.targetSnapshot ? ['target.png'] : [])].map(resource).join(', ')}. All http://moted.local resource URLs require Unix socket ${socket}. Fetch the manifest with \`curl --unix-socket '${socket}' '${linkBase}/manifest.json'\`. Write result.json and referenced PNG assets to ${output}.
 
 Generate one operation UUID for this new payload, and retain it with the payload:
 
@@ -839,7 +843,7 @@ Submit using that UUID. For a retry, reuse the same UUID and unchanged payload; 
 MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' ${task.meta.executorRevision} ${task.meta.candidateRevision} "$operation"${submitCandidateArg}
 \`\`\``
       : `Agent URL: ${linkBase}. Read the task resources from ${manifest}; write result.json and referenced PNG assets locally. Submit to ${linkBase}/submit using executorRevision ${task.meta.executorRevision} and candidateRevision ${task.meta.candidateRevision}; helper: ${submitHelper}.`
-    return `# Mote task\n\nSkill: ${skill}\nShared helpers: ${helpers}\n${legacy ? `${legacy}\n` : ''}\nRequest: ${task.meta.prompt || 'none supplied'}${task.meta.feedback ? `\nPrevious feedback: ${task.meta.feedback}` : ''}\nTarget: ${resource('target.json')}\nDocument snapshot: ${resource('document.json')}${task.request?.snapshot ? `\nVisual snapshot: ${resource('snapshot.png')}` : ''}\nManifest: ${manifest}\nCandidates: ${refs}${candidateRef}\nWorkspace-read permission: ${workspace}\n\n${transport}\n`
+    return `# Mote task\n\nSkill: ${skill}\nShared helpers: ${helpers}\n${legacy ? `${legacy}\n` : ''}\nRequest: ${task.meta.prompt || 'none supplied'}${task.meta.feedback ? `\nPrevious feedback: ${task.meta.feedback}` : ''}\nTarget: ${resource('target.json')}\nDocument snapshot: ${resource('document.json')}${task.request?.snapshot ? `\nVisual snapshot: ${resource('snapshot.png')}` : ''}${task.request?.targetSnapshot ? `\nTarget body visual (2×, without caption or neighboring objects): ${resource('target.png')}` : ''}\nManifest: ${manifest}\nCandidates: ${refs}${candidateRef}\nWorkspace-read permission: ${workspace}\n\n${transport}\n`
   }
 
   async writePrompt(task, generation) {
@@ -877,8 +881,10 @@ MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' 
     try { await fs.mkdir(dir, { mode: 0o700 }) } catch (error) { if (error.code === 'EEXIST') throw new HttpError(409, 'task ID already exists'); throw error }
     try {
       for (const [name, mode] of [['input', 0o755], ['runs', 0o755], ['logs', 0o700], ['tmp', 0o700], ['.agent-browser', 0o700], ['.config', 0o700], ['.cache', 0o700]]) await mkdirSafe(path.join(dir, name), mode)
-      await writeImmutable(path.join(dir, 'input', 'document.json'), JSON.stringify(request.document)); await writeImmutable(path.join(dir, 'input', 'target.json'), JSON.stringify(request.target)); await writeImmutable(path.join(dir, 'input', 'request.json'), JSON.stringify({ id: request.id, prompt: request.prompt, target: request.target, snapshot: request.snapshot ? 'snapshot.png' : undefined }))
-      if (request.snapshot) await writeImmutable(path.join(dir, 'input', 'snapshot.png'), Buffer.from(request.snapshot.slice(request.snapshot.indexOf(',') + 1), 'base64'))
+      await writeImmutable(path.join(dir, 'input', 'document.json'), JSON.stringify(request.document)); await writeImmutable(path.join(dir, 'input', 'target.json'), JSON.stringify(request.target)); await writeImmutable(path.join(dir, 'input', 'request.json'), JSON.stringify({ id: request.id, prompt: request.prompt, target: request.target, snapshot: request.snapshot ? 'snapshot.png' : undefined, targetSnapshot: request.targetSnapshot ? 'target.png' : undefined }))
+      for (const [name, data] of [['snapshot.png', request.snapshot], ['target.png', request.targetSnapshot]]) {
+        if (data) await writeImmutable(path.join(dir, 'input', name), Buffer.from(data.slice(data.indexOf(',') + 1), 'base64'))
+      }
       const transcript = new TranscriptJournal(dir, this.transcriptOptions); await transcript.init()
       const external = request.executor === 'external'
       const task = { executions: new Set(), id: request.id, dir, request, generation: 0, current: null, abandoned: false, transcript, meta: {

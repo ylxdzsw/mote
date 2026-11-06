@@ -1,4 +1,4 @@
-import type { FloatingDrawing } from '../document/model'
+import type { FloatingDrawing, ObjectMarkup } from '../document/model'
 import { drawingStrokePath } from '../document/drawing'
 import { paletteCSS } from '../theme/palette'
 
@@ -8,6 +8,21 @@ export function DrawingView({ drawing }: { drawing: FloatingDrawing }) {
     role="img" aria-label={drawing.labels.map(label => label.text).join(', ') || 'Drawing'} focusable="false"
     style={{ display: 'block', width: '100%', height: 'auto', aspectRatio: `${drawing.layout.width} / ${drawing.layout.height}`, overflow: 'hidden', pointerEvents: 'none', userSelect: 'none' }}>
     {drawing.background === 'gray6' && <rect width={drawing.layout.width} height={drawing.layout.height} fill={paletteCSS('gray6')} />}
+    <DrawingMarks strokes={drawing.strokes} labels={drawing.labels} />
+  </svg>
+}
+
+export function MarkupView({ markup }: { markup: ObjectMarkup }) {
+  return <svg xmlns="http://www.w3.org/2000/svg" className="object-markup"
+    viewBox={`0 0 ${markup.width} ${markup.height}`} preserveAspectRatio="none"
+    width="100%" height="100%" role="img" aria-label={markup.labels.map(label => label.text).join(', ') || 'Markup'} focusable="false"
+    style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none', userSelect: 'none' }}>
+    <DrawingMarks strokes={markup.strokes} labels={markup.labels} />
+  </svg>
+}
+
+function DrawingMarks(drawing: Pick<FloatingDrawing, 'strokes' | 'labels'>) {
+  return <>
     {drawing.strokes.map((stroke, index) => stroke.points.length === 1
       ? <circle key={index} cx={stroke.points[0][0]} cy={stroke.points[0][1]} r={stroke.width / 2} fill={paletteCSS(stroke.color)} />
       : <path key={index} d={drawingStrokePath(stroke.points)} fill="none" stroke={paletteCSS(stroke.color)} strokeWidth={stroke.width} strokeLinecap="round" strokeLinejoin="round" />)}
@@ -15,5 +30,5 @@ export function DrawingView({ drawing }: { drawing: FloatingDrawing }) {
       fontSize={label.size} fontFamily="ui-sans-serif, system-ui, sans-serif" fontWeight="400" dominantBaseline="text-before-edge" style={{ whiteSpace: 'pre' }}>
       {label.text.split('\n').map((line, lineIndex) => <tspan key={lineIndex} x={label.x} dy={lineIndex ? label.size * 1.2 : 0}>{line}</tspan>)}
     </text>)}
-  </svg>
+  </>
 }

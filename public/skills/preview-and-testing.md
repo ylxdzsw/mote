@@ -1,5 +1,11 @@
 # Preview and test Mote candidates
 
+## Supplied visual context
+
+Task inputs may include immutable `snapshot.png` (the full document) and, for an object target, `target.png` (only that object's rendered body at 2× resolution). Use the task brief's local paths or the manifest's scoped resource URLs. The target image excludes its caption and overlapping neighboring objects, and supports every native object kind through the same renderer as document PNG export. Permanent markup on images and HTML widgets appears automatically in both images. Widgets use their saved screenshot; these inputs do not run widget scripts or capture a fresh live widget. Older tasks without `target.png` remain valid. The images describe the original input, not a later candidate, and do not replace `document.json` or `target.json`.
+
+## Candidate widget previews
+
 Preview HTML widgets outside any authenticated Mote page. The shared harness uses the same opaque-origin `iframe sandbox="allow-scripts"` boundary as Mote widgets, without `allow-same-origin`; it is not an authenticated editor and does not save or submit the candidate.
 
 The public, unversioned helpers are `/skills/helpers/preview.mjs` and `/skills/helpers/preview-harness.html`. They contain no task data and are not tied to a task grant. For an external task, download both files to the same local directory; a built-in task may use the task-brief copy or fetch these public files. Keep the helper and harness together because the helper reads its adjacent harness file.

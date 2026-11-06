@@ -1,5 +1,5 @@
 import { DOCUMENT_VERSIONS } from '../../shared/document.mjs'
-import { objectY, objectAnchorId, supportsCaption, type FloatingObject, type MoteDocument } from '../document/model'
+import { objectY, objectAnchorId, supportsCaption, supportsMarkup, type FloatingObject, type MoteDocument } from '../document/model'
 import { canonicalEditorContent } from '../editor/canonical'
 import type { JSONContent } from '@tiptap/core'
 import type { AITarget, AITask } from './types'
@@ -257,6 +257,10 @@ export function currentPlacement(candidate: FloatingObject, original: FloatingOb
     }
     if (result.caption?.content.type === 'doc' && result.caption.content.content?.length === 1
       && result.caption.content.content[0].type === 'paragraph' && !result.caption.content.content[0].content?.length) delete result.caption
+  }
+  if (supportsMarkup(result)) {
+    if (result.markup === undefined && supportsMarkup(original) && original.markup) result.markup = original.markup
+    if (result.markup && !result.markup.strokes.length && !result.markup.labels.length) delete result.markup
   }
   return result
 }

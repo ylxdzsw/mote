@@ -21,7 +21,7 @@ function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme
     : { ...theme, paragraphs: { ...theme.paragraphs, [name as BlockClass]: style } }
 }
 
-export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 4): CSSProperties {
+export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 5): CSSProperties {
   const entries = paletteEntries(theme)
   const colors = new Map<string, string>()
   const neutralSoft = entries.find(entry => entry.id === 'gray5')!.strong

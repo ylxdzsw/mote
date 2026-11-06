@@ -258,7 +258,11 @@ export function validateRequest(value) {
   const prompt = text(body.prompt ?? (executor === 'external' ? '' : undefined), 'prompt', 32 * 1024, executor === 'builtin')
   const selectedTarget = target(body.target, document)
   if (body.snapshot !== undefined) validatePngDataUrl(body.snapshot)
-  return { id: body.id, document, model, prompt, executor, workspaceRead: body.workspaceRead ?? false, target: selectedTarget, snapshot: body.snapshot }
+  if (body.targetSnapshot !== undefined) {
+    if (selectedTarget.kind !== 'object') throw new HttpError(400, 'targetSnapshot requires an object target')
+    validatePngDataUrl(body.targetSnapshot, 'targetSnapshot')
+  }
+  return { id: body.id, document, model, prompt, executor, workspaceRead: body.workspaceRead ?? false, target: selectedTarget, snapshot: body.snapshot, targetSnapshot: body.targetSnapshot }
 }
 
 export function validateCandidate(value, document, selectedTarget, options = {}) {
@@ -280,6 +284,10 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     const hasScreenshotPath = candidate.screenshotPath !== undefined
     let candidateObject = hasScreenshotPath && candidate.object.kind === 'html' ? { ...candidate.object } : candidate.object
     if (hasScreenshotPath) delete candidateObject.screenshot
+    if (!selectedTarget.isNew && ['image', 'html'].includes(candidateObject.kind)
+      && candidateObject.kind === original.kind && original.markup !== undefined && !Object.hasOwn(candidateObject, 'markup')) {
+      candidateObject = { ...candidateObject, markup: structuredClone(original.markup) }
+    }
     if (!selectedTarget.isNew && ['image', 'html', 'table'].includes(candidateObject.kind)) {
       const sameKind = candidateObject.kind === original.kind
       if (sameKind && original.caption !== undefined && !Object.hasOwn(candidateObject, 'caption')) candidateObject = { ...candidateObject, caption: structuredClone(original.caption) }
@@ -297,7 +305,7 @@ export function validateCandidate(value, document, selectedTarget, options = {})
     if (original.layout.margins === undefined) delete candidateObject.layout.margins
     else candidateObject.layout.margins = structuredClone(original.layout.margins)
     composition(document.content.content, document.objects.map(object => object.id === candidateObject.id ? candidateObject : object), {
-      slides: document.page.slideHeight !== undefined,
+      version: document.version, slides: document.page.slideHeight !== undefined,
       allowMissingScreenshotIds: hasScreenshotPath && options.allowScreenshotPath ? new Set([candidateObject.id]) : new Set(),
     })
     output.object = candidateObject

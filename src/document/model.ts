@@ -83,6 +83,7 @@ export interface FloatingImage extends FloatingGeometry {
   src: string
   alt: string
   caption?: Caption
+  markup?: ObjectMarkup
 }
 
 export interface FloatingDrawing extends FloatingGeometry<ObjectLayout & { height: number }> {
@@ -91,6 +92,13 @@ export interface FloatingDrawing extends FloatingGeometry<ObjectLayout & { heigh
   strokes: Array<{ points: [number, number][]; color: string; width: number }>
   labels: Array<{ x: number; y: number; text: string; color: string; size: number }>
   background: 'gray6' | null
+}
+
+export interface ObjectMarkup {
+  width: number
+  height: number
+  strokes: FloatingDrawing['strokes']
+  labels: FloatingDrawing['labels']
 }
 
 export interface FloatingFormula extends FloatingGeometry {
@@ -111,14 +119,18 @@ export interface FloatingHTMLWidget extends FloatingGeometry<ObjectLayout & { he
   alt: string
   layout: ObjectLayout & { height: number }
   caption?: Caption
+  markup?: ObjectMarkup
 }
 export type FloatingObject = FloatingText | FloatingTable | FloatingImage | FloatingDrawing | FloatingFormula | FloatingHTMLWidget | FloatingCode
 export const isText = (object: FloatingObject): object is FloatingText => object.kind === 'text'
 export const supportsCaption = (object: FloatingObject): object is FloatingImage | FloatingHTMLWidget | FloatingTable =>
   object.kind === 'image' || object.kind === 'html' || object.kind === 'table'
+export const supportsMarkup = (object: FloatingObject): object is FloatingImage | FloatingHTMLWidget =>
+  object.kind === 'image' || object.kind === 'html'
 export type FloatingPatch = Partial<{ anchorId: string | null; x: number; y: number; width: number; placement: 'flow' | 'float'; centered: boolean; margins: Margins }> & {
   content?: JSONContent; src?: string; alt?: string; height?: number
   caption?: Caption | null
+  markup?: ObjectMarkup | null
   latex?: string; html?: string; screenshot?: string
   source?: string; language?: string
   style?: TableStyle; headerRow?: boolean; color?: string
@@ -135,7 +147,7 @@ export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
   format: 'mote'
-  version: 1 | 2 | 3 | 4
+  version: 1 | 2 | 3 | 4 | 5
   id: string
   language: DocumentLanguage
   page: { width: number; margins: Margins; slideHeight?: number }
@@ -153,7 +165,7 @@ export function objectAnchorId(object: FloatingObject, content?: JSONContent): s
     : content?.content?.find(block => block.type === 'flow' && block.attrs?.objectId === object.id)?.attrs?.id ?? null
 }
 export function patchObject<T extends FloatingObject>(object: T, patch: FloatingPatch): T {
-  const { width, height, margins, placement, centered, anchorId, x, y, caption, decoration, ...body } = patch
+  const { width, height, margins, placement, centered, anchorId, x, y, caption, markup, decoration, ...body } = patch
   const old = object.layout.placement
   const type = placement ?? old.type
   const position: ObjectPlacement = type === 'flow'
@@ -162,6 +174,7 @@ export function patchObject<T extends FloatingObject>(object: T, patch: Floating
   const next = { ...object, ...body, layout: { ...object.layout, placement: position,
     ...(width !== undefined && { width }), ...(height !== undefined && { height }), ...(margins !== undefined && { margins }) } } as T
   if (caption !== undefined && supportsCaption(next)) { if (caption === null) delete next.caption; else next.caption = caption }
+  if (markup !== undefined && supportsMarkup(next)) { if (markup === null) delete next.markup; else next.markup = markup }
   if (decoration !== undefined && isText(next)) { if (decoration === null) delete next.decoration; else next.decoration = decoration }
   return next
 }
@@ -181,7 +194,7 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 }
 
 export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 4, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+  return { format: 'mote', version: 5, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }

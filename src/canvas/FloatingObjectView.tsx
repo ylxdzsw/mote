@@ -7,7 +7,7 @@ import { layoutBounds, type Geometry } from './floatingGeometry'
 import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
 import { CodeView } from './CodeView'
-import { DrawingView } from './DrawingView'
+import { DrawingView, MarkupView } from './DrawingView'
 import { pixels } from '../theme/ThemePanel'
 import { paletteCSS } from '../theme/palette'
 import type { AITask } from '../ai/types'
@@ -98,7 +98,10 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
     }}>
     <div className="object-body" style={{ position: supportsCaption(note) ? 'relative' : undefined, height: note.kind === 'html' || note.kind === 'drawing' ? note.layout.height : undefined }}>
     {note.kind === 'drawing' ? <DrawingView drawing={note} />
-      : note.kind === 'image' ? <img src={note.src} alt={note.alt} draggable={false} />
+      : note.kind === 'image' ? <div className="image-surface" style={{ position: 'relative' }}>
+        <img src={note.src} alt={note.alt} draggable={false} />
+        {note.markup && <MarkupView markup={note.markup} />}
+      </div>
       : note.kind === 'formula' ? <MathView latex={note.latex} />
       : note.kind === 'code' ? <CodeView note={note} editable={editable && contentActive && !locked} staticOnly={staticWidgets}
         onActive={() => onActive(null)} onBegin={event => begin('move', event)}

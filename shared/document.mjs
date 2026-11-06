@@ -1,8 +1,8 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
-export const DOCUMENT_VERSION = 4
-export const DOCUMENT_VERSIONS = [1, 2, 3, 4]
+export const DOCUMENT_VERSION = 5
+export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -207,16 +207,39 @@ export function validateContent(value, mode = 'main', options = {}) {
   return value
 }
 
+function drawingContent(value, path) {
+  let points = 0
+  for (const [index, stroke] of array(value.strokes, `${path}.strokes`, 10000).entries()) {
+    const p = `${path}.strokes[${index}]`
+    record(stroke, p, ['points', 'color', 'width'])
+    color(stroke.color, `${p}.color`)
+    number(stroke.width, `${p}.width`, Number.MIN_VALUE)
+    for (const point of array(stroke.points, `${p}.points`, 100000, 1)) {
+      if (++points > 100000) fail(`${path}.strokes`, 'must contain at most 100000 points')
+      array(point, `${p}.point`, 2, 2)
+      number(point[0], `${p}.point.x`); number(point[1], `${p}.point.y`)
+    }
+  }
+  for (const [index, label] of array(value.labels, `${path}.labels`, 1000).entries()) {
+    const p = `${path}.labels[${index}]`
+    record(label, p, ['x', 'y', 'text', 'color', 'size'])
+    number(label.x, `${p}.x`); number(label.y, `${p}.y`)
+    number(label.size, `${p}.size`, Number.MIN_VALUE)
+    text(label.text, `${p}.text`, 4096); color(label.color, `${p}.color`)
+  }
+}
+
 function object(value, path, state, options) {
-  record(value, path, ['id', 'kind', 'layout'], ['content', 'padding', 'decoration', 'style', 'headerRow', 'color', 'caption', 'src', 'alt', 'strokes', 'labels', 'background', 'latex', 'source', 'language', 'html', 'screenshot'])
+  record(value, path, ['id', 'kind', 'layout'], ['content', 'padding', 'decoration', 'style', 'headerRow', 'color', 'caption', 'markup', 'src', 'alt', 'strokes', 'labels', 'background', 'latex', 'source', 'language', 'html', 'screenshot'])
   identifier(value.id, `${path}.id`, state.ids)
   choice(value.kind, KINDS, `${path}.kind`)
   const kind = value.kind
+  const markupFields = (options.version ?? DOCUMENT_VERSION) >= 5 ? ['markup'] : []
   const fields = {
     text: [['content'], ['padding', 'decoration']], table: [['content'], ['style', 'headerRow', 'caption', ...((options.version ?? DOCUMENT_VERSION) >= 3 ? ['color'] : [])]],
-    image: [['src', 'alt'], ['caption']], drawing: [['strokes', 'labels', 'background'], []],
+    image: [['src', 'alt'], ['caption', ...markupFields]], drawing: [['strokes', 'labels', 'background'], []],
     formula: [['latex'], []], code: [['source', 'language'], []],
-    html: [['html', 'alt', ...(options.allowMissingScreenshot ? [] : ['screenshot'])], ['caption', ...(options.allowMissingScreenshot ? ['screenshot'] : [])]],
+    html: [['html', 'alt', ...(options.allowMissingScreenshot ? [] : ['screenshot'])], ['caption', ...markupFields, ...(options.allowMissingScreenshot ? ['screenshot'] : [])]],
   }[kind]
   record(value, path, ['id', 'kind', 'layout', ...fields[0]], fields[1])
   const fixedHeight = ['html', 'drawing'].includes(kind)
@@ -257,25 +280,13 @@ function object(value, path, state, options) {
     if (present(value, 'screenshot')) image(value.screenshot, `${path}.screenshot`)
   } else if (kind === 'drawing') {
     if (value.background !== null && value.background !== 'gray6') fail(`${path}.background`, 'must be gray6 or null')
-    let points = 0
-    for (const [index, stroke] of array(value.strokes, `${path}.strokes`, 10000).entries()) {
-      const p = `${path}.strokes[${index}]`
-      record(stroke, p, ['points', 'color', 'width'])
-      color(stroke.color, `${p}.color`)
-      number(stroke.width, `${p}.width`, Number.MIN_VALUE)
-      for (const point of array(stroke.points, `${p}.points`, 100000, 1)) {
-        if (++points > 100000) fail(`${path}.strokes`, 'must contain at most 100000 points')
-        array(point, `${p}.point`, 2, 2)
-        number(point[0], `${p}.point.x`); number(point[1], `${p}.point.y`)
-      }
-    }
-    for (const [index, label] of array(value.labels, `${path}.labels`, 1000).entries()) {
-      const p = `${path}.labels[${index}]`
-      record(label, p, ['x', 'y', 'text', 'color', 'size'])
-      number(label.x, `${p}.x`); number(label.y, `${p}.y`)
-      number(label.size, `${p}.size`, Number.MIN_VALUE)
-      text(label.text, `${p}.text`, 4096); color(label.color, `${p}.color`)
-    }
+    drawingContent(value, path)
+  }
+  if (present(value, 'markup')) {
+    const markup = record(value.markup, `${path}.markup`, ['width', 'height', 'strokes', 'labels'])
+    number(markup.width, `${path}.markup.width`, Number.MIN_VALUE)
+    number(markup.height, `${path}.markup.height`, Number.MIN_VALUE)
+    drawingContent(markup, `${path}.markup`)
   }
   if (present(value, 'alt')) text(value.alt, `${path}.alt`, 4096)
   if (present(value, 'caption')) {
@@ -318,7 +329,7 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V4 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V5 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
@@ -364,6 +375,7 @@ const MIGRATIONS = [
       objects: Object.fromEntries(Object.entries(document.theme.objects).map(([name, style]) => [name, weight(style)])),
     } }
   } },
+  { from: 4, breaking: false, migrate: document => ({ ...document, version: 5 }) },
 ]
 
 export function migrationBreaking(version) {

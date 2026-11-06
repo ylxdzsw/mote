@@ -18,4 +18,4 @@ try {
   const highlights = JSON.parse(document.getElementById('mote-code-highlights-v1')!.textContent!)
   root.render(<StrictMode><CodeHighlights value={highlights}><ReaderPage initial={initial} /></CodeHighlights></StrictMode>)
 }
-catch (error) { root.render(<main className="loading"><h1>Mote</h1><p role="alert">{error instanceof Error ? error.message : 'Unsupported document format'}. The embedded data has not been changed. Open a supported V1–V4 document or retain this file for recovery.</p></main>) }
+catch (error) { root.render(<main className="loading"><h1>Mote</h1><p role="alert">{error instanceof Error ? error.message : 'Unsupported document format'}. The embedded data has not been changed. Open a supported V1–V5 document or retain this file for recovery.</p></main>) }

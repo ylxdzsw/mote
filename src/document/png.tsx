@@ -25,7 +25,39 @@ async function settle(surface: HTMLElement) {
   }
 }
 
-export async function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Blob> {
+export function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Blob> {
+  return renderPng(doc, scale)
+}
+
+export function exportObjectPng(doc: MoteDocument, objectId: string, scale: 1 | 2 = 2): Promise<Blob> {
+  return renderPng(doc, scale, objectId)
+}
+
+function objectSurface(sheet: HTMLElement, objectId: string) {
+  const object = sheet.querySelector<HTMLElement>(`[data-note-id="${CSS.escape(objectId)}"]`)
+  const body = object?.querySelector<HTMLElement>(':scope > .object-body')
+  if (!object || !body) throw new Error('The target object is not available for PNG export.')
+  const outer = object.getBoundingClientRect()
+  const bounds = object.classList.contains('has-caption-support') ? body.getBoundingClientRect() : outer
+  const copy = sheet.cloneNode(false) as HTMLElement
+  copy.removeAttribute('data-slides')
+  copy.style.cssText += `;width:${bounds.width}px;height:${bounds.height}px;min-height:0;padding:0;border:0`
+  // Keep inherited theme and selector context, without page geometry or siblings.
+  const ancestors: HTMLElement[] = []
+  for (let parent = object.parentElement; parent && parent !== sheet; parent = parent.parentElement) ancestors.unshift(parent)
+  let mount = copy
+  for (const ancestor of ancestors) {
+    const context = ancestor.cloneNode(false) as HTMLElement
+    context.style.cssText += ';display:contents;transform:none;clip-path:none'
+    mount.append(context); mount = context
+  }
+  const isolated = object.cloneNode(false) as HTMLElement
+  isolated.style.cssText += `;position:absolute;left:${outer.left - bounds.left}px;top:${outer.top - bounds.top}px;width:${outer.width}px;margin:0;transform:none;clip-path:none`
+  isolated.append(body.cloneNode(true)); mount.append(isolated)
+  return { source: body, copy, width: bounds.width, height: bounds.height }
+}
+
+async function renderPng(doc: MoteDocument, scale: 1 | 2, objectId?: string): Promise<Blob> {
   const tooLarge = `This document is too large for ${scale}× PNG export in this browser. ${scale === 2 ? 'Try 1× resolution, or export' : 'Export'} HTML or a .mote document instead.`
   const host = document.createElement('div')
   host.style.cssText = `position:fixed;left:-100000px;top:0;width:${doc.page.width + 48}px;height:600px;pointer-events:none`
@@ -37,8 +69,12 @@ export async function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Bl
   try {
     await new Promise<void>(resolve => root.render(<ReadDocument initial={doc} onReady={resolve} staticWidgets initialScale={1} />))
     await settle(host)
-    const source = host.querySelector<HTMLElement>('.stage .sheet')!
-    const width = Math.ceil(doc.page.width * scale), height = Math.ceil(source.getBoundingClientRect().height * scale)
+    const sheet = host.querySelector<HTMLElement>('.stage .sheet')!
+    const surface = objectId === undefined
+      ? { source: sheet, copy: undefined, width: doc.page.width, height: sheet.getBoundingClientRect().height }
+      : objectSurface(sheet, objectId)
+    const { source } = surface
+    const width = Math.ceil(surface.width * scale), height = Math.ceil(surface.height * scale)
     if (width > 32767 || height > 32767 || width * height > 32_000_000) throw new Error(tooLarge)
     canvas = document.createElement('canvas')
     canvas.width = width; canvas.height = height
@@ -56,7 +92,7 @@ export async function exportPng(doc: MoteDocument, scale: 1 | 2 = 1): Promise<Bl
     }
     context.clearRect(0, 0, width, height)
 
-    const copy = source.cloneNode(true) as HTMLElement
+    const copy = surface.copy ?? source.cloneNode(true) as HTMLElement
     copy.style.cssText += ';margin:0;transform:none;box-shadow:none;border-color:transparent;overflow:hidden'
     // Freeze animated images and embed raster pixels, including SVG source images.
     const images = [...source.querySelectorAll('img')]

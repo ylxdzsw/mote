@@ -6,8 +6,8 @@ This file holds durable invariants and the working agreement. Current behavior a
 
 ## Working agreement
 
-- Native formats start at **V1** and support V1–V4; V0 is permanently unsupported ([FORMAT.md](../FORMAT.md)). Every schema or meaning change gets a new version. Versions are cheap, so never bend a change to avoid one.
-- `loadDocument` migrates older versions to the current one in memory. It uses ordered, pure, ID-preserving steps, then the closed validator, and every reader uses it. Each step is labeled breaking or non-breaking. Loading never saves; the next ordinary save writes the upgrade. V3→V4 is breaking: explicit saved theme weights map below 550 to 400 and at least 550 to 700, preserving sparse inheritance and unrelated data. Breaking steps need owner confirmation only when unresolved AI tasks exist; Upgrade releases those tasks and revokes their grants, while Decline opens read-only at the stored version. Unknown and newer versions get an actionable error and stay recoverable.
+- Native formats start at **V1** and support V1–V5; V0 is permanently unsupported ([FORMAT.md](../FORMAT.md)). Every schema or meaning change gets a new version. Versions are cheap, so never bend a change to avoid one.
+- `loadDocument` migrates older versions to the current one in memory. It uses ordered, pure, ID-preserving steps, then the closed validator, and every reader uses it. Each step is labeled breaking or non-breaking. V4→V5 is non-breaking and changes only the version, adding optional permanent image/HTML markup. Loading never saves; the next ordinary save writes the upgrade. V3→V4 is breaking: explicit saved theme weights map below 550 to 400 and at least 550 to 700, preserving sparse inheritance and unrelated data. Breaking steps need owner confirmation only when unresolved AI tasks exist; Upgrade releases those tasks and revokes their grants, while Decline opens read-only at the stored version. Unknown and newer versions get an actionable error and stay recoverable.
 - Preserve cloud documents, unresolved AI state, and backups. Backups are manual and only at the user's discretion; never run or schedule them.
 - Keep HTTP caching disabled everywhere: `Cache-Control: no-store`, no service worker. IndexedDB working copies are intentional persistence, separate from HTTP caching.
 - Redeploy the demo after each task (see Deployment).
@@ -19,7 +19,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 | Topic | Start here |
 | --- | --- |
 | Product behavior, setup, checks, exports, deployment, code structure | [README.md](../README.md) |
-| Native V1–V4 schema and validation | [FORMAT.md](../FORMAT.md) |
+| Native V1–V5 schema and validation | [FORMAT.md](../FORMAT.md) |
 | UI principles, patterns, and interaction review | [mote-ui skill](mote-ui.md) |
 | Sync/recovery, privacy, sharing, indexing/retrieval, storage, backup/restore | [CLOUD.md](../CLOUD.md) |
 | Agent workflow, native authoring, preview, submission | [public skills](../public/skills/external/SKILL.md) and `../public/skills/` |
@@ -32,7 +32,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 
 - Desktop supports editing and reading; viewports under 768px are reading-only. Zoom and scroll-past-bottom are view state, never saved geometry.
 - Slides are an optional per-document layout, Off by default and V2+: `page.slideHeight` plus top-level `slideBreak` atoms in the flat content array. Enabling is an explicit, undoable edit (V1→V2 if needed); disabling retains the document version. Each slide has independent Flow, margins, and anchors; height changes never repartition. Reading and exports crop each slide without slide chrome.
-- Typography comes from semantic paragraph classes and the document theme. V4 theme weights are 400 or 700; pinned V1–V3 snapshots retain 1–1000. New Title, Heading, and Subheading presets explicitly use 700. Settings → Theme uses a Regular/Bold weight control with inheritance/reset. Inline formatting is limited to Bold, fixed palette colors, None/Box decoration, and Links to safe, credential-free absolute HTTP(S) URLs. Inline Bold is disabled and pressed when every selected paragraph already has a bold effective style, including inherited weights and table headers; Ctrl/⌘B is then a no-op. Inline Bold marks remain toggleable in regular paragraphs. No arbitrary inline fonts or sizes. Code is an object, never a paragraph class. Table header appearance is 600 in V1–V3 and 700 in V4.
+- Typography comes from semantic paragraph classes and the document theme. V4+ theme weights are 400 or 700; pinned V1–V3 snapshots retain 1–1000. New Title, Heading, and Subheading presets explicitly use 700. Settings → Theme uses a Regular/Bold weight control with inheritance/reset. Inline formatting is limited to Bold, fixed palette colors, None/Box decoration, and Links to safe, credential-free absolute HTTP(S) URLs. Inline Bold is disabled and pressed when every selected paragraph already has a bold effective style, including inherited weights and table headers; Ctrl/⌘B is then a no-op. Inline Bold marks remain toggleable in regular paragraphs. No arbitrary inline fonts or sizes. Code is an object, never a paragraph class. Table header appearance is 600 in V1–V3 and 700 in V4+.
 - Object kinds are text, table, image, drawing, Code, formula, and HTML widget, and every kind supports Flow and Float. Objects stay in ordered `objects`, with all geometry in `layout`.
 - Each Flow object has exactly one top-level `flow` atom and a real normal-flow mount. Never emulate it with spacers or absolute overlays. Floats use page-space x and anchor-relative y, and they may overlap anything.
 - Only images, HTML widgets, and tables have captions. A caption is an owned subobject that always sits below its owner, centered on it.
@@ -83,4 +83,4 @@ Preserve `/var/lib/mote`, `/var/lib/mote-ai`, and `/var/backups/mote`. Never res
 
 ## Deferred scope
 
-Discuss these before implementing: slide templates and navigators, PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1–V4 `.mote`, PNG, and standalone HTML export/reimport (Mote exports only).
+Discuss these before implementing: slide templates and navigators, PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1–V5 `.mote`, PNG, and standalone HTML export/reimport (Mote exports only).
