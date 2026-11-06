@@ -697,7 +697,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId }, position)}
         onContextMenu={handleCanvasContextMenu} onDrawingEdit={editDrawing} />
-      {editable && <DocumentNotes key={`notes:${doc.id}`} value={doc.authoring?.notes ?? []}
+      {showInspector && <DocumentNotes key={`notes:${doc.id}`} value={doc.authoring?.notes ?? []}
         onFocus={() => { setActiveEditor(null); setTool(null) }} />}
     </main>
     {editable && drawing?.kind === 'drawing' && !assistant.lockedIds.has(drawing.id) && createPortal(
