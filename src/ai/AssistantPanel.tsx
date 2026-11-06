@@ -11,7 +11,7 @@ const Transcript = lazy(() => import('./Transcript'))
 type Assistant = ReturnType<typeof useAssistant>
 const targetLabel = ({ target, original }: AITask) => target.kind === 'segment'
   ? target.range.start.index === target.range.end.index && target.range.start.offset === target.range.end.offset ? 'New section' : 'Document section'
-  : target.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : target.isNew ? 'Floating area'
+  : target.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : target.isNew ? 'AI object'
   : !Array.isArray(original) && 'id' in original ? `${kindName(original)} revision` : 'Object revision'
 const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim().split('\n')[0].slice(0, 40) || targetLabel(task)
 const statusLabel = { draft: 'Not sent', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Waiting for result', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
@@ -44,7 +44,7 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
       <details className="ai-info"><summary>Help & privacy</summary>
         <p>Documents and assistant tasks, including unsent requests and generated results, sync to your workspace. Preview candidate sends a saved document revision, its rendered snapshot, and the reserved area to Mu.</p>
         <p>External links grant access to the full immutable snapshot and scoped candidate submission. Workspace reads are separately off by default and expose only non-Private sources. Access pauses 24 hours after the document is closed; reopening resumes the same link. Switching agents, releasing or accepting the reservation, or enabling Private permanently revokes access. Downloaded copies cannot be recalled.</p>
-        <p>Select a reserved area to view its task. For a new area, choose Add → AI object. Reserving does not start generation. Changes preview in place for your review. The area stays locked until you accept, discard, or delete it. Floating areas can move, and resize before the first request or handoff. Closing this panel does not stop work.</p>
+        <p>Select a reserved area to view its task. For a new area, choose Add → AI object. Reserving does not start generation. Changes preview in place for your review. The area stays locked until you accept, discard, or delete it. Individually reserved objects can move and switch Flow / Float in Context, and resize before the first request or handoff. Closing this panel does not stop work.</p>
       </details>
     </footer>
   </div>

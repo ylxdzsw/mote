@@ -629,6 +629,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                   onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                   reserved={!!selectedObjectTask}
+                  newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew}
                   onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} /></>
                 : selectedTask ? <div className="context-inspector">
                     <ContextHeading title="Reserved for AI" />

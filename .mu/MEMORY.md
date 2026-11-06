@@ -1901,3 +1901,10 @@ The header shows “Changes pending” throughout local writes for unsynced edit
 ## 2026-11-05 — Delay local-saving feedback uniformly
 
 Local-save progress now appears only after 500 ms of continuous local saving, for any cause, online or offline. Fast writes stay quiet, slow writes remain visible, and failures are immediate. The presentation timer resets when saving ends and is canceled on unmount; persistence itself is not delayed. This supersedes hiding local-save progress behind pending edits in the preceding decision, without changing cloud-sync or recovery feedback.
+
+
+## 2026-11-06 — AI object identity and user-owned placement
+
+New object reservations now read as AI objects rather than exposing the empty HTML widget used as their native placeholder. Context uses the existing task `isNew` identity; revisions of existing objects retain their real kind, and acceptance restores ordinary object naming. Assistant uses the same generic name, independent of Flow/Float placement.
+
+Individual reservations now allow the shared Context Flow/Float conversion through the existing guarded document operation instead of silently rejecting every locked object. Content and submitted dimensions remain protected, section compositions stay locked, and preview/acceptance retain current user placement without rewriting task snapshots. Discard of a new object reuses target deletion so its Flow atom is removed atomically and other reservations remain guarded. Creation gestures still distinguish object-area reservation from gutter section reservation; no native-format or task-protocol change is needed.

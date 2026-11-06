@@ -40,12 +40,13 @@ interface Props {
   onReplaceImage: () => void
   onDrawingEdit: () => void
   reserved?: boolean
+  newAIObject?: boolean
   onOpenTask?: () => void
 }
 
 export const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'formula' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, reserved, onOpenTask }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, reserved, newAIObject, onOpenTask }: Props) {
   const katex = object.kind === 'formula' ? object as FloatingFormula : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -78,7 +79,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     </div>
   }
   return <div className="context-inspector floating-inspector">
-    <ContextHeading title={reserved ? 'Reserved for AI' : count > 1 ? `${count} objects` : name} subtitle={reserved ? name : undefined} actions={!reserved && <>
+    <ContextHeading title={newAIObject ? 'AI object' : reserved ? 'Reserved for AI' : count > 1 ? `${count} objects` : name} subtitle={newAIObject ? 'Reserved for AI' : reserved ? name : undefined} actions={!reserved && <>
       <button className="icon-action" aria-label="Duplicate" title={count > 1 ? `Duplicate ${count} objects` : 'Duplicate'} onClick={() => onAction('duplicate')}><PanelIcon name="copy" /></button>
       <button className="icon-action delete-action" aria-label={count > 1 ? `Delete ${count} objects` : 'Delete'} title={count > 1 ? `Delete ${count} objects` : 'Delete'} onClick={() => onAction('remove')}><PanelIcon name="trash" /></button>
     </>} />

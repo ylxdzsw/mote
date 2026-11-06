@@ -757,13 +757,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     const task = state.current.find(task => task.id === id)
     if (!writable || !task) return
     const inactive = inactiveReason(task)
+    if (!inactive && task.target.kind === 'object' && task.target.isNew) { deleteTarget(id); return }
     forget(id)
     if (inactive) return
     const target = task.target
     if (target.kind === 'segment') return
     unrestricted(() => history.setDoc(doc => {
       if (!doc) return doc
-      if (target.kind === 'object' && target.isNew) return { ...doc, objects: withoutObject(target.objectId) ?? doc.objects.filter(object => object.id !== target.objectId) }
       if (target.kind === 'text' && target.insert) {
         const content = doc.content.content!.filter(node => !target.blockIds.includes(node.attrs?.id))
         return replaceMainContent(doc, { ...doc.content, content: content.length ? content : [paragraph('')] })

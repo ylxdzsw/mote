@@ -315,7 +315,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
   function placement(mode: 'flow' | 'float') {
     const object = doc.objects.find(object => object.id === selectedIds[0])
-    if (!editable || !object || lockedIds.has(object.id) || object.layout.placement.type === mode) return
+    if (!editable || !object || object.layout.placement.type === mode) return
     const target = segments.target(geometry[object.id].y)
     const next = convertObjectPlacement(doc, object.id, mode, { anchors, geometry, index: target.point.index,
       textLeft: doc.page.margins.left, textWidth: pageWidth() - doc.page.margins.left - doc.page.margins.right })
