@@ -164,7 +164,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       // Keep nearby landmarks readable without changing their navigation targets.
       const tops: number[] = []
       visible.forEach((bookmark, index) => {
-        tops.push(Math.max(bookmark.y - offset - 9, index ? tops[index - 1] + 20 : 0))
+        tops.push(Math.max(bookmark.y - offset - 10, index ? tops[index - 1] + 20 : 0))
       })
       if (visible.length * 20 <= rail.clientHeight) {
         for (let index = tops.length - 1; index >= 0; index--) {
@@ -189,12 +189,24 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     document.fonts.addEventListener('loadingdone', refresh)
     viewport.addEventListener('scroll', schedule, { passive: true })
     const wheel = (event: WheelEvent) => {
-      if (navigation.contains(event.target as Node) && navigation.scrollHeight > navigation.clientHeight && !event.ctrlKey && !event.metaKey) return
       event.preventDefault()
       if (event.ctrlKey || event.metaKey) return
-      viewport.scrollTop += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1)
+      const scroller = navigation.contains(event.target as Node) && navigation.scrollHeight > navigation.clientHeight ? navigation : viewport
+      scroller.scrollTop += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1)
     }
     container.addEventListener('wheel', wheel, { passive: false })
+    // Keep labels open across the lane without making its empty areas hit targets.
+    const host = container.parentElement!
+    const hover = (event: globalThis.PointerEvent) => {
+      const railRect = rail.getBoundingClientRect()
+      const labelRect = navigation.getBoundingClientRect()
+      container.classList.toggle('is-hovered', event.pointerType !== 'touch'
+        && event.clientX >= railRect.left && event.clientX < labelRect.right
+        && event.clientY >= railRect.top && event.clientY < railRect.bottom)
+    }
+    const leave = () => container.classList.remove('is-hovered')
+    host.addEventListener('pointermove', hover)
+    host.addEventListener('pointerleave', leave)
     paint()
     return () => {
       cancelAnimationFrame(frame)
@@ -205,6 +217,9 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       document.fonts.removeEventListener('loadingdone', refresh)
       viewport.removeEventListener('scroll', schedule)
       container.removeEventListener('wheel', wheel)
+      host.removeEventListener('pointermove', hover)
+      host.removeEventListener('pointerleave', leave)
+      leave()
     }
   }, [stage, sheet, sizing])
 
