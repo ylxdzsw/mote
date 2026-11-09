@@ -93,6 +93,8 @@ export const CaptionBehavior = Extension.create({
   addKeyboardShortcuts() {
     return {
       'Mod-a': () => this.editor.commands.setTextSelection({ from: 1, to: this.editor.state.doc.content.size - 1 }),
+      Tab: () => true,
+      'Shift-Tab': () => true,
       Enter: () => this.editor.commands.setHardBreak(),
       'Shift-Enter': () => this.editor.commands.setHardBreak(),
       'Mod-Enter': () => this.editor.commands.setHardBreak(),
@@ -186,8 +188,8 @@ const Table = Node.create({
       Enter: () => this.editor.commands.setHardBreak(),
       'Shift-Enter': () => this.editor.commands.setHardBreak(),
       'Mod-Enter': () => this.editor.commands.setHardBreak(),
-      Tab: () => goToNextCell(1)(this.editor.state, this.editor.view.dispatch),
-      'Shift-Tab': () => goToNextCell(-1)(this.editor.state, this.editor.view.dispatch),
+      Tab: () => { goToNextCell(1)(this.editor.state, this.editor.view.dispatch); return true },
+      'Shift-Tab': () => { goToNextCell(-1)(this.editor.state, this.editor.view.dispatch); return true },
     }
   },
 })

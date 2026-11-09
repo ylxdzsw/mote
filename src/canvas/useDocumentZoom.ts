@@ -1,5 +1,4 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from 'react'
-import { isComposingKey } from '../editor/composition'
 
 interface Point { x: number; y: number }
 
@@ -71,7 +70,6 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     rememberFocal(client ?? { x: rect.left + viewport.clientWidth / 2, y: rect.top + viewport.clientHeight / 2 })
   }
 
-  function zoomBy(factor: number) { zoomTo(scale * factor, undefined, true) }
   function reset() { zoomTo(autoScale, undefined, false, true) }
 
   useLayoutEffect(() => {
@@ -86,8 +84,8 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   const wheel = useEffectEvent((event: WheelEvent) => {
     if (paused) return
     if (!event.ctrlKey && !event.metaKey) return
-    event.preventDefault()
     if (!stage.current!.contains(event.target as Node)) return
+    event.preventDefault()
     const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? stage.current!.clientHeight : 1)
     const previous = wheelGesture.current
     const base = previous && event.timeStamp - previous.time < 250 ? previous.scale : scale
@@ -98,21 +96,12 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     // Accumulate unsnapped input so small trackpad deltas can leave the detent.
     wheelGesture.current = { scale: next, time: event.timeStamp }
   })
-  const key = useEffectEvent((event: KeyboardEvent) => {
-    if (paused) return
-    if (isComposingKey(event)) return
-    if ((event.target as Element).closest('.drawing-editor')) return
-    if (!(event.ctrlKey || event.metaKey) || !['+', '=', '-', '0'].includes(event.key)) return
-    event.preventDefault()
-    if (event.key === '0') reset()
-    else zoomBy(event.key === '-' ? 1 / 1.1 : 1.1)
-  })
   const pinch = useRef<{ distance: number; scale: number } | null>(null)
   const touch = useEffectEvent((event: TouchEvent) => {
     if (paused) return
     if (event.touches.length !== 2) { pinch.current = null; return }
-    event.preventDefault()
     if (!stage.current!.contains(event.target as Node)) return
+    event.preventDefault()
     const [a, b] = event.touches
     const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
     if (!pinch.current) pinch.current = { distance, scale }
@@ -121,17 +110,14 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
 
   useEffect(() => {
     const onWheel = (event: WheelEvent) => wheel(event)
-    const onKey = (event: KeyboardEvent) => key(event)
     const onTouch = (event: TouchEvent) => touch(event)
     window.addEventListener('wheel', onWheel, { passive: false })
-    window.addEventListener('keydown', onKey, { capture: true })
     for (const name of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) window.addEventListener(name, onTouch as EventListener, { passive: false })
     return () => {
       window.removeEventListener('wheel', onWheel)
-      window.removeEventListener('keydown', onKey, { capture: true })
       for (const name of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) window.removeEventListener(name, onTouch as EventListener)
     }
   }, [])
 
-  return { scale, minScale, automatic: zoom === null, zoomed, zoomTo, zoomBy, reset }
+  return { scale, minScale, automatic: zoom === null, zoomed, zoomTo, reset }
 }

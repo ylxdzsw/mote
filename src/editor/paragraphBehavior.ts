@@ -74,9 +74,10 @@ export const ParagraphBehavior = Extension.create({
         })
       },
       Tab: () => {
-        return changeListLevel(editor, 1, true)
+        changeListLevel(editor, 1, true)
+        return true
       },
-      'Shift-Tab': () => changeListLevel(editor, -1),
+      'Shift-Tab': () => { changeListLevel(editor, -1); return true },
       Backspace: () => {
         const selection = editor.state.selection
         const node = selection instanceof NodeSelection ? selection.node : selection.empty && selection.$from.parentOffset === 0 ? selection.$from.parent : null

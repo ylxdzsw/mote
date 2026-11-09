@@ -52,11 +52,11 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
       if (!handle) {
         handle = document.createElement('div')
         handle.className = 'table-column-divider'
-        handle.tabIndex = 0
+        handle.tabIndex = -1
         handle.setAttribute('role', 'separator')
         handle.setAttribute('aria-orientation', 'vertical')
         handle.setAttribute('aria-label', `Resize column ${index + 1}`)
-        handle.title = 'Drag to resize adjacent columns; Left/Right arrows resize, Shift for 1px'
+        handle.title = 'Drag to resize adjacent columns'
         handle.onfocus = event => editor.emit('focus', { editor, event, transaction: editor.state.tr })
         handle.onpointerdown = event => {
           if (!editor.isEditable || event.button !== 0 || !event.isPrimary) return
@@ -77,12 +77,6 @@ export function tableView({ node: initial, editor, getPos }: NodeViewRendererPro
         handle.onpointerup = event => { event.stopPropagation(); finish(true) }
         handle.onpointercancel = () => finish()
         handle.onlostpointercapture = () => finish()
-        handle.onkeydown = event => {
-          if (!editor.isEditable || isComposingKey(event) || event.altKey || event.ctrlKey || event.metaKey) return
-          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
-          event.preventDefault(); event.stopPropagation()
-          commit(resized(columns(), index, (event.key === 'ArrowLeft' ? -1 : 1) * (event.shiftKey ? 1 : 8) / table.clientWidth))
-        }
         controls.append(handle)
       }
       handle.style.left = `${left * 100}%`

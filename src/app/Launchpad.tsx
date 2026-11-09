@@ -61,7 +61,7 @@ export function Launchpad({ point, anchor, onChoose, onClose, slides = false }: 
     if (!open) return
     const menu = ref.current
     const previous = document.activeElement as HTMLElement | null
-    const first = ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')
+    const first = ref.current?.querySelector<HTMLButtonElement>('.launchpad-tile')
     first?.focus({ preventScroll: true })
     function outside(e: PointerEvent) {
       if (!ref.current?.contains(e.target as Node)) onClose()
@@ -78,32 +78,22 @@ export function Launchpad({ point, anchor, onChoose, onClose, slides = false }: 
   if (!open || !origin) return null
 
   function navigate(event: React.KeyboardEvent) {
-    if (event.key === 'Tab') { onClose(); return }
     if (event.key === 'Escape') {
       event.preventDefault(); event.stopPropagation()
       onClose()
       return
     }
-    const keys = ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']
-    if (!keys.includes(event.key)) return
-    const items = [...ref.current!.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
-    if (!items.length) return
-    event.preventDefault()
-    const index = items.indexOf(document.activeElement as HTMLButtonElement)
-    const cols = 2
-    const next = event.key === 'ArrowRight' ? index + 1 : event.key === 'ArrowLeft' ? index - 1
-      : event.key === 'ArrowDown' ? index + cols : index - cols
-    items[Math.max(0, Math.min(items.length - 1, next))]?.focus()
   }
 
-  return <div ref={ref} className="launchpad" role="menu" aria-label="Add to the page" style={style} onKeyDown={navigate}>
+  return <div ref={ref} className="launchpad" role="group" aria-label="Add to the page" style={style} onKeyDown={navigate}
+    onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) onClose() }}>
     <div className="launchpad-header">
       <span>Add to the page</span>
       <button aria-label="Close" className="launchpad-close" onClick={onClose}>×</button>
     </div>
     <div className="launchpad-grid">
       {TILES.filter(tile => tile.kind !== 'slideBreak' || slides).map(tile =>
-        <button key={String(tile.kind)} role="menuitem" className="launchpad-tile" tabIndex={-1}
+        <button key={String(tile.kind)} className="launchpad-tile"
             onClick={() => onChoose(String(tile.kind))}>
             {tile.icon}<span>{tile.label}</span>
           </button>)}

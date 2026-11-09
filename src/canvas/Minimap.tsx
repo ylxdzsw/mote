@@ -242,7 +242,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
   function finish() { drag.current = null; track.current!.classList.remove('is-dragging') }
 
   return <div className="minimap-pane" ref={pane}>
-    <div className="minimap" ref={track} role="scrollbar" tabIndex={0}
+    <div className="minimap" ref={track} role="scrollbar"
     aria-label="Document minimap" aria-controls={canvasId} aria-orientation="vertical"
     aria-valuemin={0} aria-valuemax={0} aria-valuenow={0}
     onPointerDown={start}
@@ -250,18 +250,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       const { maximum, travel } = geometry.current
       if (drag.current && travel > 0) stage.current!.scrollTop = drag.current.scroll + (event.clientY - drag.current.y) / travel * maximum
     }}
-    onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}
-    onKeyDown={event => {
-      const viewport = stage.current!
-      const targets: Record<string, number> = {
-        ArrowUp: viewport.scrollTop - 40, ArrowDown: viewport.scrollTop + 40,
-        PageUp: viewport.scrollTop - viewport.clientHeight, PageDown: viewport.scrollTop + viewport.clientHeight,
-        Home: 0, End: viewport.scrollHeight,
-      }
-      if (!(event.key in targets) || event.ctrlKey || event.metaKey || event.altKey) return
-      event.preventDefault()
-      viewport.scrollTop = targets[event.key]
-    }}>
+    onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}>
     <div className="minimap-image" ref={image} aria-hidden="true" inert />
     <div className="minimap-viewport" ref={thumb} aria-hidden="true" />
     <div className="minimap-hit" ref={hit} aria-hidden="true" />

@@ -506,25 +506,6 @@ export function useSegmentSelection(props: Props) {
     }
   }, [props.editable, props.editor, props.scale, history.revision])
 
-  function handleKey(side: 'start' | 'end', event: React.KeyboardEvent) {
-    const current = selected.current
-    if (!current || isComposingKey(event.nativeEvent) || !['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-    event.preventDefault()
-    const blocks = measure(), point = current[side], down = event.key === 'ArrowDown'
-    let next = event.key === 'Home' ? edge(0) : event.key === 'End' ? edge(blocks.length)
-      : edge(Math.max(0, Math.min(blocks.length, point.index + (down ? 1 : point.offset ? 0 : -1))))
-    if (event.altKey && (event.key === 'ArrowUp' || down)) {
-      const index = !down && !point.offset ? point.index - 1 : point.index, block = blocks[index]
-      if (block?.space) {
-        const offset = Math.max(0, Math.min(block.height, (!down && !point.offset ? block.height : point.offset) + (down ? 1 : -1)))
-        next = offset === block.height ? edge(index + 1) : { index, offset }
-      }
-    }
-    const anchor = current[side === 'start' ? 'end' : 'start'], direction = compare(next, anchor)
-    select(ordered(anchor, next))
-    const nextSide = direction < 0 ? 'start' : direction > 0 ? 'end' : side
-    if (nextSide !== side) live.current.stage.current!.querySelector<HTMLButtonElement>(`[data-segment-control="${nextSide}"]`)!.focus({ preventScroll: true })
-  }
   const styleBox = (box: Box) => ({ left: (box.x + 1) * props.scale, top: (box.y + 1) * props.scale, width: box.width * props.scale, height: box.height * props.scale })
   const overlay = props.editable && <div className={`segment-layer segment-selection${range ? ' has-segment' : ''}${slides ? ' has-slides' : ''}`}>
     <div className="segment-gutter" data-segment-control="gutter" title={props.doc.page.slideHeight ? "Drag to select segments or slides" : "Drag to select a segment · Alt splits explicit spaces"} />
@@ -535,9 +516,8 @@ export function useSegmentSelection(props: Props) {
         const offset = equal(range) ? 0 : Math.max(0, 24 - (paint.bottom - paint.top) * props.scale) / 2 * (side === 'start' ? -1 : 1)
         return <div className="segment-boundary" key={side} style={{ top: ((side === 'start' ? paint.top : paint.bottom) + 1) * props.scale }}>
         {!!offset && <span className="segment-handle-join" style={{ top: Math.min(0, offset), height: Math.abs(offset) }} />}
-        <button className="segment-handle" data-segment-control={side} aria-label={`${slides ? 'Slide selection' : 'Segment'} ${side}`} title={`Drag to adjust ${side} · Alt splits spaces`}
-          style={{ transform: `translateY(${offset}px)` }}
-          onKeyDown={event => handleKey(side, event)}>{marker}</button>
+        <div className="segment-handle" data-segment-control={side} aria-label={`${slides ? 'Slide selection' : 'Segment'} ${side}`} title={`Drag to adjust ${side} · Alt splits spaces`}
+          style={{ transform: `translateY(${offset}px)` }}>{marker}</div>
       </div>})}
       {dropY !== null && <div className="segment-drop" style={{ top: (dropY + 1) * props.scale }}><span>Move here</span></div>}
     </>}

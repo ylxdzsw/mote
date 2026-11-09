@@ -855,49 +855,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       if (doc.objects.find(object => object.id === id)?.kind === 'drawing' && !lockedIds.has(id)) { onDrawingEdit?.(id); return }
       if ((isText(doc.objects.find(object => object.id === id)!) || doc.objects.find(object => object.id === id)?.kind === 'code') && !lockedIds.has(id)) { select([id]); focusObject(id, true) }
       else caption(id)
-      return
     }
-    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') { event.preventDefault(); duplicate(); return }
-    const directions: Record<string, Point> = { ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 }, ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 } }
-    const direction = directions[event.key]
-    if (!direction) return
-    event.preventDefault()
-    const step = event.shiftKey ? 1 : event.altKey ? 8 : gridSize
-    const part = (event.target as HTMLElement).dataset.floatingControl
-    if ((event.target as HTMLElement).hasAttribute('data-caption-control')) {
-      if (direction.x && !segmentTask(id)) {
-        const object = doc.objects.find(object => object.id === id)!
-        if (supportsCaption(object) && object.caption) onNoteChange(id, { caption: { ...object.caption, width: boundedCaptionWidth(object, geometry[id], (object.caption.width ?? object.layout.width) + direction.x * step * 2) } })
-      }
-      return
-    }
-    if (sizeLocked(id) && part) return
-    const object = doc.objects.find(object => object.id === id)!
-    const width = (next: number) => boundedObjectWidth(object, geometry[id], next)
-    if (part === 'width' || part && object.kind === 'drawing') {
-      onNoteChange(id, constrainCaptionResize(object, { width: width(object.layout.width + (direction.x || direction.y) * step) }, geometry[id], pageWidth())); return
-    }
-    if (part && object.kind === 'html') {
-      onNoteChange(id, constrainCaptionResize(object, { width: width(object.layout.width + direction.x * step), height: Math.max(16, object.layout.height + direction.y * step) }, geometry[id], pageWidth())); return
-    }
-    if (object.layout.placement.type === 'flow') {
-      if (direction.x) {
-        const available = pageWidth() - doc.page.margins.left - doc.page.margins.right
-        const box = geometry[id]
-        const minimum = doc.page.margins.left + (object.layout.margins?.left ?? 0)
-        const maximum = doc.page.margins.left + available - object.layout.width - (object.layout.margins?.right ?? 0)
-        const desired = Math.max(minimum, Math.min(Math.max(minimum, maximum), box.x + direction.x * (event.shiftKey ? 10 : 1)))
-        onNoteChange(id, { x: box.x - doc.page.margins.left + boundedTranslation(doc.objects, geometry, [id], { x: desired - box.x, y: 0 }, pageWidth()).x, centered: false })
-      } else {
-        const index = doc.content.content!.findIndex(node => node.attrs?.objectId === id)
-        const destination = Math.max(0, Math.min(doc.content.content!.length, index + (direction.y < 0 ? -1 : 2)))
-        commitDocument(moveSegment(doc, { start: { index, offset: 0 }, end: { index: index + 1, offset: 0 } }, { index: destination, offset: 0 }, segments.context().anchors, geometry).doc)
-      }
-      return
-    }
-    const ids = selectedIds.includes(id) ? selectedIds : [id]
-    const patches = shifted(doc.objects, geometry, ids, direction.x * step, direction.y * step)
-    onFloatingChange(applyPatches(doc.objects, patches))
   }
 
   function sizeLocked(id: string) {

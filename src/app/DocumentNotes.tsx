@@ -67,7 +67,7 @@ export function DocumentNotes({ value, onFocus }: {
   return <section ref={pane} className={`document-notes ${settings.notesOpen ? 'is-open' : ''}`} aria-label="Notes"
     style={{ height: settings.notesOpen ? height : 24 }}>
     {settings.notesOpen && <div className="notes-divider" role="separator" aria-label="Resize notes" aria-orientation="horizontal"
-      aria-controls="document-notes-panel" aria-valuemin={72} aria-valuemax={maxHeight} aria-valuenow={height} tabIndex={0}
+      aria-controls="document-notes-panel" aria-valuemin={72} aria-valuemax={maxHeight} aria-valuenow={height} tabIndex={-1}
       onPointerDown={event => {
         if (event.button !== 0) return
         event.preventDefault(); event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId)
@@ -80,12 +80,7 @@ export function DocumentNotes({ value, onFocus }: {
         drag.current = null; setDragHeight(null)
         event.currentTarget.releasePointerCapture(event.pointerId)
       }}
-      onLostPointerCapture={() => { drag.current = null; setDragHeight(null) }}
-      onKeyDown={event => {
-        if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
-        event.preventDefault()
-        onSettings({ ...settings, notesHeight: clamp(event.key === 'Home' ? 72 : event.key === 'End' ? maxHeight : height + (event.key === 'ArrowUp' ? 20 : -20)) })
-      }} />}
+      onLostPointerCapture={() => { drag.current = null; setDragHeight(null) }} />}
     <div className="notes-header" onClick={event => {
       if (!(event.target as HTMLElement).closest('button, .notes-tab')) toggle.current?.click()
     }}>

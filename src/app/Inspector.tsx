@@ -217,21 +217,10 @@ export interface TextToolsRowProps {
 }
 
 export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onColorApplied, caption = false }: TextToolsRowProps) {
-  const tools = useRef<HTMLDivElement>(null)
   const selection = useEditorState({ editor, selector: () => selectedClasses(editor, caption) }) ?? selectedClasses(null, caption)
   const [boldParagraphs, setBoldParagraphs] = useState(false)
   useLayoutEffect(() => { setBoldParagraphs(selectedParagraphsAreBold(editor)) })
   const link = useLinkControl(editor, !!editor?.isEditable && selection.text)
-  useEffect(() => {
-    if (!selection.text) return
-    function focusTools(event: KeyboardEvent) {
-      if (event.altKey && event.key === 'F10' && !event.isComposing) {
-        event.preventDefault(); tools.current?.querySelector<HTMLButtonElement>('.tt-btn:not(:disabled)')?.focus()
-      }
-    }
-    window.addEventListener('keydown', focusTools)
-    return () => window.removeEventListener('keydown', focusTools)
-  }, [selection.text])
   if (!selection.text) return null
 
   const paragraphDisabled = !editor?.isEditable || !selection.text || !!selection.fixed
@@ -256,7 +245,7 @@ export function TextToolsRow({ editor, theme, onPalette, recentColors = [], onCo
   const inheritedColor = (paragraph === 'table' ? theme.objects.table : theme.paragraphs[paragraph])?.color ?? theme.defaults.color
   const swatches = paletteSwatches(theme)
   const colorSwatch = swatches.find(swatch => swatch.value === (selection.color ?? inheritedColor))?.color
-  return <div className="text-tools" ref={tools}>
+  return <div className="text-tools">
     <div className="text-tools-row" role="toolbar" aria-label="Text formatting" onKeyDown={event => {
       if ((event.target as HTMLElement).closest('[role="menu"], [role="dialog"]')) return
       if (event.key === 'Escape') { event.preventDefault(); editor?.commands.focus(); return }

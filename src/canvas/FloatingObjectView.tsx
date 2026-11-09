@@ -70,7 +70,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
     }}>
     <TextEditor key={caption.content.content![0].attrs!.id} content={caption.content} caption editable={captionEditing} label="Caption" historyId={`${note.id}:caption:${caption.content.content![0].attrs!.id}`}
       onChange={content => onChange({ caption: { ...caption, content } })} onActive={editor => { if (editor?.isFocused) onActive(editor, true); else if (!editor && captionSelected) onActive(null, true) }} />
-    {editable && captionResizable && <div className="caption-border-right" data-caption-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
+    {editable && captionResizable && <div className="caption-border-right" data-caption-control="width" role="separator" aria-orientation="vertical" tabIndex={-1}
       aria-label="Resize caption width" aria-valuemin={16} aria-valuenow={Math.round(caption.width ?? note.layout.width)}
       onPointerDown={event => begin('caption-width', event, true)} onFocus={() => onActive(null, true)} />}
   </div>
@@ -115,10 +115,10 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onDrawingEdit() }}>
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /></svg>
     </button>}
-    {editable && !sizeLocked && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={0}
+    {editable && !sizeLocked && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={-1}
       aria-label={`Resize floating ${kind} width`} aria-valuemin={kind === 'html' ? 16 : 120} aria-valuenow={Math.round(box.width)}
       onPointerDown={event => begin('width', event)} onFocus={() => onActive(editor.current)} />}
-    {editable && !sizeLocked && selected && (note.kind === 'html' || note.kind === 'drawing') && (['nw', 'ne', 'sw', 'se'] as const).map(part => <button key={part}
+    {editable && !sizeLocked && selected && (note.kind === 'html' || note.kind === 'drawing') && (['nw', 'ne', 'sw', 'se'] as const).map(part => <div key={part}
       className={`object-handle handle-${part}`} data-floating-control={part} aria-label={`Resize ${kind} ${part}`} onPointerDown={event => begin(part, event)} />)}
     </div>
     {captionView}

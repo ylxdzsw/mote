@@ -1935,3 +1935,10 @@ This reduces lineage and stale-context coordination without broadening reservati
 ## 2026-11-09 — Click-through expanded bookmark gaps
 
 Expanded minimap labels no longer turn their entire lane into a pointer target. Track pointer position over the shared canvas host only to retain expansion across gaps; native hit testing routes clicks and cursor feedback to the actual label or underlying canvas, preserving gutter selection without forwarding synthetic events. Label buttons fill their existing 20px collision spacing so closely stacked labels have no tiny dead gaps. Empty overlay areas remain available for selection and scrolling in editing, reading, and standalone HTML. This supersedes the whole-lane interception used to keep labels open; navigation, focus, and document geometry are unchanged.
+
+
+## 2026-11-09 — Browser-first keyboard behavior
+
+Reduce Mote-specific keyboard machinery rather than the number of available keys. Keep conventional editor commands, native UI focus/activation, contextual cancellation, presentation arrows, and Alt pointer manipulation. Remove canvas geometry key handlers and their extra Tab stops, the toolbar focus hotkey, object duplication hotkey, drawing-tool letters, and launchpad grid navigation; Add becomes ordinary tabbable buttons. Keyboard zoom belongs to the browser, while document zoom remains a dropdown/canvas gesture. Gesture interception is scoped to the canvas rather than suppressing browser gestures elsewhere.
+
+Rich-text Tab is a deliberate exception: preserve convenient Body-to-List conversion and list indentation, but consume Tab/Shift+Tab in other paragraph classes and captions instead of accidentally moving focus out of writing. Table Tab navigation stops at its boundaries; code keeps conventional indentation and its existing focus-mode escape hatch. This changes interaction only, not saved document semantics or formats.

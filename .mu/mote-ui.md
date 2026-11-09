@@ -71,6 +71,8 @@ Routine successful actions should not create persistent page-wide banners. Let t
 
 ## Make the same design usable across inputs and sizes
 
+Prefer browser defaults and conventional editor behavior over specialized shortcuts or a parallel keyboard-operated canvas. Pointer geometry handles need not be Tab stops or have keyboard movement/resizing equivalents. Rich text deliberately owns Tab/Shift+Tab: Body-to-List conversion and list indentation remain, while ineligible paragraph classes and captions keep focus without changing content. Table cell navigation and source-editor indentation retain their established behavior; ordinary UI controls keep native focus navigation.
+
 Keyboard focus, accessible names, selected/disabled states, and focus restoration are part of the component. Prefer native button, input, radio, and dialog behavior where it fits. Color and hover alone should not carry essential meaning. Tooltips complement visible state and accessible descriptions.
 
 Account for the painted focus ring, not only the control's border box. Leave clearance from dividers and adjacent controls; use inset rings for tightly joined buttons, tabs, and list rows, with enough internal padding to keep the ring off the label. Compound numeric fields highlight the complete field while identifying a focused unit selector separately. Check keyboard focus at both ends of scrolling regions, since an otherwise well-spaced outline can be clipped when a control is scrolled into view.

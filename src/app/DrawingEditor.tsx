@@ -23,7 +23,6 @@ interface Props {
 type Side = 'top' | 'right' | 'bottom' | 'left'
 type Crop = Record<Side, number>
 const sides = ['top', 'right', 'bottom', 'left'] as const
-const sideKeys: Record<Side, [string, string]> = { top: ['ArrowUp', 'ArrowDown'], right: ['ArrowRight', 'ArrowLeft'], bottom: ['ArrowDown', 'ArrowUp'], left: ['ArrowLeft', 'ArrowRight'] }
 
 // Positive amounts extend a side, negative amounts cut it; content keeps its document-pixel size.
 function cropped(drawing: FloatingDrawing, crop: Crop): FloatingDrawing {
@@ -140,33 +139,26 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
     commit({ width: next.layout.width, height: next.layout.height, strokes: next.strokes, labels: next.labels, ...position })
   }
 
-  function startCrop(side: Side, event: PointerEvent<HTMLButtonElement>) {
+  function startCrop(side: Side, event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || !event.isPrimary || gesture.current || crop) return
     event.preventDefault(); event.stopPropagation()
     closePopover()
     if (!commitLabel()) return
-    event.currentTarget.focus({ preventScroll: true })
+    canvas.current?.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
     setCrop({ pointer: event.pointerId, side, start: side === 'left' || side === 'right' ? event.clientX : event.clientY, scale, crop: bounded(side, 0) })
   }
 
-  function moveCrop(event: PointerEvent<HTMLButtonElement>) {
+  function moveCrop(event: PointerEvent<HTMLDivElement>) {
     if (crop?.pointer !== event.pointerId) return
     const delta = ((crop.side === 'left' || crop.side === 'right' ? event.clientX : event.clientY) - crop.start) / crop.scale
     setCrop({ ...crop, crop: bounded(crop.side, crop.side === 'left' || crop.side === 'top' ? -delta : delta) })
   }
 
-  function endCrop(event: PointerEvent<HTMLButtonElement>) {
+  function endCrop(event: PointerEvent<HTMLDivElement>) {
     if (crop?.pointer !== event.pointerId) return
     setCrop(null)
     commitCrop(crop.crop)
-  }
-
-  function cropKey(side: Side, event: KeyboardEvent<HTMLButtonElement>) {
-    const direction = sideKeys[side].indexOf(event.key)
-    if (direction < 0) return
-    event.preventDefault()
-    commitCrop(bounded(side, (direction ? -1 : 1) * (event.shiftKey ? 1 : 8)))
   }
 
   function closePopover(restore = false) {
@@ -307,9 +299,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
     } else if (typing && key === 'enter' && !event.shiftKey && labelDraft) {
       event.preventDefault(); commitLabel()
     } else if (!typing && !event.ctrlKey && !event.metaKey && !event.altKey && !popover) {
-      const next = ({ p: 'pen', e: 'eraser', l: 'label' } as const)[key as 'p' | 'e' | 'l']
-      if (next) { event.preventDefault(); cancelGesture(); setTool(next) }
-      else if (key === 'enter' && target === canvas.current && tool === 'label') {
+      if (key === 'enter' && target === canvas.current && tool === 'label') {
         event.preventDefault(); editLabel(null, { x: drawing.layout.width / 2, y: drawing.layout.height / 2, text: '', color, size: 20 })
       }
     }
@@ -338,12 +328,11 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
           {lockedBackground && <img className="drawing-locked-background" src={lockedBackground.src} alt="" draggable={false} />}
           {lockedBackground ? <MarkupView markup={{ width: shown.layout.width, height: shown.layout.height, strokes: shown.strokes, labels: shown.labels }} /> : <DrawingView drawing={shown} />}
         </div>
-        {!lockedBackground && sides.map(side => <button key={side} className="drawing-crop-handle" data-side={side} data-active={crop?.side === side || undefined}
+        {!lockedBackground && sides.map(side => <div key={side} className="drawing-crop-handle" data-side={side} data-active={crop?.side === side || undefined}
           aria-label={`Crop or extend ${side} edge`} title={`Drag to crop or extend the ${side} edge`}
           onPointerDown={event => startCrop(side, event)} onPointerMove={moveCrop} onPointerUp={endCrop}
           onPointerCancel={event => { if (crop?.pointer === event.pointerId) cancelGesture() }}
-          onLostPointerCapture={event => { if (crop?.pointer === event.pointerId) setCrop(null) }}
-          onKeyDown={event => cropKey(side, event)} />)}
+          onLostPointerCapture={event => { if (crop?.pointer === event.pointerId) setCrop(null) }} />)}
       </div>
       {labelDraft && <div className="drawing-label-editor" role="group" aria-label={labelDraft.index === null ? 'New label' : 'Edit label'}
         style={{ left: `clamp(8px, ${(areaSize.width - shownSize.width * scale) / 2 + labelDraft.label.x / drawing.layout.width * shownSize.width * scale}px, calc(100% - 292px))`, top: `clamp(8px, ${(areaSize.height - shownSize.height * scale) / 2 + labelDraft.label.y / drawing.layout.height * shownSize.height * scale}px, calc(100% - 164px))` }}>
@@ -361,7 +350,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
       <p id={`${id}-hint`} className="drawing-editor-hint" role="status">{limitMessage || <>{lockedBackground?.hint && `${lockedBackground.hint} · `}{crop ? 'Drag outward to extend or inward to crop. Content keeps its size.' : tool === 'pen' ? 'Draw with a mouse or pen.' : tool === 'eraser' ? 'Drag across a stroke to erase it.' : 'Click to add or edit a label. Enter adds a centered label.'}</>}</p>
       <div className="drawing-tools" role="group" aria-label={lockedBackground ? 'Markup tools' : 'Drawing tools'}>
         {(['pen', 'eraser', 'label'] as const).map(value => <button key={value} className="drawing-tool" aria-label={value === 'pen' ? 'Pen' : value === 'eraser' ? 'Eraser' : 'Label'}
-          title={`${value === 'pen' ? 'Pen (P)' : value === 'eraser' ? 'Eraser (E)' : 'Label (L)'}`} aria-pressed={tool === value}
+          title={`${value === 'pen' ? 'Pen' : value === 'eraser' ? 'Eraser' : 'Label'}`} aria-pressed={tool === value}
           onClick={() => { if (commitLabel()) { setTool(value); closePopover() } }}><ToolIcon tool={value} /></button>)}
         <span className="drawing-tool-divider" />
         <button className="drawing-tool drawing-color-button" aria-label={lockedBackground ? 'Markup color' : 'Drawing color'} title="Color for new strokes and labels" aria-expanded={popover === 'color'} aria-controls={`${id}-popover`}
@@ -379,7 +368,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
           onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !popoverTrigger.current?.contains(event.relatedTarget)) closePopover() }}>
           {popover === 'color' ? <><strong>Color</strong><PaletteControl theme={theme} value={color} label={lockedBackground ? 'Markup color' : 'Drawing color'} onChange={value => { setColor(value!); closePopover(true) }} /><p>Applies to new strokes and labels.</p></>
             : morePage === 'clear' ? <><strong>Clear this {subject}?</strong><p>All strokes and labels will be removed. {lockedBackground && 'The underlying content stays unchanged. '}You can undo this.</p><div className="drawing-popover-actions"><button onClick={() => setMorePage('options')}>Cancel</button><button className="drawing-danger" onClick={() => { setLabelDraft(null); if (drawing.strokes.length || drawing.labels.length) commit({ strokes: [], labels: [] }); closePopover(true) }}>Clear {subject}</button></div></>
-              : morePage === 'help' ? <><strong>Keyboard shortcuts</strong><dl><dt>P / E / L</dt><dd>Pen / Eraser / Label</dd><dt>Ctrl/⌘ Z</dt><dd>Undo</dd><dt>Ctrl/⌘ Shift Z / Ctrl Y</dt><dd>Redo</dd><dt>Enter on canvas</dt><dd>Add a label with Label selected</dd><dt>Escape</dt><dd>Dismiss options or close; cancel unfinished input</dd></dl><button onClick={() => setMorePage('options')}>Back</button></>
+              : morePage === 'help' ? <><strong>Keyboard shortcuts</strong><dl><dt>Ctrl/⌘ Z</dt><dd>Undo</dd><dt>Ctrl/⌘ Shift Z / Ctrl Y</dt><dd>Redo</dd><dt>Enter on canvas</dt><dd>Add a label with Label selected</dd><dt>Escape</dt><dd>Dismiss options or close; cancel unfinished input</dd></dl><button onClick={() => setMorePage('options')}>Back</button></>
                 : <>{!lockedBackground && <><strong id={`${id}-background`}>Background</strong>
                   <div className="drawing-background" role="radiogroup" aria-labelledby={`${id}-background`}>
                     {([null, 'gray6'] as const).map(value => <label key={value ?? 'transparent'}>
