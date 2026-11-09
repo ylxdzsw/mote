@@ -11,13 +11,12 @@ import { TranscriptJournal } from './transcript.mjs'
 import { DocumentEvents } from './document-events.mjs'
 import { cloudApi } from './cloud-api.mjs'
 import { storagePaths } from './storage-paths.mjs'
-import { AGENT_PROTOCOL, LEGACY_AGENT_PROTOCOL, TOKEN, counter, fingerprint, operationId, validateDelivery } from './agent-protocol.mjs'
+import { AGENT_PROTOCOL, TOKEN, counter, fingerprint, operationId, validateDelivery } from './agent-protocol.mjs'
 import { localDelivery } from './submit.mjs'
 import { WidgetScreenshots, WIDGET_BODY_LIMIT } from './widget-screenshot.mjs'
 
 const SERVER_ROOT = path.dirname(fileURLToPath(import.meta.url))
 const DURABLE_EXPIRY = 253402300799999
-const CANDIDATE_ID = /^C([1-9]\d*)$/
 const VERSION_ID = /^V[1-9]\d*$/
 const EXTERNAL_SKILL = 'https://mote.ylxdzsw.com/skills/external/SKILL.md'
 const execFileAsync = promisify(execFile)
@@ -53,13 +52,7 @@ function configuredModels(status) {
 }
 
 async function mkdirSafe(directory, mode) {
-  try {
-    const stat = await fs.lstat(directory)
-    if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`${directory} is not a directory`)
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error
-    await fs.mkdir(directory, { mode })
-  }
+  await fs.mkdir(directory, { recursive: true, mode })
   await fs.chmod(directory, mode)
 }
 
@@ -341,8 +334,7 @@ export class TaskManager {
       const task = { executions: new Set(), id: entry.name, dir, meta, generation: Number(meta.generation || 0), current: null, abandoned: false, transcript }
       this.addTask(task)
       if (this.supported(task)) {
-        Object.assign(meta, { executor: meta.executor ?? 'builtin', executorRevision: meta.executorRevision ?? 0,
-          ...(!this.v2(task) ? { candidateRevision: meta.candidateRevision ?? (meta.candidate ? 1 : 0) } : {}) })
+        Object.assign(meta, { executor: meta.executor ?? 'builtin', executorRevision: meta.executorRevision ?? 0 })
         meta.workspaceRead ??= false; meta.workspaceReadRevision ??= 0
         delete meta.builtinToken
         meta.expiresAt = DURABLE_EXPIRY
@@ -431,47 +423,15 @@ export class TaskManager {
     await this.persist(task, next)
     this.invalidateRun(task)
   }
-  candidateRecords(task) {
-    if (Array.isArray(task.meta.candidates)) return task.meta.candidates
-    return task.meta.candidate ? [{ id: 'C1', revision: 1, candidate: task.meta.candidate }] : []
-  }
-  candidateRecord(task, id) { return this.candidateRecords(task).find(record => record.id === id) }
-  candidateVersion(task, id, revision) {
-    const record = this.candidateRecord(task, id)
-    if (!record) return undefined
-    if (record.revision === revision) return { id: record.id, ...(record.label === undefined ? {} : { label: record.label }), revision: record.revision, candidate: record.candidate }
-    const previous = record.history?.find(item => item.revision === revision)
-    return previous ? { id: record.id, ...(previous.label === undefined ? {} : { label: previous.label }), revision: previous.revision, candidate: previous.candidate } : undefined
-  }
-  candidateOrder(task, records = this.candidateRecords(task)) {
-    const ids = new Set(records.map(record => record.id))
-    const saved = Array.isArray(task.meta.candidateOrder) ? task.meta.candidateOrder.filter(id => ids.has(id)) : []
-    return [...saved, ...records.map(record => record.id).filter(id => !saved.includes(id))]
-  }
-  candidateNumberFloor(task, records = this.candidateRecords(task)) {
-    const highest = records.reduce((max, record) => Math.max(max, Number(CANDIDATE_ID.exec(record.id)?.[1] || 0)), 0)
-    return Math.max(Number.isSafeInteger(task.meta.nextCandidateNumber) ? task.meta.nextCandidateNumber : 1, highest + 1)
-  }
-  lastSubmissionRevision(task) {
-    return Object.values(task.meta.submissionOperations ?? {}).reduce((max, operation) => {
-      const revision = operation?.receipt?.candidateRevision
-      return Number.isSafeInteger(revision) ? Math.max(max, revision) : max
-    }, 0)
-  }
   candidateAlias(task) {
-    if (this.v2(task)) return task.meta.versions?.at(-1)?.candidate
-    const records = this.candidateRecords(task)
-    const latest = records.find(record => record.id === task.meta.latestCandidateId)
-    if (latest) return latest.candidate
-    const order = this.candidateOrder(task, records)
-    return records.find(record => record.id === order.at(-1))?.candidate ?? task.meta.candidate
+    return task.meta.versions?.at(-1)?.candidate
   }
   helperDirectory() {
     return path.join(this.sourcePath, 'public', 'skills', 'helpers')
   }
   view(task) {
     const supported = this.supported(task)
-    const value = { id: task.id, protocol: task.meta.protocol, documentVersion: task.meta.documentVersion, status: supported ? task.meta.status : 'error', progress: task.meta.progress, expiresAt: DURABLE_EXPIRY, executor: task.meta.executor, executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision, workspaceRead: task.meta.workspaceRead, workspaceReadRevision: task.meta.workspaceReadRevision, released: !this.isActive(task) }
+    const value = { id: task.id, protocol: task.meta.protocol, documentVersion: task.meta.documentVersion, status: supported ? task.meta.status : 'error', progress: task.meta.progress, expiresAt: DURABLE_EXPIRY, executor: task.meta.executor, executorRevision: task.meta.executorRevision, workspaceRead: task.meta.workspaceRead, workspaceReadRevision: task.meta.workspaceReadRevision, released: !this.isActive(task) }
     if (!value.released && task.meta.executor === 'external' && task.meta.externalGrantVersion === 1 && this.externalAllowed(task)) value.externalPath = `/a/${task.meta.externalToken}`
     if (value.externalPath) {
       value.expiresAt = this.externalAccessUntil(task)
@@ -481,17 +441,9 @@ export class TaskManager {
     if (task.meta.error) value.error = task.meta.error
     if (!supported) { value.error = 'Unsupported task protocol or document version; original artifacts are retained for recovery.'; delete value.externalPath }
     if (supported) {
-      if (this.v2(task)) {
-        delete value.candidateRevision
-        value.versions = task.meta.versions ?? []
-        if (task.meta.selectedVersion) value.selectedVersion = task.meta.selectedVersion
-      } else {
-        value.candidates = this.candidateRecords(task)
-        if (task.meta.candidateRef) value.candidateRef = task.meta.candidateRef
-      }
+      value.versions = task.meta.versions ?? []
+      if (task.meta.selectedVersion) value.selectedVersion = task.meta.selectedVersion
     }
-    const candidate = this.candidateAlias(task)
-    if (candidate && !this.v2(task)) value.candidate = candidate
     return value
   }
 
@@ -507,14 +459,12 @@ export class TaskManager {
     return task.request
   }
 
-  v2(task) { return task.meta.protocol === AGENT_PROTOCOL }
   ownDocument(task, revision) {
     return this.store.documentAccess({ kind: task.meta.executor, id: task.meta.documentId,
       taskId: task.id, privacyRevision: task.meta.privacyRevision, revision })
   }
   async latestRequest(task, revision) {
     const original = await this.loadRequest(task)
-    if (!this.v2(task)) return original
     const reservation = this.store.assertReservation(task.id, task.meta.documentId)
     const identity = target => target?.kind === 'object' ? { kind: target.kind, objectId: target.objectId, isNew: target.isNew }
       : { kind: target?.kind, blockIds: target?.blockIds, objectIds: target?.objectIds, bookmarks: target?.bookmarks }
@@ -545,7 +495,7 @@ export class TaskManager {
     await writeImmutable(path.join(dir, '.mu', 'AGENTS.md'), `# Task-local Mu scope\nRead-only source: ${this.sourcePath}\nWritable scope is private /tmp and this task's output, .mu journals/objects, and cache/config directories. Supplied Mu configuration and credentials remain read-only.\nShared /root/.mu is read-only.\n`)
   }
 
-  supported(task) { return [AGENT_PROTOCOL, LEGACY_AGENT_PROTOCOL].includes(task.meta.protocol) && DOCUMENT_VERSIONS.includes(task.meta.documentVersion) }
+  supported(task) { return task.meta.protocol === AGENT_PROTOCOL && DOCUMENT_VERSIONS.includes(task.meta.documentVersion) }
   assertSupported(task) {
     if (!this.supported(task)) throw new HttpError(409, 'Unsupported task protocol or document version. Retained task artifacts require recovery; create a new task to generate.')
   }
@@ -647,108 +597,28 @@ export class TaskManager {
       }
       counter(body.executorRevision, 'executorRevision')
       if (body.executorRevision !== task.meta.executorRevision) throw new HttpError(409, 'executor revision conflict')
-      if (this.v2(task)) {
-        if (typeof body.documentRevision !== 'string' || !UUID.test(body.documentRevision)) throw new HttpError(400, 'documentRevision must identify the cloud revision read')
-        if (['candidateId', 'candidateRevision', 'parent', 'parentId', 'versionId'].some(key => Object.hasOwn(body, key))) throw new HttpError(400, 'v2 submissions append a server-assigned version; no candidate hierarchy or CAS')
-        if (body.label !== undefined && (typeof body.label !== 'string' || [...body.label].length > 80)) throw new HttpError(400, 'label must be at most 80 characters')
-        const request = await this.latestRequest(task, body.documentRevision)
-        const candidate = validateDelivery(body.candidate, body.assets, request.document, request.target)
-        // Validate current ownership too, without requiring context revision equality.
-        await this.latestRequest(task)
-        this.authorize(token, scope)
-        const versions = task.meta.versions ?? []
-        const version = { id: `V${versions.length + 1}`, ...(body.label === undefined ? {} : { label: body.label }), candidate,
-          documentRevision: request.documentRevision, documentVersion: request.document.version }
-        const receipt = { taskId: task.id, executorRevision: task.meta.executorRevision, versionId: version.id,
-          documentRevision: version.documentRevision, documentVersion: version.documentVersion, status: 'ready' }
-        const next = { ...task.meta, versions: [...versions, version], status: 'ready', progress: 'Version ready',
-          submissionOperations: { ...operations, [body.operationId]: { digest, receipt } } }
-        delete next.error
-        if (Buffer.byteLength(JSON.stringify(next)) > MAX_BODY) throw new HttpError(413, 'Task version history is full; retained versions are unchanged. Start a new task.')
-        await this.persist(task, next)
-        return receipt
-      }
-      counter(body.candidateRevision, 'candidateRevision')
-      if (body.candidateId !== undefined && (typeof body.candidateId !== 'string' || !CANDIDATE_ID.test(body.candidateId))) throw new HttpError(400, 'candidateId must be a candidate ID such as C1')
+      if (typeof body.documentRevision !== 'string' || !UUID.test(body.documentRevision)) throw new HttpError(400, 'documentRevision must identify the cloud revision read')
+      if (['candidateId', 'candidateRevision', 'parent', 'parentId', 'versionId'].some(key => Object.hasOwn(body, key))) throw new HttpError(400, 'v2 submissions append a server-assigned version; no candidate hierarchy or CAS')
       if (body.label !== undefined && (typeof body.label !== 'string' || [...body.label].length > 80)) throw new HttpError(400, 'label must be at most 80 characters')
-      if (body.candidateRevision !== task.meta.candidateRevision) throw new HttpError(409, 'candidate revision conflict', { executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision })
-      const request = await this.loadRequest(task)
-      const candidate = validateDelivery(body.candidate, body.assets, request.document, task.meta.target)
-      // Authorization is checked after all asynchronous reads and immediately at commit.
+      const request = await this.latestRequest(task, body.documentRevision)
+      const candidate = validateDelivery(body.candidate, body.assets, request.document, request.target)
+      // Validate current ownership too, without requiring context revision equality.
+      await this.latestRequest(task)
       this.authorize(token, scope)
-      const candidates = this.candidateRecords(task).map(record => structuredClone(record))
-      const nextNumber = this.candidateNumberFloor(task, candidates)
-      let candidateId = body.candidateId
-      let candidateRevision
-      if (candidateId !== undefined) {
-        const index = candidates.findIndex(record => record.id === candidateId)
-        if (index < 0) throw new HttpError(409, 'candidate no longer exists')
-        const current = candidates[index]
-        candidateRevision = current.revision + 1
-        const history = [...(current.history ?? []), { revision: current.revision, ...(current.label === undefined ? {} : { label: current.label }), candidate: current.candidate }]
-        candidates[index] = { id: candidateId, ...(body.label === undefined ? current.label === undefined ? {} : { label: current.label } : { label: body.label }), revision: candidateRevision, candidate, history }
-      } else {
-        if (!Number.isSafeInteger(nextNumber) || nextNumber < 1) throw new HttpError(409, 'candidate IDs are exhausted')
-        candidateId = `C${nextNumber}`
-        candidateRevision = 1
-        candidates.push({ id: candidateId, ...(body.label === undefined ? {} : { label: body.label }), revision: candidateRevision, candidate })
-      }
-      const order = this.candidateOrder(task, this.candidateRecords(task)).filter(id => id !== candidateId)
-      order.push(candidateId)
-      const receipt = { taskId: task.id, executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision + 1, candidateId, revision: candidateRevision, status: 'ready' }
-      const next = { ...task.meta, candidates, candidateOrder: order, nextCandidateNumber: body.candidateId === undefined ? nextNumber + 1 : nextNumber,
-      latestCandidateId: candidateId, candidate, candidateRevision: receipt.candidateRevision,
-      status: 'ready', progress: 'Candidate ready', submissionOperations: { ...operations, [body.operationId]: { digest, receipt } } }
-      if (next.nextCandidateNumber === undefined) delete next.nextCandidateNumber
+      const versions = task.meta.versions ?? []
+      const version = { id: `V${versions.length + 1}`, ...(body.label === undefined ? {} : { label: body.label }), candidate,
+        documentRevision: request.documentRevision, documentVersion: request.document.version }
+      const receipt = { taskId: task.id, executorRevision: task.meta.executorRevision, versionId: version.id,
+        documentRevision: version.documentRevision, documentVersion: version.documentVersion, status: 'ready' }
+      const next = { ...task.meta, versions: [...versions, version], status: 'ready', progress: 'Version ready',
+        submissionOperations: { ...operations, [body.operationId]: { digest, receipt } } }
       delete next.error
-      if (Buffer.byteLength(JSON.stringify(next)) > MAX_BODY) throw new HttpError(413, 'Task candidate history is too large. Remove unwanted candidates before submitting more. Existing candidates are unchanged.')
+      if (Buffer.byteLength(JSON.stringify(next)) > MAX_BODY) throw new HttpError(413, 'Task version history is full; retained versions are unchanged. Start a new task.')
       await this.persist(task, next)
       return receipt
     })
   }
 
-  async removeCandidate(task, token, scope, candidateId, body) {
-    return this.mutate(task, async () => {
-      this.authorize(token, scope)
-      if (this.v2(task)) throw new HttpError(404, 'not found')
-      if (!CANDIDATE_ID.test(candidateId)) throw new HttpError(404, 'candidate not found')
-      operationId(body?.operationId)
-      const digest = fingerprint({ candidateId, body }), operations = task.meta.candidateRemovalOperations ?? {}
-      const previous = operations[body.operationId]
-      if (previous) {
-        if (previous.digest !== digest) throw new HttpError(409, 'operationId was already used for different input')
-        return previous.receipt
-      }
-      counter(body.executorRevision, 'executorRevision'); counter(body.candidateRevision, 'candidateRevision')
-      if (body.executorRevision !== task.meta.executorRevision) throw new HttpError(409, 'executor revision conflict')
-      if (body.candidateRevision !== task.meta.candidateRevision) throw new HttpError(409, 'candidate revision conflict', { executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision })
-      const candidates = this.candidateRecords(task).map(record => structuredClone(record))
-      const nextCandidateNumber = this.candidateNumberFloor(task, candidates)
-      if (!candidates.some(record => record.id === candidateId)) throw new HttpError(404, 'candidate not found')
-      const order = this.candidateOrder(task, candidates).filter(id => id !== candidateId)
-      const remaining = candidates.filter(record => record.id !== candidateId)
-      const latestCandidateId = order.at(-1)
-      const latest = remaining.find(record => record.id === latestCandidateId)
-      this.authorize(token, scope)
-      const receipt = { taskId: task.id, executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision + 1, candidateId, removed: true }
-      const next = { ...task.meta, candidates: remaining, candidateOrder: order, nextCandidateNumber, latestCandidateId,
-        candidateRevision: receipt.candidateRevision,
-        candidateRemovalOperations: { ...operations, [body.operationId]: { digest, receipt } },
-      }
-      if (next.candidateRef?.candidateId === candidateId) delete next.candidateRef
-      if (latest) next.candidate = latest.candidate
-      else delete next.candidate
-      if (!remaining.length && task.meta.status !== 'running') {
-        next.status = task.meta.executor === 'external' ? 'waiting' : 'stopped'
-        next.progress = 'Candidate removed'
-      } else if (remaining.length && task.meta.status !== 'running') {
-        next.status = 'ready'
-        next.progress = 'Candidate removed'
-      }
-      await this.persist(task, next)
-      return receipt
-    })
-  }
 
   async agentApi(request, response, scope, requestId = crypto.randomUUID()) {
     response.setHeader('x-request-id', requestId)
@@ -762,43 +632,36 @@ export class TaskManager {
         const body = await readBody(request)
         send(response, 200, await this.submit(task, token, scope, body), undefined, this.env); return
       }
-      const removal = /^candidates\/(C[1-9]\d*)\/remove$/.exec(resource)
-      if (request.method === 'POST' && removal) {
-        const body = await readBody(request)
-        send(response, 200, await this.removeCandidate(task, token, scope, removal[1], body), undefined, this.env); return
-      }
+
       if (request.method !== 'GET') throw new HttpError(404, 'not found')
       let data, type = 'text/plain; charset=utf-8', download = false
       const files = { 'document.json': MAX_BODY, 'target.json': MAX_RESULT, 'snapshot.png': MAX_SCREENSHOT, 'target.png': MAX_SCREENSHOT }
       const available = (name, input) => name === 'snapshot.png' ? input.snapshot : name === 'target.png' ? input.targetSnapshot : true
-      if (task.meta.guideVersion) Object.assign(files, { 'guide.md': MAX_RESULT, 'submit.mjs': MAX_RESULT, 'preview.mjs': MAX_RESULT, 'preview-harness.html': MAX_RESULT })
+
       const workspace = () => task.meta.workspaceRead && task.meta.documentId
         ? { 'workspace-index.md': `${base}/workspace-index.md`, 'workspace-document.json': `${base}/workspace-document.json` } : {}
       if (!resource) {
         await this.loadRequest(task)
         type = 'text/markdown; charset=utf-8'
-        const names = ['manifest.json', ...Object.keys(files).filter(name => available(name, task.request)), ...Object.keys(workspace()), 'instructions.md', ...(this.v2(task) ? ['versions.json'] : ['candidate.json', 'candidates.json'])]
+        const names = ['manifest.json', ...Object.keys(files).filter(name => available(name, task.request)), ...Object.keys(workspace()), 'instructions.md', 'versions.json']
         data = `${this.instructions(task, scope)}\n\n## Task resources\n${names.map(name => `- [${name}](${base}/${name})`).join('\n')}\n`
       } else if (resource === 'manifest.json') {
         const input = await this.loadRequest(task)
         const skill = scope ? path.join(this.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md') : EXTERNAL_SKILL
         const helperRoot = this.helperDirectory()
-        const manifest = { protocol: task.meta.protocol, documentVersion: task.meta.documentVersion, taskId: task.id, executor: task.meta.executor, executorRevision: task.meta.executorRevision, candidateRevision: task.meta.candidateRevision,
-          ...(task.meta.guideVersion ? { guideVersion: task.meta.guideVersion } : {}), skill, helpers: scope ? helperRoot : 'https://mote.ylxdzsw.com/skills/helpers',
-          ...(task.meta.candidateRef ? { candidateRef: task.meta.candidateRef } : {}),
+        const source = this.ownDocument(task)
+        const manifest = { protocol: task.meta.protocol, documentVersion: source.document.version, taskId: task.id, executor: task.meta.executor, executorRevision: task.meta.executorRevision,
+          skill, helpers: scope ? helperRoot : 'https://mote.ylxdzsw.com/skills/helpers',
           workspaceRead: task.meta.workspaceRead, workspaceReadRevision: task.meta.workspaceReadRevision,
           ...(task.meta.documentId ? { documentMeta: this.store.privacyMeta(task.meta.documentId) } : {}),
           ...(!scope ? { expiresAt: this.externalAccessUntil(task) } : {}),
-          resources: { ...Object.fromEntries(Object.keys(files).filter(name => available(name, input)).map(name => [name, `${base}/${name}`])), ...workspace() }, instructions: `${base}/instructions.md`, candidate: `${base}/candidate.json`, candidates: `${base}/candidates.json`, removeCandidate: `${base}/candidates/{candidateId}/remove`, submit: `${base}/submit` }
-        if (this.v2(task)) {
-          for (const key of ['candidateRevision', 'candidateRef', 'candidate', 'candidates', 'removeCandidate']) delete manifest[key]
-          const source = this.ownDocument(task)
-          Object.assign(manifest, { documentVersion: source.document.version, documentRevision: source.revision,
-            documentContext: 'latest-cloud-saved', versions: `${base}/versions.json`, version: `${base}/versions/{versionId}.json`,
-            ...(task.meta.selectedVersion ? { selectedVersion: task.meta.selectedVersion } : {}),
-            originalReference: { documentRevision: task.meta.revision, documentVersion: task.meta.documentVersion,
-              snapshots: Object.fromEntries(['snapshot.png', 'target.png'].filter(name => available(name, input)).map(name => [name, `${base}/${name}`])) } })
-        }
+          documentRevision: source.revision, documentContext: 'latest-cloud-saved',
+          resources: { ...Object.fromEntries(Object.keys(files).filter(name => available(name, input)).map(name => [name, `${base}/${name}`])), ...workspace() },
+          instructions: `${base}/instructions.md`, versions: `${base}/versions.json`, version: `${base}/versions/{versionId}.json`,
+          ...(task.meta.selectedVersion ? { selectedVersion: task.meta.selectedVersion } : {}),
+          originalReference: { documentRevision: task.meta.revision, documentVersion: task.meta.documentVersion,
+            snapshots: Object.fromEntries(['snapshot.png', 'target.png'].filter(name => available(name, input)).map(name => [name, `${base}/${name}`])) },
+          submit: `${base}/submit` }
         data = JSON.stringify(manifest)
         type = 'application/json; charset=utf-8'
       } else if (resource === 'instructions.md') { await this.loadRequest(task); data = this.instructions(task, scope); type = 'text/markdown; charset=utf-8' }
@@ -813,33 +676,13 @@ export class TaskManager {
           data = JSON.stringify({ ...source, sourceUrl: `${PROD_ORIGIN}/d/${source.id}` }); type = 'application/json; charset=utf-8'
         }
       }
-      else if (this.v2(task) && resource === 'document.json') {
+      else if (resource === 'document.json') {
         data = JSON.stringify(this.ownDocument(task)); type = 'application/json; charset=utf-8'
-      } else if (this.v2(task) && resource === 'versions.json') {
+      } else if (resource === 'versions.json') {
         data = JSON.stringify(task.meta.versions ?? []); type = 'application/json; charset=utf-8'
-      } else if (this.v2(task) && /^versions\/V[1-9]\d*\.json$/.test(resource)) {
+      } else if (/^versions\/V[1-9]\d*\.json$/.test(resource)) {
         const version = task.meta.versions.find(version => version.id === resource.slice('versions/'.length, -'.json'.length))
         if (!version) throw new HttpError(404, 'version not found')
-        data = JSON.stringify(version); type = 'application/json; charset=utf-8'
-      }
-      else if (!this.v2(task) && resource === 'candidate.json') {
-        const candidate = this.candidateAlias(task)
-        if (!candidate) throw new HttpError(404, 'no candidate')
-        data = JSON.stringify(candidate); type = 'application/json; charset=utf-8'
-      } else if (!this.v2(task) && resource === 'candidates.json') {
-        data = JSON.stringify(this.candidateRecords(task)); type = 'application/json; charset=utf-8'
-      } else if (!this.v2(task) && /^candidates\/C[1-9]\d*\.json$/.test(resource)) {
-        const candidateId = resource.slice('candidates/'.length, -'.json'.length)
-        const requested = url.searchParams.get('revision')
-        let version
-        if (requested === null) {
-          const current = this.candidateRecord(task, candidateId)
-          version = current && this.candidateVersion(task, candidateId, current.revision)
-        } else {
-          if (!/^\d+$/.test(requested) || !Number.isSafeInteger(Number(requested)) || Number(requested) < 1) throw new HttpError(400, 'revision must be a positive integer')
-          version = this.candidateVersion(task, candidateId, Number(requested))
-        }
-        if (!version) throw new HttpError(404, 'candidate version not found')
         data = JSON.stringify(version); type = 'application/json; charset=utf-8'
       } else if (Object.hasOwn(files, resource)) {
         if (resource.endsWith('.png') && !available(resource, await this.loadRequest(task))) throw new HttpError(404, 'no snapshot')
@@ -864,66 +707,21 @@ export class TaskManager {
     current.closeSocket = async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)) }
     await fs.chmod(socketPath, 0o666)
     return { url: `http://moted.local/api/agent/${scope.token}`, socketPath, protocol: task.meta.protocol, executorRevision: scope.executorRevision,
-      ...(this.v2(task) ? { versionCount: task.meta.versions.length } : { candidateRevision: task.meta.candidateRevision }) }
-  }
-
-  instructions(task, scope) {
-    if (this.v2(task)) return this.versionInstructions(task, scope)
-    const token = scope?.token ?? task.meta.externalToken
-    const base = scope ? `/api/agent/${token}` : `/a/${token}`
-    const linkBase = scope ? `http://moted.local${base}` : `${PROD_ORIGIN}${base}`
-    const manifest = `${linkBase}/manifest.json`
-    const input = path.join(task.dir, 'input')
-    const output = scope ? path.join(task.dir, 'runs', String(scope.generation), 'output') : 'output'
-    const skill = scope ? path.join(this.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md') : EXTERNAL_SKILL
-    const helpers = scope ? this.helperDirectory() : 'https://mote.ylxdzsw.com/skills/helpers'
-    const submitHelper = scope ? path.join(helpers, 'submit.mjs') : `${helpers}/submit.mjs`
-    const resource = name => scope ? path.join(input, name) : `${linkBase}/${name}`
-    const records = this.candidateRecords(task)
-    const refs = records.length ? records.map(record => `${record.id} revision ${record.revision}${record.label === undefined ? '' : ` label ${JSON.stringify(record.label)}`}`).join('; ') : 'none'
-    const candidateRef = task.meta.candidateRef
-      ? `\n${scope ? 'Request base' : 'Last built-in request base (not the current review selection)'}: ${task.meta.candidateRef.candidateId} revision ${task.meta.candidateRef.candidateVersion} (${linkBase}/candidates/${task.meta.candidateRef.candidateId}.json?revision=${task.meta.candidateRef.candidateVersion})`
-      : ''
-    const workspace = task.meta.workspaceRead && task.meta.documentId
-      ? `enabled; ${linkBase}/workspace-index.md; ${linkBase}/workspace-document.json?id=DOCUMENT_ID[&revision=REVISION]`
-      : 'disabled'
-    const legacy = task.meta.guideVersion ? `\nArchived task guide: ${linkBase}/guide.md` : ''
-    const documentMeta = task.meta.documentId ? `\nDocument metadata: ${JSON.stringify(this.store.privacyMeta(task.meta.documentId))}` : ''
-    const socket = scope ? path.join(task.dir, `a${scope.generation}.sock`) : ''
-    const submitCandidateArg = task.meta.candidateRef ? ` ${task.meta.candidateRef.candidateId}` : ''
-    const transport = scope
-      ? `Read ${['document.json', 'target.json', ...(task.request?.snapshot ? ['snapshot.png'] : []), ...(task.request?.targetSnapshot ? ['target.png'] : [])].map(resource).join(', ')}. All http://moted.local resource URLs require Unix socket ${socket}. Fetch the manifest with \`curl --unix-socket '${socket}' '${linkBase}/manifest.json'\`. Write result.json and referenced PNG assets to ${output}.
-
-Generate one operation UUID for this new payload, and retain it with the payload:
-
-\`\`\`sh
-operation=$(node -e 'console.log(require("node:crypto").randomUUID())')
-printf '%s\\n' "$operation"
-\`\`\`
-
-Submit using that UUID. For a retry, reuse the same UUID and unchanged payload; do not rerun UUID generation:
-
-\`\`\`sh
-MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' ${task.meta.executorRevision} ${task.meta.candidateRevision} "$operation"${submitCandidateArg}
-\`\`\``
-      : `Agent URL: ${linkBase}. Read the task resources from ${manifest}; write result.json and referenced PNG assets locally. Submit to ${linkBase}/submit using executorRevision ${task.meta.executorRevision} and candidateRevision ${task.meta.candidateRevision}; helper: ${submitHelper}.`
-    return `# Mote task\n\nSkill: ${skill}\nShared helpers: ${helpers}\n${legacy ? `${legacy}\n` : ''}\nRequest: ${task.meta.prompt || 'none supplied'}${task.meta.feedback ? `\nPrevious feedback: ${task.meta.feedback}` : ''}\nTarget: ${resource('target.json')}\nDocument snapshot: ${resource('document.json')}${documentMeta}${task.request?.snapshot ? `\nVisual snapshot: ${resource('snapshot.png')}` : ''}${task.request?.targetSnapshot ? `\nTarget body visual (2×, without caption or neighboring objects): ${resource('target.png')}` : ''}\nManifest: ${manifest}\nCandidates: ${refs}${candidateRef}\nWorkspace-read permission: ${workspace}\n\n${transport}\n`
+      versionCount: task.meta.versions.length }
   }
 
   async writePrompt(task, generation, context) {
     const run = path.join(task.dir, 'runs', String(generation)); const output = path.join(run, 'output')
     await mkdirSafe(run, 0o755); await mkdirSafe(output, 0o770)
     let promptText = this.instructions(task, { generation, token: task.meta.builtinToken })
-    if (this.v2(task)) {
-      const file = path.join(run, 'document.json')
-      await writeImmutable(file, JSON.stringify({ document: context.document, revision: context.documentRevision }))
-      promptText += `\nCloud context refreshed immediately before this run: ${file} (revision ${context.documentRevision}). Use this revision for proposals based on this file; document.json via the agent API can be read again for newer saved context.\n`
-    }
+    const file = path.join(run, 'document.json')
+    await writeImmutable(file, JSON.stringify({ document: context.document, revision: context.documentRevision }))
+    promptText += `\nCloud context refreshed immediately before this run: ${file} (revision ${context.documentRevision}). Use this revision for proposals based on this file; document.json via the agent API can be read again for newer saved context.\n`
     await writeImmutable(path.join(run, 'prompt.md'), promptText)
     return { promptPath: path.join(run, 'prompt.md'), outputDir: output }
   }
 
-  versionInstructions(task, scope) {
+  instructions(task, scope) {
     const base = scope ? `http://moted.local/api/agent/${scope.token}` : `${PROD_ORIGIN}/a/${task.meta.externalToken}`
     const socket = scope ? path.join(task.dir, `a${scope.generation}.sock`) : undefined
     const helpers = scope ? this.helperDirectory() : 'https://mote.ylxdzsw.com/skills/helpers'
@@ -990,7 +788,7 @@ For an optional label, append: - "Label"
       const external = request.executor === 'external'
       const task = { executions: new Set(), id: request.id, dir, request, generation: 0, current: null, abandoned: false, transcript, meta: {
         id: request.id, protocol: request.protocol, documentVersion: request.document.version, executor: request.executor, executorRevision: 0,
-        ...(request.protocol === AGENT_PROTOCOL ? { versions: [] } : { candidateRevision: 0, candidates: [], candidateOrder: [], nextCandidateNumber: 1, candidateRemovalOperations: {} }),
+        versions: [],
         workspaceRead: request.workspaceRead, workspaceReadRevision: 0,
         createOperationId: body.operationId, createFingerprint: digest, switchOperations: {}, submissionOperations: {},
         ...(external ? { externalToken: crypto.randomBytes(16).toString('base64url'), externalGrantVersion: 1, privacyRevision: privacy?.privacyRevision ?? 0 } : {}),
@@ -1065,7 +863,7 @@ For an optional label, append: - "Label"
     const context = {
       taskId: task.id, taskDir: task.dir, inputDir: path.join(task.dir, 'input'),
       target: task.meta.target, model: task.meta.model, generation, attempt,
-      sessionId: task.meta.sessionId, candidateRef: task.meta.candidateRef, sourcePath: this.sourcePath, timeoutMs: this.timeoutMs,
+      sessionId: task.meta.sessionId, sourcePath: this.sourcePath, timeoutMs: this.timeoutMs,
       env: this.env, useSystemd: this.useSystemd, signal: controller.signal,
       dataDir: this.dataDir, backupDir: this.backupDir, tasksDir: this.tasksDir, stop: null,
       emitTranscript: (kind, text) => { if (task.generation === generation) void task.transcript.append(attempt, kind, text).catch(() => {}) },
@@ -1087,12 +885,10 @@ For an optional label, append: - "Label"
       if (!authorized() || task.current !== current || controller.signal.aborted) return
       await this.loadRequest(task)
       context.agent = await this.openAgentSocket(task, current)
-      if (this.v2(task)) {
-        const latest = await this.latestRequest(task)
-        context.document = latest.document; context.documentRevision = latest.documentRevision; context.target = latest.target
-        context.selectedVersion = task.meta.selectedVersion; context.versions = task.meta.versions
-        context.agent.documentRevision = latest.documentRevision
-      }
+      const latest = await this.latestRequest(task)
+      context.document = latest.document; context.documentRevision = latest.documentRevision; context.target = latest.target
+      context.selectedVersion = task.meta.selectedVersion; context.versions = task.meta.versions
+      context.agent.documentRevision = latest.documentRevision
       Object.assign(context, await this.writePrompt(task, generation, context))
       if (!authorized() || controller.signal.aborted) return
       current.promise = Promise.resolve().then(() => this.runner(context))
@@ -1102,7 +898,7 @@ For an optional label, append: - "Label"
       await this.mutate(task, async () => {
         if (!authorized()) return
         if (result?.sessionId) task.meta.sessionId = result.sessionId
-        if (this.v2(task) ? task.meta.versions.length <= context.agent.versionCount : this.lastSubmissionRevision(task) <= context.agent.candidateRevision) throw new Error('Worker ended without submitting a candidate through the agent API')
+        if (task.meta.versions.length <= context.agent.versionCount) throw new Error('Worker ended without submitting a candidate through the agent API')
         delete task.meta.builtinToken; delete task.meta.unit
         await this.persist(task)
       })
@@ -1148,31 +944,18 @@ For an optional label, append: - "Label"
     this.assertActive(task)
     counter(executorRevision, 'executorRevision')
     if (task.meta.executor !== 'builtin' || task.meta.executorRevision !== executorRevision) throw new HttpError(409, 'executor revision conflict', this.view(task))
-    if (this.v2(task)) {
-      if (candidateId !== undefined || candidateVersion !== undefined) throw new HttpError(400, 'v2 followups use selectedVersion, not candidate lineage')
-      if (selectedVersion !== undefined && (typeof selectedVersion !== 'string' || !VERSION_ID.test(selectedVersion))) throw new HttpError(400, 'selectedVersion must be a version ID such as V1')
-      if (selectedVersion !== undefined && !task.meta.versions.some(version => version.id === selectedVersion)) throw new HttpError(409, 'selected version is not available', this.view(task))
-      await this.latestRequest(task)
-    }
-    if ((candidateId === undefined) !== (candidateVersion === undefined)) throw new HttpError(400, 'candidateId and candidateVersion must be supplied together')
-    if (candidateId !== undefined) {
-      if (typeof candidateId !== 'string' || !CANDIDATE_ID.test(candidateId)) throw new HttpError(400, 'candidateId must be a candidate ID such as C1')
-      counter(candidateVersion, 'candidateVersion')
-      if (candidateVersion < 1) throw new HttpError(400, 'candidateVersion must be positive')
-      if (!this.candidateVersion(task, candidateId, candidateVersion)) throw new HttpError(409, 'candidate revision is no longer available', this.view(task))
-    }
+    if (candidateId !== undefined || candidateVersion !== undefined) throw new HttpError(400, 'v2 followups use selectedVersion, not candidate lineage')
+    if (selectedVersion !== undefined && (typeof selectedVersion !== 'string' || !VERSION_ID.test(selectedVersion))) throw new HttpError(400, 'selectedVersion must be a version ID such as V1')
+    if (selectedVersion !== undefined && !task.meta.versions.some(version => version.id === selectedVersion)) throw new HttpError(409, 'selected version is not available', this.view(task))
+    await this.latestRequest(task)
     if ([...task.executions].some(current => current.cleanupFailed)) throw new HttpError(503, 'Worker cleanup is unconfirmed; service recovery is required before another built-in run.')
     const model = task.meta.model || await this.resolveModel()
     if (!model) throw new HttpError(400, 'Choose a model in Settings → Document or Settings → Workspace before generating.')
     const next = { ...task.meta, model, prompt, generation: task.generation + 1,
       status: 'queued', progress: task.executions.size ? 'Waiting for previous worker cleanup' : 'Queued revision', feedback: task.meta.error,
       attempt: Math.max(Number(task.meta.attempt || 0), task.transcript.maxAttempt) + 1 }
-    if (this.v2(task)) {
-      if (selectedVersion === undefined) delete next.selectedVersion
-      else next.selectedVersion = selectedVersion
-    }
-    if (candidateId === undefined) delete next.candidateRef
-    else next.candidateRef = { candidateId, candidateVersion }
+    if (selectedVersion === undefined) delete next.selectedVersion
+    else next.selectedVersion = selectedVersion
     delete next.builtinToken; delete next.unit; delete next.error
     await this.persist(task, next)
     this.invalidateRun(task)

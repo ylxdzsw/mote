@@ -281,9 +281,8 @@ export function reservationTarget(original, document, selectedTarget) {
 
 export function validateRequest(value) {
   const body = record(value, 'request')
-  const protocol = body.protocol ?? 'mote-agent-v1'
-  if (!['mote-agent-v1', 'mote-agent-v2'].includes(protocol)) throw new HttpError(400, 'unsupported agent protocol')
-  if (protocol === 'mote-agent-v2' && !body.cloudDocumentId) throw new HttpError(400, 'mote-agent-v2 requires a cloud document reservation')
+  const protocol = body.protocol ?? 'mote-agent-v2'
+  if (protocol !== 'mote-agent-v2') throw new HttpError(400, 'unsupported agent protocol')
   if (!UUID.test(body.id ?? '')) throw new HttpError(400, 'id must be a client-generated UUID')
   const document = validateDocument(body.document)
   const executor = body.executor ?? 'builtin'

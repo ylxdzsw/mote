@@ -4,7 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { HttpError, UUID, record, text, validateDocument, loadDocument, publishDocument } from './validation.mjs'
 import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
-import { migrationBreaking } from '../shared/document.mjs'
+
 
 const now = () => Date.now()
 const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision,shareRevision,archived,archiveRevision'
@@ -82,14 +82,6 @@ export class CloudStore {
       if (!columns.has('externalAccessAt')) db.exec('ALTER TABLE documents ADD COLUMN externalAccessAt INTEGER NOT NULL DEFAULT 0')
       const settingsColumns = new Set(db.prepare('PRAGMA table_info(workspace_settings)').all().map(column => column.name))
       if (!settingsColumns.has('indexingEnabled')) db.exec('ALTER TABLE workspace_settings ADD COLUMN indexingEnabled INTEGER NOT NULL DEFAULT 0 CHECK(indexingEnabled IN (0,1))')
-      const legacySnapshots = db.prepare("SELECT DISTINCT documentId FROM shares WHERE mode='snapshot' AND revokedAt IS NULL").all()
-      for (const { documentId } of legacySnapshots) {
-        const row = db.prepare('SELECT shareRevision FROM documents WHERE id=?').get(documentId)
-        const current = Number(row.shareRevision)
-        if (!Number.isSafeInteger(current) || current < 0 || !Number.isSafeInteger(current + 1)) throw new Error('share revision exhausted during migration')
-        db.prepare('UPDATE documents SET shareRevision=? WHERE id=?').run(current + 1, documentId)
-        db.prepare("UPDATE shares SET revokedAt=? WHERE documentId=? AND mode='snapshot' AND revokedAt IS NULL").run(now(), documentId)
-      }
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS active_share ON shares(documentId) WHERE revokedAt IS NULL')
       db.prepare(`INSERT OR IGNORE INTO workspace_settings
         (id,revision,builtin,indexing,indexingEnabled) VALUES (1,0,'','',0)`).run()
@@ -214,10 +206,7 @@ export class CloudStore {
     if (!row) throw new HttpError(404, access.kind === 'public' ? 'share not found' : 'document not found')
     const saved = this.saved(row.id, access.revision === undefined ? row.revision : revision(access.revision, 'revision'))
     const raw = this.unpack(saved.body)
-    // An unresolved task cannot silently cross a breaking native migration.
-    const own = access.kind === 'builtin' || access.kind === 'external'
-    const document = access.kind === 'public' ? publishDocument(raw)
-      : own && migrationBreaking(raw.version) ? validateDocument(raw) : loadDocument(raw)
+    const document = access.kind === 'public' ? publishDocument(raw) : loadDocument(raw)
     if (access.kind === 'public') return { name: row.name, revision: saved.revision, document }
     return { ...metadata(row), revision: saved.revision, document }
   }
@@ -454,7 +443,6 @@ export class CloudStore {
       const row = this.row(id); const retry = this.retry(id, 'put', body)
       if (retry.response) return retry.response
       this.compare(row, body.baseRevision)
-      validateDocument(this.unpack(this.saved(id, row.revision).body))
       const document = this.document(body.document, id); const time = now(); const token = randomUUID()
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
@@ -543,7 +531,6 @@ export class CloudStore {
       if (current.revision !== baseRevision) throw new HttpError(409, 'share revision conflict', current)
       if (document.private && body.action !== 'disable') throw new HttpError(403, 'Private documents cannot be shared; turn off Private to create a new share link')
 
-      if (body.action !== 'disable') validateDocument(this.unpack(this.saved(id, document.revision).body))
       const previous = this.db.prepare("SELECT id FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
       if (body.action === 'enable' && previous) throw new HttpError(409, 'share is already enabled', current)
       if (body.action === 'replace' && !previous) throw new HttpError(409, 'share is not enabled', current)
@@ -577,7 +564,6 @@ export class CloudStore {
       const row = this.row(id); const retry = this.retry(id, 'assistant', body)
       if (retry.response) return retry.response
       if (row.assistantRevision !== revision(body.baseRevision)) throw new HttpError(409, 'assistant revision conflict', this.assistant(id))
-      validateDocument(this.unpack(this.saved(id, row.revision).body))
       if (!Array.isArray(body.tasks)) throw new HttpError(400, 'tasks must be an array')
       const ids = new Set()
       for (const value of body.tasks) { const task = record(value, 'task'); uuid(task.id, 'task.id'); if (ids.has(task.id)) throw new HttpError(400, 'duplicate task id'); ids.add(task.id) }
