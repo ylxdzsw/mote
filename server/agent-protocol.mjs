@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { HttpError, MAX_RESULT, MAX_SCREENSHOT, UUID, record, validateCandidate, validatePngDataUrl } from './validation.mjs'
 
-export const AGENT_PROTOCOL = 'mote-agent-v1'
+export const AGENT_PROTOCOL = 'mote-agent-v2'
+export const LEGACY_AGENT_PROTOCOL = 'mote-agent-v1'
 export const TOKEN = /^[A-Za-z0-9_-]{22}$/
 export function operationId(value) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, 'operationId must be a UUID'); return value }
 export function counter(value, label) { if (!Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative integer`); return value }

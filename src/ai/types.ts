@@ -26,17 +26,20 @@ export type Candidate = CandidateBase & (
 export interface CandidateVersion { revision: number; label?: string; candidate: Candidate }
 export interface TaskCandidate extends CandidateVersion { id: string; history?: CandidateVersion[] }
 export interface CandidateSelection { id: string; revision: number }
+export interface TaskVersion { id: string; label?: string; candidate: Candidate; documentRevision: string; documentVersion: number }
 export type Executor = 'builtin' | 'external'
 export interface RemoteTask {
   protocol?: string; documentVersion?: number
   id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error' | 'waiting'; progress: string
   error?: string; candidate?: Candidate; candidates?: TaskCandidate[]; expiresAt?: number; accessPaused?: boolean
+  versions?: TaskVersion[]
+  selectedVersion?: string // Last generation request context, not the owner's review selection.
   executor?: Executor; executorRevision?: number; candidateRevision?: number
   workspaceRead: boolean; workspaceReadRevision: number
   externalPath?: string
   released?: boolean
 }
-export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
+export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath' | 'selectedVersion'> {
   title?: string
   draftPrompt?: string
   createdAt?: number
@@ -53,8 +56,9 @@ export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath'> {
   baseRevision?: string
   preparingCopyId?: string
   selectedCandidate?: CandidateSelection
+  selectedVersion?: string
   candidateNotice?: string
-  acceptance?: { workingCopyId: string; document: MoteDocument; candidateId?: string; candidateVersion?: number }
+  acceptance?: { workingCopyId: string; document: MoteDocument; candidateId?: string; candidateVersion?: number; versionId?: string }
   segmentOriginalBlocks?: JSONContent[]
   segmentOriginalObjects?: FloatingObject[]
 }

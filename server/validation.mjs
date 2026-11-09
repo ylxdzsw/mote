@@ -1,4 +1,5 @@
 import { DocumentFormatError, DOCUMENT_VERSIONS, validateDocument as nativeDocument, loadDocument as nativeLoad, validateObject, validateContent, validateComposition, publishDocument as nativePublish } from '../shared/document.mjs'
+import { isDeepStrictEqual } from 'node:util'
 
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -246,8 +247,44 @@ export function validatePngDataUrl(value, label = 'snapshot') {
   if (!match || Buffer.byteLength(match[1], 'base64') > MAX_SCREENSHOT || !PNG.equals(Buffer.from(match[1], 'base64').subarray(0, 8))) throw new HttpError(400, `${label} must be a bounded PNG data URL`)
 }
 
+// Re-resolve location, never ownership. Context edits may move a reservation but
+// may not replace its locked contents, body dimensions, or section composition.
+export function reservationTarget(original, document, selectedTarget) {
+  if (original.id !== document.id || document.version < original.version
+    || original.version < 4 && document.version >= 4) throw new HttpError(409, 'Reserved document changed across an incompatible native version; release this task before upgrading')
+  const current = structuredClone(selectedTarget)
+  const blocks = document.content.content
+  if (current.kind === 'segment' && current.bookmarks) {
+    const resolve = bookmark => {
+      if (bookmark.blockId === null) return { index: bookmark.after ? blocks.length : 0, offset: 0 }
+      const index = blocks.findIndex(block => block.attrs.id === bookmark.blockId)
+      if (index < 0) throw new HttpError(409, 'Reserved section boundary is missing')
+      return { index: index + (bookmark.after ? 1 : 0), offset: bookmark.after ? 0 : bookmark.offset }
+    }
+    const empty = compareSegmentPoints(current.range.start, current.range.end) === 0
+    const start = empty && current.bookmarks.start.after ? { index: blocks.length, offset: 0 } : resolve(current.bookmarks.start)
+    current.range = { start, end: empty ? start : resolve(current.bookmarks.end) }
+  }
+  try { target(current, document) } catch { throw new HttpError(409, 'Reserved target is missing or its scope changed') }
+  const objectBody = object => {
+    if (!object) return undefined
+    const { layout, ...body } = object
+    return { ...body, layout: { width: layout.width, height: layout.height },
+      ...(object.caption ? { caption: { content: object.caption.content } } : {}) }
+  }
+  const locked = doc => selectedTarget.kind === 'object'
+    ? objectBody(doc.objects.find(object => object.id === selectedTarget.objectId))
+    : { blocks: doc.content.content.filter(block => selectedTarget.blockIds.includes(block.attrs.id)),
+      ...(selectedTarget.kind === 'segment' ? { objects: doc.objects.filter(object => selectedTarget.objectIds.includes(object.id)) } : {}) }
+  if (!isDeepStrictEqual(locked(original), locked(document))) throw new HttpError(409, 'Original reserved content or dimensions changed; create a new reservation')
+  return current
+}
+
 export function validateRequest(value) {
   const body = record(value, 'request')
+  const protocol = body.protocol ?? 'mote-agent-v1'
+  if (!['mote-agent-v1', 'mote-agent-v2'].includes(protocol)) throw new HttpError(400, 'unsupported agent protocol')
+  if (protocol === 'mote-agent-v2' && !body.cloudDocumentId) throw new HttpError(400, 'mote-agent-v2 requires a cloud document reservation')
   if (!UUID.test(body.id ?? '')) throw new HttpError(400, 'id must be a client-generated UUID')
   const document = validateDocument(body.document)
   const executor = body.executor ?? 'builtin'
@@ -262,7 +299,7 @@ export function validateRequest(value) {
     if (selectedTarget.kind !== 'object') throw new HttpError(400, 'targetSnapshot requires an object target')
     validatePngDataUrl(body.targetSnapshot, 'targetSnapshot')
   }
-  return { id: body.id, document, model, prompt, executor, workspaceRead: body.workspaceRead ?? false, target: selectedTarget, snapshot: body.snapshot, targetSnapshot: body.targetSnapshot }
+  return { id: body.id, protocol, document, model, prompt, executor, workspaceRead: body.workspaceRead ?? false, target: selectedTarget, snapshot: body.snapshot, targetSnapshot: body.targetSnapshot }
 }
 
 export function validateCandidate(value, document, selectedTarget, options = {}) {

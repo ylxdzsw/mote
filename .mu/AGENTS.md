@@ -58,7 +58,7 @@ Read **CLOUD.md → Document Private policy** before changing privacy, sharing, 
 - Network failures preserve local edits and pending AI work. Reconnection never resubmits generation, and model failures never block manual work.
 - Private blocks public sharing, external handoff, and other-document agent access to content and derived indexes. The document's own built-in agent and the trusted indexer remain allowed. Disabling Private never revives revoked links.
 - Auto-indexing is opt-in. Workspace retrieval is a server-confirmed, per-session permission and never expands the reserved write target.
-- Built-in and external agents share one validated candidate protocol with immutable full-document input (`mote-agent-v1`). Legacy task snapshots are preserved without conversion. Acceptance applies exactly the candidate revision the owner saw.
+- New built-in/external tasks use `mote-agent-v2`: flat append-only versions and latest cloud document context, with the original reservation target preserved. Legacy `mote-agent-v1` tasks remain frozen without history conversion. Acceptance applies exactly the selected version the owner saw.
 - External grants use only `/a/<token>` URLs. They pause after 24 hours of owner inactivity (HTTP 423) and return 404 once revoked. Acceptance, release, executor switch, deletion, and Private revoke them permanently. Public `/skills/` content holds no task data.
 - Reservation geometry: individual tasks lock body dimensions and leave caption width user-owned, while section reservations lock the whole composition.
 

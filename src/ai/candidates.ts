@@ -1,6 +1,7 @@
 import type { AITask, Candidate, CandidateSelection, CandidateVersion, RemoteTask, TaskCandidate } from './types'
 
-interface CandidateOption extends CandidateVersion { id?: string; current: boolean; legacy?: boolean }
+interface CandidateOption { id?: string; revision?: number; label?: string; candidate: Candidate; current: boolean; legacy?: boolean; flat?: boolean; documentVersion?: number; documentRevision?: string }
+type CandidateState = Pick<AITask, 'protocol' | 'candidate' | 'candidates' | 'candidateRevision' | 'versions'>
 
 function validCandidate(value: unknown): value is Candidate {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -19,7 +20,8 @@ function compareId(a: string, b: string) {
   return a.localeCompare(b)
 }
 
-export function candidateVersions(task: Pick<AITask, 'candidate' | 'candidates' | 'candidateRevision'>): CandidateOption[] {
+export function candidateVersions(task: CandidateState): CandidateOption[] {
+  if (task.protocol === 'mote-agent-v2') return (task.versions ?? []).map(version => ({ ...version, current: true, flat: true }))
   if (Array.isArray(task.candidates)) {
     const current: CandidateOption[] = [], history: CandidateOption[] = []
     for (const entry of task.candidates as TaskCandidate[]) {
@@ -31,7 +33,7 @@ export function candidateVersions(task: Pick<AITask, 'candidate' | 'candidates' 
       }
     }
     current.sort((a, b) => compareId(a.id!, b.id!))
-    history.sort((a, b) => compareId(a.id!, b.id!) || b.revision - a.revision)
+    history.sort((a, b) => compareId(a.id!, b.id!) || b.revision! - a.revision!)
     return [...current, ...history]
   }
   return validCandidate(task.candidate)
@@ -47,7 +49,8 @@ function sameCandidate(a: Candidate, b: Candidate) {
   return JSON.stringify(sort(a)) === JSON.stringify(sort(b))
 }
 
-export function defaultCandidateVersion(task: Pick<AITask, 'candidate' | 'candidates' | 'candidateRevision'>): CandidateOption | undefined {
+export function defaultCandidateVersion(task: CandidateState): CandidateOption | undefined {
+  if (task.protocol === 'mote-agent-v2') return candidateVersions(task)[0]
   const current = candidateVersions(task).filter(version => version.current)
   if (task.candidate) {
     const alias = current.find(version => sameCandidate(version.candidate, task.candidate!))
@@ -56,9 +59,11 @@ export function defaultCandidateVersion(task: Pick<AITask, 'candidate' | 'candid
   return current.at(-1)
 }
 
-export function selectedCandidateVersion(task: Pick<AITask,
-  'candidate' | 'candidates' | 'candidateRevision' | 'selectedCandidate' | 'candidateNotice'>): CandidateOption | undefined {
+export function selectedCandidateVersion(task: CandidateState & Pick<AITask,
+  'selectedCandidate' | 'selectedVersion' | 'candidateNotice'>): CandidateOption | undefined {
   const versions = candidateVersions(task)
+  if (task.protocol === 'mote-agent-v2') return task.selectedVersion ? versions.find(version => version.id === task.selectedVersion)
+    : task.candidateNotice ? undefined : versions[0]
   if (task.selectedCandidate) return versions.find(version => version.id === task.selectedCandidate!.id
     && version.revision === task.selectedCandidate!.revision)
   if (task.candidateNotice) return undefined
@@ -66,14 +71,24 @@ export function selectedCandidateVersion(task: Pick<AITask,
 }
 
 export function candidateSelection(version: CandidateOption | undefined): CandidateSelection | undefined {
-  return version?.id ? { id: version.id, revision: version.revision } : undefined
+  return version?.id && version.revision !== undefined ? { id: version.id, revision: version.revision } : undefined
 }
 
 export function candidateVersionName(version: CandidateOption) {
-  return `${version.id ?? 'Candidate'}${version.label ? ` · ${version.label}` : ''} · r${version.revision}`
+  return `${version.id ?? 'Candidate'}${version.label ? ` · ${version.label}` : ''}${version.flat ? '' : ` · r${version.revision}`}`
 }
 
 export function reconcileCandidateState(task: AITask, remote: RemoteTask): Partial<AITask> {
+  if (task.protocol === 'mote-agent-v2') {
+    if (!remote.versions) return {}
+    const versions = remote.versions
+    const selectedVersion = task.selectedVersion ?? selectedCandidateVersion(task)?.id
+    if (selectedVersion) return versions.some(version => version.id === selectedVersion)
+      ? { versions, selectedVersion }
+      : { versions, selectedVersion, preview: false, candidateNotice: `Selected ${selectedVersion} is unavailable. Original content is shown; choose a version to preview.` }
+    if (task.candidateNotice || !versions.length) return { versions }
+    return { versions, selectedVersion: versions[0].id, preview: true }
+  }
   if (!Array.isArray(remote.candidates)) return remote.candidate ? { candidate: remote.candidate } : {}
   const updated = { ...task, candidates: remote.candidates }
   const versions = candidateVersions(updated)

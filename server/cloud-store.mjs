@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from 'node:util'
 import { HttpError, UUID, record, text, validateDocument, loadDocument, publishDocument } from './validation.mjs'
 import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
+import { migrationBreaking } from '../shared/document.mjs'
 
 const now = () => Date.now()
 const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision,shareRevision,archived,archiveRevision'
@@ -194,13 +195,31 @@ export class CloudStore {
   }
   workspaceDocument(ownDocumentId, sourceId, token) {
     uuid(ownDocumentId, 'ownDocumentId'); uuid(sourceId, 'sourceId')
-    const row = this.db.prepare(`SELECT ${META_COLUMNS} FROM documents
-      WHERE id=? AND deletedAt IS NULL AND (id=? OR private=0)`).get(sourceId, ownDocumentId)
-    if (!row) throw new HttpError(404, 'document not found')
-    let saved
-    try { saved = token === undefined ? this.saved(sourceId, row.revision) : this.saved(sourceId, revision(token, 'revision')) }
-    catch { throw new HttpError(404, 'document not found') }
-    return { ...metadata(row), revision: saved.revision, document: loadDocument(this.unpack(saved.body)) }
+    return this.documentAccess({ kind: 'workspace', ownDocumentId, id: sourceId, revision: token })
+  }
+  // All capability readers share loading/projection, but never their authorization.
+  documentAccess(access) {
+    let row
+    if (access.kind === 'public') {
+      row = this.db.prepare(`SELECT d.${META_COLUMNS.split(',').join(',d.')} FROM shares s JOIN documents d ON d.id=s.documentId
+        WHERE s.token=? AND s.mode='latest' AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(access.token)
+    } else if (access.kind === 'workspace') {
+      row = this.db.prepare(`SELECT ${META_COLUMNS} FROM documents
+        WHERE id=? AND deletedAt IS NULL AND (id=? OR private=0)`).get(access.id, access.ownDocumentId)
+    } else if (access.kind === 'builtin' || access.kind === 'external') {
+      this.assertReservation(access.taskId, access.id)
+      if (access.kind === 'external') this.assertExternal(access.id, access.privacyRevision)
+      row = this.row(access.id)
+    }
+    if (!row) throw new HttpError(404, access.kind === 'public' ? 'share not found' : 'document not found')
+    const saved = this.saved(row.id, access.revision === undefined ? row.revision : revision(access.revision, 'revision'))
+    const raw = this.unpack(saved.body)
+    // An unresolved task cannot silently cross a breaking native migration.
+    const own = access.kind === 'builtin' || access.kind === 'external'
+    const document = access.kind === 'public' ? publishDocument(raw)
+      : own && migrationBreaking(raw.version) ? validateDocument(raw) : loadDocument(raw)
+    if (access.kind === 'public') return { name: row.name, revision: saved.revision, document }
+    return { ...metadata(row), revision: saved.revision, document }
   }
   indexDocuments() {
     return this.db.prepare(`SELECT d.id,d.name,d.revision,r.createdAt,d.private,
@@ -548,13 +567,7 @@ export class CloudStore {
   }
   shared(token) {
     // Legacy snapshot rows remain stored but can never resolve through public sharing.
-    const row = this.db.prepare(`SELECT d.name, r.revision, r.body FROM shares s
-      JOIN documents d ON d.id=s.documentId
-      JOIN revisions r ON r.documentId=d.id AND r.revision=d.revision
-      WHERE s.token=? AND s.mode='latest' AND s.revokedAt IS NULL AND d.deletedAt IS NULL AND d.private=0`).get(token)
-    if (!row) throw new HttpError(404, 'share not found')
-    const document = publishDocument(this.unpack(row.body))
-    return { name: row.name, revision: row.revision, document }
+    return this.documentAccess({ kind: 'public', token })
   }
 
   assistant(id) { const row = this.row(id, true); return { revision: row.assistantRevision, tasks: this.unpack(row.tasks) } }

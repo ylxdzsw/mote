@@ -27,9 +27,9 @@ function previewFailure(error: unknown) {
 }
 
 function creationBody(task: AITask) {
-  if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) || task.snapshotDocument?.version !== task.documentVersion) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
+  if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) || task.snapshotDocument?.version !== task.documentVersion) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
   if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
-  return { ...task.creation, id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
+  return { ...task.creation, ...(task.protocol === 'mote-agent-v2' ? { protocol: task.protocol } : {}), id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
     baseRevision: task.baseRevision, target: task.target, workspaceRead: task.workspaceRead ?? false }
 }
 
@@ -46,15 +46,17 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 }
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
-  if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
+  const documentVersion = task.protocol === 'mote-agent-v2'
+    ? task.versions?.find(version => version.candidate === candidate)?.documentVersion : task.documentVersion
+  if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
-  return memoizedCandidate(doc, candidate, task.id, task.target.kind === 'segment' ? context : undefined, () => {
+  return memoizedCandidate(doc, candidate, `${task.id}:${documentVersion}`, task.target.kind === 'segment' ? context : undefined, () => {
     const target = task.target
     let result: MoteDocument
     if (target.kind === 'object') {
       const original = doc.objects.find(object => object.id === target.objectId)
       if (!original || !candidate.object || candidate.content || candidate.segment) throw new Error('The candidate must deliver exactly one floating object.')
-      validateObject(candidate.object, { version: task.documentVersion })
+      validateObject(candidate.object, { version: documentVersion })
       if (candidate.object.id !== target.objectId) throw new Error('A revision must retain the target object ID.')
       if (!target.isNew && original.kind !== 'drawing' && candidate.object.kind !== original.kind) throw new Error('A revision must retain the object kind.')
       result = { ...doc, objects: doc.objects.map(object => object === original ? currentPlacement(candidate.object!, original) : object) }
@@ -69,7 +71,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
     } else {
       if (!candidate.segment || candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one V1 segment.')
       if (!context) throw new Error('Segment geometry is not available for this preview.')
-      candidate.segment.objects.forEach(object => validateObject(object, { version: task.documentVersion }))
+      candidate.segment.objects.forEach(object => validateObject(object, { version: documentVersion }))
       result = applySegmentCandidate(doc, target, candidate.segment, context)
     }
     validateDocument(result)
@@ -166,13 +168,15 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       ...(workspaceChangeObserved ? { pendingWorkspaceRead: undefined } : {}),
     } : {}
     if ((remote.executorRevision ?? 0) < (task.executorRevision ?? 0)
-      || (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0)) {
+      || (task.protocol === 'mote-agent-v2' ? (remote.versions?.length ?? 0) < (task.versions?.length ?? 0)
+        : (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0))) {
       if (Object.keys(workspacePatch).length && !sameContent(task, { ...task, ...workspacePatch })) update(task.id, workspacePatch)
       if (workspaceChangeObserved && pending) setWorkspaceReadIssue(task.id,
         effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
       return
     }
-    const { externalPath, candidate: _candidate, candidates: _candidates, workspaceRead: _workspaceRead, workspaceReadRevision: _workspaceReadRevision, ...rest } = remote
+    const { externalPath, candidate: _candidate, candidates: _candidates, versions: _versions, selectedVersion: _requestVersion,
+      workspaceRead: _workspaceRead, workspaceReadRevision: _workspaceReadRevision, ...rest } = remote
     setAccess(current => {
       const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0,
         path: cloudRef.current?.externalBlocked ? undefined : externalPath }
@@ -233,7 +237,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   useEffect(() => {
     if (!externalBlocked) return
     for (const task of state.current) {
-      if (task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
+      if (['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
         rejectPrivateExternalDraft(task.id)
       }
     }
@@ -245,7 +249,12 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!loaded) return
     let changed = false
     const normalized = state.current.map(task => {
-      if (task.protocol !== 'mote-agent-v1' || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0)) return task
+      if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0)) return task
+      if (task.protocol === 'mote-agent-v2') {
+        if (task.selectedVersion || task.candidateNotice || !task.versions?.length) return task
+        changed = true
+        return { ...task, selectedVersion: task.versions[0].id }
+      }
       if (!Array.isArray(task.candidates) || !task.candidates.length || task.selectedCandidate || task.candidateNotice) return task
       const selected = candidateSelection(defaultCandidateVersion(task))
       if (!selected) return task
@@ -262,7 +271,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     let active = true, pending = false, authPaused = false
     const failures = new Map<string, number>(), paused = new Set<string>(), retries = new Map<string, number>(), requested = new Set<string>()
     const authPausedTasks = new Set<string>()
-    const awaitingResult = (task: AITask) => task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
+    const awaitingResult = (task: AITask) => ['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
       && !task.acceptance && !task.remoteMissing
       && (task.submitted || task.requestSent)
     function setIssue(id: string, value?: { message: string; paused: boolean }) {
@@ -391,7 +400,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
       segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => target.objectIds.includes(object.id)))
     }
-    const task: AITask = { protocol: 'mote-agent-v1', documentVersion: snapshot.version, id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
+    const task: AITask = { protocol: 'mote-agent-v2', documentVersion: snapshot.version, id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
       original,
       snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false,
       workspaceRead: false, workspaceReadRevision: 0 }
@@ -423,7 +432,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
     if (!task || inactiveReason(task) || task.remoteMissing || preparations.current.has(id)) return
     if (workspaceReadBlocked(task)) { setNotice('Confirm the workspace-read setting before continuing. Refresh status or retry the pending permission change.'); return }
-    if (task.submitted && candidateVersions(task).length && !selectedCandidateVersion(task)) {
+    if (task.protocol !== 'mote-agent-v2' && task.submitted && candidateVersions(task).length && !selectedCandidateVersion(task)) {
       update(id, { error: 'Choose a remaining candidate before sending a follow-up. No removed candidate was used.' }); return
     }
     let knownNotCreated = !task.submitted && !task.requestSent
@@ -461,11 +470,20 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
         }
       }
       else if (task.submitted) {
+        if (task.protocol === 'mote-agent-v2') {
+          const saved = await connection.sync()
+          if (!preparing()) return
+          if (!saved) throw new Error('The document could not be saved to the cloud. Resolve its sync status, then retry.')
+          if (saved.document.id !== connection.documentId || !sameContent(saved.document, currentDoc.current)) throw new Error('The working copy changed while saving. Retry with the current document after resolving any sync conflict.')
+          const stale = inactiveTaskReason(task, saved.document)
+          if (stale) throw new Error(stale)
+        }
         if (!await store.flush()) throw new Error('Save or resolve the cloud assistant state before revising.')
         if (!preparing()) return
         const selected = selectedCandidateVersion(task)
         remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt, executorRevision: task.executorRevision,
-          ...(selected?.id ? { candidateId: selected.id, candidateVersion: selected.revision } : {}) })
+          ...(selected?.id ? task.protocol === 'mote-agent-v2' ? { selectedVersion: selected.id }
+            : { candidateId: selected.id, candidateVersion: selected.revision } : {}) })
       } else {
         const saved = await connection.sync()
         if (!preparing()) return
@@ -782,7 +800,8 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       unrestricted(() => history.setDoc(next))
       markMutation(id)
       update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next,
-        ...(selected.id ? { candidateId: selected.id } : {}), candidateVersion: selected.revision }, preview: false, error: undefined })
+        ...(task.protocol === 'mote-agent-v2' ? { versionId: selected.id }
+          : { ...(selected.id ? { candidateId: selected.id } : {}), candidateVersion: selected.revision }) }, preview: false, error: undefined })
       if (!task.remoteMissing && (task.submitted || task.requestSent)) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
         if (mounted.current) update(id, { error: `Agent access revocation is pending: ${(error as Error).message}` })
       })
@@ -792,10 +811,11 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       }
     } catch (error) { update(id, { error: (error as Error).message }) }
   }
-  function selectCandidate(id: string, selection: { id: string; revision: number }) {
+  function selectCandidate(id: string, selection: { id: string; revision?: number }) {
     const task = state.current.find(task => task.id === id)
     if (!task || !candidateVersions(task).some(version => version.id === selection.id && version.revision === selection.revision)) return
-    update(id, { selectedCandidate: selection, candidateNotice: undefined, preview: true, error: undefined })
+    update(id, { ...(task.protocol === 'mote-agent-v2' ? { selectedVersion: selection.id }
+      : { selectedCandidate: { id: selection.id, revision: selection.revision! } }), candidateNotice: undefined, preview: true, error: undefined })
   }
   async function syncAcceptance(id: string) {
     const task = state.current.find(task => task.id === id), connection = cloudRef.current, store = persistence.engine.current
@@ -815,7 +835,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     // Parent effects first copy the committed history document into its sync
     // controller. Calling sync during this hook's effect would save the old doc.
     const timer = window.setTimeout(() => {
-      for (const task of allTasks) if (task.protocol === 'mote-agent-v1' && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
+      for (const task of allTasks) if (['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
         acceptanceAttempts.current.add(task.id); void syncAcceptance(task.id)
       }
     }, 0)

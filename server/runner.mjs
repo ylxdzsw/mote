@@ -103,7 +103,7 @@ export async function fakeRunner(context) {
   const transcript = (kind, text) => context.emitTranscript?.(kind, text)
   transcript('stdout', '\u001b[36m[mote fake]\u001b[0m starting candidate\n')
   await wait(delay, context.signal)
-  const document = await readJson(path.join(context.inputDir, 'document.json'))
+  const document = context.document ?? await readJson(path.join(context.inputDir, 'document.json'))
   const candidate = { summary: `Fake candidate for ${context.target.kind} target.` }
   transcript('stdout', `attempt ${context.attempt}: reading target\n`)
   await wait(delay, context.signal)

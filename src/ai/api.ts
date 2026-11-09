@@ -8,6 +8,17 @@ function validCandidate(value: unknown): boolean {
   return isRecord(value)
 }
 function validCandidateFields(value: Record<string, unknown>): boolean {
+  if (value.versions !== undefined) {
+    if (!Array.isArray(value.versions)) return false
+    const ids = new Set<string>()
+    for (const version of value.versions) {
+      if (!isRecord(version) || typeof version.id !== 'string' || !/^V[1-9]\d*$/.test(version.id) || ids.has(version.id)
+        || typeof version.documentRevision !== 'string' || !Number.isSafeInteger(version.documentVersion)
+        || version.label !== undefined && typeof version.label !== 'string' || !validCandidate(version.candidate)) return false
+      ids.add(version.id)
+    }
+  }
+  if (value.selectedVersion !== undefined && typeof value.selectedVersion !== 'string') return false
   if (value.candidateRevision !== undefined && (!Number.isSafeInteger(value.candidateRevision) || Number(value.candidateRevision) < 0)) return false
   if (value.candidate !== undefined && value.candidate !== null && !validCandidate(value.candidate)) return false
   if (value.candidates !== undefined) {
