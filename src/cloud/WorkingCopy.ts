@@ -1,7 +1,7 @@
 import { isPristineBlankDocument, type MoteDocument } from '../document/model'
 import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
-import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type SharingState } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, mergeDocumentFlags, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type SharingState } from './api'
 import { createCopyRecord, loadWorkingCopy, saveWorkingCopy, type WorkingRecord } from './workingCopies'
 import { connectionSnapshot, retryConnection } from './connection'
 
@@ -91,8 +91,8 @@ export class WorkingCopy {
   }
   private failure(error: unknown) {
     if (error instanceof CloudError && error.current) {
-      const record = this.state.record, meta = mergePrivacyMeta(record.meta, error.current)
-      if (meta.private !== record.meta.private || meta.privacyRevision !== record.meta.privacyRevision) {
+      const record = this.state.record, meta = mergeDocumentFlags(record.meta, error.current)
+      if (meta.private !== record.meta.private || meta.privacyRevision !== record.meta.privacyRevision || meta.archiveRevision !== record.meta.archiveRevision) {
         this.publish({ record: { ...record, meta } })
         void this.persist().catch(() => {})
       }
@@ -216,6 +216,7 @@ export class WorkingCopy {
       else {
         const previous = this.state.record.meta, meta = mergeDocumentMeta(previous, result)
         if (meta.name !== previous.name || meta.private !== previous.private || meta.privacyRevision !== previous.privacyRevision
+          || meta.archiveRevision !== previous.archiveRevision
           || meta.createdAt !== previous.createdAt || meta.updatedAt !== previous.updatedAt) {
           this.publish({ record: { ...this.state.record, meta } })
           void this.persist().catch(() => {})
@@ -229,8 +230,8 @@ export class WorkingCopy {
 
   private async mergePrivacy(metadata: DocumentMeta): Promise<DocumentMeta> {
     const record = this.state.record
-    const meta = mergePrivacyMeta(record.meta, metadata)
-    if (meta.private !== record.meta.private || meta.privacyRevision !== record.meta.privacyRevision) {
+    const meta = mergeDocumentFlags(record.meta, metadata)
+    if (meta.private !== record.meta.private || meta.privacyRevision !== record.meta.privacyRevision || meta.archiveRevision !== record.meta.archiveRevision) {
       this.publish({ record: { ...record, meta } })
       await this.persist().catch(() => {})
     }

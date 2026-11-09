@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import http from 'node:http'
@@ -126,6 +126,14 @@ async function waitFor(predicate) {
   assert.fail('timed out waiting for scoped runner requests')
 }
 
+async function setArchived(value, envelope, archived = true) {
+  const result = await value.call('PUT', `documents/${envelope.id}/archive`, {
+    archived, baseArchiveRevision: envelope.archiveRevision, operationId: randomUUID(),
+  })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  return result.body
+}
+
 test('external workspace reads require opt-in and obey live source privacy, deletion, CAS, and executor revocation', async t => {
   const value = await app(t, { runner: async () => ({}) })
   const publicSource = await createDocument(value, 'Retrieval public source')
@@ -138,6 +146,14 @@ test('external workspace reads require opt-in and obey live source privacy, dele
   assert.equal(task.workspaceRead, false)
   assert.equal(task.workspaceReadRevision, 0)
   const base = task.externalPath
+  assert.equal((await agent(value, `${base}/manifest.json`)).body.documentMeta.archived, false)
+  const archivedDestination = await setArchived(value, destination)
+  await setArchived(value, publicSource)
+  await setArchived(value, privateSource)
+  assert.deepEqual((await value.call('GET', `ai/tasks/${task.id}`)).body, task)
+  assert.deepEqual((await agent(value, `${base}/document.json`)).body, destination.document)
+  assert.deepEqual((await agent(value, `${base}/manifest.json`)).body.documentMeta, archivedDestination)
+  assert.match((await agent(value, `${base}/instructions.md`)).body, /"archived":true/)
 
   for (const suffix of [
     '/workspace-index.md',
@@ -170,12 +186,15 @@ test('external workspace reads require opt-in and obey live source privacy, dele
   assert.match(index.body, /Retrieval public source/)
   assert.match(index.body, /External destination/)
   assert.equal(entryCount(index.body), 3)
+  assert.equal((index.body.match(/^- archived: true$/gm) || []).length, 2)
   for (const marker of [privateSource.id, 'Retrieval private source', 'Retrieval private source body']) assert.equal(index.body.includes(marker), false)
   const currentRead = await agent(value, `${base}/workspace-document.json?id=${publicSource.id}`)
   const historicalRead = await agent(value, `${base}/workspace-document.json?id=${publicSource.id}&revision=${publicHistorical}`)
   assert.equal(currentRead.status, 200)
   assert.deepEqual(currentRead.body.document, publicCurrent.document)
   assert.equal(historicalRead.status, 200)
+  assert.equal(currentRead.body.archived, true); assert.equal(currentRead.body.archiveRevision, 1)
+  assert.equal(historicalRead.body.archived, true); assert.equal(historicalRead.body.archiveRevision, 1)
   assert.deepEqual(historicalRead.body.document, publicSource.document)
   assert.equal((await agent(value, `${base}/workspace-document.json?id=${privateSource.id}`)).status, 404)
   assert.equal((await agent(value, `${base}/workspace-document.json?id=${randomUUID()}`)).status, 404)
@@ -236,6 +255,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
       if (!scopeOwnIds.has(context.taskId)) return {}
       const get = resource => socketGet(new URL(resource.startsWith('/') ? resource : `${context.agent.url}/${resource}`, context.agent.url).href, context.agent.socketPath)
       const result = {
+        manifest: await get('manifest.json'),
         own: await get('document.json'),
         index: await get('workspace-index.md'),
         ownWorkspace: await get(`workspace-document.json?id=${scopeOwnIds.get(context.taskId)}`),
@@ -249,6 +269,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
     },
   })
   const publicSource = await createDocument(value, 'Builtin public source')
+  await setArchived(value, publicSource)
   const privateSource = await createDocument(value, 'Builtin unrelated Private', { private: true })
   const optedOutOwn = await createDocument(value, 'Builtin opted-out own')
   const optedOutId = randomUUID()
@@ -259,6 +280,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
   assert.equal(optedOut.workspaceReadRevision, 0)
 
   const privateOwn = await createDocument(value, 'Builtin own Private', { private: true })
+  await setArchived(value, privateOwn)
   const privateTaskId = randomUUID()
   scopeOwnIds.set(privateTaskId, privateOwn.id)
   const privateTask = await createTask(value, privateOwn, { executor: 'builtin', workspaceRead: true, id: privateTaskId })
@@ -268,6 +290,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
 
   const optedOutAccess = await waitFor(() => observations.get(optedOut.id))
   assert.equal(optedOutAccess.own.status, 200)
+  assert.equal(JSON.parse(optedOutAccess.manifest.body).documentMeta.archived, false)
   assert.deepEqual(JSON.parse(optedOutAccess.own.body), optedOutOwn.document)
   assert.equal(optedOutAccess.index.status, 404)
   assert.equal(optedOutAccess.ownWorkspace.status, 404)
@@ -276,6 +299,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
 
   const privateAccess = await waitFor(() => observations.get(privateTask.id))
   assert.equal(privateAccess.own.status, 200)
+  assert.equal(JSON.parse(privateAccess.manifest.body).documentMeta.archived, true)
   assert.deepEqual(JSON.parse(privateAccess.own.body), privateOwn.document)
   assert.equal(privateAccess.index.status, 200)
   assert.match(privateAccess.index.body, /Builtin own Private/)
@@ -285,6 +309,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
   assert.equal(privateAccess.ownWorkspace.status, 200)
   assert.deepEqual(JSON.parse(privateAccess.ownWorkspace.body).document, privateOwn.document)
   assert.equal(privateAccess.publicWorkspace.status, 200)
+  assert.equal(JSON.parse(privateAccess.publicWorkspace.body).archived, true)
   assert.deepEqual(JSON.parse(privateAccess.publicWorkspace.body).document, publicSource.document)
   assert.equal(privateAccess.privateWorkspace.status, 404)
   assert.equal(privateAccess.generalDocuments.status, 404)
@@ -292,4 +317,32 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
 
   assert.deepEqual(value.store.workspaceDocument(privateOwn.id, privateOwn.id).document, privateOwn.document)
   assert.throws(() => value.store.workspaceDocument(privateOwn.id, privateSource.id), error => error.status === 404)
+})
+
+test('builtin continuation refreshes own metadata without workspace permission or snapshot rewrites', async t => {
+  const observations = []
+  const value = await app(t, {
+    runner: async context => {
+      const response = await socketGet(`${context.agent.url}/manifest.json`, context.agent.socketPath)
+      observations.push({
+        manifest: JSON.parse(response.body), prompt: await readFile(context.promptPath, 'utf8'),
+        snapshot: await readFile(path.join(context.inputDir, 'document.json'), 'utf8'),
+      })
+      return {}
+    },
+  })
+  const own = await createDocument(value, 'Continuation own', { private: true })
+  const task = await createTask(value, own, { executor: 'builtin' })
+  await waitFor(() => observations.length === 1 && value.manager.tasks.get(task.id).executions.size === 0)
+  assert.equal(observations[0].manifest.documentMeta.archived, false)
+  const archived = await setArchived(value, own)
+  assert.equal(observations.length, 1)
+  const revised = await value.call('POST', `ai/tasks/${task.id}/revise`, { prompt: 'Continue', executorRevision: task.executorRevision })
+  assert.equal(revised.status, 202)
+  await waitFor(() => observations.length === 2)
+  assert.deepEqual(observations[1].manifest.documentMeta, archived)
+  assert.equal(observations[1].manifest.workspaceRead, false)
+  assert.match(observations[1].prompt, /"archived":true,"archiveRevision":1/)
+  assert.equal(observations[1].snapshot, observations[0].snapshot)
+  assert.deepEqual(JSON.parse(observations[1].snapshot), own.document)
 })

@@ -18,6 +18,12 @@
 .files-list-heading select { max-width: 65%; min-height: 28px; padding: 2px 4px; border: 1px solid transparent; border-radius: 3px; background: var(--ui-surface); color: var(--ui-muted); font: inherit; cursor: pointer; }
 .files-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 12px 12px; }
 .files-list { list-style: none; margin: 0; padding: 0; }
+.files-archive { margin-top: 8px; padding-top: 4px; border-top: 1px solid var(--ui-border); }
+.cloud-files .files-archive-toggle { width: 100%; justify-content: flex-start; color: var(--ui-muted); }
+.files-archive-toggle:focus-visible { outline-offset: -2px; }
+.files-archive-toggle .panel-icon { transform: rotate(-90deg); }
+.files-archive-toggle[aria-expanded="true"] .panel-icon { transform: none; }
+.files-archive-empty { margin: 8px; color: var(--ui-muted); }
 .files-list > li { display: flex; align-items: center; gap: 4px; padding-right: 4px; border-radius: 3px; }
 .files-list > li:hover, .files-list > li:focus-within { background: var(--ui-surface-hover); }
 .cloud-files .cloud-file-choice { flex: 1; min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 12px; min-height: 42px; padding: 5px 7px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--ui-ink); font: inherit; line-height: 1.35; text-align: left; cursor: pointer; }

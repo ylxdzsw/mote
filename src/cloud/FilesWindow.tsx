@@ -3,6 +3,7 @@ import { PanelIcon } from '../app/PanelIcon'
 import type { MoteDocument } from '../document/model'
 import { decodeDocument } from '../document/file'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type DocumentMeta } from './api'
+import { connectionSnapshot, retryConnection } from './connection'
 import { NewFileForm, type NewFileOptions } from './NewFileForm'
 import { ShareWindow } from './ShareWindow'
 import type { WorkingCopy } from './WorkingCopy'
@@ -46,12 +47,15 @@ export function FilesWindow({ open, ...props }: Props) {
 
 function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pending = {}, onLocalRecovery }: Omit<Props, 'open'>) {
   const titleId = useId()
+  const archiveId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const importTrigger = useRef<HTMLButtonElement>(null)
   const newTrigger = useRef<HTMLButtonElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
+  const archiveToggle = useRef<HTMLButtonElement>(null)
+  const archiveChanges = useRef(new Map<string, { archived: boolean; baseArchiveRevision: number; operationId: string }>())
   const returnFocus = useRef<string | null>(null)
   const active = useRef(true)
   const locked = useRef(true)
@@ -62,14 +66,17 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const [documents, setDocuments] = useState<DocumentMeta[]>([])
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('modified')
+  const [archiveOpen, setArchiveOpen] = useState(false)
   const [selectedId, setSelectedId] = useState(currentId ?? '')
   const [action, setAction] = useState<'rename' | 'delete' | 'import' | null>(null)
   const [newFile, setNewFile] = useState<boolean | null>(null)
   const [name, setName] = useState('')
   const [shareTarget, setShareTarget] = useState<DocumentMeta>()
   const query = filter.trim().toLocaleLowerCase()
-  const visible = documents.filter(item => item.name.toLocaleLowerCase().includes(query))
+  const matching = documents.filter(item => item.name.toLocaleLowerCase().includes(query))
     .sort((a, b) => (sort === 'modified' ? b.updatedAt - a.updatedAt : 0) || a.name.localeCompare(b.name))
+  const ordinary = matching.filter(item => !item.archived), archived = matching.filter(item => item.archived)
+  const visible = archiveOpen ? [...ordinary, ...archived] : ordinary
   const selected = documents.find(item => item.id === selectedId)
   const recoveryCount = Object.keys(pending).length
   const mutating = !!busy && !['Loading files…', 'Refreshing files…'].includes(busy)
@@ -107,6 +114,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     const target = returnFocus.current
     returnFocus.current = null
     if (target === 'import') importTrigger.current?.focus()
+    else if (target === 'archived') archiveToggle.current?.focus()
     else focusFile(target, true)
   }, [busy, action])
 
@@ -115,6 +123,9 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       : event.key === 'ArrowUp' ? (index < 0 ? visible.length - 1 : Math.max(index - 1, 0))
         : index >= 0 && event.key === 'Home' ? 0 : index >= 0 && event.key === 'End' ? visible.length - 1 : -1
     if (next >= 0 && !busy && !action) { event.preventDefault(); focusFile(visible[next].id) }
+    else if (event.key === 'ArrowDown' && !visible.length && archived.length && !busy && !action) {
+      event.preventDefault(); archiveToggle.current?.focus()
+    }
   }
 
   useEffect(() => {
@@ -131,6 +142,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   }, [])
 
   async function refresh() {
+    if (connectionSnapshot().offline) await retryConnection()
     const data = await cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
     setDocuments(current => mergeList(current, data.documents))
   }
@@ -178,6 +190,50 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     })
   }
 
+  function toggleArchive(item: DocumentMeta) {
+    void run(item.archived ? 'Unarchiving document…' : 'Archiving document…', async () => {
+      const previous = archiveChanges.current.get(item.id)
+      const change = previous?.baseArchiveRevision === item.archiveRevision ? previous
+        : { archived: !item.archived, baseArchiveRevision: item.archiveRevision, operationId: crypto.randomUUID() }
+      archiveChanges.current.set(item.id, change)
+      let updated: DocumentMeta
+      try {
+        if (connectionSnapshot().offline) await retryConnection()
+        updated = await cloudRequest<DocumentMeta>(`${documentPath(item.id)}/archive`, 'PUT', change)
+      }
+      catch (error) {
+        if (error instanceof CloudError && error.status === 0) throw new Error(`${message(error)} Archive state was not confirmed. Refresh Files to check or retry the action.`)
+        throw error
+      }
+      archiveChanges.current.delete(item.id)
+      setDocuments(items => items.map(old => old.id === item.id ? mergeDocumentMeta(old, updated) : old))
+      const index = ordinary.findIndex(old => old.id === item.id)
+      returnFocus.current = item.archived ? item.id : ordinary[index + 1]?.id ?? ordinary[index - 1]?.id ?? 'archived'
+    })
+  }
+
+  function renderFiles(items: DocumentMeta[], label: string) {
+    return <ul className="files-list" aria-label={label}>
+      {items.map(item => <li key={item.id} data-file-id={item.id}>
+        <button type="button" className="cloud-file-choice" disabled={!!busy} onClick={() => openDocument(item.id)} onKeyDown={event => navigateFiles(event, visible.findIndex(row => row.id === item.id))}
+          title={`Open ${item.name} · Modified ${new Date(item.updatedAt).toLocaleString()}`}>
+          <span className="files-name-line"><span className="cloud-file-name">{item.name}</span>
+            {item.id === currentId && <span className="files-current">Current</span>}
+            {item.private && <span className="cloud-private-badge"><PanelIcon name="lock" />Private</span>}
+          </span>
+          <time dateTime={new Date(item.updatedAt).toISOString()} aria-label={`Modified ${new Date(item.updatedAt).toLocaleString()}`}>{date(item.updatedAt)}</time>
+          {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
+        </button>
+        <FilesMenu label={`Actions for ${item.name}`} disabled={!!busy}>
+          <button type="button" role="menuitem" tabIndex={-1} onClick={() => setShareTarget(item)}>Share…</button>
+          <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setSelectedId(item.id); setName(item.name); setAction('rename') }}>Rename</button>
+          <button type="button" role="menuitem" tabIndex={-1} onClick={() => toggleArchive(item)}>{item.archived ? 'Unarchive' : 'Archive'}</button>
+          <button type="button" role="menuitem" tabIndex={-1} className="cloud-danger" onClick={() => { setSelectedId(item.id); setAction('delete') }}>Delete…</button>
+        </FilesMenu>
+      </li>)}
+    </ul>
+  }
+
   return <><dialog ref={dialog} className={`cloud-dialog cloud-files${creating ? ' files-creating' : ''}`} aria-labelledby={titleId} aria-busy={!!busy}
     onCancel={event => { event.preventDefault(); dismiss() }} onKeyDown={event => {
       event.stopPropagation()
@@ -201,7 +257,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       <input ref={search} autoFocus type="search" aria-label="Search documents" placeholder="Search documents…" value={filter} disabled={!!action || mutating}
         onKeyDown={navigateFiles} onChange={event => setFilter(event.target.value)} />
       <div className="files-list-heading">
-        <span>{visible.length} {visible.length === 1 ? 'document' : 'documents'}</span>
+        <span>{ordinary.length} {ordinary.length === 1 ? 'document' : 'documents'}</span>
         <select aria-label="Sort documents" value={sort} disabled={!!action} onChange={event => setSort(event.target.value)}>
           <option value="modified">Recently modified</option><option value="name">Name A–Z</option>
         </select>
@@ -214,28 +270,22 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or Mote-exported HTML" onChange={event => {
         const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file)
       }} />
-      {!action && <ul className="files-list" aria-label="Documents">
-        {visible.map((item, index) => <li key={item.id} data-file-id={item.id}>
-          <button type="button" className="cloud-file-choice" disabled={!!busy} onClick={() => openDocument(item.id)} onKeyDown={event => navigateFiles(event, index)}
-            title={`Open ${item.name} · Modified ${new Date(item.updatedAt).toLocaleString()}`}>
-            <span className="files-name-line"><span className="cloud-file-name">{item.name}</span>
-              {item.id === currentId && <span className="files-current">Current</span>}
-              {item.private && <span className="cloud-private-badge"><PanelIcon name="lock" />Private</span>}
-            </span>
-            <time dateTime={new Date(item.updatedAt).toISOString()} aria-label={`Modified ${new Date(item.updatedAt).toLocaleString()}`}>{date(item.updatedAt)}</time>
-            {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
-          </button>
-          <FilesMenu label={`Actions for ${item.name}`} disabled={!!busy}>
-            <button type="button" role="menuitem" tabIndex={-1} onClick={() => setShareTarget(item)}>Share…</button>
-            <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setSelectedId(item.id); setName(item.name); setAction('rename') }}>Rename</button>
-            <button type="button" role="menuitem" tabIndex={-1} className="cloud-danger" onClick={() => { setSelectedId(item.id); setAction('delete') }}>Delete…</button>
-          </FilesMenu>
-        </li>)}
-      </ul>}
-      {!action && !visible.length && <div className="cloud-empty">
-        <p>{busy ? 'Loading documents…' : filter.trim() ? 'No matching documents.' : error ? 'No documents to show.' : 'Your documents start here.'}</p>
-        {!busy && !error && <span>{filter.trim() ? 'Try a different name.' : 'Create a document or import one to get started.'}</span>}
+      {!action && renderFiles(ordinary, 'Documents')}
+      {!action && !ordinary.length && <div className="cloud-empty">
+        <p>{busy ? 'Loading documents…' : query ? archived.length ? 'Matches are in Archived.' : 'No matching documents.'
+          : error ? 'No documents to show.' : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
+        {!busy && !error && !archived.length && <span>{query ? 'Try a different name.' : 'Create a document or import one to get started.'}</span>}
       </div>}
+      {!action && <section className="files-archive">
+        <button ref={archiveToggle} type="button" className="cloud-button files-quiet files-archive-toggle" disabled={!!busy}
+          aria-expanded={archiveOpen} aria-controls={archiveId} onClick={() => setArchiveOpen(!archiveOpen)}>
+          <PanelIcon name="chevron" />Archived ({archived.length})
+        </button>
+        <div id={archiveId} hidden={!archiveOpen}>
+          {archiveOpen && renderFiles(archived, 'Archived documents')}
+          {archiveOpen && !archived.length && <p className="files-archive-empty">{query ? 'No matching archived documents.' : 'No archived documents.'}</p>}
+        </div>
+      </section>}
       {action === 'import' && <section className="cloud-confirm" aria-label="Import document">
         <h2>Import a document</h2>
         <p className="cloud-hint">Choose a .mote file or Mote-exported HTML. It opens as a new document; existing documents stay unchanged.</p>

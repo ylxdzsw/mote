@@ -109,7 +109,7 @@ function routeTemplate(requestUrl) {
   if (segments[0] === 'api' && segments[1] === 'agent' && segments.length >= 3) return segments.length === 3 ? '/api/agent/:token' : '/api/agent/:token/:resource'
   if (segments[0] === 'api' && segments[1] === 'documents') {
     if (segments.length === 2) return '/api/documents'
-    const resource = ['assistant', 'privacy', 'recovery', 'shares', 'events', 'open'].includes(segments[3]) ? segments[3] : ':resource'
+    const resource = ['assistant', 'privacy', 'archive', 'recovery', 'shares', 'events', 'open'].includes(segments[3]) ? segments[3] : ':resource'
     return `/api/documents/:id${segments.length > 3 ? `/${resource}` : ''}${segments.length > 4 ? '/:resource' : ''}`
   }
   if (segments[0] === 'api' && segments[1] === 'shared' && segments.length >= 3) return '/api/shared/:token'
@@ -746,6 +746,7 @@ export class TaskManager {
           ...(task.meta.guideVersion ? { guideVersion: task.meta.guideVersion } : {}), skill, helpers: scope ? helperRoot : 'https://mote.ylxdzsw.com/skills/helpers',
           ...(task.meta.candidateRef ? { candidateRef: task.meta.candidateRef } : {}),
           workspaceRead: task.meta.workspaceRead, workspaceReadRevision: task.meta.workspaceReadRevision,
+          ...(task.meta.documentId ? { documentMeta: this.store.privacyMeta(task.meta.documentId) } : {}),
           ...(!scope ? { expiresAt: this.externalAccessUntil(task) } : {}),
           resources: { ...Object.fromEntries(Object.keys(files).filter(name => available(name, input)).map(name => [name, `${base}/${name}`])), ...workspace() }, instructions: `${base}/instructions.md`, candidate: `${base}/candidate.json`, candidates: `${base}/candidates.json`, removeCandidate: `${base}/candidates/{candidateId}/remove`, submit: `${base}/submit` })
         type = 'application/json; charset=utf-8'
@@ -825,6 +826,7 @@ export class TaskManager {
       ? `enabled; ${linkBase}/workspace-index.md; ${linkBase}/workspace-document.json?id=DOCUMENT_ID[&revision=REVISION]`
       : 'disabled'
     const legacy = task.meta.guideVersion ? `\nArchived task guide: ${linkBase}/guide.md` : ''
+    const documentMeta = task.meta.documentId ? `\nDocument metadata: ${JSON.stringify(this.store.privacyMeta(task.meta.documentId))}` : ''
     const socket = scope ? path.join(task.dir, `a${scope.generation}.sock`) : ''
     const submitCandidateArg = task.meta.candidateRef ? ` ${task.meta.candidateRef.candidateId}` : ''
     const transport = scope
@@ -843,7 +845,7 @@ Submit using that UUID. For a retry, reuse the same UUID and unchanged payload; 
 MOTED_AGENT_SOCKET='${socket}' node '${submitHelper}' '${linkBase}' '${output}' ${task.meta.executorRevision} ${task.meta.candidateRevision} "$operation"${submitCandidateArg}
 \`\`\``
       : `Agent URL: ${linkBase}. Read the task resources from ${manifest}; write result.json and referenced PNG assets locally. Submit to ${linkBase}/submit using executorRevision ${task.meta.executorRevision} and candidateRevision ${task.meta.candidateRevision}; helper: ${submitHelper}.`
-    return `# Mote task\n\nSkill: ${skill}\nShared helpers: ${helpers}\n${legacy ? `${legacy}\n` : ''}\nRequest: ${task.meta.prompt || 'none supplied'}${task.meta.feedback ? `\nPrevious feedback: ${task.meta.feedback}` : ''}\nTarget: ${resource('target.json')}\nDocument snapshot: ${resource('document.json')}${task.request?.snapshot ? `\nVisual snapshot: ${resource('snapshot.png')}` : ''}${task.request?.targetSnapshot ? `\nTarget body visual (2×, without caption or neighboring objects): ${resource('target.png')}` : ''}\nManifest: ${manifest}\nCandidates: ${refs}${candidateRef}\nWorkspace-read permission: ${workspace}\n\n${transport}\n`
+    return `# Mote task\n\nSkill: ${skill}\nShared helpers: ${helpers}\n${legacy ? `${legacy}\n` : ''}\nRequest: ${task.meta.prompt || 'none supplied'}${task.meta.feedback ? `\nPrevious feedback: ${task.meta.feedback}` : ''}\nTarget: ${resource('target.json')}\nDocument snapshot: ${resource('document.json')}${documentMeta}${task.request?.snapshot ? `\nVisual snapshot: ${resource('snapshot.png')}` : ''}${task.request?.targetSnapshot ? `\nTarget body visual (2×, without caption or neighboring objects): ${resource('target.png')}` : ''}\nManifest: ${manifest}\nCandidates: ${refs}${candidateRef}\nWorkspace-read permission: ${workspace}\n\n${transport}\n`
   }
 
   async writePrompt(task, generation) {
@@ -1192,12 +1194,13 @@ export async function createMotedServer(options = {}) {
         }
         const privacyChange = request.method === 'PUT' && /^\/api\/documents\/[^/]+\/privacy$/.test(url.pathname)
         const ownerOpen = request.method === 'POST' && /^\/api\/documents\/[^/]+\/open$/.test(url.pathname)
+        const archiveChange = request.method === 'PUT' && /^\/api\/documents\/[^/]+\/archive$/.test(url.pathname)
         const privacyBody = privacyChange ? await readBody(request) : undefined
         const result = privacyChange
           ? await manager.documentMutation(url.pathname.split('/')[3], () => cloudApi(store, request, url.pathname, async () => privacyBody))
           : await cloudApi(store, request, url.pathname, readBody)
-        if (request.method !== 'GET' && !ownerOpen && url.pathname.startsWith('/api/documents/')) await manager.reconcileReservations(url.pathname.split('/')[3])
-        if (request.method !== 'GET' && !ownerOpen) indexer.wake()
+        if (request.method !== 'GET' && !ownerOpen && !archiveChange && url.pathname.startsWith('/api/documents/')) await manager.reconcileReservations(url.pathname.split('/')[3])
+        if (request.method !== 'GET' && !ownerOpen && !archiveChange) indexer.wake()
         send(response, result.status, result.body, origin, manager.env); return
       }
       if (url.pathname === '/api/ai' || url.pathname.startsWith('/api/ai/')) {

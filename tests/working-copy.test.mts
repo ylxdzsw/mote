@@ -32,6 +32,7 @@ Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: {
 } })
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 const { WorkingCopy } = await server.ssrLoadModule('/src/cloud/WorkingCopy.ts')
+const { mergeDocumentMeta, normalizeDocumentMeta } = await server.ssrLoadModule('/src/cloud/api.ts')
 const { createCopyRecord, saveWorkingCopy, forkWorkingCopy } = await server.ssrLoadModule('/src/cloud/workingCopies.ts')
 const { createBlankDocument } = await server.ssrLoadModule('/src/document/model.ts')
 const { connectionSnapshot, retryConnection } = await server.ssrLoadModule('/src/cloud/connection.ts')
@@ -53,7 +54,7 @@ globalThis.fetch = async (input, options) => {
     const old = operations.get(body.operationId)
     if (old) assert.equal(JSON.stringify(body), old.body, 'uncertain creation body is immutable')
     const result = old?.result ?? { id: body.id, document: body.document, name: body.name, revision: '1', private: body.private ?? false,
-      privacyRevision: 0, createdAt: 1, updatedAt: 1 }
+      privacyRevision: 0, archived: false, archiveRevision: 0, createdAt: 1, updatedAt: 1 }
     if (!old) { cloud.set(body.id, result); operations.set(body.operationId, { body: JSON.stringify(body), result }) }
     duringCreate?.(); duringCreate = undefined
     if (loseCreate) { loseCreate = false; throw new TypeError('response lost') }
@@ -103,6 +104,31 @@ test('open privacy refresh marks the request and validates its query response', 
   await copy.refreshPrivacy()
   assert.equal(calls.find(call => call.method === 'GET')?.path, `/api/documents/${record.meta.id}/privacy?open=1`)
   assert.equal(connectionSnapshot().offline, false)
+})
+
+test('archive metadata refresh preserves local content and cannot be rolled back by stale save metadata', async () => {
+  await reset()
+  const record = draft()
+  delete record.draft; delete record.pendingCreate
+  record.meta.revision = '1'
+  const copy = new WorkingCopy(record), document = copy.getSnapshot().record.document
+  const archived = { ...record.meta, archived: true, archiveRevision: 1 }
+  cloud.set(record.meta.id, { ...archived, document: record.document })
+  await copy.refreshPrivacy()
+  assert.equal(copy.getSnapshot().record.document, document)
+  assert.equal(copy.getSnapshot().record.dirty, true)
+  assert.equal(copy.getSnapshot().epoch, 0)
+  assert.deepEqual(copy.getSnapshot().record.meta, archived)
+  const merged = mergeDocumentMeta(archived, { ...record.meta, revision: '2', private: true, privacyRevision: 1 })
+  assert.equal(merged.revision, '2')
+  assert.equal(merged.private, true)
+  assert.equal(merged.archived, true)
+  assert.equal(merged.archiveRevision, 1)
+  assert.equal(normalizeDocumentMeta({ ...record.meta, archived: undefined, archiveRevision: undefined }).archived, false)
+  const freshCopy = createCopyRecord(document, 'Copy', 'test-session')
+  assert.equal(freshCopy.meta.archived, false)
+  assert.equal(freshCopy.meta.archiveRevision, 0)
+  assert.equal('archived' in freshCopy.document, false)
 })
 
 test('stream deletion stays final across in-flight reads, saves, and local preservation', async () => {

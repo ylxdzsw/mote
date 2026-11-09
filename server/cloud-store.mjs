@@ -6,8 +6,8 @@ import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
 const now = () => Date.now()
-const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision,shareRevision'
-const metadata = row => ({ id: row.id, name: row.name, revision: row.revision, createdAt: row.createdAt, updatedAt: row.updatedAt, private: row.private === 1, privacyRevision: Number(row.privacyRevision) })
+const META_COLUMNS = 'id,name,revision,createdAt,updatedAt,deletedAt,assistantRevision,private,privacyRevision,shareRevision,archived,archiveRevision'
+const metadata = row => ({ id: row.id, name: row.name, revision: row.revision, createdAt: row.createdAt, updatedAt: row.updatedAt, private: row.private === 1, privacyRevision: Number(row.privacyRevision), archived: row.archived === 1, archiveRevision: Number(row.archiveRevision) })
 function uuid(value, label) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, `${label} must be a UUID`); return value }
 function revision(value, label = 'baseRevision') { return text(value, label, 128, true) }
 function privacyRevision(value, label) { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative safe integer`); return value }
@@ -32,6 +32,7 @@ export class CloudStore {
         assistantRevision TEXT NOT NULL DEFAULT '0', tasks TEXT NOT NULL DEFAULT '{"value":[],"assets":[]}',
         private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1)), privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0),
         shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0),
+        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), archiveRevision INTEGER NOT NULL DEFAULT 0 CHECK(archiveRevision >= 0),
         externalAccessAt INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS revisions (
@@ -75,6 +76,8 @@ export class CloudStore {
       if (!columns.has('private')) db.exec('ALTER TABLE documents ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1))')
       if (!columns.has('privacyRevision')) db.exec('ALTER TABLE documents ADD COLUMN privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)')
       if (!columns.has('shareRevision')) db.exec('ALTER TABLE documents ADD COLUMN shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0)')
+      if (!columns.has('archived')) db.exec('ALTER TABLE documents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1))')
+      if (!columns.has('archiveRevision')) db.exec('ALTER TABLE documents ADD COLUMN archiveRevision INTEGER NOT NULL DEFAULT 0 CHECK(archiveRevision >= 0)')
       if (!columns.has('externalAccessAt')) db.exec('ALTER TABLE documents ADD COLUMN externalAccessAt INTEGER NOT NULL DEFAULT 0')
       const settingsColumns = new Set(db.prepare('PRAGMA table_info(workspace_settings)').all().map(column => column.name))
       if (!settingsColumns.has('indexingEnabled')) db.exec('ALTER TABLE workspace_settings ADD COLUMN indexingEnabled INTEGER NOT NULL DEFAULT 0 CHECK(indexingEnabled IN (0,1))')
@@ -209,7 +212,7 @@ export class CloudStore {
   }
   workspaceIndex(ownDocumentId) {
     uuid(ownDocumentId, 'ownDocumentId')
-    const documents = this.db.prepare(`SELECT d.id,d.name,d.revision,i.targetRevision,i.status,i.indexedRevision,
+    const documents = this.db.prepare(`SELECT d.id,d.name,d.revision,d.archived,i.targetRevision,i.status,i.indexedRevision,
       i.description
       FROM documents d LEFT JOIN document_indexes i ON i.documentId=d.id
       WHERE d.deletedAt IS NULL AND (d.private=0 OR d.id=?) ORDER BY d.createdAt,d.id`).all(ownDocumentId)
@@ -229,6 +232,7 @@ export class CloudStore {
       const oneLine = value => String(value ?? '').replace(/[\r\n\u0000-\u001f\u007f]+/g, ' ').replace(/([\\`*_{}\[\]()#+.!|>])/g, '\\$1').trim()
       lines.push('', `## ${oneLine(item.name) || 'Untitled document'}`,
         `- id: ${item.id}`,
+        `- archived: ${item.archived === 1}`,
         `- current revision: ${item.revision}`,
         `- target revision: ${item.targetRevision || 'none'}`,
         `- indexed revision: ${item.indexedRevision || 'none'}`,
@@ -437,6 +441,24 @@ export class CloudStore {
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
       this.notify(id, 'document')
       return this.remember(id, 'put', body, retry.digest, this.get(id))
+    })
+  }
+
+  putArchive(id, value) {
+    const body = record(value, 'request')
+    if (typeof body.archived !== 'boolean') throw new HttpError(400, 'archived must be a boolean')
+    const baseArchiveRevision = privacyRevision(body.baseArchiveRevision, 'baseArchiveRevision')
+    uuid(body.operationId, 'operationId')
+    return this.transaction(() => {
+      const row = this.row(id); const retry = this.retry(id, 'archive', body)
+      if (retry.response) return metadata(row)
+      if (row.archiveRevision !== baseArchiveRevision) throw new HttpError(409, 'archive revision conflict', metadata(row))
+      if (Boolean(row.archived) !== body.archived) {
+        if (!Number.isSafeInteger(row.archiveRevision + 1)) throw new HttpError(409, 'archive revision exhausted', metadata(row))
+        this.db.prepare('UPDATE documents SET archived=?,archiveRevision=? WHERE id=?').run(body.archived ? 1 : 0, row.archiveRevision + 1, id)
+        this.notify(id, 'document')
+      }
+      return this.remember(id, 'archive', body, retry.digest, metadata(this.row(id)))
     })
   }
 

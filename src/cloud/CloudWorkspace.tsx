@@ -10,7 +10,7 @@ import { setSlides } from '../document/slides'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
-import { CloudError, cloudRequest, mergeDocumentMeta, mergePrivacyMeta, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
+import { CloudError, cloudRequest, mergeDocumentMeta, mergeDocumentFlags, normalizeDocumentMeta, type CloudDocument, type DocumentMeta } from './api'
 import { FilesWindow } from './FilesWindow'
 import type { NewFileOptions } from './NewFileForm'
 import { WorkingCopy } from './WorkingCopy'
@@ -150,8 +150,8 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         }
         if (local) {
           local = { ...local, meta: normalizeDocumentMeta(local.meta) }
-          if (cloud) local.meta = mergePrivacyMeta(local.meta, cloud)
-          if (privacy) local.meta = mergePrivacyMeta(local.meta, privacy)
+          if (cloud) local.meta = mergeDocumentFlags(local.meta, cloud)
+          if (privacy) local.meta = mergeDocumentFlags(local.meta, privacy)
         }
         const stored = local!.document
         try {
@@ -222,7 +222,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, dirty: retain, draft: true, updatedAt: now,
       draftDefaults: { mode: options.mode, language: options.language },
       ...(retain ? { pendingCreate: { id: document.id, operationId: crypto.randomUUID(), name, document, private: options.private } } : {}),
-      meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } }
+      meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0, archived: false, archiveRevision: 0 } }
     if (!await navigate(document.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
   }
   async function importDocument(document: MoteDocument, name: string) {

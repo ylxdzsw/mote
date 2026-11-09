@@ -28,7 +28,7 @@ export function createCopyRecord(source: MoteDocument, name: string, session: st
   const id = crypto.randomUUID(), document = { ...source, id }, now = Date.now()
   return { key: `${session}:${id}`, session, document, dirty: true, draft: true, updatedAt: now,
     pendingCreate: { id, operationId: crypto.randomUUID(), name, document, private: privateDocument },
-    meta: { id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0 } }
+    meta: { id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0, archived: false, archiveRevision: 0 } }
 }
 
 let database: Promise<IDBDatabase> | undefined

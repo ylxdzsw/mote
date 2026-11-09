@@ -273,7 +273,10 @@ and delivery details appropriate to the executor.
 
 - GET `manifest.json` provides `protocol:'mote-agent-v1'`, `taskId`, `executor`,
   `executorRevision`, global `candidateRevision`, the allowed task resource
-  paths, and task instructions. It has no skill/guide version field.
+  paths, and task instructions. Cloud-bound tasks also include current
+  `documentMeta` (identity, name, revisions, timestamps, `private`, and `archived`).
+  Generated task briefs include the same metadata at generation time.
+  It has no skill/guide version field.
 - The immutable `document.json`, `target.json`, optional `snapshot.png`, and
   optional object-body `target.png` (advertised only when supplied)
   remain pinned task inputs. Built-in task briefs provide local paths and the
@@ -283,7 +286,8 @@ and delivery details appropriate to the executor.
   catalog. Agents download and search the file, not read the whole catalog, and
   read actual documents before relying on descriptions. GET
   `workspace-document.json?id=DOCUMENT_ID[&revision=REVISION]` returns a full
-  native document envelope and non-secret owner `sourceUrl`. Latest is the
+  native document envelope with current cloud metadata and non-secret owner
+  `sourceUrl`. Catalog entries include the `archived` boolean. Latest is the
   default. Current source privacy/deletion is checked on every fetch, including
   historical reads. Denied/unknown sources return 404. Other Private documents
   are omitted completely, including filenames and derived descriptions; the

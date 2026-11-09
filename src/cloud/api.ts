@@ -9,24 +9,29 @@ export interface DocumentMeta {
   updatedAt: number
   private: boolean
   privacyRevision: number
+  archived: boolean
+  archiveRevision: number
 }
 
 export function normalizeDocumentMeta(meta: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
   return { id: meta.id!, name: meta.name!, revision: meta.revision!, createdAt: meta.createdAt!, updatedAt: meta.updatedAt!,
-    private: meta.private ?? false, privacyRevision: meta.privacyRevision ?? 0 }
+    private: meta.private ?? false, privacyRevision: meta.privacyRevision ?? 0,
+    archived: meta.archived ?? false, archiveRevision: meta.archiveRevision ?? 0 }
 }
 
 export function mergeDocumentMeta(current: DocumentMeta, incoming: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
   const previous = normalizeDocumentMeta(current), next = normalizeDocumentMeta(incoming)
-  return { ...previous, ...next,
-    private: next.privacyRevision >= previous.privacyRevision ? next.private : previous.private,
-    privacyRevision: Math.max(previous.privacyRevision, next.privacyRevision) }
+  return mergeDocumentFlags({ ...previous, ...next, private: previous.private, privacyRevision: previous.privacyRevision,
+    archived: previous.archived, archiveRevision: previous.archiveRevision }, next)
 }
 
-export function mergePrivacyMeta(current: DocumentMeta, incoming: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
+export function mergeDocumentFlags(current: DocumentMeta, incoming: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
   const previous = normalizeDocumentMeta(current), next = normalizeDocumentMeta(incoming)
-  return next.privacyRevision < previous.privacyRevision ? previous
-    : { ...previous, private: next.private, privacyRevision: next.privacyRevision }
+  return { ...previous,
+    private: next.privacyRevision >= previous.privacyRevision ? next.private : previous.private,
+    privacyRevision: Math.max(previous.privacyRevision, next.privacyRevision),
+    archived: next.archiveRevision >= previous.archiveRevision ? next.archived : previous.archived,
+    archiveRevision: Math.max(previous.archiveRevision, next.archiveRevision) }
 }
 
 export interface CloudDocument extends DocumentMeta {
@@ -56,7 +61,8 @@ export async function cloudRequest<T>(path: string, method = 'GET', body?: unkno
   } catch (error) {
     if (!(error instanceof RequestError)) throw error
     const message = error.status === 401 ? 'Sign in to use cloud files, then retry. Your local edits have not been discarded.'
-      : error.status === 409 ? path.endsWith('/shares') ? 'Sharing changed in another tab. Check its current status before trying again.' : 'This document changed in the cloud. Review the latest version before trying again.'
+      : error.status === 409 ? path.endsWith('/shares') ? 'Sharing changed in another tab. Check its current status before trying again.'
+        : path.endsWith('/archive') ? 'Archive state changed in another tab. Check its current status before trying again.' : 'This document changed in the cloud. Review the latest version before trying again.'
       : error.status === 410 ? 'This cloud document has been deleted. Your local edits have not been discarded.' : error.message
     const current = validMeta(error.detail?.current) ? error.detail!.current as unknown as DocumentMeta : undefined
     throw new CloudError(message, error.status, current)
@@ -67,6 +73,7 @@ function validMeta(value: unknown) {
   return isRecord(value) && typeof value.id === 'string' && typeof value.name === 'string' && typeof value.revision === 'string'
     && typeof value.createdAt === 'number' && typeof value.updatedAt === 'number'
     && typeof value.private === 'boolean' && Number.isSafeInteger(value.privacyRevision)
+    && typeof value.archived === 'boolean' && Number.isSafeInteger(value.archiveRevision)
 }
 function validResponse(path: string, method: string, value: unknown) {
   const pathname = new URL(path, 'http://moted.local').pathname
@@ -79,5 +86,5 @@ function validResponse(path: string, method: string, value: unknown) {
   if (pathname === '/api/documents' && method === 'GET') return Array.isArray(value.documents) && value.documents.every(validMeta)
   if (!validMeta(value)) return false
   // Native content validation/recovery remains separate from the response envelope.
-  return pathname.endsWith('/privacy') || method === 'PATCH' || isRecord(value.document)
+  return pathname.endsWith('/privacy') || pathname.endsWith('/archive') || method === 'PATCH' || isRecord(value.document)
 }

@@ -198,7 +198,7 @@ test('competing saves CAS across SQLite connections; lost-response retry survive
   const acknowledged = responses[winner].body
   const conflict = responses[1 - winner].body
   assert.equal(conflict.current.revision, acknowledged.revision)
-  assert.deepEqual(Object.keys(conflict.current).sort(), ['createdAt', 'id', 'name', 'privacyRevision', 'private', 'revision', 'updatedAt'])
+  assert.deepEqual(Object.keys(conflict.current).sort(), ['archiveRevision', 'archived', 'createdAt', 'id', 'name', 'privacyRevision', 'private', 'revision', 'updatedAt'])
   const later = await first.call('PUT', `documents/${original.id}`, save(acknowledged, 'Later'))
   assert.equal(later.status, 200)
   await first.close(); await second.close()
@@ -215,7 +215,7 @@ test('private metadata defaults, persists, uses independent CAS/retries, and sur
   const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
   assert.equal(original.private, false); assert.equal(original.privacyRevision, 0)
   assert.deepEqual((await value.call('GET', `${base}/privacy`)).body, {
-    id: original.id, name: original.name, revision: original.revision, createdAt: original.createdAt, updatedAt: original.updatedAt, private: false, privacyRevision: 0,
+    id: original.id, name: original.name, revision: original.revision, createdAt: original.createdAt, updatedAt: original.updatedAt, private: false, privacyRevision: 0, archived: false, archiveRevision: 0,
   })
   assert.deepEqual(value.store.assertExternal(original.id, 0), (await value.call('GET', `${base}/privacy`)).body)
   assert.throws(() => value.store.assertExternal(original.id, 1), error => error.status === 403)
@@ -244,20 +244,78 @@ test('private metadata defaults, persists, uses independent CAS/retries, and sur
   assert.equal((await restarted.call('GET', `${base}/privacy`)).body.privacyRevision, 2)
 })
 
-test('legacy SQLite privacy columns migrate idempotently without resetting documents', async t => {
+test('archive metadata is independent, durable, retry-safe, and leaves content, indexing, sharing and activity alone', async t => {
+  const value = await app(t), original = await create(value), base = `documents/${original.id}`
+  assert.equal(original.archived, false); assert.equal(original.archiveRevision, 0)
+  const share = (await shareMutation(value, original.id, 0, 'enable')).body
+  const stream = await documentUpdates(value, original.id)
+  t.after(stream.cancel)
+  const accessUntil = value.store.documentAccessUntil(original.id)
+  const indexDocuments = value.store.indexDocuments()
+  let wakes = 0, reconciliations = 0
+  const wake = value.indexer.wake, reconcile = value.manager.reconcileReservations
+  value.indexer.wake = () => { wakes++ }
+  value.manager.reconcileReservations = async () => { reconciliations++ }
+  const archive = { archived: true, baseArchiveRevision: 0, operationId: randomUUID() }
+  assert.equal((await value.call('PUT', `${base}/archive`, archive, { origin: 'https://other.invalid' })).status, 403)
+  for (const invalid of [{ archived: 'true' }, { baseArchiveRevision: -1 }, { baseArchiveRevision: 0.5 }, { operationId: 'invalid' }]) {
+    assert.equal((await value.call('PUT', `${base}/archive`, { ...archive, ...invalid })).status, 400)
+  }
+  const enabled = await value.call('PUT', `${base}/archive`, archive)
+  const { document: native, ...meta } = original
+  assert.equal(enabled.status, 200)
+  assert.deepEqual(enabled.body, { ...meta, archived: true, archiveRevision: 1 })
+  assert.equal(enabled.headers.get('cache-control'), 'no-store')
+  assert.deepEqual((await value.call('PUT', `${base}/archive`, archive)).body, enabled.body)
+  assert.equal((await value.call('PUT', `${base}/archive`, { ...archive, archived: false })).status, 409)
+  const conflict = await value.call('PUT', `${base}/archive`, { ...archive, operationId: randomUUID() })
+  assert.equal(conflict.status, 409); assert.deepEqual(conflict.body.current, enabled.body)
+  assert.deepEqual((await value.call('PUT', `${base}/archive`, { ...archive, baseArchiveRevision: 1, operationId: randomUUID() })).body, enabled.body)
+  await until(() => stream.messages.length === 2)
+  assert.deepEqual(stream.messages, [{ kind: 'ready' }, { kind: 'document' }])
+  assert.equal(wakes, 0); assert.equal(reconciliations, 0)
+  value.indexer.wake = wake; value.manager.reconcileReservations = reconcile
+  assert.equal(value.store.documentAccessUntil(original.id), accessUntil)
+  assert.deepEqual(value.store.indexDocuments(), indexDocuments)
+  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM revisions').get().n, 1)
+  assert.deepEqual(value.store.get(original.id).document, native)
+  assert.deepEqual(value.store.shares(original.id), share)
+  assert.equal((await value.call('GET', `/api/shared/${share.share.token}`)).status, 200)
+  assert.equal(value.store.assertExternal(original.id, 0).archived, true)
+  assert.deepEqual((await value.call('GET', 'documents')).body.documents, [enabled.body])
+  const stale = await value.call('PUT', base, save(original, 'Stale archive view', { archived: false, archiveRevision: 0 }))
+  assert.equal(stale.status, 200); assert.equal(stale.body.archived, true); assert.equal(stale.body.archiveRevision, 1)
+  const copy = await create(value, { ...native, id: randomUUID() })
+  assert.equal(copy.archived, false); assert.equal(copy.archiveRevision, 0)
+  await value.close()
+  const restarted = await app(t, { root: value.root })
+  assert.equal(restarted.store.privacyMeta(original.id).archived, true)
+  const restored = await restarted.call('PUT', `${base}/archive`, { archived: false, baseArchiveRevision: 1, operationId: randomUUID() })
+  assert.equal(restored.status, 200); assert.equal(restored.body.archiveRevision, 2)
+  assert.equal(restored.body.revision, stale.body.revision); assert.equal(restored.body.updatedAt, stale.body.updatedAt)
+  const renamed = await restarted.call('PATCH', base, { name: 'Renamed after unarchive' })
+  assert.deepEqual((await restarted.call('PUT', `${base}/archive`, archive)).body, renamed.body)
+  assert.equal(restarted.store.privacyMeta(original.id).archived, false)
+  assert.equal(restarted.store.privacyMeta(original.id).archiveRevision, 2)
+})
+
+test('legacy SQLite metadata columns migrate idempotently without resetting documents', async t => {
   const value = await app(t); const original = await create(value)
   await value.close()
   const legacy = new DatabaseSync(value.store.databasePath)
-  legacy.exec('ALTER TABLE documents DROP COLUMN privacyRevision; ALTER TABLE documents DROP COLUMN private;')
+  legacy.exec('ALTER TABLE documents DROP COLUMN privacyRevision; ALTER TABLE documents DROP COLUMN private; ALTER TABLE documents DROP COLUMN archived; ALTER TABLE documents DROP COLUMN archiveRevision;')
   legacy.close()
   const migrated = await app(t, { root: value.root })
   const loaded = await migrated.call('GET', `documents/${original.id}`)
   assert.equal(loaded.status, 200); assert.deepEqual(loaded.body.document, original.document)
   assert.equal(loaded.body.private, false); assert.equal(loaded.body.privacyRevision, 0)
+  assert.equal(loaded.body.archived, false); assert.equal(loaded.body.archiveRevision, 0)
+  assert.equal(loaded.body.revision, original.revision); assert.equal(loaded.body.updatedAt, original.updatedAt)
   await migrated.close()
   const reopened = await app(t, { root: value.root })
   assert.deepEqual((await reopened.call('GET', `documents/${original.id}`)).body.document, original.document)
   assert.equal((await reopened.call('GET', `documents/${original.id}/privacy`)).body.privacyRevision, 0)
+  assert.equal((await reopened.call('GET', `documents/${original.id}/privacy`)).body.archiveRevision, 0)
 })
 
 test('private creation is validated; latest links are revoked and never revive', async t => {
