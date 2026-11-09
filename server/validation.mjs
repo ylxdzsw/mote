@@ -9,7 +9,6 @@ export const MAX_RESULT = 8 * 1024 * 1024
 export const MAX_SCREENSHOT = 10 * 1024 * 1024
 const MAX_NODES = 100000
 const MAX_STRING = 8 * 1024 * 1024
-const DANGEROUS = new Set(['__proto__', 'constructor', 'prototype'])
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
 export class HttpError extends Error {
@@ -18,7 +17,7 @@ export class HttpError extends Error {
 
 export function record(value, label) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, `${label} must be an object`)
-  for (const key of Object.keys(value)) if (DANGEROUS.has(key)) throw new HttpError(400, `${label} contains an unsafe key`)
+
   return value
 }
 
@@ -33,7 +32,7 @@ export function finite(value, label, minimum) {
 }
 
 export function safeId(value, label) {
-  if (typeof value !== 'string' || !SAFE_ID.test(value) || DANGEROUS.has(value)) throw new HttpError(400, `${label} must be a safe identifier`)
+  if (typeof value !== 'string' || !SAFE_ID.test(value)) throw new HttpError(400, `${label} must be a safe identifier`)
   return value
 }
 

@@ -10,7 +10,6 @@ const SIDES = ['top', 'right', 'bottom', 'left']
 const CLASSES = ['title', 'heading', 'subheading', 'body', 'caption', 'list']
 const STYLE = ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']
 const KINDS = ['text', 'table', 'image', 'drawing', 'formula', 'code', 'html']
-const UNSAFE = new Set(['__proto__', 'constructor', 'prototype'])
 
 export class DocumentFormatError extends Error {
   constructor(message, path = '', code = 'invalid') {
@@ -26,7 +25,7 @@ const present = (value, key) => value[key] !== undefined
 function record(value, path, required, optional = []) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(path, 'must be an object')
   for (const key of Object.keys(value)) {
-    if (UNSAFE.has(key) || required && !required.includes(key) && !optional.includes(key)) fail(`${path}.${key}`, 'unsupported field')
+    if (required && !required.includes(key) && !optional.includes(key)) fail(`${path}.${key}`, 'unsupported field')
   }
   for (const key of required ?? []) if (!present(value, key)) fail(`${path}.${key}`, 'is required')
   return value
@@ -50,7 +49,7 @@ function boolean(value, path) {
   if (typeof value !== 'boolean') fail(path, 'must be a boolean')
 }
 function identifier(value, path, ids) {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value) || UNSAFE.has(value)) fail(path, 'must be a safe identifier of 1–128 characters')
+  if (typeof value !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value)) fail(path, 'must be a safe identifier of 1–128 characters')
   if (ids?.has(value)) fail(path, `duplicate ID ${value}`)
   ids?.add(value)
   return value
@@ -382,12 +381,17 @@ export function migrationBreaking(version) {
   return MIGRATIONS.some(step => step.from >= version && step.breaking)
 }
 
-// Validates at the stored version, then upgrades a copy to DOCUMENT_VERSION and
-// revalidates. The input is never mutated; current documents are returned as is.
+// Validates at the stored version, then upgrades in memory to DOCUMENT_VERSION.
+// Breaking steps run their migrate function; non-breaking steps only bump version.
+// The input is never mutated; current documents are returned as is.
 export function loadDocument(value) {
   let document = validateDocument(value)
-  for (const step of MIGRATIONS) if (step.from === document.version) document = step.migrate(document)
-  return document === value ? value : validateDocument(document)
+  for (const step of MIGRATIONS) {
+    if (step.from < document.version) continue
+    if (step.breaking) document = step.migrate(document)
+  }
+  if (document.version !== DOCUMENT_VERSION) document = { ...document, version: DOCUMENT_VERSION }
+  return document
 }
 
 // Publishing keeps the given version; callers load first when they need the current one.

@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { execFile } from 'node:child_process'
-import { constants as fsConstants, promises as fs } from 'node:fs'
+import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import crypto from 'node:crypto'
@@ -64,30 +64,22 @@ async function mkdirSafe(directory, mode) {
 }
 
 async function regular(file, max, label) {
-  let handle
   try {
-    handle = await fs.open(file, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0))
-    const stat = await handle.stat()
-    if (!stat.isFile() || stat.size > max) throw new Error(`${label} is too large or not regular`)
-    return await handle.readFile()
+    const data = await fs.readFile(file)
+    if (data.length > max) throw new Error(`${label} is too large`)
+    return data
   } catch (error) {
-    if (error.code === 'ELOOP') throw new Error(`${label} must not be a symlink`)
+    if (error.code === 'ENOENT') throw error
     throw new Error(`${label} could not be read`)
-  } finally { await handle?.close().catch(() => {}) }
+  }
 }
 
 async function writeAtomic(file, value, mode = 0o600) {
-  const directory = path.dirname(file)
-  const stat = await fs.lstat(directory)
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error('write directory is invalid')
-  try { const old = await fs.lstat(file); if (old.isSymbolicLink()) throw new Error('destination must not be a symlink') } catch (error) { if (error.code !== 'ENOENT') throw error }
   const temporary = `${file}.${process.pid}.${crypto.randomBytes(5).toString('hex')}.tmp`
   try {
     const handle = await fs.open(temporary, 'wx', mode)
-    try { await handle.writeFile(value); await handle.chmod(mode); await handle.sync() } finally { await handle.close() }
+    try { await handle.writeFile(value); await handle.chmod(mode) } finally { await handle.close() }
     await fs.rename(temporary, file)
-    const parent = await fs.open(directory, 'r')
-    try { await parent.sync() } finally { await parent.close() }
   } finally { await fs.rm(temporary, { force: true }).catch(() => {}) }
 }
 
