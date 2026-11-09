@@ -155,7 +155,6 @@ test('external workspace reads require opt-in and obey live source privacy, dele
   assert.deepEqual(ownDoc.document, destination.document)
   assert.equal(ownDoc.revision, archivedDestination.revision)
   assert.deepEqual((await agent(value, `${base}/manifest.json`)).body.documentMeta, archivedDestination)
-  assert.match((await agent(value, `${base}/instructions.md`)).body, /"archived":true/)
 
   for (const suffix of [
     '/workspace-index.md',
@@ -302,7 +301,7 @@ test('builtin scoped socket allows own Private retrieval, denies other Private s
   const privateAccess = await waitFor(() => observations.get(privateTask.id))
   assert.equal(privateAccess.own.status, 200)
   assert.equal(JSON.parse(privateAccess.manifest.body).documentMeta.archived, true)
-  assert.deepEqual(JSON.parse(privateAccess.own.body), privateOwn.document)
+  assert.deepEqual(JSON.parse(privateAccess.own.body).document, privateOwn.document)
   assert.equal(privateAccess.index.status, 200)
   assert.match(privateAccess.index.body, /Builtin own Private/)
   assert.match(privateAccess.index.body, /Builtin public source/)

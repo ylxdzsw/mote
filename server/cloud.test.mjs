@@ -436,26 +436,6 @@ test('single latest share is CAS-controlled, retry-safe, and revoked on deletion
   assert.equal((await value.call('GET', `documents/${randomUUID()}`)).status, 404)
 })
 
-test.skip('legacy snapshot links are revoked during the single-latest transition without changing latest tokens', async t => {
-  const value = await app(t), original = await create(value)
-  const latest = (await shareMutation(value, original.id, 0, 'enable')).body.share
-  await value.close()
-
-  const legacy = new DatabaseSync(value.store.databasePath)
-  legacy.exec('DROP INDEX active_share; ALTER TABLE documents DROP COLUMN shareRevision')
-  const snapshotToken = randomBytes(32).toString('base64url')
-  legacy.prepare("INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,'snapshot',?,?)")
-    .run(randomUUID(), original.id, snapshotToken, original.revision, Date.now())
-  legacy.close()
-
-  const restarted = await app(t, { root: value.root })
-  assert.deepEqual((await restarted.call('GET', `documents/${original.id}/shares`)).body, { revision: 1, share: latest })
-  assert.equal((await restarted.call('GET', `shared/${latest.token}`)).status, 200)
-  assert.equal((await restarted.call('GET', `shared/${snapshotToken}`)).status, 404)
-  assert.equal(restarted.store.db.prepare("SELECT count(*) AS n FROM shares WHERE documentId=? AND mode='snapshot' AND revokedAt IS NULL").get(original.id).n, 0)
-  assert.equal(restarted.store.db.prepare("SELECT count(*) AS n FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(original.id).n, 1)
-})
-
 test('Notes round-trip through saves, validate as a notes array, affect retries, and stay out of public shares', async t => {
   const value = await app(t), doc = document()
   doc.authoring = { notes: ['Outline and unverified plan'], aiModel: 'private/model' }
@@ -500,7 +480,7 @@ test('assistant state CAS and retries are independent, inert, and hydrated', asy
   assert.equal(value.store.db.prepare('SELECT body FROM revisions LIMIT 1').get().body.includes(image), false)
 })
 
-test('save validates V1, reads preserve unreadable old JSON, and all mutations enforce exact Origin', async t => {
+test('saves validate incoming documents, reads preserve unsupported data, and mutations enforce exact Origin', async t => {
   const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
   const invalid = save(original, 'Bad'); invalid.document.version = 'bad'
   assert.equal((await value.call('PUT', base, invalid)).status, 400)
@@ -522,12 +502,13 @@ test('save validates V1, reads preserve unreadable old JSON, and all mutations e
   assert.equal(restored.status, 200)
   const removal = { baseRevision: assistant.body.revision, tasks: [], operationId: randomUUID() }
   const exactRemoval = JSON.stringify(removal)
-  assert.equal((await value.call('PUT', `${base}/assistant`, removal)).status, 200)
+  const removed = await value.call('PUT', `${base}/assistant`, removal)
+  assert.equal(removed.status, 200)
   assert.equal(JSON.stringify(removal), exactRemoval)
   assert.deepEqual((await value.call('PUT', `${base}/assistant`, assistantOperation)).body, assistant.body)
   assert.equal((await value.call('PUT', `${base}/assistant`, { ...assistantOperation, tasks: [] })).status, 409)
-  assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, assistant.body)
-  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM task_revocations WHERE documentId=?').get(original.id).n, 0)
+  assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, removed.body)
+  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM task_revocations WHERE documentId=?').get(original.id).n, 1)
   assert.equal(MAX_BODY, 128 * 1024 * 1024)
 })
 
@@ -543,7 +524,6 @@ test('AI tasks bind immutable saved revisions and retain candidates/sessions pas
   assert.equal(submitted.status, 202); assert.equal(submitted.body.documentId, original.id); assert.equal(submitted.body.baseRevision, original.revision)
   for (let i = 0; i < 100 && value.manager.tasks.get(request.id).meta.status !== 'ready'; i++) await new Promise(resolve => setTimeout(resolve, 10))
   const task = value.manager.tasks.get(request.id)
-  if (task.meta.status !== 'ready') console.error('Task error:', task.meta.error, 'status:', task.meta.status)
   assert.equal(task.meta.status, 'ready')
   assert.equal(task.meta.versions[0].candidate.content[0].content[0].text, 'AI draft: Hello')
   assert.equal(value.store.db.prepare('SELECT revision FROM task_revisions WHERE taskId=?').get(request.id).revision, original.revision)
@@ -951,7 +931,7 @@ test('privacy changes serialize with asynchronous external candidate commits bef
   const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
   const persist = value.manager.persist.bind(value.manager)
   value.manager.persist = async (task, meta = task.meta) => {
-    if (meta.executor === 'external' && meta.candidateRevision === 1) { entered(); await gate }
+    if (meta.executor === 'external' && meta.versions.length === 1) { entered(); await gate }
     return persist(task, meta)
   }
   const pending = value.call('POST', `${base}/submit`, submission(original))
@@ -966,7 +946,7 @@ test('privacy changes serialize with asynchronous external candidate commits bef
   assert.equal((await changing).status, 200)
   assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 404)
   const retained = (await value.call('GET', `ai/tasks/${request.id}`)).body
-  assert.equal(retained.executor, 'builtin'); assert.equal(retained.candidateRevision, 1)
+  assert.equal(retained.executor, 'builtin'); assert.equal(retained.versions.length, 1)
 })
 
 test('in-flight public context reads recheck privacy after asynchronous snapshot access', async t => {
