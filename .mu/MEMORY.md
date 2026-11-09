@@ -1919,3 +1919,8 @@ AI receives the complete native object and rendered appearance through its exist
 ## 2026-11-09 — Archive is Files organization, not document state
 
 Archiving is reversible organization rather than an edit or access-control decision, so it lives in independently revisioned cloud metadata instead of the native document, content history, or modified timestamp. That keeps content saves and exports independent and avoids invalidating indexes or changing sharing, privacy, sync, task, or agent access. Files moves a row only after acknowledgment into a collapsed but searchable Archived group, preserving the same actions without hiding the file. Agents receive the flag as neutral metadata, never as an instruction or retrieval policy.
+
+
+## 2026-11-09 — Quiet source editors and Notes tail clicks
+
+Remove the active-line background shared by Code, Notes, and HTML-widget source; the existing current-line number emphasis provides orientation without a band behind the text. Notes turns its unused lower writing surface into a click target for the real text end, leaving text selection and scrollbars to their existing handlers. Clicking is navigation only: it never inserts whitespace or adds an undo step. Trailing empty lines keep their line numbers and ordinary caret positions; no virtual newline or special final-line rendering is introduced.

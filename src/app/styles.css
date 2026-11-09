@@ -132,6 +132,7 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .notes-toggle[aria-expanded='true'] > svg { transform: none; }
 .notes-source.code-view { --code-surface: var(--ui-surface); --code-gutter: var(--ui-surface-muted); --code-ink: var(--ui-ink); --code-muted: var(--ui-faint); --code-selection: var(--ui-accent-tint-strong); flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; border: 0; border-top: 1px solid var(--ui-border); border-radius: 0; font: 13px/16px ui-monospace, SFMono-Regular, Consolas, monospace; }
 .notes-source .code-source, .notes-source .code-body { min-height: 100%; }
+.notes-source .code-source { cursor: text; }
 .notes-source .code-gutter { padding-block: 4px; }
 .notes-source .code-source-scroll { padding: 4px 8px; }
 .notes-source .code-source-track { min-height: 100%; }

@@ -149,7 +149,6 @@
 .code-editor .cm-content { min-height: 100%; padding: 0; font: inherit; letter-spacing: inherit; caret-color: var(--code-ink); }
 .code-editor .cm-line { padding: 0; line-height: inherit; }
 .code-editor .cm-content ::selection, .code-editor .cm-content::selection { background: var(--code-selection); }
-.code-editor .cm-focused .cm-activeLine { background: color-mix(in srgb, var(--code-selection) 28%, transparent); }
 .code-editor .cm-matchingBracket { background: var(--code-selection); outline: 1px solid var(--code-muted); outline-offset: -1px; }
 .code-editor .cm-nonmatchingBracket { text-decoration: underline wavy; }
 .code-editor .cm-placeholder { color: var(--code-muted); }

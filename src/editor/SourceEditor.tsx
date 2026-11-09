@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Compartment, EditorSelection, EditorState, Transaction } from '@codemirror/state'
-import { EditorView, highlightActiveLine, keymap, placeholder as editorPlaceholder } from '@codemirror/view'
+import { EditorView, keymap, placeholder as editorPlaceholder } from '@codemirror/view'
 import { bracketMatching, indentOnInput, indentUnit, syntaxHighlighting } from '@codemirror/language'
 import {
   copyLineDown, copyLineUp, indentLess, indentMore, insertNewlineKeepIndent,
@@ -91,7 +91,6 @@ export function SourceEditor({ source, language = 'plaintext', editorId, canEdit
         extensions: [
           configuration.of([]),
           syntaxHighlighting(codeHighlightStyle),
-          highlightActiveLine(),
           EditorView.contentAttributes.of({
             'data-code-source': '', 'aria-label': label, 'aria-multiline': 'true',
             ...(inputId ? { id: inputId } : {}), ...(describedBy ? { 'aria-describedby': describedBy } : {}),
@@ -225,7 +224,15 @@ export function SourceEditor({ source, language = 'plaintext', editorId, canEdit
 
   const failed = loaded.id === language && loaded.error
   const supported = normalizeCodeLanguage(language)
-  return <div className="code-source" data-code-loading={supported && supported !== 'plaintext' && !syntax && !failed ? '' : undefined}>
+  return <div className="code-source" data-code-loading={supported && supported !== 'plaintext' && !syntax && !failed ? '' : undefined}
+    onPointerDown={event => {
+      const view = editor.current
+      if (!view || event.target !== event.currentTarget || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+      event.preventDefault(); event.stopPropagation()
+      live.current.history?.boundary()
+      view.focus()
+      view.dispatch({ selection: EditorSelection.cursor(view.state.doc.length), scrollIntoView: true })
+    }}>
     {failed && canEdit && <p className="code-source-status" role="status">Language tools unavailable; editing plain text. <button onClick={() => setAttempt(value => value + 1)}>Retry</button></p>}
     <SourceDisplay tokens={tokens} activeLine={activeLine} canEdit={canEdit}>
       {canEdit && <div ref={mount} className="code-editor" />}
