@@ -1942,3 +1942,8 @@ Expanded minimap labels no longer turn their entire lane into a pointer target. 
 Reduce Mote-specific keyboard machinery rather than the number of available keys. Keep conventional editor commands, native UI focus/activation, contextual cancellation, presentation arrows, and Alt pointer manipulation. Remove canvas geometry key handlers and their extra Tab stops, the toolbar focus hotkey, object duplication hotkey, drawing-tool letters, and launchpad grid navigation; Add becomes ordinary tabbable buttons. Keyboard zoom belongs to the browser, while document zoom remains a dropdown/canvas gesture. Gesture interception is scoped to the canvas rather than suppressing browser gestures elsewhere.
 
 Rich-text Tab is a deliberate exception: preserve convenient Body-to-List conversion and list indentation, but consume Tab/Shift+Tab in other paragraph classes and captions instead of accidentally moving focus out of writing. Table Tab navigation stops at its boundaries; code keeps conventional indentation and its existing focus-mode escape hatch. This changes interaction only, not saved document semantics or formats.
+
+
+## 2026-11-09 — Visible controls trigger bookmark expansion
+
+Initial pointer expansion now requires hitting the minimap or an actual folded label, not the reserved folded lane’s gaps or the future expanded overlay. The larger lane only retains an already-open hover, so approaching the selection gutter from the document cannot reveal labels over the intended target. Leaving that lane resets the trigger; click-through gaps and focused-label disclosure are unchanged.

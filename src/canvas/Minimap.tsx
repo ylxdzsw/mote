@@ -195,14 +195,16 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       scroller.scrollTop += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1)
     }
     container.addEventListener('wheel', wheel, { passive: false })
-    // Keep labels open across the lane without making its empty areas hit targets.
+    // Only controls open the labels; the empty lane can retain an existing hover.
     const host = container.parentElement!
     const hover = (event: globalThis.PointerEvent) => {
       const railRect = rail.getBoundingClientRect()
       const labelRect = navigation.getBoundingClientRect()
       container.classList.toggle('is-hovered', event.pointerType !== 'touch'
-        && event.clientX >= railRect.left && event.clientX < labelRect.right
-        && event.clientY >= railRect.top && event.clientY < railRect.bottom)
+        && (rail.contains(event.target as Node) || navigation.contains(event.target as Node)
+          || container.classList.contains('is-hovered')
+            && event.clientX >= railRect.left && event.clientX < labelRect.right
+            && event.clientY >= railRect.top && event.clientY < railRect.bottom))
     }
     const leave = () => container.classList.remove('is-hovered')
     host.addEventListener('pointermove', hover)
