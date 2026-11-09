@@ -465,6 +465,7 @@ export class TaskManager {
   }
   async latestRequest(task, revision) {
     const original = await this.loadRequest(task)
+    if (!task.meta.documentId) return original
     const reservation = this.store.assertReservation(task.id, task.meta.documentId)
     const identity = target => target?.kind === 'object' ? { kind: target.kind, objectId: target.objectId, isNew: target.isNew }
       : { kind: target?.kind, blockIds: target?.blockIds, objectIds: target?.objectIds, bookmarks: target?.bookmarks }
@@ -597,7 +598,8 @@ export class TaskManager {
       }
       counter(body.executorRevision, 'executorRevision')
       if (body.executorRevision !== task.meta.executorRevision) throw new HttpError(409, 'executor revision conflict')
-      if (typeof body.documentRevision !== 'string' || !UUID.test(body.documentRevision)) throw new HttpError(400, 'documentRevision must identify the cloud revision read')
+      if (task.meta.documentId && (typeof body.documentRevision !== 'string' || !UUID.test(body.documentRevision))) throw new HttpError(400, 'documentRevision must identify the cloud revision read')
+      if (!task.meta.documentId && (typeof body.documentRevision !== 'string' || !body.documentRevision)) throw new HttpError(400, 'documentRevision is required')
       if (['candidateId', 'candidateRevision', 'parent', 'parentId', 'versionId'].some(key => Object.hasOwn(body, key))) throw new HttpError(400, 'v2 submissions append a server-assigned version; no candidate hierarchy or CAS')
       if (body.label !== undefined && (typeof body.label !== 'string' || [...body.label].length > 80)) throw new HttpError(400, 'label must be at most 80 characters')
       const request = await this.latestRequest(task, body.documentRevision)
@@ -716,7 +718,7 @@ export class TaskManager {
     let promptText = this.instructions(task, { generation, token: task.meta.builtinToken })
     const file = path.join(run, 'document.json')
     await writeImmutable(file, JSON.stringify({ document: context.document, revision: context.documentRevision }))
-    promptText += `\nCloud context refreshed immediately before this run: ${file} (revision ${context.documentRevision}). Use this revision for proposals based on this file; document.json via the agent API can be read again for newer saved context.\n`
+    if (context.documentRevision) promptText += `\nCloud context refreshed immediately before this run: ${file} (revision ${context.documentRevision}). Use this revision for proposals based on this file; document.json via the agent API can be read again for newer saved context.\n`
     await writeImmutable(path.join(run, 'prompt.md'), promptText)
     return { promptPath: path.join(run, 'prompt.md'), outputDir: output }
   }
@@ -886,9 +888,12 @@ For an optional label, append: - "Label"
       await this.loadRequest(task)
       context.agent = await this.openAgentSocket(task, current)
       const latest = await this.latestRequest(task)
-      context.document = latest.document; context.documentRevision = latest.documentRevision; context.target = latest.target
+      context.document = latest.document; context.target = latest.target
       context.selectedVersion = task.meta.selectedVersion; context.versions = task.meta.versions
-      context.agent.documentRevision = latest.documentRevision
+      if (latest.documentRevision) {
+        context.documentRevision = latest.documentRevision
+        context.agent.documentRevision = latest.documentRevision
+      }
       Object.assign(context, await this.writePrompt(task, generation, context))
       if (!authorized() || controller.signal.aborted) return
       current.promise = Promise.resolve().then(() => this.runner(context))

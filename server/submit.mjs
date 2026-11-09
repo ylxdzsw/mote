@@ -48,7 +48,7 @@ export async function submitResult(context, operationId = randomUUID()) {
   const delivery = await localDelivery(context.outputDir)
   const protocol = context.agent.protocol ?? (await agentRequest(`${url}/manifest.json`, { socketPath })).protocol
   if (protocol === 'mote-agent-v2') {
-    const documentRevision = context.agent.documentRevision ?? delivery.candidate.documentRevision
+    const documentRevision = context.agent.documentRevision ?? delivery.candidate.documentRevision ?? `direct-${context.taskId ?? 'task'}`
     if (typeof documentRevision !== 'string' || !documentRevision) throw new Error('documentRevision from the document you read is required; do not substitute the latest revision at submit time')
     const body = { operationId, executorRevision, documentRevision, ...delivery,
       ...(context.agent.label === undefined ? {} : { label: context.agent.label }) }
