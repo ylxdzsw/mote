@@ -93,7 +93,7 @@ export function DocumentNotes({ value, onFocus }: {
             focusInput()
           }
         }}>
-        <PanelIcon name="chevron" /> Notes
+        <PanelIcon name="chevron" />{!settings.notesOpen && 'Notes'}
       </button>
       {settings.notesOpen && <>
         <div ref={tabs} className="notes-tabs" role="tablist" aria-label="Document notes" onKeyDown={event => {

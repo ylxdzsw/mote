@@ -1947,3 +1947,8 @@ Rich-text Tab is a deliberate exception: preserve convenient Body-to-List conver
 ## 2026-11-09 — Visible controls trigger bookmark expansion
 
 Initial pointer expansion now requires hitting the minimap or an actual folded label, not the reserved folded lane’s gaps or the future expanded overlay. The larger lane only retains an already-open hover, so approaching the selection gutter from the document cannot reveal labels over the intended target. Leaving that lane resets the trigger; click-through gaps and focused-label disclosure are unchanged.
+
+
+## 2026-11-09 — Folded-only Notes title
+
+Show the Notes title only while the pane is folded. When expanded, the arrow leads directly into the numbered tabs, removing a redundant heading while keeping the toggle’s accessible name and behavior unchanged.
