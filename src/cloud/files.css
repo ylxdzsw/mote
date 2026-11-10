@@ -16,9 +16,10 @@
 .files-search > input::placeholder { color: var(--ui-muted); }
 .files-list-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0 6px; color: var(--ui-muted); font-size: var(--ui-label-size); }
 .files-list-heading select { max-width: 65%; min-height: 28px; padding: 2px 4px; border: 1px solid transparent; border-radius: 3px; background: var(--ui-surface); color: var(--ui-muted); font: inherit; cursor: pointer; }
-.files-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 12px 12px; }
+.files-scroll { display: flex; flex-direction: column; gap: 8px; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 12px 12px; }
+.files-scroll > * { flex-shrink: 0; }
 .files-list { list-style: none; margin: 0; padding: 0; }
-.files-archive { margin-top: 8px; padding-top: 4px; border-top: 1px solid var(--ui-border); }
+.files-archive { margin-top: auto; padding-top: 4px; border-top: 1px solid var(--ui-border); }
 .cloud-files .files-archive-toggle { width: 100%; justify-content: flex-start; color: var(--ui-muted); }
 .files-archive-toggle:focus-visible { outline-offset: -2px; }
 .files-archive-toggle .panel-icon { transform: rotate(-90deg); }

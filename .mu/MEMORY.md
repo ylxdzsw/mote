@@ -1993,3 +1993,8 @@ Built-in and External are local UI tabs, not a backend executor assignment. Conc
 The random task token is distinct from task ID and remains stable through ordinary release/undo and Private on/off. Current tasks have no executor revisions, generation authorization, permanent revocation tombstones, owner-inactivity pause, or auto-cleanup on Accept/Discard. Permissions and optional expiry are reservation state checked at request opening; a previously admitted submission may finish harmlessly. Private blocks every public `/a/` method while enabled, but does not revoke the token; the trusted built-in socket may read its own Private document, never another Private document. Public Share revocation keeps its separate permanent policy. Retained legacy task records remain recovery-only, without protocol adapters or conversion; native V1–V5 compatibility is unchanged.
 
 Reservation locks now depend only on document-owned reservation state, not whether a worker has started or a proposal has arrived. Individual body dimensions lock when reserved; placement, margins, and caption width keep their existing user-owned behavior. This avoids execution updates silently changing editing permissions outside history.
+
+
+## 2026-11-10 — Bottom-aligned archive in Files
+
+Archived uses the spare space below the regular file list to sit at the bottom of the list area, keeping less frequent navigation separate from active documents. Both groups retain one scroll region when content exceeds the available height.
