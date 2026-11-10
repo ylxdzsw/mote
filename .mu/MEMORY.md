@@ -2008,3 +2008,12 @@ Folded minimap bookmarks hide only their accented minimap-side border, restoring
 ## 2026-11-10 — Shared compact Files disclosures
 
 Archived and Local recovery now share a compact disclosure component in one bottom-aligned stack, rather than an archive section plus a separate recovery footer/dialog. Matching chevrons and right-aligned counts give both secondary lists the same visual weight; recovery retains warning emphasis for pending copies and its distinct recovery actions. Inline expansion preserves the file-search context and keeps a single scroll region. A permanent Refresh action adds little value because reopening Files fetches the list; loading failures instead offer a contextual Retry. The feedback footer takes space only when it has feedback.
+
+
+## 2026-11-10 — Native reader viewport and prepared display content
+
+Retain the self-contained HTML reader and native document payload rather than freezing measured geometry into compiled HTML: system-font variation still needs live anchor, repulsion, caption, and slide measurements. HTML reimport remains supported. Generalize Code highlighting preparation to immutable source-to-display transformations: exports prepare both Code tokens and KaTeX HTML+MathML/errors through the same renderer used by the app. A single export-only prepared-content payload feeds shared displays, keeping CodeMirror, language parsers, and the KaTeX engine out of the standalone bundle without introducing a second layout renderer or changing native V1–V5.
+
+User-facing reading now uses window scrolling and native browser zoom. The editor and offscreen capture surfaces keep their controlled canvas. Fit the authored width once on opening, capped at 100%, and refit on device orientation changes; ordinary resize retains that scale so desktop browser zoom is not cancelled by continuous fitting. Use device-width rather than a fixed 960px viewport, preserving the mobile reading-only boundary and normal responsive controls. Readers no longer intercept pinch/wheel zoom or progressively crop unused margins. The fixed minimap tracks the window; presentation temporarily fits a slide and returns to that slide in ordinary reading.
+
+Native Print/Save as PDF is deliberately a browser operation from a reader, not a new export format or pagination engine. Print CSS hides navigation and removes screen fitting and presentation constraints. Browser page breaks, paper settings, and their limitations for spatial compositions are accepted; no temporary Slides conversion is applied.

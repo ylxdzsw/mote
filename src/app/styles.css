@@ -66,7 +66,7 @@
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; overflow: hidden; overscroll-behavior: none; }
-html { touch-action: pan-x pan-y; }
+html { touch-action: auto; }
 body { margin: 0; }
 .app { font-size: var(--ui-font-size); height: 100dvh; display: flex; flex-direction: column; overflow: hidden; color: var(--ui-ink); background: var(--ui-shell); }
 button, input, select { font: inherit; }
@@ -169,8 +169,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .zoom-level select { appearance: none; width: 100%; height: 100%; padding: 0 22px 0 5px; border: 0; background: transparent; cursor: pointer; font-variant-numeric: tabular-nums; }
 .zoom-level > svg { position: absolute; right: 3px; top: 6px; width: 16px; height: 16px; pointer-events: none; }
 .zoom-level select:hover { color: var(--ui-accent); background: var(--ui-accent-soft); }
-.zoom-feedback { display: none; position: absolute; z-index: 3; top: 12px; left: 50%; margin: 0; padding: 3px 10px; border-radius: 999px; transform: translateX(-50%); background: color-mix(in srgb, var(--ui-surface) 88%, transparent); box-shadow: 0 1px 6px var(--ui-shadow); color: var(--ui-ink); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; opacity: 0; transition: opacity .25s; }
-.zoom-feedback.is-visible { opacity: 1; transition-duration: 0s; }
 .sheet { position: relative; margin: 0 auto; background: var(--page-background); border: 1px solid transparent; }
 .sheet-footprint { position: relative; margin: 0 auto; display: flow-root; }
 .sheet-footprint > .sheet { margin: 0; transform-origin: top left; }
@@ -184,6 +182,28 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .reading-canvas.is-presenting .stage { display: flex; align-items: center; justify-content: center; padding: 0; overflow: clip; touch-action: manipulation; }
 .is-presenting .canvas-scroll-floor { width: 100%; }
 .reading-canvas.is-presenting .sheet-footprint { overflow: clip; }
+/* Readers use the page viewport; capture surfaces and the editor retain their own shell. */
+html:has(.reader-page), body:has(.reader-page), #root:has(.reader-page) { height: auto; overflow: visible; overscroll-behavior: auto; }
+html:has(.reader-page) { scrollbar-gutter: stable; }
+.app.reader-page { height: auto; min-height: 100dvh; overflow: visible; }
+.reader-page .workspace.reader { flex: none; overflow: visible; }
+.native-scroll { height: auto; min-height: 100dvh; }
+.native-scroll.has-minimap { display: block; padding-left: calc(var(--minimap-width) + var(--bookmark-folded-width)); }
+.native-scroll .stage { height: auto; overflow: visible; padding: 24px 0; overscroll-behavior: auto; }
+.native-scroll .sheet-footprint { overflow: clip; }
+.native-scroll .object-caption { touch-action: auto; }
+.native-scroll > .minimap-pane { position: fixed; left: 0; top: 0; height: 100dvh; }
+.native-scroll > .present-button { position: fixed; }
+html:has(.native-scroll.is-presenting) { overflow: hidden; }
+.native-scroll.is-presenting { position: fixed; inset: 0; z-index: 20; padding: 0; }
+.native-scroll.is-presenting .stage { height: 100dvh; padding: 0; overflow: clip; }
+@media print {
+  .reader-page .minimap-pane, .reader-page .present-button, .reader-page [data-code-copy], .reader-page > :not(.workspace) { display: none !important; }
+  .app.reader-page, .reader-page .workspace, .native-scroll, .native-scroll .stage { position: static !important; display: block !important; height: auto !important; min-height: 0; padding: 0 !important; overflow: visible !important; }
+  html:has(.reader-page) { overflow: visible !important; scrollbar-gutter: auto; }
+  .native-scroll .sheet-footprint { width: max-content !important; height: auto !important; overflow: visible; margin: 0; }
+  .native-scroll .sheet { transform: none !important; left: 0; margin: 0; print-color-adjust: exact; }
+}
 .main-text { padding: var(--margin-top) var(--margin-right) var(--margin-bottom) var(--margin-left); }
 /* Panel and canvas share one surface, so the divider is a faint guide rather than a seam. */
 .inspector { background: var(--ui-surface); border-left: 1px solid color-mix(in srgb, var(--ui-border) 55%, transparent); min-height: 0; overflow: auto; overscroll-behavior: contain; padding: var(--ui-panel-padding); }
@@ -298,7 +318,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
   .app-header { padding-inline: 8px; gap: 4px; }
   .app-header .document-switch { flex: 0 1 auto; max-width: min(240px, 100%); min-height: 36px; padding-inline: 6px; font-size: 13px; }
   .save-message { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-  .zoom-feedback { display: block; }
   .workspace { display: block; }
   .inspector { position: absolute; top: 0; left: 0; bottom: 0; width: min(280px, 85vw); z-index: 2; box-shadow: 4px 0 16px var(--ui-shadow); }
   .canvas-pane { --minimap-width: 72px; --bookmark-width: 66px; }

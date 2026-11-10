@@ -6,7 +6,7 @@ import { isComposingKey } from '../editor/composition'
 const interactive = 'a[href], button, input, textarea, select, [contenteditable="true"], iframe, [data-widget-live]'
 
 // A viewport onto the existing reader sheet: no second renderer or document edits.
-export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>) {
+export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, nativeScroll = false) {
   const height = doc.page.slideHeight
   const available = enabled && height !== undefined
   const count = slideRanges(doc).length
@@ -32,9 +32,11 @@ export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefO
   function enter() {
     const viewport = stage.current!, page = sheet.current!
     const zoom = page.getBoundingClientRect().width / doc.page.width
-    const y = (viewport.getBoundingClientRect().top + Math.min(120, viewport.clientHeight * .15) - page.getBoundingClientRect().top) / zoom
+    const top = nativeScroll ? 0 : viewport.getBoundingClientRect().top
+    const viewportHeight = nativeScroll ? document.documentElement.clientHeight : viewport.clientHeight
+    const y = (top + Math.min(120, viewportHeight * .15) - page.getBoundingClientRect().top) / zoom
     const current = Math.max(0, Math.min(count - 1, Math.floor(y / height!)))
-    restore.current = { index: current, left: viewport.scrollLeft }
+    restore.current = { index: current, left: nativeScroll ? window.scrollX : viewport.scrollLeft }
     window.getSelection()?.removeAllRanges()
     setIndex(current)
     viewport.focus({ preventScroll: true })
@@ -62,10 +64,14 @@ export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefO
     const { index: last, left } = restore.current
     restore.current = null
     const zoom = page.getBoundingClientRect().width / doc.page.width
-    viewport.scrollTop += page.getBoundingClientRect().top + last * height! * zoom - viewport.getBoundingClientRect().top - parseFloat(getComputedStyle(viewport).paddingTop)
-    viewport.scrollLeft = left
+    const offset = page.getBoundingClientRect().top + last * height! * zoom - parseFloat(getComputedStyle(viewport).paddingTop)
+    if (nativeScroll) window.scrollTo(left, window.scrollY + offset)
+    else {
+      viewport.scrollTop += offset - viewport.getBoundingClientRect().top
+      viewport.scrollLeft = left
+    }
     entry.current?.focus({ preventScroll: true })
-  }, [active, doc.page.width, height, sheet, stage])
+  }, [active, doc.page.width, height, sheet, stage, nativeScroll])
 
   // Off-slide links and widgets must not take focus or appear in the accessibility tree.
   useEffect(() => {

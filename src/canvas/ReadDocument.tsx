@@ -8,19 +8,20 @@ import { patchFloating } from './patchFloating'
 const noop = () => {}
 
 // The same canvas and layout normalization as reading in the app, without persistence.
-export function ReadDocument({ initial, zoomHost = null, minimap = false, minimapSize = 'proportional', onReady = noop, staticWidgets = false, expandSlides = false, presentation = false, initialScale, onActions = noop }: {
+export function ReadDocument({ initial, zoomHost = null, minimap = false, minimapSize = 'proportional', onReady = noop, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onActions = noop }: {
   initial: MoteDocument; zoomHost?: HTMLDivElement | null; minimap?: boolean
   minimapSize?: ViewSettings['minimapSize']; onReady?: () => void
   staticWidgets?: boolean
   expandSlides?: boolean
   presentation?: boolean
+  nativeScroll?: boolean
   initialScale?: number
   onActions?: (actions: CanvasActions) => void
 }) {
   const history = useDocumentHistory(initial)
   const { doc, setDoc } = history
   return <HistoryContext value={history}><DocumentCanvas doc={doc!} editable={false} zoomHost={zoomHost}
-    minimap={minimap} minimapSize={minimapSize} selectedIds={[]} tool={null} staticWidgets={staticWidgets} expandSlides={expandSlides} presentation={presentation} initialScale={initialScale}
+    minimap={minimap} minimapSize={minimapSize} selectedIds={[]} tool={null} staticWidgets={staticWidgets} expandSlides={expandSlides} presentation={presentation} nativeScroll={nativeScroll} initialScale={initialScale}
     onSelect={noop} onToolChange={noop} onActions={onActions} onActive={noop} onMainReady={onReady}
     onMainChange={(content, merges) => setDoc(current => current && replaceMainContent(current, content, merges))}
     onNoteChange={(id, patch) => setDoc(current => current && ({ ...current, objects: current.objects.map(object => object.id === id ? patchFloating(object, patch) : object) }))}

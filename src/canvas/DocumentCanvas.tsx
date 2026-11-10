@@ -1,5 +1,5 @@
 import { patchObject, objectX, objectY, objectAnchorId } from '../document/model'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { captionContent, supportsCaption, isText, paragraph, tableContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
@@ -14,6 +14,7 @@ import { themeVariables } from '../theme/ThemePanel'
 import { pageColor } from '../../shared/palette.mjs'
 import { validLinkHref } from '../../shared/links.mjs'
 import { useDocumentZoom } from './useDocumentZoom'
+import { useReaderFit } from './useReaderFit'
 import { usePresentation } from './usePresentation'
 import { Minimap } from './Minimap'
 import { SlideRulers } from './SlideRulers'
@@ -68,6 +69,7 @@ interface Props {
   widgetRuns?: Record<string, number>; staticWidgets?: boolean
   expandSlides?: boolean
   presentation?: boolean
+  nativeScroll?: boolean
   initialScale?: number
   onDropImages?: (files: File[], position: ReturnType<typeof anchorPoint>) => void
   lockedIds?: Set<string>; onAICreate?: (object: FloatingObject, area: Area) => void
@@ -89,7 +91,7 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'formula' && !object.latex.length)
   || (object.kind === 'code' && !object.source.length)
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -97,16 +99,10 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   const scrollFloor = useScrollFloor(stage, footprint, editable)
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
-  const presenting = usePresentation(doc, presentation, stage, sheet)
-  const { scale: readingScale, automatic, zoomed, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editable, initialScale, presenting.active)
-  const scale = presenting.active ? presenting.scale : readingScale
-  const [zoomFeedback, setZoomFeedback] = useState(false)
-  useEffect(() => {
-    if (!zoomed) return
-    setZoomFeedback(true)
-    const timer = setTimeout(() => setZoomFeedback(false), 900)
-    return () => clearTimeout(timer)
-  }, [zoomed])
+  const presenting = usePresentation(doc, presentation, stage, sheet, nativeScroll)
+  const { scale: canvasScale, automatic, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editable, initialScale, nativeScroll || presenting.active)
+  const readerScale = useReaderFit(stage, doc.page.width, nativeScroll)
+  const scale = presenting.active ? presenting.scale : nativeScroll ? readerScale : canvasScale
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [insertionHint, setInsertionHint] = useState<{ position: Point; boundary?: { point: SegmentPoint; top: number } } | null>(null)
@@ -913,7 +909,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     <PanelIcon name="chevron" />
   </div>
 
-  return <div className={`canvas-pane ${minimap && !presenting.active ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}${presenting.active ? ' is-presenting' : ''}`}
+  return <div className={`canvas-pane ${minimap && !presenting.active ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}${nativeScroll ? ' native-scroll' : ''}${presenting.active ? ' is-presenting' : ''}`}
     onPointerMove={presenting.reveal} onPointerDown={presenting.reveal} onClick={presenting.click}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onClickCapture={event => {
@@ -933,8 +929,8 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="canvas-scroll-floor" ref={scrollFloor.container}>
       <div className="sheet-footprint" ref={footprint} style={{
-        width: editable ? doc.page.width * scale : `clamp(${(doc.page.width - sideSpace) * scale}px, 100%, ${doc.page.width * scale}px)`,
-        '--scaled-page-width': `${doc.page.width * scale}px`, '--crop-left': sideSpace ? sideInsets.left / sideSpace : 0,
+        width: editable || nativeScroll ? doc.page.width * scale : `clamp(${(doc.page.width - sideSpace) * scale}px, 100%, ${doc.page.width * scale}px)`,
+        '--scaled-page-width': `${doc.page.width * scale}px`, '--crop-left': !nativeScroll && sideSpace ? sideInsets.left / sideSpace : 0,
         height: presenting.active ? doc.page.slideHeight! * scale : `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
       <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
@@ -1002,8 +998,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     {editable && creationObject && !clipboardNotice && !segments.notice && !imagePlacement.notice && <p className="segment-notice" role="status">{tool === 'ai' ? 'Click or drag to reserve an AI object · Gutter: reserve AI section · Esc cancels' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {editable && tool === 'slideBreak' && <p className="segment-notice" role="status">Click a boundary to start a new slide. Escape cancels.</p>}
-    {minimap && !presenting.active && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} />}
+    {minimap && !presenting.active && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} nativeScroll={nativeScroll} />}
     {editable && zoomHost && createPortal(zoomControl, zoomHost)}
-    {!editable && !staticWidgets && !presenting.active && <p className={`zoom-feedback ${zoomFeedback ? 'is-visible' : ''}`} aria-hidden="true">{Math.round(scale * 100)}%</p>}
   </div>
 }

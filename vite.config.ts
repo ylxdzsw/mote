@@ -20,7 +20,11 @@ function readerBundlePlugin(): Plugin {
       configFile: false,
       mode: 'production',
       root: projectRoot,
-      resolve: { alias: { '../editor/SourceEditor': `${projectRoot}src/reader/SourceReader.tsx` } },
+      resolve: { alias: {
+        '../editor/SourceEditor': `${projectRoot}src/reader/SourceReader.tsx`,
+        './MathView': `${projectRoot}src/reader/MathView.tsx`,
+        '../canvas/MathView': `${projectRoot}src/reader/MathView.tsx`,
+      } },
       plugins: [react(), {
         name: 'mote-reader-fonts',
         enforce: 'pre',

@@ -7,6 +7,7 @@ interface Props {
   sheet: RefObject<HTMLDivElement | null>
   canvasId: string
   sizing: ViewSettings['minimapSize']
+  nativeScroll?: boolean
 }
 
 interface Geometry {
@@ -46,7 +47,7 @@ function landmarks(source: HTMLElement) {
   }))
 }
 
-export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
+export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }: Props) {
   const pane = useRef<HTMLDivElement>(null)
   const track = useRef<HTMLDivElement>(null)
   const labels = useRef<HTMLElement>(null)
@@ -57,7 +58,9 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
   const drag = useRef<{ y: number; scroll: number } | null>(null)
 
   useLayoutEffect(() => {
-    const viewport = stage.current!
+    const viewport = nativeScroll ? document.documentElement : stage.current!
+    const scrollTarget = nativeScroll ? window : viewport
+    const viewportTop = () => nativeScroll ? 0 : viewport.getBoundingClientRect().top + viewport.clientTop
     const source = sheet.current!
     const rail = track.current!
     const navigation = labels.current!
@@ -95,7 +98,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
         const rect = source.getBoundingClientRect()
         const size = nativeSize(source)
         const zoom = rect.width / size.width
-        const pageTop = (rect.top - viewport.getBoundingClientRect().top - viewport.clientTop + viewport.scrollTop) / zoom
+        const pageTop = (rect.top - viewportTop() + viewport.scrollTop) / zoom
         const width = source.classList.contains('is-reading') ? size.width : Math.max(size.width, source.scrollWidth)
         const x = (rail.clientWidth - 12) / width
         const height = viewport.scrollHeight / zoom
@@ -122,7 +125,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
             button.className = 'minimap-bookmark'
             button.onpointerdown = event => event.preventDefault()
             button.onclick = () => {
-              viewport.scrollTop = Math.ceil(viewport.scrollTop + target.getBoundingClientRect().top - viewport.getBoundingClientRect().top - viewport.clientTop - bookmarkFocusOffset())
+              viewport.scrollTop = Math.ceil(viewport.scrollTop + target.getBoundingClientRect().top - viewportTop() - bookmarkFocusOffset())
             }
           }
           button.classList.toggle('minimap-bookmark-title', semantic === 'title')
@@ -179,7 +182,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     const mutation = new MutationObserver(refresh)
     mutation.observe(source, { subtree: true, childList: true, characterData: true, attributes: true })
     const workspace = new MutationObserver(schedule)
-    workspace.observe(viewport.closest('.workspace')!, { attributes: true, attributeFilter: ['style'] })
+    workspace.observe(stage.current!.closest('.workspace')!, { attributes: true, attributeFilter: ['style'] })
     const resize = new ResizeObserver(refresh)
     resize.observe(viewport)
     resize.observe(source)
@@ -187,10 +190,14 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     resize.observe(source.parentElement!.parentElement!)
     resize.observe(rail)
     document.fonts.addEventListener('loadingdone', refresh)
-    viewport.addEventListener('scroll', schedule, { passive: true })
+    scrollTarget.addEventListener('scroll', schedule, { passive: true })
+    window.addEventListener('resize', refresh)
     const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        if (!nativeScroll) event.preventDefault()
+        return
+      }
       event.preventDefault()
-      if (event.ctrlKey || event.metaKey) return
       const scroller = navigation.contains(event.target as Node) && navigation.scrollHeight > navigation.clientHeight ? navigation : viewport
       scroller.scrollTop += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? scroller.clientHeight : 1)
     }
@@ -217,18 +224,19 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
       resize.disconnect()
       navigation.replaceChildren()
       document.fonts.removeEventListener('loadingdone', refresh)
-      viewport.removeEventListener('scroll', schedule)
+      scrollTarget.removeEventListener('scroll', schedule)
+      window.removeEventListener('resize', refresh)
       container.removeEventListener('wheel', wheel)
       host.removeEventListener('pointermove', hover)
       host.removeEventListener('pointerleave', leave)
       leave()
     }
-  }, [stage, sheet, sizing])
+  }, [stage, sheet, sizing, nativeScroll])
 
   function start(event: PointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || !event.isPrimary) return
     event.preventDefault()
-    const viewport = stage.current!
+    const viewport = nativeScroll ? document.documentElement : stage.current!
     const { maximum, overflow, ratio } = geometry.current
     if (maximum <= 0) return
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -250,7 +258,7 @@ export function Minimap({ stage, sheet, canvasId, sizing }: Props) {
     onPointerDown={start}
     onPointerMove={event => {
       const { maximum, travel } = geometry.current
-      if (drag.current && travel > 0) stage.current!.scrollTop = drag.current.scroll + (event.clientY - drag.current.y) / travel * maximum
+      if (drag.current && travel > 0) (nativeScroll ? document.documentElement : stage.current!).scrollTop = drag.current.scroll + (event.clientY - drag.current.y) / travel * maximum
     }}
     onPointerUp={finish} onPointerCancel={finish} onLostPointerCapture={finish}>
     <div className="minimap-image" ref={image} aria-hidden="true" inert />

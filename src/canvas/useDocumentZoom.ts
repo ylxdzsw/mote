@@ -4,8 +4,6 @@ interface Point { x: number; y: number }
 
 export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number, paused = false) {
   const [autoScale, setAutoScale] = useState(1)
-  // Counts explicit zoom actions so readers can show transient feedback, excluding automatic fitting.
-  const [zoomed, setZoomed] = useState(0)
   const [zooms, setZooms] = useState<{ edit: number | null; read: number | null | undefined }>({ edit: initialScale ?? null, read: initialScale })
   const mode = editable ? 'edit' : 'read'
   const zoom = zooms[mode]
@@ -55,7 +53,6 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
 
   function zoomTo(next: number, client?: Point, snap = false, automatic = false) {
     wheelGesture.current = null
-    setZoomed(count => count + 1)
     if (snap) {
       const target = [1, autoScale].sort((a, b) => Math.abs(Math.log(next / a)) - Math.abs(Math.log(next / b)))
         .find(value => next >= value * .95 && next <= value * 1.05)
@@ -109,6 +106,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   })
 
   useEffect(() => {
+    if (paused) return
     const onWheel = (event: WheelEvent) => wheel(event)
     const onTouch = (event: TouchEvent) => touch(event)
     window.addEventListener('wheel', onWheel, { passive: false })
@@ -117,7 +115,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
       window.removeEventListener('wheel', onWheel)
       for (const name of ['touchstart', 'touchmove', 'touchend', 'touchcancel']) window.removeEventListener(name, onTouch as EventListener)
     }
-  }, [])
+  }, [paused])
 
-  return { scale, minScale, automatic: zoom === null, zoomed, zoomTo, reset }
+  return { scale, minScale, automatic: zoom === null, zoomTo, reset }
 }

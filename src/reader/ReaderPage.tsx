@@ -10,10 +10,10 @@ export function ReaderPage({ initial, notice }: { initial: MoteDocument; notice?
   const smallScreen = useMedia('(max-width: 1050px)')
   const published = useMemo(() => publishDocument(initial), [initial])
   const style = useMemo(() => uiThemeVariables(initial.theme, initial.language ?? 'en'), [initial.theme, initial.language])
-  return <div className="app" style={style}>
+  return <div className="app reader-page" style={style}>
     {notice}
     <main className="workspace reader">
-      <ReadDocument initial={published} minimap={!smallScreen} presentation />
+      <ReadDocument key={initial.id} initial={published} minimap={!smallScreen} presentation nativeScroll />
     </main>
   </div>
 }

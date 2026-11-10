@@ -41,6 +41,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 - Colors come only from the 22 fixed palette slots and the saved Light/Dark mode and hues. No custom palettes or page backgrounds.
 - Notes (`authoring.notes`) are user-owned. Public shares, PNG, and HTML exclude them. Agents may read them as tentative context but never edit them.
 - Editing, reading, minimap, PNG, and standalone HTML share one rendering path; never add a separate approximate export renderer. Widgets run sandboxed, and PNG/minimap use saved screenshots.
+- User-facing readers use window scrolling and native browser zoom, with an initial width fit rather than continuous auto-fit. The editor and offscreen capture surfaces retain their controlled viewport. HTML prepares Code tokens and KaTeX HTML+MathML/errors together, excluding their parsers from the standalone reader while retaining shared displays and live geometry measurement. HTML reimport remains supported. Native browser printing hides reader navigation and uses browser pagination, not an export-specific layout engine.
 
 ### Interaction
 
