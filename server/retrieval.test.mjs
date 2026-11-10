@@ -26,7 +26,7 @@ async function app(t, options = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mote-retrieval-test-'))
   const value = await createMotedServer({
     ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0,
-    useSystemd: false, allowDirectTasks: false,
+    useSystemd: false,
     env: {
       MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin,
       MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '',
@@ -95,18 +95,21 @@ async function saveDocument(value, envelope, text) {
 
 const target = () => ({ kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } })
 
-async function createTask(value, own, { executor = 'external', workspaceRead, id = randomUUID() } = {}) {
-  const selectedTarget = target()
-  const task = { id, cloudDocumentId: own.id, baseRevision: own.revision, document: own.document, executor, target: selectedTarget, operationId: randomUUID() }
-  if (executor === 'builtin') { task.prompt = 'Inspect authorized workspace sources'; task.model = 'fake' }
-  if (workspaceRead !== undefined) task.workspaceRead = workspaceRead
-  const reservation = await value.call('PUT', `documents/${own.id}/assistant`, {
-    baseRevision: '0', tasks: [{ id, target: selectedTarget, baseRevision: own.revision }], operationId: randomUUID(),
-  })
-  assert.equal(reservation.status, 200, JSON.stringify(reservation.body))
-  const created = await value.call('POST', 'ai/tasks', task)
-  assert.equal(created.status, 202, JSON.stringify(created.body))
+async function createTask(value, own, { workspaceRead = false, id = randomUUID() } = {}) {
+  const reservation = { id, documentId: own.id, target: target(), original: own.document.content.content, workspaceRead }
+  const saved = await value.call('PUT', `documents/${own.id}`, { baseRevision: own.revision, document: own.document, reservations: [reservation], operationId: randomUUID() })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const created = await value.call('GET', `ai/tasks/${id}`)
+  assert.equal(created.status, 200, JSON.stringify(created.body))
   return created.body
+}
+
+async function changeReservation(value, ownId, patch) {
+  const saved = value.store.get(ownId)
+  const result = await value.call('PUT', `documents/${ownId}`, { baseRevision: saved.revision, document: saved.document,
+    reservations: saved.reservations.map(item => ({ ...item, ...patch })), operationId: randomUUID() })
+  assert.equal(result.status, 200, JSON.stringify(result.body))
+  return result.body
 }
 
 async function setPrivate(value, id, enabled) {
@@ -134,217 +137,150 @@ async function setArchived(value, envelope, archived = true) {
   return result.body
 }
 
-test('external workspace reads require opt-in and obey live source privacy, deletion, CAS, and executor revocation', async t => {
-  const value = await app(t, { runner: async () => ({}) })
-  const publicSource = await createDocument(value, 'Retrieval public source')
-  const publicHistorical = publicSource.revision
-  const publicCurrent = await saveDocument(value, publicSource, 'Public source current revision marker')
-  const privateSource = await createDocument(value, 'Retrieval private source', { private: true })
-  const deletedSource = await createDocument(value, 'Retrieval deleted source')
-  const destination = await createDocument(value, 'External destination')
-  const task = await createTask(value, destination)
-  assert.equal(task.workspaceRead, false)
-  assert.equal(task.workspaceReadRevision, 0)
+
+test('public task resources use current reservation permission and latest workspace content', async t => {
+  const value = await app(t), own = await createDocument(value, 'Own'), source = await createDocument(value, 'Source')
+  const hidden = await createDocument(value, 'Private source', { private: true })
+  const task = await createTask(value, own)
   const base = task.externalPath
-  assert.equal((await agent(value, `${base}/manifest.json`)).body.documentMeta.archived, false)
-  const archivedDestination = await setArchived(value, destination)
-  await setArchived(value, publicSource)
-  await setArchived(value, privateSource)
-  assert.deepEqual((await value.call('GET', `ai/tasks/${task.id}`)).body, task)
-  const ownDoc = (await agent(value, `${base}/document.json`)).body
-  assert.deepEqual(ownDoc.document, destination.document)
-  assert.equal(ownDoc.revision, archivedDestination.revision)
-  assert.deepEqual((await agent(value, `${base}/manifest.json`)).body.documentMeta, archivedDestination)
-
-  for (const suffix of [
-    '/workspace-index.md',
-    `/workspace-document.json?id=${publicSource.id}`,
-    `/workspace-document.json?id=${publicSource.id}&revision=${publicHistorical}`,
-  ]) assert.equal((await agent(value, base + suffix)).status, 404)
-  assert.equal((await agent(value, base + '/workspace-index.md', 'POST', { enabled: true })).status, 404)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${publicSource.id}`, 'PUT', { document: publicSource.document })).status, 404)
-  let authoritative = await value.call('GET', `ai/tasks/${task.id}`)
-  assert.equal(authoritative.body.workspaceRead, false)
-  assert.equal(authoritative.body.workspaceReadRevision, 0)
-
-  const enable = { enabled: true, baseWorkspaceReadRevision: 0, operationId: randomUUID() }
-  const enabled = await value.call('POST', `ai/tasks/${task.id}/workspace-read`, enable)
-  assert.equal(enabled.status, 200, JSON.stringify(enabled.body))
-  assert.equal(enabled.body.workspaceRead, true)
-  assert.equal(enabled.body.workspaceReadRevision, 1)
-  assert.deepEqual((await value.call('POST', `ai/tasks/${task.id}/workspace-read`, enable)).body, enabled.body)
-  const stale = await value.call('POST', `ai/tasks/${task.id}/workspace-read`, {
-    enabled: false, baseWorkspaceReadRevision: 0, operationId: randomUUID(),
-  })
-  assert.equal(stale.status, 409)
-  assert.equal(stale.body.current.workspaceRead, true)
-  assert.equal(stale.body.current.workspaceReadRevision, 1)
-
-  const indexPath = `${base}/workspace-index.md`
-  const index = await agent(value, indexPath)
-  assert.equal(index.status, 200)
-  assert.match(index.headers.get('cache-control'), /no-store/)
-  assert.match(index.body, /Retrieval public source/)
-  assert.match(index.body, /External destination/)
-  assert.equal(entryCount(index.body), 3)
-  assert.equal((index.body.match(/^- archived: true$/gm) || []).length, 2)
-  for (const marker of [privateSource.id, 'Retrieval private source', 'Retrieval private source body']) assert.equal(index.body.includes(marker), false)
-  const currentRead = await agent(value, `${base}/workspace-document.json?id=${publicSource.id}`)
-  const historicalRead = await agent(value, `${base}/workspace-document.json?id=${publicSource.id}&revision=${publicHistorical}`)
-  assert.equal(currentRead.status, 200)
-  assert.deepEqual(currentRead.body.document, publicCurrent.document)
-  assert.equal(historicalRead.status, 200)
-  assert.equal(currentRead.body.archived, true); assert.equal(currentRead.body.archiveRevision, 1)
-  assert.equal(historicalRead.body.archived, true); assert.equal(historicalRead.body.archiveRevision, 1)
-  assert.deepEqual(historicalRead.body.document, publicSource.document)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${privateSource.id}`)).status, 404)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${randomUUID()}`)).status, 404)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${deletedSource.id}`)).status, 200)
-
-  assert.equal(value.store.workspaceDocument(task.documentId, publicSource.id, publicHistorical).revision, publicHistorical)
-  assert.throws(() => value.store.workspaceDocument(task.documentId, privateSource.id), error => error.status === 404)
-
-  assert.equal((await setPrivate(value, publicSource.id, true)).status, 200)
-  const privateIndex = await agent(value, indexPath)
-  assert.equal(privateIndex.status, 200)
-  assert.equal(entryCount(privateIndex.body), 2)
-  for (const marker of [publicSource.id, 'Retrieval public source', 'Public source current revision marker']) assert.equal(privateIndex.body.includes(marker), false)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${publicSource.id}`)).status, 404)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${publicSource.id}&revision=${publicHistorical}`)).status, 404)
-  assert.throws(() => value.store.workspaceDocument(task.documentId, publicSource.id, publicHistorical), error => error.status === 404)
-
-  assert.equal((await setPrivate(value, publicSource.id, false)).status, 200)
-  const restoredIndex = await agent(value, indexPath)
-  assert.match(restoredIndex.body, /Retrieval public source/)
-  assert.equal(entryCount(restoredIndex.body), 3)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${publicSource.id}&revision=${publicHistorical}`)).status, 200)
-  const beforeDelete = await agent(value, indexPath)
-  assert.match(beforeDelete.body, /Retrieval deleted source/)
-  assert.equal((await value.call('DELETE', `documents/${deletedSource.id}`, { baseRevision: deletedSource.revision })).status, 200)
-  const afterDelete = await agent(value, indexPath)
-  assert.equal(afterDelete.body.includes(deletedSource.id), false)
-  assert.equal(afterDelete.body.includes('Retrieval deleted source'), false)
-  assert.equal(entryCount(afterDelete.body), 2)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${deletedSource.id}`)).status, 404)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${deletedSource.id}&revision=${deletedSource.revision}`)).status, 404)
-
-  const disable = { enabled: false, baseWorkspaceReadRevision: 1, operationId: randomUUID() }
-  const disabled = await value.call('POST', `ai/tasks/${task.id}/workspace-read`, disable)
-  assert.equal(disabled.status, 200)
-  assert.equal(disabled.body.workspaceRead, false)
-  assert.deepEqual((await value.call('POST', `ai/tasks/${task.id}/workspace-read`, disable)).body, disabled.body)
-  assert.equal((await agent(value, indexPath)).status, 404)
-  assert.equal((await agent(value, `${base}/workspace-document.json?id=${publicSource.id}`)).status, 404)
-
-  const reenabled = await value.call('POST', `ai/tasks/${task.id}/workspace-read`, {
-    enabled: true, baseWorkspaceReadRevision: disabled.body.workspaceReadRevision, operationId: randomUUID(),
-  })
-  assert.equal(reenabled.status, 200)
-  const switched = await value.call('POST', `ai/tasks/${task.id}/executor`, {
-    executor: 'builtin', baseExecutorRevision: task.executorRevision, operationId: randomUUID(),
-  })
-  assert.equal(switched.status, 200)
-  assert.equal(switched.body.workspaceRead, false)
-  assert.equal(switched.body.workspaceReadRevision, reenabled.body.workspaceReadRevision + 1)
   assert.equal((await agent(value, `${base}/workspace-index.md`)).status, 404)
+  await changeReservation(value, own.id, { workspaceRead: true })
+  assert.equal((await agent(value, `${base}/manifest.json`)).body.workspaceRead, true)
+  let index = await agent(value, `${base}/workspace-index.md`)
+  assert.equal(index.status, 200)
+  assert.equal(index.body.includes(hidden.id), false)
+  assert.equal((await agent(value, `${base}/workspace-document.json?id=${hidden.id}`)).status, 404)
+  const updated = await saveDocument(value, source, 'Latest source')
+  const read = await agent(value, `${base}/workspace-document.json?id=${source.id}&revision=${source.revision}`)
+  assert.equal(read.body.revision, updated.revision)
+  assert.deepEqual(read.body.document, updated.document)
+  await setPrivate(value, source.id, true)
+  assert.equal((await agent(value, `${base}/workspace-document.json?id=${source.id}`)).status, 404)
+  index = await agent(value, `${base}/workspace-index.md`)
+  assert.equal(index.body.includes(source.id), false)
+  await changeReservation(value, own.id, { workspaceRead: false })
+  assert.equal((await agent(value, `${base}/workspace-index.md`)).status, 404)
+  assert.equal((await agent(value, `${base}/document.json`)).status, 200)
+  assert.equal((await agent(value, `${base}/target.json`)).body.workspaceRead, false)
+  for (const action of ['executor', 'workspace-read', 'release']) assert.equal((await value.call('POST', `ai/tasks/${task.id}/${action}`, { operationId: randomUUID() })).status, 404)
+  assert.equal((await agent(value, `${base}/manifest.json`)).status, 200)
 })
 
-test('builtin scoped socket allows own Private retrieval, denies other Private sources, and never exposes general APIs', async t => {
-  const scopeOwnIds = new Map(), observations = new Map()
-  const value = await app(t, {
-    runner: async context => {
-      if (!scopeOwnIds.has(context.taskId)) return {}
-      const get = resource => socketGet(new URL(resource.startsWith('/') ? resource : `${context.agent.url}/${resource}`, context.agent.url).href, context.agent.socketPath)
-      const result = {
-        manifest: await get('manifest.json'),
-        own: await get('document.json'),
-        index: await get('workspace-index.md'),
-        ownWorkspace: await get(`workspace-document.json?id=${scopeOwnIds.get(context.taskId)}`),
-        publicWorkspace: await get(`workspace-document.json?id=${publicSource.id}`),
-        privateWorkspace: await get(`workspace-document.json?id=${privateSource.id}`),
-        generalDocuments: await get('/api/documents'),
-        generalTask: await get(`/api/ai/tasks/${context.taskId}`),
-      }
-      observations.set(context.taskId, result)
-      return {}
-    },
-  })
-  const publicSource = await createDocument(value, 'Builtin public source')
-  await setArchived(value, publicSource)
-  const privateSource = await createDocument(value, 'Builtin unrelated Private', { private: true })
-  const optedOutOwn = await createDocument(value, 'Builtin opted-out own')
-  const optedOutId = randomUUID()
-  scopeOwnIds.set(optedOutId, optedOutOwn.id)
-  const optedOut = await createTask(value, optedOutOwn, { executor: 'builtin', id: optedOutId })
-  assert.equal(optedOut.id, optedOutId)
-  assert.equal(optedOut.workspaceRead, false)
-  assert.equal(optedOut.workspaceReadRevision, 0)
-
-  const privateOwn = await createDocument(value, 'Builtin own Private', { private: true })
-  await setArchived(value, privateOwn)
-  const privateTaskId = randomUUID()
-  scopeOwnIds.set(privateTaskId, privateOwn.id)
-  const privateTask = await createTask(value, privateOwn, { executor: 'builtin', workspaceRead: true, id: privateTaskId })
-  assert.equal(privateTask.id, privateTaskId)
-  assert.equal(privateTask.workspaceRead, true)
-  assert.equal(privateTask.workspaceReadRevision, 0)
-
-  const optedOutAccess = await waitFor(() => observations.get(optedOut.id))
-  assert.equal(optedOutAccess.own.status, 200)
-  assert.equal(JSON.parse(optedOutAccess.manifest.body).documentMeta.archived, false)
-  assert.deepEqual(JSON.parse(optedOutAccess.own.body).document, optedOutOwn.document)
-  assert.equal(optedOutAccess.index.status, 404)
-  assert.equal(optedOutAccess.ownWorkspace.status, 404)
-  assert.equal(optedOutAccess.generalDocuments.status, 404)
-  assert.equal(optedOutAccess.generalTask.status, 404)
-
-  const privateAccess = await waitFor(() => observations.get(privateTask.id))
-  assert.equal(privateAccess.own.status, 200)
-  assert.equal(JSON.parse(privateAccess.manifest.body).documentMeta.archived, true)
-  assert.deepEqual(JSON.parse(privateAccess.own.body).document, privateOwn.document)
-  assert.equal(privateAccess.index.status, 200)
-  assert.match(privateAccess.index.body, /Builtin own Private/)
-  assert.match(privateAccess.index.body, /Builtin public source/)
-  assert.equal(entryCount(privateAccess.index.body), 3)
-  for (const marker of [privateSource.id, 'Builtin unrelated Private', 'Builtin unrelated Private body']) assert.equal(privateAccess.index.body.includes(marker), false)
-  assert.equal(privateAccess.ownWorkspace.status, 200)
-  assert.deepEqual(JSON.parse(privateAccess.ownWorkspace.body).document, privateOwn.document)
-  assert.equal(privateAccess.publicWorkspace.status, 200)
-  assert.equal(JSON.parse(privateAccess.publicWorkspace.body).archived, true)
-  assert.deepEqual(JSON.parse(privateAccess.publicWorkspace.body).document, publicSource.document)
-  assert.equal(privateAccess.privateWorkspace.status, 404)
-  assert.equal(privateAccess.generalDocuments.status, 404)
-  assert.equal(privateAccess.generalTask.status, 404)
-
-  assert.deepEqual(value.store.workspaceDocument(privateOwn.id, privateOwn.id).document, privateOwn.document)
-  assert.throws(() => value.store.workspaceDocument(privateOwn.id, privateSource.id), error => error.status === 404)
+test('Private denies every public resource while trusted task socket retains own access and excludes other Private documents', async t => {
+  let context, finish
+  const finished = new Promise(resolve => { finish = resolve })
+  const value = await app(t, { runner: async input => { context = input; await finished; return {} } })
+  t.after(() => finish())
+  const own = await createDocument(value, 'Own'), other = await createDocument(value, 'Other private', { private: true })
+  const task = await createTask(value, own, { workspaceRead: true }), base = task.externalPath
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/revise`, { prompt: 'Read', model: 'fake', operationId: randomUUID() })).status, 202)
+  await waitFor(() => context)
+  const internal = resource => socketGet(`${context.agent.url}/${resource}`, context.agent.socketPath)
+  assert.equal(new URL(context.agent.url).pathname.split('/').at(-1), base.split('/').at(-1))
+  await setPrivate(value, own.id, true)
+  for (const resource of ['', 'manifest.json', 'document.json', 'target.json', 'instructions.md', 'versions.json', 'workspace-index.md']) assert.equal((await agent(value, `${base}/${resource}`)).status, 403)
+  assert.equal((await agent(value, `${base}/submit`, 'POST', { operationId: randomUUID() })).status, 403)
+  assert.equal((await internal('document.json')).status, 200)
+  assert.equal((await internal(`workspace-document.json?id=${own.id}`)).status, 200)
+  assert.equal((await internal(`workspace-document.json?id=${other.id}`)).status, 404)
+  assert.equal((await socketGet('http://moted.local/api/documents', context.agent.socketPath)).status, 404)
+  await changeReservation(value, own.id, { workspaceRead: false })
+  assert.equal((await internal('workspace-index.md')).status, 404)
+  assert.equal((await internal('document.json')).status, 200)
+  await setPrivate(value, own.id, false)
+  assert.equal((await agent(value, `${base}/versions.json`)).status, 200)
+  assert.equal((await value.call('GET', `ai/tasks/${task.id}`)).body.externalPath, base)
+  finish()
 })
 
-test('builtin continuation refreshes own metadata without workspace permission or snapshot rewrites', async t => {
-  const observations = []
-  const value = await app(t, {
-    runner: async context => {
-      const response = await socketGet(`${context.agent.url}/manifest.json`, context.agent.socketPath)
-      observations.push({
-        manifest: JSON.parse(response.body), prompt: await readFile(context.promptPath, 'utf8'),
-        snapshot: await readFile(path.join(context.inputDir, 'document.json'), 'utf8'),
-      })
-      return {}
-    },
-  })
-  const own = await createDocument(value, 'Continuation own', { private: true })
-  const task = await createTask(value, own, { executor: 'builtin' })
-  await waitFor(() => observations.length === 1 && value.manager.tasks.get(task.id).executions.size === 0)
-  assert.equal(observations[0].manifest.documentMeta.archived, false)
-  const archived = await setArchived(value, own)
-  assert.equal(observations.length, 1)
-  const revised = await value.call('POST', `ai/tasks/${task.id}/revise`, { prompt: 'Continue', executorRevision: task.executorRevision })
-  assert.equal(revised.status, 202)
-  await waitFor(() => observations.length === 2)
-  assert.deepEqual(observations[1].manifest.documentMeta, archived)
-  assert.equal(observations[1].manifest.workspaceRead, false)
-  assert.equal(observations[1].manifest.documentMeta.archived, true)
-  assert.equal(observations[1].manifest.documentMeta.archiveRevision, 1)
-  assert.equal(observations[1].snapshot, observations[0].snapshot)
-  assert.deepEqual(JSON.parse(observations[1].snapshot), own.document)
+test('flat concurrent submissions are durable retries and do not read document or original reservation content', async t => {
+  const value = await app(t), own = await createDocument(value, 'Concurrent'), task = await createTask(value, own)
+  const base = task.externalPath
+  const payloads = Array.from({ length: 6 }, (_, index) => ({ operationId: randomUUID(), label: `Option ${index}`, candidate: { summary: `Proposal ${index}`, content: own.document.content.content } }))
+  const load = value.manager.loadRequest
+  value.manager.loadRequest = () => { throw new Error('submission must not load task input') }
+  const replies = await Promise.all(payloads.map(payload => agent(value, `${base}/submit`, 'POST', payload)))
+  value.manager.loadRequest = load
+  assert.ok(replies.every(reply => reply.status === 200), JSON.stringify(replies))
+  assert.deepEqual(replies.map(reply => reply.body.versionId).sort(), ['V1', 'V2', 'V3', 'V4', 'V5', 'V6'])
+  for (let index = 0; index < payloads.length; index++) assert.deepEqual((await agent(value, `${base}/submit`, 'POST', payloads[index])).body, replies[index].body)
+  assert.equal((await agent(value, `${base}/submit`, 'POST', { ...payloads[0], label: 'Different' })).status, 409)
+  const versions = (await agent(value, `${base}/versions.json`)).body
+  assert.equal(versions.length, 6)
+  assert.deepEqual(Object.keys(versions[0]).sort(), ['candidate', 'id', 'label'])
+  assert.equal(value.store.get(own.id).document.content.content[0].content[0].text, 'Concurrent body')
+})
+
+test('revise is retry-safe and independent of external delivery; stop keeps late socket submission authorized', async t => {
+  const contexts = [], releases = []
+  const value = await app(t, { runner: async context => { contexts.push(context); await new Promise(resolve => releases.push(resolve)); return {} } })
+  t.after(() => releases.forEach(resolve => resolve()))
+  const own = await createDocument(value, 'Workers'), task = await createTask(value, own), base = task.externalPath
+  const revise = { prompt: 'First run', model: 'fake', operationId: randomUUID() }
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/revise`, revise)).status, 202)
+  await waitFor(() => contexts.length === 1)
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/revise`, revise)).status, 202)
+  assert.equal(contexts.length, 1)
+  const current = contexts[0]
+  const candidate = { summary: 'Late inert proposal', content: own.document.content.content }
+  const external = await agent(value, `${base}/submit`, 'POST', { operationId: randomUUID(), candidate })
+  assert.equal(external.status, 200)
+  assert.equal(value.manager.tasks.get(task.id).meta.status, 'running')
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/stop`, {})).status, 200)
+  const saved = value.store.get(own.id)
+  await saveDocument(value, saved, 'Edited while worker stops')
+  const { agentRequest } = await import('./submit.mjs')
+  const late = await agentRequest(`${current.agent.url}/submit`, { socketPath: current.agent.socketPath, body: { operationId: randomUUID(), candidate } })
+  assert.deepEqual(late, { taskId: task.id, versionId: 'V2', status: 'ready' })
+  const second = { prompt: 'Second run', model: 'fake', operationId: randomUUID(), selectedVersion: 'V2' }
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/revise`, second)).status, 202)
+  await new Promise(resolve => setTimeout(resolve, 30))
+  assert.equal(contexts.length, 1, 'old filesystem writer must finish before next run')
+  releases[0]()
+  await waitFor(() => contexts.length === 2)
+  assert.equal(contexts[1].agent.url, current.agent.url)
+  assert.equal(contexts[1].document.content.content[0].content[0].text, 'Edited while worker stops')
+  assert.equal(value.store.get(own.id).document.content.content[0].content[0].text, 'Edited while worker stops')
+  releases[1]()
+})
+
+test('authorization happens at HTTP opening; an already opened inert submission may finish after release', async t => {
+  const value = await app(t), own = await createDocument(value, 'Opening'), task = await createTask(value, own)
+  const credential = value.store.credential(task.id)
+  let entered, resume
+  const opened = new Promise(resolve => { entered = resolve })
+  const paused = new Promise(resolve => { resume = resolve })
+  const ensure = value.manager.ensure.bind(value.manager)
+  value.manager.ensure = async id => { const result = await ensure(id); entered(); await paused; return result }
+  const pending = agent(value, `${task.externalPath}/submit`, 'POST', { operationId: randomUUID(), candidate: { summary: 'Opened earlier', content: own.document.content.content } })
+  await opened
+  await changeReservation(value, own.id, { released: true })
+  resume()
+  assert.equal((await pending).status, 200)
+  value.manager.ensure = ensure
+  assert.equal((await agent(value, `${task.externalPath}/versions.json`)).status, 410)
+  await changeReservation(value, own.id, { released: false })
+  assert.equal(value.store.credential(task.id).token, credential.token)
+  assert.equal((await agent(value, `${task.externalPath}/versions.json`)).body.length, 1)
+})
+
+
+test('execution reaches a terminal state when its task expires without another document save', async t => {
+  let context, finish
+  const finished = new Promise(resolve => { finish = resolve })
+  const value = await app(t, { runner: async input => { context = input; await finished; return {} } })
+  t.after(() => finish())
+  const own = await createDocument(value, 'Expiry'), task = await createTask(value, own)
+  await changeReservation(value, own.id, { expiresAt: Date.now() + 60_000 })
+  assert.equal((await value.call('POST', `ai/tasks/${task.id}/revise`, { prompt: 'Work', model: 'fake', operationId: randomUUID() })).status, 202)
+  await waitFor(() => context)
+  const clock = Date.now, expiry = clock() + 120_000
+  Date.now = () => expiry
+  try {
+    finish()
+    await waitFor(() => value.manager.tasks.get(task.id).executions.size === 0)
+    assert.equal(value.manager.tasks.get(task.id).meta.status, 'error')
+  } finally { Date.now = clock }
+  await changeReservation(value, own.id, { expiresAt: Date.now() + 60_000 })
+  assert.equal((await value.call('GET', `ai/tasks/${task.id}`)).body.status, 'error')
 })

@@ -23,52 +23,66 @@ export type Candidate = CandidateBase & (
   | { content: JSONContent[]; object?: never; segment?: never }
   | { segment: SegmentClipboard; object?: never; content?: never }
 )
-export interface CandidateVersion { revision: number; label?: string; candidate: Candidate }
-export interface TaskCandidate extends CandidateVersion { id: string; history?: CandidateVersion[] }
-export interface CandidateSelection { id: string; revision: number }
-export interface TaskVersion { id: string; label?: string; candidate: Candidate; documentRevision: string; documentVersion: number }
+export interface TaskVersion { id: string; label?: string; candidate: Candidate }
 export type Executor = 'builtin' | 'external'
 export interface RemoteTask {
-  protocol?: string; documentVersion?: number
+  protocol?: string
   id: string; status: 'queued' | 'running' | 'ready' | 'stopped' | 'error' | 'waiting'; progress: string
-  error?: string; candidate?: Candidate; candidates?: TaskCandidate[]; expiresAt?: number; accessPaused?: boolean
+  error?: string; expiresAt?: number
   versions?: TaskVersion[]
-  selectedVersion?: string // Last generation request context, not the owner's review selection.
-  executor?: Executor; executorRevision?: number; candidateRevision?: number
-  workspaceRead: boolean; workspaceReadRevision: number
+  selectedVersion?: string // Last request context, never the owner's review selection.
+  workspaceRead: boolean
   externalPath?: string
   released?: boolean
 }
-export interface AITask extends Omit<RemoteTask, 'status' | 'externalPath' | 'selectedVersion'> {
+// Document-owned editing state; execution and proposal data live separately.
+export interface Reservation {
+  id: string
+  documentId: string
+  target: AITarget
+  original: FloatingObject | JSONContent[] | SegmentClipboard
+  workspaceRead: boolean
+  expiresAt?: number
+  released?: boolean
   title?: string
-  draftPrompt?: string
   createdAt?: number
-  remoteMissing?: boolean
-  documentId: string; target: AITarget; prompt: string; original: FloatingObject | JSONContent[] | SegmentClipboard
-  status: RemoteTask['status'] | 'draft' | 'preparing'; submitted: boolean; preview: boolean
-  requestSent?: boolean
-  creation?: { executor: Executor; operationId: string; prompt: string; model?: string; snapshot: string; targetSnapshot?: string }
-  pendingExecutor?: { executor: Executor; operationId: string; baseExecutorRevision?: number }
-  pendingWorkspaceRead?: { enabled: boolean; baseWorkspaceReadRevision: number; operationId: string }
-  workspaceReadConfirmed?: boolean
+  documentVersion?: number
   snapshotDocument?: MoteDocument
-  cloudDocumentId?: string
-  baseRevision?: string
-  preparingCopyId?: string
-  selectedCandidate?: CandidateSelection
-  selectedVersion?: string
-  candidateNotice?: string
-  acceptance?: { workingCopyId: string; document: MoteDocument; candidateId?: string; candidateVersion?: number; versionId?: string }
   segmentOriginalBlocks?: JSONContent[]
   segmentOriginalObjects?: FloatingObject[]
+}
+export interface AITask extends Reservation {
+  protocol?: string
+  status: 'queued' | 'running' | 'ready' | 'stopped' | 'error' | 'waiting' | 'draft' | 'preparing'
+  progress: string
+  prompt: string
+  submitted: boolean
+  preview: boolean
+  draftPrompt?: string
+  versions?: TaskVersion[]
+  selectedVersion?: string
+  candidateNotice?: string
+  error?: string
+  remoteMissing?: boolean
+  executor?: Executor // Browser-only tab selection, never authority.
+  pendingRun?: { operationId: string; prompt: string; model?: string; selectedVersion?: string }
+  // Retired recovery records remain downloadable, never executed or converted.
+  requestSent?: boolean
+  pendingExecutor?: { executor: Executor; operationId: string; baseExecutorRevision?: number }
+  acceptance?: { workingCopyId: string; document: MoteDocument; versionId: string }
+  cloudDocumentId?: string
+  baseRevision?: string
+  workspaceReadRevision?: number
 }
 export interface AssistantCloud {
   draft?: boolean
   documentId: string
   workingCopyId: string
+  revision: string
   privateDocument: boolean
   externalBlocked: boolean
-  sync: () => Promise<{ revision: string; document: MoteDocument } | null>
+  earlySync: () => void
+  sync: () => Promise<{ revision: string; document: MoteDocument; reservations?: Reservation[] } | null>
 }
 export interface AssistantCloudState { revision: string; tasks: AITask[] }
 

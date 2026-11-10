@@ -9,14 +9,16 @@ const server = await createServer({ configFile: false, optimizeDeps: { noDiscove
 after(() => server.close())
 const { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } = await server.ssrLoadModule('/src/ai/reservations.ts')
 const { makeSegmentTarget, resolveSegmentRange, applySegmentCandidate } = await server.ssrLoadModule('/src/ai/segments.ts')
+const { candidateVersions, selectedCandidateVersion, reconcileCandidateState } = await server.ssrLoadModule('/src/ai/candidates.ts')
+const { candidateDocument } = await server.ssrLoadModule('/src/ai/useAssistant.ts')
 const { patchFloating } = await server.ssrLoadModule('/src/canvas/patchFloating.ts')
 const { createBlankDocument, patchObject } = await server.ssrLoadModule('/src/document/model.ts')
 
 const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text }] })
 const captionContent = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }, width: 240 }
-const object: FloatingHTMLWidget = { id: 'box', kind: 'html', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, html: 'before', screenshot: 'png', alt: 'Figure', caption: captionContent }
+const object: FloatingHTMLWidget = { id: 'box', kind: 'html', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, html: 'before', screenshot: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9uoAAAAASUVORK5CYII=', alt: 'Figure', caption: captionContent }
 const doc = { ...createBlankDocument(), id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, objects: [object] } as MoteDocument
-const taskVersion = { protocol: 'mote-agent-v2', documentVersion: doc.version, snapshotDocument: doc }
+const taskVersion = { protocol: 'mote-agent-v5', documentVersion: doc.version, snapshotDocument: doc }
 const textTask = { ...taskVersion, target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
 const objectTask = { ...taskVersion, target: { kind: 'object', objectId: 'box' } } as AITask
 
@@ -62,43 +64,6 @@ test('drawing reservations lock strokes and labels while figure projection retai
 const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', layout: { width: 317, height: 179, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, background: null,
   strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'gray1', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'gray1', size: 16 }] }
 
-test('draft drawing reservations accept scaled positions without unlocking drawing content', () => {
-  const task = { ...objectTask, documentId: doc.id, original: drawing, status: 'draft', submitted: false } as AITask
-  const source = { ...doc, objects: [drawing] }
-  let previous = source
-  for (const [width, height] of [[431, 257], [703, 311], [317, 179]]) {
-    const resized = patchFloating(previous.objects[0], { width, height }) as FloatingDrawing
-    const next = { ...source, objects: [resized] }
-    assert.equal(permits([task], previous, next), true)
-    assert.equal(inactiveTaskReason(task, next), null)
-    previous = next
-  }
-  const resized = patchFloating(drawing, { width: 431, height: 257 }) as FloatingDrawing
-  resized.strokes[0].points[0][0] += 1e-10
-  const next = { ...source, objects: [resized] }
-  assert.equal(permits([task], source, next), true)
-  assert.equal(inactiveTaskReason(task, next), null)
-  const edits: Array<(value: FloatingDrawing) => void> = [
-    value => { value.strokes[0].points[0][0] += .01 }, value => { value.strokes[0].points.reverse() },
-    value => { value.strokes[0].points.push([10, 10]) }, value => { value.strokes.push(structuredClone(value.strokes[0])) },
-    value => { value.strokes[0].width = 3 }, value => { value.strokes[0].color = 'gray3' },
-    value => { value.labels[0].x += .01 }, value => { value.labels[0].size = 17 },
-    value => { value.labels[0].color = 'gray3' }, value => { value.labels[0].text = 'B' },
-    value => { value.labels = [] }, value => { value.background = 'gray6' },
-  ]
-  for (const edit of edits) {
-    const changed = structuredClone(resized); edit(changed)
-    const after = { ...source, objects: [changed] }
-    assert.equal(permits([task], source, after), false)
-    assert.notEqual(inactiveTaskReason(task, after), null)
-  }
-  for (const patch of [{ status: 'preparing' }, { requestSent: true }, { submitted: true }, { pendingExecutor: { executor: 'external', operationId: 'switch' } }]) {
-    const frozen = { ...task, ...patch } as AITask
-    assert.equal(permits([frozen], source, next), false)
-    assert.notEqual(inactiveTaskReason(frozen, next), null)
-  }
-})
-
 test('drawing candidate placement scales positions into target bounds while retaining pen and font sizes', () => {
   const candidate: FloatingDrawing = { ...drawing, layout: { width: 100, height: 50, placement: { type: 'float', anchorId: 'a', x: 999, y: 999 } },
     strokes: [{ points: [[25, 10], [100, 50]], color: 'gray3', width: 3 }], labels: [{ x: 50, y: 25, text: 'B', color: 'gray1', size: 18 }] }
@@ -122,30 +87,53 @@ test('text boundary locks reject cross-range replacement, deletion, and interlea
   assert.equal(permitsEditor([textTask], 'main', doc.content, { type: 'doc', content: [paragraph('new'), ...doc.content.content!] }), true)
 })
 
-test('unsubmitted object reservations allow size changes, but never content edits or uncertain submitted resizes', () => {
-  const draft = { ...objectTask, status: 'draft', submitted: false } as AITask
+test('reservation locks are independent of agent execution and browser tab state', () => {
   const resized = { ...doc, objects: [patchObject(object, { width: 400, height: 220 })] }
-  assert.equal(permits([draft], doc, resized), true)
-  assert.equal(permits([draft], doc, { ...doc, objects: [{ ...object, html: 'changed' }] }), false)
-  for (const patch of [{ status: 'preparing' }, { requestSent: true, status: 'error' }, { submitted: true, status: 'stopped' },
-    { pendingExecutor: { executor: 'external', operationId: 'switch' } }]) {
-    assert.equal(permits([{ ...draft, ...patch } as AITask], doc, resized), false)
+  for (const status of ['draft', 'waiting', 'running', 'ready', 'stopped', 'error']) {
+    for (const executor of ['builtin', 'external']) {
+      const task = { ...objectTask, status, executor, submitted: false } as AITask
+      assert.equal(permits([task], doc, resized), false)
+      assert.equal(permits([task], doc, { ...doc, objects: [patchObject(object, { x: 80 })] }), true)
+    }
   }
 })
 
+const version = (id: string) => ({ id, candidate: { object, summary: id } })
+
 test('released executor reservations retain their result without locking document content', () => {
-  const task = { ...objectTask, documentId: doc.id, original: object, released: true, candidate: { object, summary: 'Retained' } } as AITask
+  const task = { ...objectTask, documentId: doc.id, original: object, released: true, versions: [version('V1')] } as AITask
   assert.deepEqual(compatibleTasks([task], doc), [])
-  assert.equal(task.candidate?.summary, 'Retained')
+  assert.equal(task.versions?.[0].candidate.summary, 'V1')
 })
 
-test('unsupported task versions retain original recovery data without reserving V1 content', () => {
-  const task = { ...objectTask, protocol: 'mote-agent-v0', documentVersion: 0, documentId: doc.id,
-    original: object, candidate: { object, summary: 'Retained result' } } as AITask
-  const before = structuredClone(task)
-  assert.match(inactiveTaskReason(task, doc), /Unsupported task/)
-  assert.deepEqual(compatibleTasks([task], doc), [])
-  assert.deepEqual(task, before)
+test('unsupported task protocols retain raw recovery data without reservations or previews', () => {
+  for (const protocol of [undefined, 'mote-agent-v0', 'mote-agent-v1', 'mote-agent-v2', 'mote-agent-v3', 'mote-agent-v4']) {
+    const task = { ...objectTask, protocol, documentId: doc.id, original: object,
+      candidate: { object, summary: 'Retained result' }, candidates: [{ id: 'C1', revision: 1 }],
+      versions: [version('V1')], selectedVersion: 'V1', preview: true }
+    const before = structuredClone(task)
+    assert.match(inactiveTaskReason(task, doc), /Unsupported task/)
+    assert.deepEqual(compatibleTasks([task], doc), [])
+    assert.deepEqual(candidateVersions(task), [])
+    assert.equal(selectedCandidateVersion(task), undefined)
+    assert.throws(() => candidateDocument(doc, task, task.candidate), /Unsupported task/)
+    assert.deepEqual(reconcileCandidateState(task, { protocol: 'mote-agent-v5', versions: [version('V2')] }), {})
+    assert.deepEqual(reconcileCandidateState(objectTask, { protocol, versions: [version('V2')] }), {})
+    assert.deepEqual(task, before)
+  }
+})
+
+test('new versions preserve the exact review selection and never replace an unavailable selection', () => {
+  const first = version('V1'), second = version('V2'), third = version('V3')
+  const task = { ...objectTask, versions: [first, second], selectedVersion: first.id, preview: false } as AITask
+  const patch = reconcileCandidateState(task, { protocol: 'mote-agent-v5', versions: [first, second, third], selectedVersion: third.id })
+  const updated = { ...task, ...patch }
+  assert.equal(selectedCandidateVersion(updated), first)
+  assert.equal(updated.preview, false)
+  const missing = { ...task, ...reconcileCandidateState(task, { protocol: 'mote-agent-v5', versions: [second, third] }) }
+  assert.equal(missing.selectedVersion, first.id)
+  assert.equal(selectedCandidateVersion(missing), undefined)
+  assert.equal(missing.preview, false)
 })
 
 test('concurrent tasks reject overlap and accepted object preserves current geometry', () => {
@@ -315,9 +303,9 @@ test('segment ownership and reservation include the object caption automatically
   assert.equal(segmentReservationIntact(task, source), true)
   const changed = structuredClone(objects[0])
   changed.caption!.content.content![0].content![0].text = 'Changed'
-  assert.equal(segmentReservationIntact(task, { ...source, objects: [changed] }), false)
+  assert.equal(segmentReservationIntact(task, { ...source, objects: [changed] }), true)
   const resizedCaption = { ...source, objects: [{ ...objects[0], caption: { ...objects[0].caption!, width: 400 } }] }
-  assert.equal(segmentReservationIntact(task, resizedCaption), false)
+  assert.equal(segmentReservationIntact(task, resizedCaption), true)
   assert.equal(permits([task], source, resizedCaption), false)
   assert.equal(permitsEditor([task], 'box:caption:caption-text', captionContent.content, changed.caption?.content), false)
 })
@@ -337,4 +325,55 @@ test('a Flow segment reserves its block, object, anchored Floats, and captions t
   assert.equal(permits([task], source, { ...source, objects: objects.map(item => item.id === 'box' ? patchObject(item, { centered: false }) : item) }), false)
   assert.equal(permits([task], source, { ...source, objects: objects.map(item => item.id === 'detail' ? patchObject(item, { anchorId: 'd' }) : item) }), false)
   assert.equal(permitsEditor([task], 'main', source.content, { ...source.content, content: [paragraph('a'), paragraph('d')] }), false)
+})
+
+
+test('the same proposal applies after a content-only target refresh without replacing unrelated work', () => {
+  const task = { ...objectTask, id: 'task', documentId: doc.id, original: object, versions: [version('V1')], selectedVersion: 'V1' } as AITask
+  const refreshed = { ...doc, authoring: { notes: ['Keep local notes'] }, objects: [{ ...object, html: 'Cloud content changed', layout: { ...object.layout, width: 420 } }] }
+  assert.equal(inactiveTaskReason(task, refreshed), null)
+  const next = candidateDocument(refreshed, task)
+  assert.equal(next.objects[0].html, object.html)
+  assert.equal(next.objects[0].layout.width, 420)
+  assert.deepEqual(next.authoring, refreshed.authoring)
+  assert.equal(task.selectedVersion, 'V1')
+  assert.equal(task.versions!.length, 1)
+  assert.throws(() => candidateDocument({ ...refreshed, objects: [] }, task), /missing/)
+  assert.throws(() => candidateDocument({ ...refreshed, objects: [drawing] }, task), /kind/)
+
+  const text = { ...textTask, id: 'text-task', documentId: doc.id, original: doc.content.content!.slice(1, 3),
+    versions: [{ id: 'V1', candidate: { summary: 'Rewrite', content: [paragraph('proposal', 'Proposal text')] } }] } as AITask
+  const content = { ...doc.content, content: [paragraph('a', 'Keep this edit'), paragraph('b', 'Refreshed'), paragraph('c', 'Also refreshed'), paragraph('d')] }
+  const textRefresh = { ...doc, content }
+  assert.equal(inactiveTaskReason(text, textRefresh), null)
+  const accepted = candidateDocument(textRefresh, text)
+  assert.equal(accepted.content.content![0].content![0].text, 'Keep this edit')
+  assert.equal(accepted.content.content![1].content![0].text, 'Proposal text')
+  assert.throws(() => candidateDocument({ ...doc, content: { type: 'doc', content: [paragraph('a'), paragraph('b'), paragraph('new'), paragraph('c'), paragraph('d')] } }, text), /scope/)
+})
+
+test('refreshed segment content stays compatible while local locks compare before and after', () => {
+  const source = { ...doc, objects: [object] }
+  const target = makeSegmentTarget(source, { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, { x: 0, y: 0, width: 600, height: 100 })
+  const task = segmentTask(target, source.content.content!.slice(0, 2), source.objects)
+  const refreshed = { ...source, content: { ...source.content, content: [paragraph('a', 'Refreshed'), ...source.content.content!.slice(1)] }, objects: [{ ...object, html: 'Refreshed object' }] }
+  assert.equal(segmentReservationIntact(task, refreshed), true)
+  task.versions = [{ id: 'V1', candidate: { summary: 'Replace this section', segment: {
+    version: 1, type: 'segment', content: [paragraph('replacement', 'Same section proposal')], objects: [], geometry: {}, anchorTops: {}, originTop: 0,
+  } } }]
+  const accepted = candidateDocument(refreshed, task, undefined, { anchors: [], geometry: {} })
+  assert.equal(accepted.content.content![0].content![0].text, 'Same section proposal')
+  assert.equal(accepted.content.content!.at(-1)!.attrs!.id, 'd')
+  assert.equal(task.versions.length, 1)
+  const unrelated = { ...refreshed, content: { ...refreshed.content, content: [...refreshed.content.content!.slice(0, 3), paragraph('d', 'Outside edit')] } }
+  assert.equal(permits([task], refreshed, unrelated), true)
+  assert.equal(permitsEditor([task], 'main', refreshed.content, unrelated.content), true)
+  assert.equal(permits([task], refreshed, source), false)
+  assert.equal(permitsEditor([task], 'main', refreshed.content, source.content), false)
+  for (const changed of [
+    { ...refreshed, objects: [] },
+    { ...refreshed, objects: [...refreshed.objects, { ...object, id: 'new-owner' }] },
+    { ...refreshed, objects: [{ ...drawing }] },
+    { ...refreshed, content: { ...refreshed.content, content: [paragraph('a'), paragraph('expanded'), ...refreshed.content.content!.slice(1)] } },
+  ]) assert.equal(segmentReservationIntact(task, changed), false)
 })

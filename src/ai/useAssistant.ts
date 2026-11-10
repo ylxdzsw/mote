@@ -1,36 +1,25 @@
 import { DOCUMENT_VERSIONS, validateObject, validateContent } from '../../shared/document.mjs'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, replaceMainContent, type FloatingObject, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
-import { exportObjectPng, exportPng } from '../document/png'
 import { reconcileObjectDeletions } from '../document/flow'
 import { validateDocument } from '../document/validate'
 import type { useDocumentHistory } from '../document/history'
-import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, reservedText, sameContent } from './reservations'
+import { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, reservedText, sameContent } from './reservations'
 import { aiRequest, AIServiceError } from './api'
-import { candidateSelection, candidateVersions, defaultCandidateVersion, reconcileCandidateState, selectedCandidateVersion } from './candidates'
+import { candidateVersions, reconcileCandidateState, selectedCandidateVersion } from './candidates'
 import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
 import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 import { useAssistantState } from './useAssistantState'
-import type { AssistantState } from './cloudState'
-import type { Area, AITarget, AITask, AssistantCloud, Executor, RemoteTask } from './types'
+import type { Area, AITarget, AITask, AssistantCloud, RemoteTask, Reservation } from './types'
 import { applySegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
 import { copySegment, type SegmentClipboard } from '../document/segment'
-import { getSchema } from '@tiptap/core'
-import { extensions } from '../editor/extensions'
 
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
 
 function previewFailure(error: unknown) {
   return { preview: false, error: `Preview unavailable. Your original content is unchanged and the candidate is retained. Try Preview again or download the task JSON for recovery. ${error instanceof Error ? error.message : String(error)}` }
-}
-
-function creationBody(task: AITask) {
-  if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) || task.snapshotDocument?.version !== task.documentVersion) throw new Error('Unsupported task version. Its original upload is retained unchanged for recovery.')
-  if (!task.creation || !task.snapshotDocument || !task.cloudDocumentId || !task.baseRevision) throw new Error('The original upload is not retained. Discard this reservation and create a new one; its uncertain input will not be replaced.')
-  return { ...task.creation, ...(task.protocol === 'mote-agent-v2' ? { protocol: task.protocol } : {}), id: task.id, document: task.snapshotDocument, cloudDocumentId: task.cloudDocumentId,
-    baseRevision: task.baseRevision, target: task.target, workspaceRead: task.workspaceRead ?? false }
 }
 
 function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string, context: SegmentContext | undefined, create: () => MoteDocument) {
@@ -46,10 +35,11 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 }
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
-  const documentVersion = task.protocol === 'mote-agent-v2'
-    ? task.versions?.find(version => version.candidate === candidate)?.documentVersion : task.documentVersion
-  if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
+  const documentVersion = doc.version
+  if (task.protocol !== 'mote-agent-v5' || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
+  const incompatible = inactiveTaskReason(task, doc)
+  if (incompatible) throw new Error(incompatible)
   return memoizedCandidate(doc, candidate, `${task.id}:${documentVersion}`, task.target.kind === 'segment' ? context : undefined, () => {
     const target = task.target
     let result: MoteDocument
@@ -82,814 +72,236 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
 export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined, cloud?: AssistantCloud) {
   const connection = useConnection()
   const persistence = useAssistantState(cloud, writable)
-  const { tasks: savedTasks, state, loaded } = persistence
-  const privateDocument = cloud?.privateDocument ?? false
-  const externalBlocked = cloud?.externalBlocked ?? false
   const [notice, setNotice] = useState('')
-  const [statusIssues, setStatusIssues] = useState<Record<string, { message: string; paused: boolean }>>({})
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
-  const [access, setAccess] = useState<Record<string, { executor: Executor; revision: number; path?: string }>>({})
-  const [workspaceAccess, setWorkspaceAccess] = useState<Record<string, { enabled: boolean; revision: number }>>({})
-  const workspaceAccessRef = useRef<Record<string, { enabled: boolean; revision: number }>>({})
-  const [workspaceReadIssues, setWorkspaceReadIssues] = useState<Record<string, string>>({})
-  const [workspaceReadOperations, setWorkspaceReadOperations] = useState<Record<string, boolean>>({})
-  const currentDoc = useRef(history.doc!), bypass = useRef(false)
+  const [access, setAccess] = useState<Record<string, RemoteTask>>({})
+  const [statusIssues, setStatusIssues] = useState<Record<string, string>>({})
+  const preparing = useRef(new Map<string, symbol>())
   const mounted = useRef(true)
-  const preparations = useRef(new Map<string, symbol>())
-  const mutations = useRef(new Map<string, number>())
-  const discarded = useRef(new Set<string>())
-  const acceptanceAttempts = useRef(new Set<string>())
-  const checkStatusRef = useRef<(id: string) => void>(() => {})
-  const cloudRef = useRef(cloud)
-  cloudRef.current = cloud
-  currentDoc.current = history.doc!
-  const allTasks = useMemo(() => savedTasks.map(task => {
-    if (!task.submitted && !task.requestSent) return task
-    const current = workspaceAccess[task.id]
-    const confirmed = !!current && current.revision === (task.workspaceReadRevision ?? -1)
-      && current.enabled === (task.workspaceRead ?? false) && !task.pendingWorkspaceRead
-    return task.workspaceReadConfirmed === confirmed ? task : { ...task, workspaceReadConfirmed: confirmed }
-  }), [savedTasks, workspaceAccess])
-  const tasks = compatibleTasks(allTasks, currentDoc.current)
-  const activeTasks = (doc = currentDoc.current) => compatibleTasks(state.current, doc)
-  const inactiveReason = (task: AITask) => inactiveTaskReason(task, currentDoc.current)
-    ?? (!activeTasks().some(active => active.id === task.id) ? 'Another task reserves this target. This copy is retained for inspection and cannot lock or change the document.' : null)
-  function openTask(id: string) { setActiveId(id); setOpen(true) }
-  function followSelection() { setActiveId(null) }
-  function markMutation(id: string) { mutations.current.set(id, (mutations.current.get(id) ?? 0) + 1) }
-  function update(id: string, patch: Partial<AITask>) {
-    if (!mounted.current) return
-    persistence.replace(state.current.map(task => {
-      if (task.id !== id) return task
-      return { ...task, ...patch }
-    }))
+  const current = useRef({ history, cloud, persistence })
+  current.current = { history, cloud, persistence }
+  const update = (id: string, patch: Partial<AITask>) => current.current.persistence.update(id, patch)
+  const asTask = (reservation: Reservation): AITask => ({ protocol: 'mote-agent-v5', status: 'draft', progress: '', prompt: '',
+    submitted: false, preview: false, ...current.current.persistence.views[reservation.id], ...reservation })
+  const allTasks = history.reservations.map(asTask)
+  const activeTasks = (doc = current.current.history.doc!) => compatibleTasks(current.current.history.currentReservations().map(asTask), doc)
+  const tasks = compatibleTasks(allTasks, history.doc!)
+  const getTask = (id: string) => {
+    const reservation = current.current.history.currentReservations().find(item => item.id === id)
+    return reservation && asTask(reservation)
   }
-  function setWorkspaceReadIssue(id: string, message?: string) {
-    setWorkspaceReadIssues(current => {
-      if (!message) {
-        if (!(id in current)) return current
-        const next = { ...current }; delete next[id]; return next
-      }
-      if (current[id] === message) return current
-      return { ...current, [id]: message }
-    })
-  }
-  function setWorkspaceReadOperation(id: string, active: boolean) {
-    setWorkspaceReadOperations(current => {
-      if (!!current[id] === active) return current
-      const next = { ...current }
-      if (active) next[id] = true
-      else delete next[id]
-      return next
-    })
-  }
-  function receive(remote: RemoteTask, patch: Partial<AITask> = {}) {
-    const task = state.current.find(task => task.id === remote.id)
-    if (!task) return
-    const incomingWorkspace = {
-      enabled: typeof remote.workspaceRead === 'boolean' ? remote.workspaceRead : false,
-      revision: Number.isSafeInteger(remote.workspaceReadRevision) && remote.workspaceReadRevision >= 0 ? remote.workspaceReadRevision : 0,
-    }
-    const previousWorkspace = workspaceAccessRef.current[task.id]
-    const workspaceFresh = !previousWorkspace || incomingWorkspace.revision > previousWorkspace.revision
-      || incomingWorkspace.revision === previousWorkspace.revision && incomingWorkspace.enabled === previousWorkspace.enabled
-    const effectiveWorkspace = workspaceFresh ? incomingWorkspace : previousWorkspace
-    if (workspaceFresh && (!previousWorkspace || previousWorkspace.revision !== incomingWorkspace.revision || previousWorkspace.enabled !== incomingWorkspace.enabled)) {
-      const next = { ...workspaceAccessRef.current, [task.id]: incomingWorkspace }
-      workspaceAccessRef.current = next
-      setWorkspaceAccess(next)
-    }
-    const pending = task.pendingWorkspaceRead
-    const workspaceChangeObserved = !!pending && effectiveWorkspace.revision > pending.baseWorkspaceReadRevision
-    const workspacePatch: Partial<AITask> = effectiveWorkspace ? {
-      workspaceRead: effectiveWorkspace.enabled, workspaceReadRevision: effectiveWorkspace.revision,
-      ...(workspaceChangeObserved ? { pendingWorkspaceRead: undefined } : {}),
-    } : {}
-    if ((remote.executorRevision ?? 0) < (task.executorRevision ?? 0)
-      || (task.protocol === 'mote-agent-v2' ? (remote.versions?.length ?? 0) < (task.versions?.length ?? 0)
-        : (remote.candidateRevision ?? 0) < (task.candidateRevision ?? 0))) {
-      if (Object.keys(workspacePatch).length && !sameContent(task, { ...task, ...workspacePatch })) update(task.id, workspacePatch)
-      if (workspaceChangeObserved && pending) setWorkspaceReadIssue(task.id,
-        effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
-      return
-    }
-    const { externalPath, candidate: _candidate, candidates: _candidates, versions: _versions, selectedVersion: _requestVersion,
-      workspaceRead: _workspaceRead, workspaceReadRevision: _workspaceReadRevision, ...rest } = remote
-    setAccess(current => {
-      const next = { executor: remote.executor ?? 'builtin', revision: remote.executorRevision ?? 0,
-        path: cloudRef.current?.externalBlocked ? undefined : externalPath }
-      return sameContent(current[task.id], next) ? current : { ...current, [task.id]: next }
-    })
-    const next: Partial<AITask> = { error: undefined, ...rest, submitted: true, ...patch, ...workspacePatch, ...reconcileCandidateState(task, remote) }
-    const updatedTask = { ...task, ...next }
-    const selected = selectedCandidateVersion(updatedTask)
-    if (selected && !inactiveReason(task)) {
-      try { candidateDocument(currentDoc.current, updatedTask, selected.candidate, segmentContext?.()) }
-      catch (error) { Object.assign(next, previewFailure(error)) }
-    }
-    if (!sameContent(task, { ...task, ...next })) update(task.id, next)
-    if (workspaceChangeObserved && pending) setWorkspaceReadIssue(task.id,
-      effectiveWorkspace.enabled === pending.enabled ? `Workspace reads ${pending.enabled ? 'enabled' : 'disabled'} for this task.` : 'Workspace access changed elsewhere. The current server setting is shown.')
-  }
-  const executorBusy = (task: AITask) => !!task.pendingExecutor || !!(task.submitted && !task.remoteMissing
-    && (!access[task.id] || access[task.id].revision !== (task.executorRevision ?? 0) || access[task.id].executor !== (task.executor ?? 'builtin')))
-  function workspaceReadKnown(task: AITask) {
-    if (!task.submitted && !task.requestSent) return true
-    const known = workspaceAccessRef.current[task.id]
-    return !!known && known.revision === (task.workspaceReadRevision ?? -1) && known.enabled === (task.workspaceRead ?? false)
-  }
-  function workspaceReadBlocked(task: AITask) {
-    return !!task.pendingWorkspaceRead || !!workspaceReadOperations[task.id] || !!task.submitted && !workspaceReadKnown(task)
-  }
-  function workspaceReadState(task: AITask) {
-    const pending = task.pendingWorkspaceRead
-    if (!task.submitted && !task.requestSent) return { known: true, enabled: task.workspaceRead ?? false, pending }
-    const known = workspaceAccess[task.id]
-    const matches = !!known && known.revision === (task.workspaceReadRevision ?? -1) && known.enabled === (task.workspaceRead ?? false)
-    return { known: matches, enabled: known?.enabled ?? false, pending }
-  }
-  const agentLink = (task: AITask) => !externalBlocked && !task.released && !task.remoteMissing && task.executor === 'external' && !executorBusy(task) && access[task.id]?.path
-    ? new URL(access[task.id].path!, window.location.origin).href : undefined
-  function unrestricted(action: () => void) {
-    bypass.current = true
-    try { history.boundary(); action(); history.boundary() } finally { bypass.current = false }
-  }
-  history.guard.current = (before, after) => {
-    const allowed = bypass.current || permits(activeTasks(before), before, after)
-    if (!allowed) setNotice('That change would edit a reserved region. Accept or discard its AI task first.')
+  const inactiveReason = (task: AITask) => inactiveTaskReason(task, current.current.history.doc!)
+  const openTask = (id: string) => { setActiveId(id); setOpen(true); history.boundary() }
+  const followSelection = () => setActiveId(null)
+  const warn = (allowed: boolean) => {
+    if (!allowed) setNotice('That change would edit another reserved region. Accept or discard its task first.')
     return allowed
   }
-  history.guardEditor.current = (id, before, after) => bypass.current || permitsEditor(activeTasks(), id, before, after)
+  history.guard.current = (before, after) => warn(permits(activeTasks(before), before, after))
+  history.guardState.current = (before, beforeReservations, after, afterReservations) => {
+    // History may restore/release a reservation, but cannot edit a different
+    // reservation that remains active on both sides of the transaction.
+    const retained = beforeReservations.filter(task => !task.released && afterReservations.some(next => next.id === task.id && !next.released))
+    return warn(permits(compatibleTasks(retained.map(asTask), before), before, after))
+  }
+  history.guardEditor.current = (id, before, after) => permitsEditor(activeTasks(), id, before, after)
   history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' || task.target.kind === 'segment' ? task.target.blockIds.map(id => [id, task.id]) : []))
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; preparing.current.clear() } }, [])
 
+  function receive(remote: RemoteTask) {
+    const task = getTask(remote.id)
+    if (!task || remote.protocol !== 'mote-agent-v5') return
+    setAccess(value => ({ ...value, [remote.id]: remote }))
+    if ((remote.versions?.length ?? 0) < (task.versions?.length ?? 0)) return
+    update(task.id, { status: remote.status, progress: remote.progress, error: remote.error,
+      ...reconcileCandidateState(task, remote) })
+    setStatusIssues(value => ({ ...value, [task.id]: '' }))
+  }
+  const fetchStatus = useRef<(id?: string) => void>(() => {})
+  const ids = allTasks.map(task => task.id).join(',')
   useEffect(() => {
-    mounted.current = true
-    setAccess({})
-    workspaceAccessRef.current = {}
-    setWorkspaceAccess({}); setWorkspaceReadIssues({}); setWorkspaceReadOperations({})
-    return () => { mounted.current = false; preparations.current.clear() }
-  }, [cloud?.documentId, cloud?.workingCopyId, writable])
-  useEffect(() => {
-    if (externalBlocked) setAccess(current => Object.fromEntries(Object.entries(current).map(([id, item]) => [id, { executor: item.executor, revision: item.revision }])))
-  }, [externalBlocked])
-  useEffect(() => {
-    if (!externalBlocked) return
-    for (const task of state.current) {
-      if (['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.documentId === cloudRef.current?.documentId && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') {
-        rejectPrivateExternalDraft(task.id)
-      }
-    }
-  }, [externalBlocked, allTasks])
-  useEffect(() => {
-    setActiveId(current => allTasks.some(task => task.id === current) ? current : null)
-  }, [allTasks])
-  useEffect(() => {
-    if (!loaded) return
-    let changed = false
-    const normalized = state.current.map(task => {
-      if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0)) return task
-      if (task.protocol === 'mote-agent-v2') {
-        if (task.selectedVersion || task.candidateNotice || !task.versions?.length) return task
-        changed = true
-        return { ...task, selectedVersion: task.versions[0].id }
-      }
-      if (!Array.isArray(task.candidates) || !task.candidates.length || task.selectedCandidate || task.candidateNotice) return task
-      const selected = candidateSelection(defaultCandidateVersion(task))
-      if (!selected) return task
-      changed = true
-      return { ...task, selectedCandidate: selected }
-    })
-    if (changed) persistence.replace(normalized)
-  }, [loaded, savedTasks])
-
-  const statusTargets = savedTasks.filter(task => (task.submitted || task.requestSent) && !task.acceptance && !task.remoteMissing).map(task => task.id).join(',')
-  useEffect(() => {
-    if (!writable || !loaded) { checkStatusRef.current = () => {}; setStatusIssues({}); return }
-    setStatusIssues({})
-    let active = true, pending = false, authPaused = false
-    const failures = new Map<string, number>(), paused = new Set<string>(), retries = new Map<string, number>(), requested = new Set<string>()
-    const authPausedTasks = new Set<string>()
-    const awaitingResult = (task: AITask) => ['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && (!task.pendingExecutor || privateDocument && (task.executor === 'external' || task.pendingExecutor.executor === 'external'))
-      && !task.acceptance && !task.remoteMissing
-      && (task.submitted || task.requestSent)
-    function setIssue(id: string, value?: { message: string; paused: boolean }) {
-      setStatusIssues(current => {
-        if (!value) {
-          if (!current[id]) return current
-          const next = { ...current }; delete next[id]; return next
-        }
-        if (current[id]?.message === value.message && current[id]?.paused === value.paused) return current
-        return { ...current, [id]: value }
-      })
-    }
-    async function checkTask(task: AITask) {
-      const mutation = mutations.current.get(task.id)
-      const valid = () => active && mutations.current.get(task.id) === mutation && !preparations.current.has(task.id)
-        && state.current.some(current => current.id === task.id && awaitingResult(current))
-      try {
-        const remote = await aiRequest<RemoteTask>(`/tasks/${task.id}`)
-        if (!valid()) return
-        failures.delete(task.id); paused.delete(task.id)
-        setIssue(task.id)
-        receive(remote, { creation: undefined, ...(privateDocument ? { pendingExecutor: undefined } : {}) })
-      } catch (error) {
-        if (!valid()) return
-        const current = state.current.find(item => item.id === task.id)
-        if (error instanceof AIServiceError && error.status === 404) {
-          // requestSent is persisted before POST: another device can observe
-          // the claim before the execution exists. Keep it recoverable.
-          if (current?.submitted) { setIssue(task.id); missingRemote(task.id); return }
-          if (privateDocument && current?.requestSent && current.creation?.executor === 'external') { setIssue(task.id); rejectPrivateExternalDraft(task.id); return }
-        }
-        const message = (error as Error).message
-        if (error instanceof AIServiceError && (error.status === 401 || error.status === 403)) {
-          authPaused = true
-          for (const current of state.current.filter(awaitingResult)) {
-            paused.add(current.id); authPausedTasks.add(current.id)
-            setIssue(current.id, { message: `${message} Status checks have stopped. Sign in, then choose Check status. Generation was not retried.`, paused: true })
-          }
-          return
-        }
-        if (error instanceof AIServiceError && error.status >= 400 && error.status < 500 && error.status !== 404 && error.status !== 429) {
-          paused.add(task.id)
-          setIssue(task.id, { message: `Status checks paused: ${message} Choose Check status to try again. Generation was not retried.`, paused: true })
-          return
-        }
-        const count = (failures.get(task.id) ?? 0) + 1
-        failures.set(task.id, count)
-        if (count >= 4) {
-          paused.add(task.id)
-          setIssue(task.id, { message: `Status checks paused after ${count} consecutive failures: ${message} Choose Check status to try again. Generation was not retried.`, paused: true })
-        } else {
-          const delay = Math.min(60_000, 10_000 * 2 ** (count - 1))
-          retries.set(task.id, window.setTimeout(() => {
-            retries.delete(task.id); requested.add(task.id); void drain()
-          }, delay))
-          setIssue(task.id, { message: `Status check failed (${count}/4): ${message} Retrying status in ${delay / 1000}s. Generation was not retried.`, paused: false })
-        }
-      }
-    }
+    if (!persistence.loaded || !cloud || cloud.draft || connection.offline) return
+    let active = true, fetching = false
+    const wanted = new Set<string>()
     async function drain() {
-      if (pending || !active || authPaused || connectionSnapshot().offline) return
-      pending = true
+      if (fetching) return
+      fetching = true
       try {
-        while (requested.size && active && !authPaused && !connectionSnapshot().offline) {
-          const ids = [...requested]; requested.clear()
-          for (const id of ids) {
-            if (!active || authPaused || connectionSnapshot().offline) break
-            const task = state.current.find(task => task.id === id)
-            if (task && awaitingResult(task) && !preparations.current.has(id) && !paused.has(id) && !retries.has(id)) await checkTask(task)
+        while (active && wanted.size) {
+          const id = wanted.values().next().value!
+          wanted.delete(id)
+          try {
+            const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
+            if (active && !preparing.current.has(id)) receive(remote)
+          } catch (error) {
+            if (!active || error instanceof AIServiceError && error.status === 404) continue
+            setStatusIssues(value => ({ ...value, [id]: (error as Error).message }))
           }
         }
-      } finally { pending = false }
+      } finally { fetching = false }
     }
-    function requestUpdates(id?: string) {
-      for (const task of state.current) if (awaitingResult(task) && (!id || task.id === id)) requested.add(task.id)
+    function refresh(id?: string) {
+      for (const task of current.current.history.currentReservations()) if (!id || task.id === id) wanted.add(task.id)
       void drain()
     }
-    const checkStatus = (id: string) => {
-      if (connectionSnapshot().offline) { void retryConnection(); return }
-      const task = state.current.find(item => item.id === id)
-      if (!task || !awaitingResult(task) || preparations.current.has(id)) return
-      if (authPaused) {
-        authPaused = false
-        for (const pausedId of authPausedTasks) {
-          paused.delete(pausedId); failures.delete(pausedId); requested.add(pausedId)
-          setIssue(pausedId, { message: 'Checking status…', paused: false })
-        }
-        authPausedTasks.clear()
-      }
-      failures.delete(id); paused.delete(id); window.clearTimeout(retries.get(id)); retries.delete(id); requested.add(id)
-      setIssue(id, { message: 'Checking status…', paused: false })
-      void drain()
-    }
-    checkStatusRef.current = checkStatus
-    const unsubscribe = cloud && subscribeDocumentUpdates(cloud.documentId, event => {
-      if (event.kind === 'ready') requestUpdates()
-      else if (event.kind === 'task') requestUpdates(event.taskId)
+    fetchStatus.current = refresh
+    const unsubscribe = subscribeDocumentUpdates(cloud.documentId, event => {
+      if (event.kind === 'ready' || event.kind === 'document' || event.kind === 'privacy') refresh()
+      else if (event.kind === 'task') refresh(event.taskId)
     })
-    requestUpdates()
-    return () => {
-      active = false; for (const timer of retries.values()) window.clearTimeout(timer); unsubscribe?.()
-      if (checkStatusRef.current === checkStatus) checkStatusRef.current = () => {}
-    }
-  }, [loaded, writable, cloud?.documentId, cloud?.workingCopyId, privateDocument, connection.offline, connection.revision, statusTargets])
+    refresh()
+    return () => { active = false; unsubscribe(); fetchStatus.current = () => {} }
+  }, [persistence.loaded, cloud?.documentId, cloud?.workingCopyId, cloud?.revision, cloud?.draft, connection.offline, connection.revision, ids])
 
-  function reserve(target: AITarget, snapshot = currentDoc.current) {
-    if (!loaded || !writable || !cloud || cloud.documentId !== snapshot.id || !persistence.engine.current?.ready) { setNotice('Connect this working copy to its cloud document before starting an AI task.'); return }
+  function reserve(target: AITarget, snapshot = current.current.history.doc!) {
+    if (!persistence.loaded || !writable || !cloud || cloud.documentId !== snapshot.id) return
     if (target.kind === 'text' && !reservedText(snapshot.content, target.blockIds)) { setNotice('Select consecutive paragraphs without crossing a space or Flow object.'); return }
     if (target.kind === 'segment') {
       const range = resolveSegmentRange(snapshot, target)
-      if (!range) { setNotice('The selected segment is no longer available.'); return }
+      if (!range) { setNotice('The selected section is no longer available.'); return }
       const fresh = makeSegmentTarget(snapshot, range, target.area)
-      if (!sameContent(fresh.blockIds, target.blockIds) || !sameContent(fresh.objectIds, target.objectIds)) { setNotice('The selected segment changed.'); return }
+      if (!sameContent(fresh.blockIds, target.blockIds) || !sameContent(fresh.objectIds, target.objectIds)) { setNotice('The selected section changed.'); return }
       target = fresh
     }
     const overlapping = activeTasks(snapshot).find(task => overlaps(task.target, target, snapshot))
     if (overlapping) { openTask(overlapping.id); return }
     let original: FloatingObject | JSONContent[] | SegmentClipboard
-    let segmentOriginalBlocks: JSONContent[] | undefined
-    let segmentOriginalObjects: FloatingObject[] | undefined
-    if (target.kind === 'object') original = structuredClone(snapshot.objects.find(object => object.id === target.objectId)!)
-    else if (target.kind === 'text') original = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
-    else {
+    let segmentOriginalBlocks: JSONContent[] | undefined, segmentOriginalObjects: FloatingObject[] | undefined
+    if (target.kind === 'object') {
+      const objectId = target.objectId
+      const object = snapshot.objects.find(object => object.id === objectId)
+      if (!object) return
+      original = structuredClone(object)
+      target = { ...target, area: objectArea(object.id).width ? objectArea(object.id) : target.area }
+    } else if (target.kind === 'text') {
+      const { blockIds } = target
+      original = structuredClone(snapshot.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
+    } else {
+      const { blockIds, objectIds } = target
       const context = segmentContext?.() ?? { anchors: [], geometry: {} }
       original = copySegment(snapshot, target.range, context.anchors, context.geometry, true)
-      segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => target.blockIds.includes(node.attrs?.id)))
-      segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => target.objectIds.includes(object.id)))
+      segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
+      segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => objectIds.includes(object.id)))
     }
-    const task: AITask = { protocol: 'mote-agent-v2', documentVersion: snapshot.version, id: crypto.randomUUID(), documentId: snapshot.id, target, prompt: '', createdAt: Date.now(),
-      original,
-      snapshotDocument: structuredClone(snapshot), status: 'draft', progress: '', submitted: false, preview: false,
-      workspaceRead: false, workspaceReadRevision: 0 }
-    if (segmentOriginalBlocks) task.segmentOriginalBlocks = segmentOriginalBlocks
-    if (segmentOriginalObjects) task.segmentOriginalObjects = segmentOriginalObjects
-    persistence.replace([...state.current, task]); openTask(task.id); setNotice(''); history.boundary()
-    return task
+    const reservation: Reservation = { id: crypto.randomUUID(), documentId: snapshot.id, target, original,
+      documentVersion: snapshot.version, createdAt: Date.now(), workspaceRead: false,
+      ...(segmentOriginalBlocks && { segmentOriginalBlocks }), ...(segmentOriginalObjects && { segmentOriginalObjects }) }
+    history.setState(snapshot, [...history.currentReservations(), reservation])
+    openTask(reservation.id); setNotice('')
+    return asTask(reservation)
   }
-  function missingRemote(id: string) {
-    update(id, { status: 'error', remoteMissing: true, progress: '', error: 'This AI session is no longer available. Accept any complete candidate or discard this reservation, then reserve the content again in Assistant.' })
+  function setProperties(id: string, patch: Pick<Reservation, 'workspaceRead'> | Pick<Reservation, 'expiresAt'>) {
+    const task = getTask(id)
+    if (!writable || !task || task.released) return
+    history.setReservations(history.currentReservations().map(item => item.id === id ? { ...item, ...patch } : item))
   }
-  function rejectPrivateExternalDraft(id: string) {
-    const task = state.current.find(task => task.id === id)
-    if (!task || task.submitted) return
-    preparations.current.delete(id)
-    update(id, { executor: 'builtin', pendingExecutor: undefined, status: 'draft', progress: '',
-      error: 'External handoff was blocked while Private was enabled or being confirmed. The reservation is ready for the built-in agent.',
-      requestSent: false, creation: undefined, cloudDocumentId: undefined, baseRevision: undefined,
-      preparingCopyId: undefined })
-  }
-
-  async function start(id: string, prompt: string, executor: Executor = 'builtin') {
-    let task = state.current.find(task => task.id === id)
-    const connection = cloudRef.current, store = persistence.engine.current
-    if (executor === 'external' && cloudRef.current?.externalBlocked) {
-      if (task && !task.submitted && !task.requestSent && task.pendingExecutor?.executor === 'external') rejectPrivateExternalDraft(id)
-      setNotice('External handoff is unavailable while this document is private.'); return
-    }
-    if (!writable || !connection || !store?.ready || store.conflict) { setNotice('Resolve cloud task saving before sending a request.'); return }
-    if (!task || inactiveReason(task) || task.remoteMissing || preparations.current.has(id)) return
-    if (workspaceReadBlocked(task)) { setNotice('Confirm the workspace-read setting before continuing. Refresh status or retry the pending permission change.'); return }
-    if (task.protocol !== 'mote-agent-v2' && task.submitted && candidateVersions(task).length && !selectedCandidateVersion(task)) {
-      update(id, { error: 'Choose a remaining candidate before sending a follow-up. No removed candidate was used.' }); return
-    }
-    let knownNotCreated = !task.submitted && !task.requestSent
-    if (executor === 'builtin' && ((task.executor ?? 'builtin') !== 'builtin' || executorBusy(task) || !prompt.trim() || ['running', 'queued', 'preparing'].includes(task.status))) return
-    // Resizing is allowed before the first request. Freeze the current object,
-    // not the dimensions from when the reservation was first drawn.
-    if (!task.submitted && !task.requestSent && task.target.kind === 'object') {
-      const objectId = task.target.objectId
-      task = { ...task, original: structuredClone(currentDoc.current.objects.find(object => object.id === objectId)!) }
-      update(id, { original: task.original })
-    }
-    const run = Symbol()
-    markMutation(id)
-    preparations.current.set(id, run)
-    const preparing = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
-      && state.current.some(task => task.id === id && task.status === 'preparing')
-    update(id, { status: 'preparing', preparingCopyId: connection.workingCopyId,
-      ...(executor === 'builtin' ? { prompt: task.creation?.prompt ?? prompt, draftPrompt: task.creation ? task.draftPrompt : '', title: task.title || prompt.trim().split('\n')[0].slice(0, 60), preview: false } : {}),
-      error: undefined, progress: 'Saving document and preparing snapshot…' })
-    try {
-      let remote: RemoteTask
-      if (!task.submitted && task.requestSent) {
-        try {
-          remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-          if (preparing()) receive(remote, { pendingExecutor: undefined, creation: undefined })
-          return
-        } catch (error) {
-          if (!(error instanceof AIServiceError) || error.status !== 404) throw error
-          if (!preparing()) return
-          knownNotCreated = true
-          if (executor === 'external' && cloudRef.current?.privateDocument) { rejectPrivateExternalDraft(id); return }
-          if (executor === 'external' && cloudRef.current?.externalBlocked) throw new Error('Confirm the privacy setting before retrying external access.')
-          knownNotCreated = false
-          remote = await aiRequest('/tasks', 'POST', creationBody(task))
-        }
-      }
-      else if (task.submitted) {
-        if (task.protocol === 'mote-agent-v2') {
-          const saved = await connection.sync()
-          if (!preparing()) return
-          if (!saved) throw new Error('The document could not be saved to the cloud. Resolve its sync status, then retry.')
-          if (saved.document.id !== connection.documentId || !sameContent(saved.document, currentDoc.current)) throw new Error('The working copy changed while saving. Retry with the current document after resolving any sync conflict.')
-          const stale = inactiveTaskReason(task, saved.document)
-          if (stale) throw new Error(stale)
-        }
-        if (!await store.flush()) throw new Error('Save or resolve the cloud assistant state before revising.')
-        if (!preparing()) return
-        const selected = selectedCandidateVersion(task)
-        remote = await aiRequest(`/tasks/${id}/revise`, 'POST', { prompt, executorRevision: task.executorRevision,
-          ...(selected?.id ? task.protocol === 'mote-agent-v2' ? { selectedVersion: selected.id }
-            : { candidateId: selected.id, candidateVersion: selected.revision } : {}) })
-      } else {
-        const saved = await connection.sync()
-        if (!preparing()) return
-        if (!saved) throw new Error('The document could not be saved to the cloud. Resolve its sync status, then retry.')
-        const snapshotDocument = structuredClone(saved.document)
-        if (snapshotDocument.id !== connection.documentId || !sameContent(snapshotDocument, currentDoc.current)) {
-          throw new Error('The working copy changed while saving. Retry with the current document after resolving any sync conflict.')
-        }
-        const stale = inactiveTaskReason(task, snapshotDocument)
-        if (stale) throw new Error(stale)
-        let target = task.target, original = task.original
-        let segmentOriginalBlocks = task.segmentOriginalBlocks, segmentOriginalObjects = task.segmentOriginalObjects
-        const context = segmentContext?.()
-        if (target.kind === 'object') {
-          const objectId = target.objectId
-          original = structuredClone(snapshotDocument.objects.find(object => object.id === objectId)!)
-          target = { ...target, area: objectArea(objectId) }
-        } else if (target.kind === 'segment') {
-          const range = resolveSegmentRange(snapshotDocument, target)
-          if (!range || !context) throw new Error('The reserved segment geometry is not available. Retry after the document finishes rendering.')
-          target = makeSegmentTarget(snapshotDocument, range, { ...target.area, width: snapshotDocument.page.width })
-          original = copySegment(snapshotDocument, range, context.anchors, context.geometry, true)
-          const { blockIds, objectIds } = target
-          segmentOriginalBlocks = structuredClone(snapshotDocument.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
-          segmentOriginalObjects = structuredClone(snapshotDocument.objects.filter(object => objectIds.includes(object.id)))
-        } else {
-          const node = getSchema(extensions(true)).nodeFromJSON(snapshotDocument.content)
-          const { blockIds } = target
-          let from = 0, to = 0
-          node.forEach((child, position) => {
-            if (child.attrs.id === blockIds[0]) from = position + 1
-            if (child.attrs.id === blockIds.at(-1)) to = position + child.nodeSize - 1
-          })
-          const selection = paragraphSelection(node, from, to)
-          if (!selection || !sameContent(selection.blockIds, blockIds)) throw new Error('The selected paragraphs changed. Start a new request for the current selection.')
-          const first = context?.anchors.find(anchor => anchor.id === blockIds[0]), last = context?.anchors.find(anchor => anchor.id === blockIds.at(-1))
-          const area = first && last ? { x: snapshotDocument.page.margins.left, y: first.top,
-            width: snapshotDocument.page.width - snapshotDocument.page.margins.left - snapshotDocument.page.margins.right,
-            height: (last.bottom ?? last.top) - first.top } : target.area
-          target = { ...target, ...selection, area }
-          original = structuredClone(snapshotDocument.content.content!.filter(block => blockIds.includes(block.attrs?.id)))
-        }
-        const input = { snapshotDocument, documentVersion: snapshotDocument.version, original, target, segmentOriginalBlocks, segmentOriginalObjects,
-          cloudDocumentId: connection.documentId, baseRevision: saved.revision }
-        task = { ...task, ...input }; update(id, input)
-        const dataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
-          const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob)
-        })
-        const snapshot = await dataUrl(await exportPng(snapshotDocument))
-        const targetSnapshot = target.kind === 'object' ? await dataUrl(await exportObjectPng(snapshotDocument, target.objectId)) : undefined
-        if (!preparing()) return
-        const model = snapshotDocument.authoring?.aiModel?.trim()
-        const creation = { executor, operationId: task.pendingExecutor?.operationId ?? task.id, prompt,
-          ...(model ? { model } : {}), snapshot, ...(targetSnapshot ? { targetSnapshot } : {}) }
-        if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
-        task = { ...task, requestSent: true, creation }
-        update(id, { requestSent: true, creation })
-        if (!await store.flush()) throw new Error('The request is retained locally. Resolve cloud assistant saving before generating.')
-        if (!preparing()) return
-        if (executor === 'external' && cloudRef.current?.externalBlocked) { rejectPrivateExternalDraft(id); return }
-        knownNotCreated = false
-        remote = await aiRequest('/tasks', 'POST', creationBody(task))
-      }
-      if (!preparing()) {
-        if (discarded.current.has(id)) void cleanup(id, store)
-        else if (mounted.current && state.current.some(task => task.id === id && task.status === 'stopped')) void aiRequest(`/tasks/${id}/stop`, 'POST').catch(() => {})
-        return
-      }
-      receive(remote, { pendingExecutor: undefined, creation: undefined })
-    } catch (error) {
-      if (preparing()) {
-        if (executor === 'external' && cloudRef.current?.privateDocument && knownNotCreated && !task.submitted) rejectPrivateExternalDraft(id)
-        else if (task.submitted && error instanceof AIServiceError && error.status === 404) missingRemote(id)
-        else if (connectionSnapshot().offline) update(id, { status: task.requestSent || task.submitted ? 'waiting' : 'draft',
-          progress: 'Offline · request retained. Waiting for reconnection.', error: undefined })
-        else update(id, { status: 'error', progress: 'Request failed', error: (error as Error).message,
-          ...(!task.submitted && error instanceof AIServiceError && error.status === 400 ? { requestSent: false, creation: undefined } : {}) })
-      }
-    }
-    finally {
-      if (preparations.current.get(id) === run) { preparations.current.delete(id); checkStatusRef.current(id) }
-    }
-  }
-
-  async function stop(id: string) {
-    const task = state.current.find(task => task.id === id)
-    const store = persistence.engine.current
-    if (!writable || !task || task.pendingExecutor || task.executor === 'external') return
-    const run = Symbol()
-    markMutation(id)
-    preparations.current.set(id, run)
-    update(id, { status: 'stopped', progress: 'Stopping…' })
-    if (!task.submitted && !task.requestSent) { preparations.current.delete(id); update(id, { progress: 'Stopped' }); return }
-    try {
-      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
-      if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) receive(remote)
-    } catch (error) {
-      if (store === persistence.engine.current && state.current.some(task => task.id === id && task.status === 'stopped')) update(id, { error: (error as Error).message, progress: 'Stop was not confirmed. The request and any result are retained.' })
-    } finally {
-      if (preparations.current.get(id) === run) { preparations.current.delete(id); checkStatusRef.current(id) }
-    }
-  }
-
-  async function switchExecutor(id: string, executor: Executor) {
-    let task = state.current.find(task => task.id === id)
-    const store = persistence.engine.current
-    if (!writable || !task || executor === 'external' && cloudRef.current?.externalBlocked || !store?.ready || store.conflict || inactiveReason(task) || task.remoteMissing || task.released || preparations.current.has(id) || workspaceReadBlocked(task)) return
-    if (!task.pendingExecutor && (task.executor ?? 'builtin') === executor) return
-    if (task.pendingExecutor && task.pendingExecutor.executor !== executor) return
-    if (!task.submitted && !task.requestSent && !task.pendingExecutor && task.target.kind === 'object') {
-      const objectId = task.target.objectId
-      task = { ...task, original: structuredClone(currentDoc.current.objects.find(object => object.id === objectId)!) }
-      update(id, { original: task.original })
-    }
-    const pending = task.pendingExecutor ?? { executor, operationId: crypto.randomUUID(), baseExecutorRevision: task.submitted ? task.executorRevision ?? 0 : undefined }
-    markMutation(id)
-    update(id, { pendingExecutor: pending, error: undefined, progress: 'Confirming agent access…',
-      ...(!task.submitted && !task.requestSent ? { workspaceRead: false } : {}) })
-    const run = Symbol()
-    preparations.current.set(id, run)
-    const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
-      && state.current.some(task => task.id === id)
-    try {
-      if (!await store.flush()) throw new Error('Resolve cloud assistant saving before switching agents.')
-      if (!current()) return
-      if (!task.submitted && task.requestSent) {
-        try {
-          const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-          if (!current()) return
-          receive(remote, { creation: undefined })
-          task = state.current.find(task => task.id === id)!
-        } catch (error) {
-          if (!(error instanceof AIServiceError) || error.status !== 404) throw error
-          if (!current()) return
-          if (executor === 'external' && cloudRef.current?.privateDocument) { rejectPrivateExternalDraft(id); return }
-          if (executor === 'external' && cloudRef.current?.externalBlocked) throw new Error('Confirm the privacy setting before retrying external access.')
-          const remote = await aiRequest<RemoteTask>('/tasks', 'POST', creationBody(task))
-          if (!current()) { if (discarded.current.has(id)) void cleanup(id, store); return }
-          receive(remote, { creation: undefined })
-          task = state.current.find(task => task.id === id)!
-        }
-      }
-      if (!task.submitted) {
-        preparations.current.delete(id)
-        if (executor === 'external' && cloudRef.current?.externalBlocked) {
-          update(id, { pendingExecutor: undefined, error: 'External handoff is unavailable while this document is private.', progress: '' })
-          return
-        }
-        await start(id, '', 'external')
-        return
-      }
-      const operation = { ...pending, baseExecutorRevision: pending.baseExecutorRevision ?? task.executorRevision ?? 0 }
-      update(id, { pendingExecutor: operation })
-      if (!await store.flush()) throw new Error('Resolve cloud assistant saving before switching agents.')
-      if (!current()) return
-      if (executor === 'external' && cloudRef.current?.externalBlocked) {
-        update(id, { pendingExecutor: undefined, error: 'External handoff is unavailable while this document is private.', progress: '' })
-        return
-      }
-      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/executor`, 'POST', operation)
-      if (!current()) { if (discarded.current.has(id)) void cleanup(id, store); return }
-      receive(remote, { pendingExecutor: undefined })
-    } catch (error) {
-      if (!current()) return
-      if (error instanceof AIServiceError && error.status === 409) {
-        try {
-          const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-          if (current()) receive(remote, { pendingExecutor: undefined, error: 'Agent access changed in another working copy. The current server choice is shown; choose again if needed.' })
-        } catch (recoveryError) {
-          if (current()) update(id, { error: `Agent switch was not confirmed: ${(recoveryError as Error).message}`, progress: 'Retry confirmation before continuing.' })
-        }
-      } else update(id, { error: `Agent switch was not confirmed: ${(error as Error).message}`, progress: 'Retry confirmation before continuing.' })
-    } finally {
-      if (preparations.current.get(id) === run) { preparations.current.delete(id); checkStatusRef.current(id) }
-    }
-  }
-  async function retryExecutor(id: string) {
-    const task = state.current.find(task => task.id === id)
-    if (task?.pendingExecutor) await switchExecutor(id, task.pendingExecutor.executor)
-  }
-
-  async function sendWorkspaceRead(id: string, operation: NonNullable<AITask['pendingWorkspaceRead']>) {
-    const task = state.current.find(task => task.id === id), store = persistence.engine.current
-    if (!writable || !task || task.pendingWorkspaceRead?.operationId !== operation.operationId || preparations.current.has(id)) return
-    if (!store?.ready) { setWorkspaceReadIssue(id, 'AI task recovery is not ready. Retry the same workspace-read change when it is available.'); return }
-    markMutation(id)
-    const run = Symbol()
-    preparations.current.set(id, run)
-    setWorkspaceReadOperation(id, true)
-    setWorkspaceReadIssue(id, 'Saving the pending permission change before contacting the task…')
-    const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
-      && state.current.some(task => task.id === id && task.pendingWorkspaceRead?.operationId === operation.operationId)
-    try {
-      if (!await store.flush()) throw new Error('Resolve AI task saving before changing workspace-read access.')
-      if (!current()) return
-      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/workspace-read`, 'POST', operation)
-      if (!current()) return
-      receive(remote)
-      const after = state.current.find(task => task.id === id)
-      if (after?.pendingWorkspaceRead?.operationId === operation.operationId) {
-        setWorkspaceReadIssue(id, 'The server response did not confirm the permission change. Refresh status or retry this same operation.')
-      }
-    } catch (error) {
-      if (!current()) return
-      setWorkspaceReadIssue(id, `Workspace-read change is unconfirmed: ${(error as Error).message} Refresh status or retry the same operation; it has been retained.`)
-    } finally {
-      if (preparations.current.get(id) === run) {
-        preparations.current.delete(id); setWorkspaceReadOperation(id, false); checkStatusRef.current(id)
-      }
-    }
-  }
-
-  async function setWorkspaceRead(id: string, enabled: boolean) {
-    const task = state.current.find(task => task.id === id)
-    if (!writable || !task || preparations.current.has(id) || task.pendingExecutor || task.pendingWorkspaceRead || inactiveReason(task)) return
-    if (!task.submitted && !task.requestSent) {
-      update(id, { workspaceRead: enabled })
-      setWorkspaceReadIssue(id)
-      return
-    }
-    if (!workspaceReadKnown(task)) {
-      setWorkspaceReadIssue(id, 'Refresh the server permission status before changing workspace reads.')
-      return
-    }
-    const current = workspaceAccessRef.current[id]
-    if (!current || current.enabled === enabled) return
-    const operation = { enabled, baseWorkspaceReadRevision: current.revision, operationId: crypto.randomUUID() }
-    update(id, { pendingWorkspaceRead: operation })
-    setWorkspaceReadIssue(id, `Confirming ${enabled ? 'enabled' : 'disabled'} workspace reads…`)
-    await sendWorkspaceRead(id, operation)
-  }
-
-  async function retryWorkspaceRead(id: string) {
-    const task = state.current.find(task => task.id === id), operation = task?.pendingWorkspaceRead
-    if (!operation || preparations.current.has(id)) return
-    await sendWorkspaceRead(id, operation)
-  }
-
-  async function refreshWorkspaceRead(id: string) {
-    const task = state.current.find(task => task.id === id), store = persistence.engine.current
-    if (!task || (!task.submitted && !task.requestSent) || preparations.current.has(id)) return
-    const run = Symbol()
-    preparations.current.set(id, run)
-    setWorkspaceReadOperation(id, true)
-    setWorkspaceReadIssue(id, 'Refreshing server permission status…')
-    const current = () => mounted.current && persistence.engine.current === store && preparations.current.get(id) === run
-      && state.current.some(task => task.id === id)
-    try {
-      const remote = await aiRequest<RemoteTask>(`/tasks/${id}`)
-      if (!current()) return
-      receive(remote)
-      const latest = state.current.find(task => task.id === id)
-      if (latest?.pendingWorkspaceRead) setWorkspaceReadIssue(id, 'Server status refreshed. The saved permission change remains unconfirmed; retry the same operation.')
-      else if (workspaceReadKnown(latest!)) setWorkspaceReadIssue(id)
-    } catch (error) {
-      if (current()) setWorkspaceReadIssue(id, `Could not refresh workspace-read status: ${(error as Error).message}`)
-    } finally {
-      if (preparations.current.get(id) === run) {
-        preparations.current.delete(id); setWorkspaceReadOperation(id, false)
-      }
-    }
-  }
-
-  async function cleanup(id: string, store: AssistantState) {
-    try { await aiRequest(`/tasks/${id}/release`, 'POST') }
-    catch (error) {
-      if (!(error instanceof AIServiceError && error.status === 404) && mounted.current) setNotice('Agent access revocation was not confirmed. Reconnect to finish releasing this reservation.')
-    }
-    // The document (for acceptance) and the assistant removal must both be
-    // durable before deleting the only execution artifact. Uncertain cleanup
-    // leaks a retained artifact rather than losing a result.
-    if (!await store.flush() || store.record.tasks.some(task => task.id === id)
-      || store.record.archives.some(archive => archive.tasks.some(task => task.id === id))) return
-    try { await aiRequest(`/tasks/${id}`, 'DELETE') }
-    catch (error) {
-      if (!(error instanceof AIServiceError && error.status === 404) && mounted.current) setNotice('The task was released, but execution cleanup was not confirmed. The server artifact is retained.')
-    }
-  }
-  function forget(id: string) {
-    markMutation(id)
-    preparations.current.delete(id)
-    const task = state.current.find(task => task.id === id)
-    discarded.current.add(id)
-    persistence.replace(state.current.filter(task => task.id !== id))
-    setActiveId(current => current === id ? null : current)
-    const store = persistence.engine.current
-    if (store && (task?.submitted || task?.requestSent)) void cleanup(id, store)
-  }
+  const release = (ids: string[]) => history.currentReservations().map(task => ids.includes(task.id) ? { ...task, released: true } : task)
   function discard(id: string) {
-    const task = state.current.find(task => task.id === id)
-    if (!writable || !task) return
-    const inactive = inactiveReason(task)
-    if (!inactive && task.target.kind === 'object' && task.target.isNew) { deleteTarget(id); return }
-    forget(id)
-    if (inactive) return
-    const target = task.target
-    if (target.kind === 'segment') return
-    unrestricted(() => history.setDoc(doc => {
-      if (!doc) return doc
-      if (target.kind === 'text' && target.insert) {
-        const content = doc.content.content!.filter(node => !target.blockIds.includes(node.attrs?.id))
-        return replaceMainContent(doc, { ...doc.content, content: content.length ? content : [paragraph('')] })
-      }
-      return doc
-    }))
+    if (!writable || !getTask(id) || getTask(id)!.released) return
+    history.setState(history.doc!, release([id]))
+    update(id, { preview: false }); setActiveId(null)
   }
   function accept(id: string) {
-    const task = state.current.find(task => task.id === id)
-    const selected = task && selectedCandidateVersion(task)
-    if (!writable || !cloud || !task || !selected || !task.remoteMissing && (executorBusy(task) || workspaceReadBlocked(task)) || inactiveReason(task) || ['running', 'queued', 'preparing'].includes(task.status)) return
+    const task = getTask(id), selected = task && selectedCandidateVersion(task)
+    if (!writable || !task || !selected || inactiveReason(task)) return
     try {
-      const next = candidateDocument(currentDoc.current, task, selected.candidate, segmentContext?.())
-      if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) throw new Error('This result would affect another reserved region. Resolve that task first.')
-      unrestricted(() => history.setDoc(next))
-      markMutation(id)
-      update(id, { acceptance: { workingCopyId: cloud.workingCopyId, document: next,
-        ...(task.protocol === 'mote-agent-v2' ? { versionId: selected.id }
-          : { ...(selected.id ? { candidateId: selected.id } : {}), candidateVersion: selected.revision }) }, preview: false, error: undefined })
-      if (!task.remoteMissing && (task.submitted || task.requestSent)) void aiRequest(`/tasks/${id}/release`, 'POST').catch(error => {
-        if (mounted.current) update(id, { error: `Agent access revocation is pending: ${(error as Error).message}` })
-      })
+      const document = history.doc!
+      const next = candidateDocument(document, task, selected.candidate, segmentContext?.())
+      if (!permits(activeTasks().filter(other => other.id !== id), document, next)) throw new Error('This proposal would change another reserved region.')
+      history.setState(next, release([id]))
+      update(id, { preview: false, error: undefined, candidateNotice: undefined })
+      setActiveId(null)
       if (task.target.kind === 'object') {
         const objectId = task.target.objectId
-        setRuns(current => ({ ...current, [objectId]: (current[objectId] ?? 0) + 1 }))
+        setRuns(value => ({ ...value, [objectId]: (value[objectId] ?? 0) + 1 }))
       }
-    } catch (error) { update(id, { error: (error as Error).message }) }
+    } catch (error) { update(id, { error: (error as Error).message, preview: false }) }
   }
-  function selectCandidate(id: string, selection: { id: string; revision?: number }) {
-    const task = state.current.find(task => task.id === id)
-    if (!task || !candidateVersions(task).some(version => version.id === selection.id && version.revision === selection.revision)) return
-    update(id, { ...(task.protocol === 'mote-agent-v2' ? { selectedVersion: selection.id }
-      : { selectedCandidate: { id: selection.id, revision: selection.revision! } }), candidateNotice: undefined, preview: true, error: undefined })
+  function selectVersion(id: string, selectedVersion: string) {
+    const task = getTask(id)
+    if (!task || !candidateVersions(task).some(version => version.id === selectedVersion)) return
+    update(id, { selectedVersion, candidateNotice: undefined, preview: !task.released, error: undefined })
   }
-  async function syncAcceptance(id: string) {
-    const task = state.current.find(task => task.id === id), connection = cloudRef.current, store = persistence.engine.current
-    if (!task?.acceptance || !connection || task.acceptance.workingCopyId !== connection.workingCopyId) return
+  async function start(id: string, prompt: string) {
+    const task = getTask(id), connection = current.current.cloud
+    if (!writable || !connection || !task || task.released || preparing.current.has(id) || !task.pendingRun && !prompt.trim()) return
+    const attempt = Symbol(); preparing.current.set(id, attempt)
+    const valid = () => mounted.current && preparing.current.get(id) === attempt && !getTask(id)?.released
+    const operation = task.pendingRun ?? { operationId: crypto.randomUUID(), prompt,
+      ...(history.doc?.authoring?.aiModel?.trim() ? { model: history.doc.authoring.aiModel.trim() } : {}),
+      ...(selectedCandidateVersion(task) ? { selectedVersion: selectedCandidateVersion(task)!.id } : {}) }
+    update(id, { pendingRun: operation, status: 'preparing', progress: 'Publishing task…', error: undefined })
+    connection.earlySync()
     try {
+      await persistence.flushLocal()
+      // Publishing a reservation is ordinary sync, not a generation-context fence.
       const saved = await connection.sync()
-      if (!mounted.current || store !== persistence.engine.current || !state.current.some(current => current.id === id && sameContent(current.acceptance, task.acceptance))) return
-      if (!saved || !sameContent(saved.document, task.acceptance.document)) {
-        update(id, { error: 'The exact accepted document has not been confirmed in the cloud. The working copy may have changed or conflicted. Your original input and candidate are retained below.' }); return
-      }
-      forget(id)
+      if (!valid()) return
+      if (!saved || !saved.reservations?.some(item => item.id === id && !item.released)) throw new Error('The task is not yet saved to the cloud. Resolve document sync, then retry the request.')
+      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/revise`, 'POST', operation)
+      if (!mounted.current || preparing.current.get(id) !== attempt) return
+      update(id, { pendingRun: undefined, prompt: operation.prompt, submitted: true,
+        ...(getTask(id)?.draftPrompt === operation.prompt ? { draftPrompt: '' } : {}) })
+      receive(remote)
     } catch (error) {
-      if (mounted.current && store === persistence.engine.current) update(id, { error: `The result is retained: ${(error as Error).message}` })
+      if (valid()) update(id, { status: 'error', progress: '', error: (error as Error).message,
+        ...(error instanceof AIServiceError && [400, 422].includes(error.status) ? { pendingRun: undefined } : {}) })
+    } finally {
+      if (preparing.current.get(id) === attempt) preparing.current.delete(id)
+      if (mounted.current) fetchStatus.current(id)
     }
   }
-  useEffect(() => {
-    // Parent effects first copy the committed history document into its sync
-    // controller. Calling sync during this hook's effect would save the old doc.
-    const timer = window.setTimeout(() => {
-      for (const task of allTasks) if (['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') && DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) && task.acceptance?.workingCopyId === cloud?.workingCopyId && task.acceptance && !acceptanceAttempts.current.has(task.id)) {
-        acceptanceAttempts.current.add(task.id); void syncAcceptance(task.id)
-      }
-    }, 0)
-    return () => window.clearTimeout(timer)
-  }, [allTasks, cloud?.workingCopyId])
+  async function stop(id: string) {
+    preparing.current.delete(id)
+    try {
+      const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
+      if (mounted.current) { update(id, { pendingRun: undefined }); receive(remote) }
+    } catch (error) { if (mounted.current) update(id, { error: (error as Error).message }) }
+  }
   function deleteObjects(objects: FloatingObject[]) {
     const removed = activeTasks().filter(task => task.target.kind === 'object' && !objects.some(object => object.id === (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
-    const next = reconcileObjectDeletions(currentDoc.current, objects, segmentContext?.())
-    if (!permits(activeTasks().filter(task => !removed.includes(task)), currentDoc.current, next)) {
-      setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return false
-    }
-    for (const task of removed) forget(task.id)
-    history.boundary(); history.setDoc(next); history.boundary()
+    const next = reconcileObjectDeletions(history.doc!, objects, segmentContext?.())
+    if (!warn(permits(activeTasks().filter(task => !removed.includes(task)), history.doc!, next))) return false
+    history.setState(next, release(removed.map(task => task.id)))
     return true
   }
   function deleteTarget(id: string) {
-    const task = state.current.find(task => task.id === id)
+    const task = getTask(id)
     if (!writable || !task || inactiveReason(task)) return
     if (task.target.kind === 'object') {
-      deleteObjects(withoutObject(task.target.objectId) ?? currentDoc.current.objects.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
+      deleteObjects(withoutObject(task.target.objectId) ?? history.doc!.objects.filter(object => object.id !== (task.target as Extract<AITarget, { kind: 'object' }>).objectId))
       return
     }
-    if (task.target.kind === 'segment') {
-      if (!task.target.blockIds.length && !task.target.objectIds.length) { forget(id); return }
-      try {
-        const next = applySegmentCandidate(currentDoc.current, task.target, null, segmentContext?.() ?? { anchors: [], geometry: {} })
-        if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) {
-          setNotice('That deletion would change another reserved region. Resolve that task first.'); return
-        }
-        forget(id)
-        if (sameContent(next, currentDoc.current)) return
-        history.boundary(); history.setDoc(next); history.boundary()
-      } catch (error) { setNotice((error as Error).message) }
-      return
-    }
-    const ids = task.target.blockIds
-    const content = currentDoc.current.content.content!.filter(node => !ids.includes(node.attrs?.id))
-    const next = replaceMainContent(currentDoc.current, { ...currentDoc.current.content, content: content.length ? content : [paragraph('')] })
-    if (!permits(activeTasks().filter(other => other.id !== id), currentDoc.current, next)) {
-      setNotice('That deletion would change another reserved region. Accept or discard its AI task first.'); return
-    }
-    forget(id); history.boundary(); history.setDoc(next); history.boundary()
+    try {
+      let next: MoteDocument
+      if (task.target.kind === 'segment') next = applySegmentCandidate(history.doc!, task.target, null, segmentContext?.() ?? { anchors: [], geometry: {} })
+      else {
+        const ids = task.target.blockIds, content = history.doc!.content.content!.filter(node => !ids.includes(node.attrs?.id))
+        next = replaceMainContent(history.doc!, { ...history.doc!.content, content: content.length ? content : [paragraph('')] })
+      }
+      if (!warn(permits(activeTasks().filter(other => other.id !== id), history.doc!, next))) return
+      history.setState(next, release([id])); setActiveId(null)
+    } catch (error) { setNotice((error as Error).message) }
   }
-  return { tasks, allTasks, loaded, open, setOpen, activeId, openTask, followSelection, offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, selectCandidate, update, runs, deleteObjects, deleteTarget, missingRemote,
+  function checkStatus(id: string) {
+    if (connectionSnapshot().offline) { void retryConnection(); return }
+    fetchStatus.current(id)
+  }
+  return { tasks, allTasks, loaded: persistence.loaded, open, setOpen, activeId, openTask, followSelection,
+    offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, selectVersion, update,
+    runs, deleteObjects, deleteTarget, inactiveReason, privateDocument: cloud?.privateDocument ?? false,
+    externalBlocked: cloud?.externalBlocked ?? false,
+    agentLink: (task: AITask) => !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
+      ? new URL(access[task.id].externalPath!, window.location.origin).href : undefined,
+    setWorkspaceRead: (id: string, enabled: boolean) => setProperties(id, { workspaceRead: enabled }),
+    setExpiration: (id: string, expiresAt?: number) => setProperties(id, { expiresAt }),
+    permissionPending: (task: AITask) => !access[task.id] || access[task.id].workspaceRead !== task.workspaceRead || access[task.id].expiresAt !== task.expiresAt,
     previewFailed: (id: string, error: unknown) => update(id, previewFailure(error)),
-    switchExecutor, retryExecutor, executorBusy, agentLink, privateDocument, externalBlocked,
-    workspaceReadState, workspaceReadBlocked, setWorkspaceRead, retryWorkspaceRead, refreshWorkspaceRead,
-    workspaceReadWorking: (id: string) => !!workspaceReadOperations[id],
-    workspaceReadIssue: (id: string) => workspaceReadIssues[id],
-    executorWorking: (task: AITask) => !!task.pendingExecutor && preparations.current.has(task.id),
-    inactiveReason, syncAcceptance, canSyncAcceptance: (task: AITask) => !!cloud && task.acceptance?.workingCopyId === cloud.workingCopyId,
-    cloudWarning: persistence.warning, cloudConflict: persistence.conflict, archives: persistence.archives,
-    statusIssue: (id: string) => connection.offline ? { message: 'Offline · AI request retained. Waiting for reconnection to check the result.', paused: false } : statusIssues[id], checkStatus: (id: string) => checkStatusRef.current(id),
-    flushLocal: persistence.flushLocal, retryCloud: persistence.retry, resolveCloudConflict: (choice: 'local' | 'cloud') => { void persistence.engine.current?.resolve(choice) },
-    discardArchive: (id: string) => persistence.engine.current?.discardArchive(id),
+    missingRemote: (id: string) => setStatusIssues(value => ({ ...value, [id]: 'Execution details are unavailable. Retained proposals can still be reviewed.' })),
+    statusIssue: (id: string) => statusIssues[id], checkStatus,
+    flushLocal: persistence.flushLocal, cloudWarning: persistence.warning, retryCloud: persistence.retry,
+    archives: persistence.archives, discardArchive: persistence.discardArchive,
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }
 }

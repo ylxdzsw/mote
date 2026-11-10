@@ -2,6 +2,7 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import type { WorkingRecord } from '../src/cloud/workingCopies.ts'
+import type { Reservation } from '../src/ai/types.ts'
 import type { CloudDocument } from '../src/cloud/api.ts'
 
 // Transactional, structured-clone storage; browser integration covers real IndexedDB.
@@ -41,7 +42,7 @@ after(async () => { globalThis.fetch = originalFetch; delete (globalThis as any)
 
 const cloud = new Map<string, CloudDocument>(), operations = new Map<string, { body: string; result: CloudDocument }>()
 const calls: { path: string; method: string; body: any }[] = []
-let loseCreate = false, failPrivacy = false, duringCreate: (() => void) | undefined
+let loseCreate = false, loseSave = false, failPrivacy = false, duringCreate: (() => void) | undefined, duringSave: (() => void) | undefined
 globalThis.fetch = async (input, options) => {
   const path = String(input), pathname = new URL(path, 'http://moted.local').pathname
   const method = options?.method ?? 'GET', body = options?.body ? JSON.parse(String(options.body)) : undefined
@@ -53,7 +54,7 @@ globalThis.fetch = async (input, options) => {
     assert.deepEqual(stored?.pendingCreate, body, 'creation is durable before POST')
     const old = operations.get(body.operationId)
     if (old) assert.equal(JSON.stringify(body), old.body, 'uncertain creation body is immutable')
-    const result = old?.result ?? { id: body.id, document: body.document, name: body.name, revision: '1', private: body.private ?? false,
+    const result = old?.result ?? { id: body.id, document: body.document, reservations: body.reservations ?? [], name: body.name, revision: '1', private: body.private ?? false,
       privacyRevision: 0, archived: false, archiveRevision: 0, createdAt: 1, updatedAt: 1 }
     if (!old) { cloud.set(body.id, result); operations.set(body.operationId, { body: JSON.stringify(body), result }) }
     duringCreate?.(); duringCreate = undefined
@@ -70,8 +71,17 @@ globalThis.fetch = async (input, options) => {
     return Response.json(cloud.get(id))
   }
   if (method === 'PUT') {
-    assert.equal(body.baseRevision, current.revision)
-    cloud.set(id, { ...current, document: body.document, revision: String(Number(current.revision) + 1) })
+    const stored = [...rows.values()].find(record => record.meta.id === id)
+    assert.deepEqual(stored?.pending, body, 'both fields and retry identity are durable before PUT')
+    const old = operations.get(body.operationId)
+    if (old) assert.equal(JSON.stringify(body), old.body, 'uncertain save body is immutable')
+    else if (body.baseRevision !== current.revision) return Response.json({ error: 'Conflict', current }, { status: 409 })
+    const result = old?.result ?? { ...current, document: body.document, reservations: body.reservations ?? current.reservations,
+      revision: String(Number(current.revision) + 1) }
+    if (!old) { cloud.set(id, result); operations.set(body.operationId, { body: JSON.stringify(body), result }) }
+    duringSave?.(); duringSave = undefined
+    if (loseSave) { loseSave = false; throw new TypeError('save response lost') }
+    return Response.json(result)
   }
   return Response.json(cloud.get(id))
 }
@@ -90,11 +100,11 @@ function reload(key: string) {
 }
 async function reset() {
   rows.clear(); cloud.clear(); operations.clear(); calls.length = 0
-  loseCreate = false; failPrivacy = false; failWrite = false; duringCreate = undefined
+  loseCreate = false; loseSave = false; failPrivacy = false; failWrite = false; duringCreate = undefined; duringSave = undefined
   await retryConnection(); calls.length = 0
 }
 
-test('open privacy refresh marks the request and validates its query response', async () => {
+test('privacy refresh validates current document metadata', async () => {
   await reset()
   const record = draft()
   delete record.draft; delete record.pendingCreate
@@ -102,7 +112,7 @@ test('open privacy refresh marks the request and validates its query response', 
   cloud.set(record.meta.id, { ...record.meta, document: record.document })
   const copy = new WorkingCopy(record)
   await copy.refreshPrivacy()
-  assert.equal(calls.find(call => call.method === 'GET')?.path, `/api/documents/${record.meta.id}/privacy?open=1`)
+  assert.equal(calls.find(call => call.method === 'GET')?.path, `/api/documents/${record.meta.id}/privacy`)
   assert.equal(connectionSnapshot().offline, false)
 })
 
@@ -290,4 +300,162 @@ test('creation identity, privacy, and copy recovery', async t => {
     assert.match(error, /Check the server or retry/)
     assert.ok(copy.getSnapshot().privacy.pending)
   })
+})
+
+
+function reservation(record: WorkingRecord): Reservation {
+  return { id: crypto.randomUUID(), documentId: record.meta.id, workspaceRead: false, original: [],
+    target: { kind: 'text', blockIds: [record.document.content.content![0].attrs!.id], selection: { from: 1, to: 1 },
+      insert: false, area: { x: 0, y: 0, width: 200, height: 40 } } }
+}
+function savedRecord() {
+  const record = draft()
+  delete record.draft; delete record.pendingCreate
+  record.dirty = false; record.meta.revision = '1'
+  record.reservations = [reservation(record)]
+  cloud.set(record.meta.id, { ...record.meta, document: record.document, reservations: record.reservations })
+  return record
+}
+
+test('local acceptance retains prior edits and releases atomically through ordinary CAS', async () => {
+  for (const stale of [false, true]) {
+    await reset()
+    const record = savedRecord(), copy = new WorkingCopy(record)
+    const prior = edited(record, 'Prior dirty notes')
+    copy.update(prior)
+    const accepted = { ...prior, page: { ...prior.page, width: prior.page.width + 20 } }
+    const released = [{ ...record.reservations[0], released: true }]
+    if (stale) cloud.set(record.meta.id, { ...cloud.get(record.meta.id)!, revision: '2' })
+    copy.update(accepted, released)
+    assert.equal(calls.length, 0, 'local acceptance needs no preflight')
+    assert.equal(copy.getSnapshot().record.document, accepted)
+    assert.equal(copy.getSnapshot().record.reservations, released)
+    const result = await copy.sync()
+    assert.deepEqual(calls.map(call => call.method), ['PUT'])
+    assert.deepEqual(calls[0].body.document.authoring.notes, ['Prior dirty notes'])
+    assert.deepEqual(calls[0].body.reservations, released)
+    if (stale) {
+      assert.equal(result, null)
+      assert.equal(copy.getSnapshot().conflict.revision, '2')
+      assert.equal(copy.getSnapshot().record.document, accepted)
+      assert.equal(copy.getSnapshot().record.reservations, released)
+      assert.equal(copy.getSnapshot().record.dirty, true)
+      assert.ok(await copy.overwrite())
+      assert.equal(calls.at(-1)!.body.baseRevision, '2')
+      assert.deepEqual(calls.at(-1)!.body.reservations, released)
+    } else assert.equal(copy.getSnapshot().record.dirty, false)
+    assert.deepEqual(cloud.get(record.meta.id)?.reservations, released)
+    assert.equal('reservations' in cloud.get(record.meta.id)!.document, false)
+  }
+})
+
+test('uncertain save replays both fields unchanged after reload before draining newer edits', async () => {
+  await reset()
+  const record = savedRecord(), copy = new WorkingCopy(record)
+  const released = [{ ...record.reservations[0], released: true }]
+  copy.update(edited(record, 'Accepted'), released)
+  loseSave = true
+  assert.equal(await copy.sync(), null)
+  const first = calls.find(call => call.method === 'PUT')!.body
+  const recovered = reload(record.key)
+  assert.deepEqual(recovered.getSnapshot().record.reservations, released)
+  recovered.update(record.document, record.reservations)
+  const newer = [{ ...record.reservations[0], title: 'During save', workspaceRead: true }]
+  duringSave = () => recovered.update(edited(record, 'Typed during save'), newer)
+  assert.ok(await recovered.sync())
+  const puts = calls.filter(call => call.method === 'PUT')
+  assert.deepEqual(puts[1].body, first)
+  assert.notEqual(puts[2].body.operationId, first.operationId)
+  assert.equal(puts[2].body.baseRevision, '2')
+  assert.deepEqual(cloud.get(record.meta.id)?.reservations, newer)
+  assert.deepEqual(cloud.get(record.meta.id)?.document.authoring?.notes, ['Typed during save'])
+  assert.equal(recovered.getSnapshot().record.dirty, false)
+})
+
+test('reservation-only blank draft creates and drains edits during creation', async () => {
+  await reset()
+  const record = draft(); delete record.pendingCreate; record.dirty = false
+  const copy = new WorkingCopy(record), reserved = [reservation(record)]
+  copy.update(record.document, reserved)
+  assert.equal(copy.getSnapshot().record.dirty, true)
+  const released = [{ ...reserved[0], released: true }]
+  duringCreate = () => copy.update(record.document, released)
+  assert.ok(await copy.sync())
+  assert.deepEqual(calls.map(call => call.method), ['POST', 'PUT'])
+  assert.deepEqual(calls[0].body.reservations, reserved)
+  assert.deepEqual(calls[1].body.reservations, released)
+  assert.deepEqual(reload(record.key).getSnapshot().record.reservations, released)
+})
+
+test('clean adoption brings reservations; dirty reservation edits resist remote refresh', async () => {
+  await reset()
+  const record = savedRecord(), copy = new WorkingCopy(record)
+  const remote = { ...cloud.get(record.meta.id)!, revision: '2', document: edited(record, 'Remote'),
+    reservations: [{ ...record.reservations[0], title: 'Remote task' }] }
+  cloud.set(record.meta.id, remote)
+  await copy.checkRemote()
+  assert.deepEqual(copy.getSnapshot().record.reservations, remote.reservations)
+  assert.deepEqual(copy.getSnapshot().record.document, remote.document)
+  const local = [{ ...remote.reservations[0], workspaceRead: true }]
+  copy.update(copy.getSnapshot().record.document, local)
+  cloud.set(record.meta.id, { ...remote, revision: '3', reservations: [] })
+  await copy.checkRemote()
+  assert.equal(copy.getSnapshot().record.reservations, local)
+  assert.equal(copy.getSnapshot().record.meta.revision, '2')
+  assert.equal(await copy.discard(), true)
+  assert.deepEqual(copy.getSnapshot().record.reservations, [])
+})
+
+test('Save as copy drops task identities but retains original reservations', async () => {
+  await reset()
+  const record = savedRecord(), copy = new WorkingCopy(record)
+  const result = await copy.saveAs('No task identity')
+  assert.ok(result)
+  assert.deepEqual(result.reservations, [])
+  assert.deepEqual(rows.get(record.key)?.reservations, record.reservations)
+  assert.deepEqual(copy.getSnapshot().record.reservations, record.reservations)
+})
+
+test('early sync debounces 650ms, preserves errors, and cancels on cleanup', async t => {
+  await reset()
+  const record = savedRecord(), copy = new WorkingCopy(record)
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let syncs = 0
+  copy.sync = async (retainDraft: boolean) => { assert.equal(retainDraft, true); syncs++; return null }
+  const request = copy.requestEarlySync
+  copy.remoteDeleted()
+  const error = copy.getSnapshot().error
+  request()
+  t.mock.timers.tick(500)
+  request()
+  t.mock.timers.tick(649)
+  assert.equal(syncs, 0)
+  assert.equal(copy.getSnapshot().error, error)
+  t.mock.timers.tick(1)
+  assert.equal(syncs, 1)
+  request(); copy.cancelEarlySync()
+  t.mock.timers.tick(650)
+  assert.equal(syncs, 1)
+})
+
+
+test('edits during acknowledgment persistence drain before ordinary sync finishes', async () => {
+  await reset()
+  const record = savedRecord(), copy = new WorkingCopy(record)
+  copy.update(edited(record, 'Accepted'), [{ ...record.reservations[0], released: true }])
+  let changed = false
+  const unsubscribe = copy.subscribe(() => {
+    const state = copy.getSnapshot()
+    if (!changed && state.record.meta.revision === '2' && state.local === 'saving') {
+      changed = true
+      copy.update(state.record.document, [{ ...record.reservations[0], workspaceRead: true }])
+    }
+  })
+  await copy.sync()
+  unsubscribe()
+  assert.equal(changed, true)
+  assert.equal(copy.getSnapshot().record.dirty, false)
+  assert.equal(cloud.get(record.meta.id)?.reservations?.[0].workspaceRead, true)
+  assert.equal(cloud.get(record.meta.id)?.reservations?.[0].released, undefined)
+  assert.equal(calls.filter(call => call.method === 'PUT').length, 2)
 })

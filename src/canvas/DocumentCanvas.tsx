@@ -40,7 +40,7 @@ import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { SegmentBorders } from '../ai/SegmentBorders'
 import { selectedCandidateVersion } from '../ai/candidates'
-import { canResizeReservation, currentPlacement } from '../ai/reservations'
+import { currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/types'
 
 export type CreationTool = 'paragraph' | 'slideBreak' | 'text' | 'code' | 'drawing' | 'ai' | 'table' | 'formula' | 'html' | { image: FloatingImage; ratio: number } | null
@@ -859,7 +859,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
   }
 
   function sizeLocked(id: string) {
-    return lockedIds.has(id) && !aiReview?.tasks.some(task => task.target.kind === 'object' && task.target.objectId === id && canResizeReservation(task))
+    return lockedIds.has(id)
   }
 
   function interact(event: React.SyntheticEvent) {

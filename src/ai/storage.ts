@@ -9,6 +9,7 @@ export interface AssistantRecovery {
   dirty: boolean
   pending?: { baseRevision: string; tasks: AITask[]; operationId: string }
   archives: AssistantArchive[]
+  views?: Record<string, Partial<AITask>>
 }
 
 let database: Promise<IDBDatabase> | undefined

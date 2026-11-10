@@ -2,12 +2,13 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import { DocumentFormatError, loadDocument, migrationBreaking, validateDocument, publishDocument } from '../shared/document.mjs'
-import { validateDocument as validateServerDocument, validateCandidate } from '../server/validation.mjs'
+import { validateDocument as validateServerDocument, validateProposalCandidate } from '../server/validation.mjs'
 
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
 const { createBlankDocument, createDocument, patchObject, supportsMarkup } = await server.ssrLoadModule('/src/document/model.ts')
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
+const { currentPlacement } = await server.ssrLoadModule('/src/ai/reservations.ts')
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
 
 test('loading migrates V1 to V5 without mutating input or changing current weights', () => {
@@ -85,14 +86,13 @@ test('V5 markup is closed, owner-bound, preserved by patches and candidates, and
     assert.deepEqual(patchObject(owner, { width: 450, ...(owner.kind === 'image' ? { src: owner.src } : { html: '<p>Revised</p>' }) }).markup, markup)
     assert.equal('markup' in patchObject(owner, { markup: null }), false)
     assert.deepEqual(owner.markup, markup)
-    const target = { kind: 'object', objectId: owner.id, isNew: false, area: { x: 0, y: 0, width: 300, height: 150 } }
     const omitted = { ...owner }; delete omitted.markup
-    assert.deepEqual(validateCandidate({ object: omitted, summary: 'Preserve' }, marked, target).object.markup, markup)
+    assert.equal(validateProposalCandidate({ object: omitted, summary: 'Preserve' }).object.markup, undefined)
+    assert.deepEqual(currentPlacement(omitted, owner).markup, markup)
     const empty = { ...markup, strokes: [], labels: [] }
-    assert.deepEqual(validateCandidate({ object: { ...owner, markup: empty }, summary: 'Clear' }, marked, target).object.markup, empty)
+    assert.deepEqual(validateProposalCandidate({ object: { ...owner, markup: empty }, summary: 'Clear' }).object.markup, empty)
     for (const version of [1, 2, 3, 4]) {
       assert.throws(() => validateDocument({ ...marked, version }))
-      assert.throws(() => validateCandidate({ object: owner, summary: 'Not supported' }, { ...document, version }, target))
     }
     for (const invalid of [null, {}, { ...markup, width: 0 }, { ...markup, height: Infinity },
       ...['id', 'layout', 'background'].map(key => ({ ...markup, [key]: null })),

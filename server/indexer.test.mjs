@@ -3,7 +3,6 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { paletteEntries } from '../shared/palette.mjs'
 import assert from 'node:assert/strict'
-import { DatabaseSync } from 'node:sqlite'
 import { mkdtemp, mkdir, readFile, rm, stat as fsStat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'
@@ -71,22 +70,14 @@ function fakeRunner(run) {
   }
 }
 
-test('settings migration is additive and omitted indexingEnabled retains its value', async t => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'mote-indexer-migration-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const data = path.join(root, 'data')
-  await mkdir(data, { recursive: true })
-  const db = new DatabaseSync(path.join(data, 'documents.sqlite'))
-  db.exec(`CREATE TABLE workspace_settings(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL,builtin TEXT NOT NULL,indexing TEXT NOT NULL);
-    INSERT INTO workspace_settings VALUES(1,7,'workspace/model','workspace/indexer');`)
-  db.close()
-  const store = await CloudStore.open({ stateDir: root, backupDir: path.join(root, 'backups') }, { MOTED_STATE_DIR: root, MOTED_BACKUP_DIR: path.join(root, 'backups') })
-  t.after(() => store.close())
-  assert.deepEqual(store.settings(), { revision: 7, models: { builtin: 'workspace/model', indexing: 'workspace/indexer' }, indexingEnabled: false })
-  const enabled = store.putSettings({ baseRevision: 7, models: { builtin: 'workspace/model', indexing: 'workspace/indexer' }, indexingEnabled: true })
+test('omitted indexingEnabled retains the current setting', async t => {
+  const { store } = await fixture(t)
+  const models = { builtin: 'workspace/model', indexing: 'workspace/indexer' }
+  assert.equal(store.settings().indexingEnabled, false)
+  const enabled = store.putSettings({ baseRevision: 0, models, indexingEnabled: true })
   assert.equal(enabled.indexingEnabled, true)
-  assert.equal(store.putSettings({ baseRevision: 8, models: { builtin: 'next', indexing: '' } }).indexingEnabled, true)
-  assert.throws(() => store.putSettings({ baseRevision: 8, models: { builtin: 'next', indexing: '' } }), error => error.status === 409)
+  assert.equal(store.putSettings({ baseRevision: enabled.revision, models: { builtin: 'next', indexing: '' } }).indexingEnabled, true)
+  assert.throws(() => store.putSettings({ baseRevision: enabled.revision, models }), error => error.status === 409)
 })
 
 test('visual extraction accepts only embedded native image fields and writes fixed paths', async t => {

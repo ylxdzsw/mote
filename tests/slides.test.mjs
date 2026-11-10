@@ -4,7 +4,7 @@ import { createServer } from 'vite'
 import { getSchema } from '@tiptap/core'
 import { EditorState } from '@tiptap/pm/state'
 import { loadDocument, validateDocument, validateContent, validateComposition } from '../shared/document.mjs'
-import { validateCandidate } from '../server/validation.mjs'
+import { validateProposalCandidate } from '../server/validation.mjs'
 
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
@@ -32,12 +32,11 @@ test('V2 object and whole-slide AI candidates retain unrelated slide structure',
   const doc = document([p('a'), boundary('second'), p('b'), boundary('third'), p('c')])
   doc.version = 2; doc.page.slideHeight = 540
   doc.objects = [float('owned', 'second'), float('untouched', 'third')]
-  const objectTarget = { kind: 'object', objectId: 'owned', isNew: false, area: { x: 10, y: 545, width: 30, height: 20 } }
   const candidate = { object: { ...doc.objects[0], source: 'changed' }, summary: 'Revision' }
-  assert.equal(validateCandidate(candidate, doc, objectTarget).object.source, 'changed')
+  assert.equal(validateProposalCandidate(candidate).object.source, 'changed')
   const target = makeSegmentTarget(doc, { start: { index: 1, offset: 0 }, end: { index: 3, offset: 0 } }, { x: 0, y: 540, width: 960, height: 540 })
   const segment = { version: 1, type: 'segment', content: [p('replacement')], objects: [], geometry: {}, anchorTops: {}, originTop: 0 }
-  validateCandidate({ segment, summary: 'New slide content' }, doc, target)
+  validateProposalCandidate({ segment, summary: 'New slide content' })
   const next = applySegmentCandidate(doc, target, segment, { anchors: [], geometry: {} })
   validateDocument(next)
   assert.deepEqual(next.content.content.filter(block => block.type === 'slideBreak'), [boundary('second'), boundary('third')])
@@ -64,14 +63,14 @@ test('multi-slide candidates preserve internal boundaries and slide-top Float an
   const target = makeSegmentTarget(doc, range, { x: 0, y: 540, width: 960, height: 1080 })
   const payload = copySegment(doc, range, [], {}, true)
   assert.equal(payload.version, 2)
-  validateCandidate({ segment: payload, summary: 'Two slides' }, doc, target)
+  validateProposalCandidate({ segment: payload, summary: 'Two slides' })
   const next = applySegmentCandidate(doc, target, payload, { anchors: [], geometry: {} })
   validateDocument(next)
   assert.deepEqual(next.content.content.filter(block => block.type === 'slideBreak'), doc.content.content.filter(block => block.type === 'slideBreak'))
   assert.deepEqual(next.objects.map(object => object.layout.placement), doc.objects.map(object => object.layout.placement))
   const bad = { ...payload, content: payload.content.filter(block => block.type !== 'slideBreak'), objects: [] }
   bad.anchorTops = {}
-  assert.throws(() => validateCandidate({ segment: bad, summary: 'Missing boundary' }, doc, target), /boundaries/)
+  validateProposalCandidate({ segment: bad, summary: 'Missing boundary' })
   assert.throws(() => applySegmentCandidate(doc, target, bad, { anchors: [], geometry: {} }), /boundary/)
   const cleared = applySegmentCandidate(doc, target, null, { anchors: [], geometry: {} })
   validateDocument(cleared)

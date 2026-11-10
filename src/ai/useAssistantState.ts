@@ -1,111 +1,79 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { assistantRequest } from './api'
-import { AssistantState } from './cloudState'
-import { loadAssistantRecovery, loadTasks, saveAssistantRecovery } from './storage'
+import { loadAssistantRecovery, loadTasks, saveAssistantRecovery, type AssistantRecovery } from './storage'
 import type { AITask, AssistantCloud } from './types'
-import { useConnection } from '../cloud/connection'
-import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 
+// Only browser review state and unsent requests live here. Reservations are in
+// document history; proposals are fetched independently from the task service.
 export function useAssistantState(cloud: AssistantCloud | undefined, writable: boolean) {
-  const latestCloud = useRef(cloud)
-  latestCloud.current = cloud
-  const connection = useConnection()
-  const [tasks, setTasks] = useState<AITask[]>([]), state = useRef(tasks)
-  const [loaded, setLoaded] = useState(false), [error, setError] = useState('')
-  const [tick, render] = useState(0)
-  const engine = useRef<AssistantState | null>(null)
+  const [views, setViews] = useState<Record<string, Partial<AITask>>>({})
+  const [loaded, setLoaded] = useState(false), [warning, setWarning] = useState('')
   const [retry, setRetry] = useState(0)
-  const recoveredConnection = useRef(0)
-  const refreshRequested = useRef(false)
-  const flushLocal = useCallback(async () => { await engine.current?.flushLocal() }, [])
+  const [archives, setArchives] = useState<AssistantRecovery['archives']>([])
+  const record = useRef<AssistantRecovery | undefined>(undefined)
+  const writes = useRef(Promise.resolve())
+  const mounted = useRef(true)
+  const failed = useRef(false)
+  const persist = useCallback(() => {
+    const value = record.current
+    if (!value) return Promise.resolve()
+    const snapshot = structuredClone(value)
+    writes.current = writes.current.catch(() => {}).then(() => saveAssistantRecovery(snapshot)).then(() => {
+      failed.current = false
+      if (mounted.current) setWarning('')
+    }, error => {
+      failed.current = true
+      if (mounted.current) setWarning('Assistant requests could not be saved locally. Keep this tab open and retry.')
+      throw error
+    })
+    void writes.current.catch(() => {})
+    return writes.current
+  }, [])
+  const flushLocal = useCallback(async () => {
+    for (;;) {
+      const current = record.current
+      if (failed.current) await persist()
+      else await writes.current
+      if (record.current === current) return
+    }
+  }, [persist])
   useEffect(() => {
     let active = true
-    refreshRequested.current = false
-    setLoaded(false); state.current = []; setTasks([]); engine.current = null
+    mounted.current = true
+    setLoaded(false)
     if (!cloud || !writable) { setLoaded(true); return }
-    const { workingCopyId, documentId } = cloud
     void (async () => {
-      const saved = await loadAssistantRecovery(workingCopyId, documentId)
+      const saved = await loadAssistantRecovery(cloud.workingCopyId, cloud.documentId)
       const legacy = saved ? [] : await loadTasks()
+      let retained = saved?.archives ?? []
+      if (saved?.tasks.length) retained = [...retained, { id: 'retired-local', label: 'Earlier local task recovery', tasks: saved.tasks }]
+      if (legacy.length) retained = [...retained, { id: 'retired-browser', label: 'Earlier browser task recovery', tasks: legacy }]
       if (!active) return
-      const current = new AssistantState(saved ?? { workingCopyId, documentId, revision: cloud.draft ? '0' : null, tasks: [], dirty: false,
-        archives: legacy.length ? [{ id: crypto.randomUUID(), label: 'Earlier browser task recovery', tasks: legacy }] : [] }, {
-        get: () => assistantRequest(documentId), put: async body => {
-          if (latestCloud.current?.draft && !await latestCloud.current.sync()) throw new Error('Add content or change document settings before saving this draft’s AI tasks.')
-          return assistantRequest(documentId, body)
-        }, save: saveAssistantRecovery,
-        changed: () => {
-          if (!active) return
-          state.current = current.record.tasks; setTasks(state.current); render(tick => tick + 1)
-        },
-      })
-      engine.current = current; state.current = current.record.tasks; setTasks(state.current)
-      // New cloud documents start at assistant revision 0. Keep reservations on
-      // this device until content/settings or a submitted request create the document.
-      if (cloud.draft) current.ready = true
-      else await current.initialize()
-      if (!active) return
-      // A preparing token is process-local, but its input/request ID is durable.
-      current.replace(current.record.tasks.map(task => task.status === 'preparing' && task.preparingCopyId === workingCopyId ? { ...task,
-        status: task.requestSent || task.submitted ? 'waiting' : 'draft',
-        progress: task.requestSent || task.submitted ? 'Waiting to confirm the request.' : '',
-        error: task.requestSent || task.submitted ? undefined : 'Preparation was interrupted before sending. Send when ready.' } : task))
-      setLoaded(true); setError('')
-    })().catch(error => { if (active) { setError(`AI task recovery is unavailable: ${(error as Error).message}`); setLoaded(true) } })
-    return () => { active = false }
-  }, [cloud?.workingCopyId, cloud?.documentId, writable, retry])
-
-  useEffect(() => {
-    if (!loaded || !writable || cloud?.draft || connection.offline) return
-    const current = engine.current
-    if (!current?.ready || current.busy || current.conflict || current.warning || current.localWarning || !current.record.dirty && !current.record.pending) return
-    const timer = window.setTimeout(() => { void current.flush() }, 650)
-    return () => window.clearTimeout(timer)
-  }, [tasks, loaded, writable, tick, connection.offline, cloud?.draft])
-  useEffect(() => {
-    if (!loaded || !writable || cloud?.draft || connection.offline || connection.revision === recoveredConnection.current) return
-    const current = engine.current
-    if (!current || current.busy || current.conflict || current.localWarning) return
-    recoveredConnection.current = connection.revision
-    if (!current.ready) void current.initialize()
-    else if (current.record.dirty || current.record.pending) void current.flush()
-    else void current.refresh()
-  }, [loaded, writable, connection.offline, connection.revision, tick, cloud?.draft])
-  useEffect(() => {
-    if (!writable || !cloud || cloud.draft) return
-    return subscribeDocumentUpdates(cloud.documentId, event => {
-      if (event.kind !== 'ready' && event.kind !== 'assistant') return
-      refreshRequested.current = true; render(tick => tick + 1)
-    })
-  }, [writable, cloud?.documentId, cloud?.draft])
-  useEffect(() => {
-    const current = engine.current
-    if (!refreshRequested.current || !loaded || !writable || cloud?.draft || connection.offline || !current
-      || current.busy || current.warning || current.localWarning || current.conflict || current.record.dirty || current.record.pending) return
-    refreshRequested.current = false
-    if (!current.ready) void current.initialize()
-    else void current.refresh()
-  }, [loaded, writable, cloud?.draft, connection.offline, tick])
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      const current = engine.current
-      if (current?.record.dirty || current?.record.pending || current?.localWarning) event.preventDefault()
-    }
-    window.addEventListener('beforeunload', warn)
-    return () => window.removeEventListener('beforeunload', warn)
-  }, [])
-  return { tasks, state, loaded, engine, flushLocal,
-    replace: (tasks: AITask[]) => engine.current?.replace(tasks),
-    warning: error || engine.current?.localWarning || engine.current?.warning || (!cloud ? 'Open a cloud document to use the assistant.' : ''),
-    conflict: engine.current?.conflict ?? null,
-    archives: engine.current?.record.archives ?? [],
-    retry: () => {
-      const current = engine.current
-      if (!current) setRetry(value => value + 1)
-      else if (latestCloud.current?.draft) { if (current.record.tasks.length) void latestCloud.current.sync() }
-      else if (!current.ready) void current.initialize()
-      else if (current.record.dirty || current.record.pending) void current.flush()
-      else void current.refresh()
-    },
+      const current: AssistantRecovery = { workingCopyId: cloud.workingCopyId, documentId: cloud.documentId,
+        revision: null, tasks: [], dirty: saved?.dirty ?? false, archives: retained, views: saved?.views ?? {} }
+      record.current = current
+      setViews(current.views!); setArchives(retained); setLoaded(true); setWarning('')
+      // Retired cloud artifacts are optional recovery, never a dependency of
+      // current document editing or browser proposal/request state.
+      if (!saved && !cloud.draft) void assistantRequest(cloud.documentId).then(remote => {
+        if (!active || !remote.tasks.length || !record.current) return
+        record.current = { ...record.current, archives: [...record.current.archives,
+          { id: 'retired-cloud', label: 'Earlier cloud task recovery', tasks: remote.tasks }] }
+        setArchives(record.current.archives); void persist()
+      }).catch(() => {})
+    })().catch(error => { if (active) { setWarning(`Assistant recovery could not be loaded: ${(error as Error).message}`); setLoaded(true) } })
+    return () => { active = false; mounted.current = false }
+  }, [cloud?.workingCopyId, cloud?.documentId, writable, retry, persist])
+  function update(id: string, patch: Partial<AITask>) {
+    if (!record.current) return
+    const views = { ...record.current.views, [id]: { ...record.current.views?.[id], ...patch } }
+    record.current = { ...record.current, views, dirty: Object.values(views).some(view => !!view.draftPrompt || !!view.pendingRun) }
+    setViews(views); void persist()
   }
+  function discardArchive(id: string) {
+    if (!record.current) return
+    record.current = { ...record.current, archives: record.current.archives.filter(item => item.id !== id) }
+    setArchives(record.current.archives); void persist()
+  }
+  return { views, loaded, warning, archives, update, discardArchive, flushLocal, retry: () => { if (!record.current) setRetry(value => value + 1); else void persist() } }
 }

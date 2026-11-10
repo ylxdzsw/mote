@@ -10,8 +10,9 @@ import { createMotedServer, TaskManager } from './moted.mjs'
 import { fakeRunner, stopWorkerUnit } from './runner.mjs'
 import { agentRequest, submitResult } from './submit.mjs'
 import { pathToFileURL } from 'node:url'
-import { validateCandidate, validateDocument, validateRequest } from './validation.mjs'
-import { validateDelivery } from './agent-protocol.mjs'
+import { validateProposalCandidate, validateDocument } from './validation.mjs'
+import { validateReservations } from './reservation-validation.mjs'
+const checkedReservation = ({ id, document, target }) => validateReservations([{ id, documentId: document.id, target, original: document.content.content, workspaceRead: false }], document)[0]
 import { WidgetScreenshots, widgetInput, publicIPv4, publicAddress, resourceHost, resourceBroker } from './widget-screenshot.mjs'
 import { widgetHarness } from './widget-harness.mjs'
 import { runInNewContext } from 'node:vm'
@@ -34,7 +35,7 @@ function document(kind = 'text') {
   if (kind === 'html') doc.objects.push({ id: 'object-1', kind: 'html', layout: { width: 200, height: 100, placement: { type: 'float', anchorId: 'block-1', x: 40, y: 10 } }, html: '<button>+</button>', screenshot: svg, alt: 'demo' })
   return doc
 }
-function request(id, doc = document(), extra = {}) { return { id, protocol: 'mote-agent-v2', operationId: crypto.randomUUID(), document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
+function request(id, doc = document(), extra = {}) { return { id, protocol: 'mote-agent-v5', operationId: crypto.randomUUID(), document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
 function segmentDocument() {
   const doc = document('text')
   doc.content.content = [
@@ -78,12 +79,14 @@ async function app(options = {}) {
   await value.start(); value.stateDir = stateDir; return value
 }
 async function post(app, body, pathName = '/api/ai/tasks', origin = 'http://localhost:5173') {
-  if (pathName === '/api/ai/tasks' && origin === 'http://localhost:5173' && !body.cloudDocumentId) {
-    const saved = app.store.create({ id: body.document.id, name: 'Task fixture', document: body.document, operationId: crypto.randomUUID() })
-    app.store.noteDocumentOpen(saved.id)
-    Object.assign(body, { cloudDocumentId: saved.id, baseRevision: saved.revision })
-    app.store.putAssistant(saved.id, { baseRevision: '0', tasks: [body], operationId: crypto.randomUUID() })
+  if (pathName === '/api/ai/tasks' && origin === 'http://localhost:5173') {
+    const reservation = { id: body.id, documentId: body.document.id, target: body.target, original: body.document.content.content, workspaceRead: false }
+    app.store.create({ id: body.document.id, name: 'Task fixture', document: body.document, reservations: [reservation], operationId: crypto.randomUUID() })
+    await app.manager.ensure(body.id)
+    pathName = `/api/ai/tasks/${body.id}/revise`
+    body = { prompt: body.prompt, model: body.model, operationId: body.operationId }
   }
+  if (pathName.endsWith('/revise')) { const { executorRevision, ...current } = body; body = { operationId: crypto.randomUUID(), ...current } }
   const address = app.server.address()
   return fetch(`http://127.0.0.1:${address.port}${pathName}`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) })
 }
@@ -115,7 +118,7 @@ async function takeEvents(response, count) {
 test('unexpected HTTP failures return correlated IDs and log only sanitized diagnostics', async t => {
   const value = await app(); t.after(async () => { await value.close(); await rm(value.stateDir, { recursive: true, force: true }) })
   const address = value.server.address(), originalError = console.error
-  const originalSettings = value.store.settings, originalGet = value.store.get, originalAuthorize = value.manager.authorize
+  const originalSettings = value.store.settings, originalGet = value.store.get, originalAuthorize = value.store.credentialByToken
   const lines = []
   console.error = line => lines.push(String(line))
   try {
@@ -155,7 +158,7 @@ test('unexpected HTTP failures return correlated IDs and log only sanitized diag
     assert.equal(notFound.status, 404)
     assert.equal(lines.length, 2)
 
-    value.manager.authorize = () => { throw Object.assign(new Error('PRIVATE AGENT INPUT and bearer secret'), { code: 'ERR_INTERNAL' }) }
+    value.store.credentialByToken = () => { throw Object.assign(new Error('PRIVATE AGENT INPUT and bearer secret'), { code: 'ERR_INTERNAL' }) }
     const token = 'A'.repeat(22)
     const agentResponse = await fetch(`http://127.0.0.1:${address.port}/a/${token}/document.json?query-secret`)
     const agentBody = await agentResponse.json()
@@ -173,73 +176,10 @@ test('unexpected HTTP failures return correlated IDs and log only sanitized diag
     console.error = originalError
     value.store.settings = originalSettings
     value.store.get = originalGet
-    value.manager.authorize = originalAuthorize
+    value.store.credentialByToken = originalAuthorize
   }
 })
 
-test('fixed palette references and native links validate across documents, candidates, and segments', () => {
-  const references = ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink'].flatMap(id => [id, `${id}:soft`])
-  references.push('gray1', 'gray2', 'gray3', 'gray4', 'gray5', 'gray6')
-  const paragraph = color => ({ type: 'paragraph', attrs: { id: 'color-paragraph', semantic: 'body' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color } }] }] })
-  for (const mode of ['light', 'dark']) for (const color of references) {
-    const doc = structuredClone(document())
-    doc.theme.appearance.mode = mode
-    doc.theme.defaults.color = color
-    doc.theme.objects.formula = { color }
-    doc.content.content[0].content = paragraph(color).content
-    if (boxColorIds.includes(color)) doc.objects[0].decoration = { kind: 'box', color }
-    assert.equal(validateDocument(doc), doc)
-    assert.doesNotThrow(() => validateCandidate({ content: [paragraph(color)], summary: 'Color' }, doc, request('unused', doc).target))
-    const segment = segmentPayload()
-    segment.content[0].content = paragraph(color).content
-    segment.objects[0].caption.content.content[0].content = paragraph(color).content
-    assert.equal(validateCandidate({ segment, summary: 'Color' }, segmentDocument(), segmentTarget()).segment, segment)
-  }
-  for (const color of ['ink', 'muted', 'paper', 'detail', 'gray1:soft', 'gray6:soft', 'gray7', 'primary:strong', 'blue:soft:soft', '#ffffff']) {
-    const doc = structuredClone(document())
-    doc.theme.defaults.color = color
-    assert.throws(() => validateDocument(doc), { status: 400 })
-    assert.throws(() => validateCandidate({ content: [paragraph(color)], summary: 'Invalid' }, document(), request('unused').target), { status: 400 })
-    const segment = segmentPayload()
-    segment.content[0].content = paragraph(color).content
-    assert.throws(() => validateCandidate({ segment, summary: 'Invalid' }, segmentDocument(), segmentTarget()), { status: 400 })
-  }
-
-  assert.equal(normalizeLinkHref('  example.com/path?q=1  '), 'https://example.com/path?q=1')
-  assert.equal(normalizeLinkHref('http://localhost:5173'), 'http://localhost:5173/')
-  for (const href of ['https://example.com/', 'http://localhost:5173/']) assert.equal(validLinkHref(href), true)
-  for (const href of ['javascript:alert(1)', 'mailto:a@example.com', 'tel:+123', '/relative', '//example.com', 'ftp://example.com', 'http://user:pass@example.com', 'https://example.com\n.evil']) {
-    assert.equal(validLinkHref(href), false, href)
-    assert.equal(normalizeLinkHref(href), null, href)
-  }
-  assert.equal(normalizeLinkHref('localhost:5173'), null)
-
-  const linkParagraph = (href, id = 'link-paragraph') => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text: 'Open', marks: [{ type: 'link', attrs: { href } }] }] })
-  const doc = document()
-  doc.content.content[0] = linkParagraph('https://example.com/', 'block-1')
-  assert.doesNotThrow(() => validateDocument(doc))
-  assert.doesNotThrow(() => validateCandidate({ content: [linkParagraph('https://example.com/')], summary: 'Link' }, doc, request('unused', doc).target))
-
-  const segment = segmentPayload()
-  segment.content[0].content = linkParagraph('https://example.com/').content
-  segment.objects[0].caption.content.content[0].content = linkParagraph('http://localhost:5173/').content
-  assert.doesNotThrow(() => validateCandidate({ segment, summary: 'Linked segment' }, segmentDocument(), segmentTarget()))
-
-  for (const href of ['javascript:alert(1)', 'mailto:a@example.com', 'tel:+123', '/relative', '//example.com', 'ftp://example.com', 'http://user:pass@example.com', 'https://example.com\n.evil']) {
-    const invalid = document()
-    invalid.content.content[0] = linkParagraph(href, 'block-1')
-    assert.throws(() => validateDocument(invalid), { status: 400 })
-    assert.throws(() => validateCandidate({ content: [linkParagraph(href)], summary: 'Unsafe link' }, doc, request('unused', doc).target), { status: 400 })
-    const invalidSegment = segmentPayload()
-    invalidSegment.content[0].content = linkParagraph(href).content
-    assert.throws(() => validateCandidate({ segment: invalidSegment, summary: 'Unsafe link' }, segmentDocument(), segmentTarget()), { status: 400 })
-  }
-
-  const underline = document()
-  underline.content.content[0].content = [{ type: 'text', text: 'Old', marks: [{ type: 'decoration', attrs: { decoration: 'underline' } }] }]
-  assert.throws(() => validateDocument(underline), { status: 400 })
-  assert.throws(() => validateCandidate({ content: underline.content.content, summary: 'Old underline' }, doc, request('unused', doc).target), { status: 400 })
-})
 
 test('theme requires mode and two finite hues and rejects legacy palette fields', () => {
   for (const mode of [undefined, null, 'auto', 'LIGHT']) {
@@ -259,9 +199,9 @@ test('theme requires mode and two finite hues and rejects legacy palette fields'
   for (const value of [[], null, undefined]) {
     const doc = structuredClone(document()); doc.theme.palette = value
     assert.throws(() => validateDocument(doc), { status: 400 })
-    assert.throws(() => validateCandidate({ content: doc.content.content, summary: 'Legacy' }, doc, request('unused').target), { status: 400 })
+    assert.doesNotThrow(() => validateProposalCandidate({ content: doc.content.content, summary: 'Independent' }))
     const segment = segmentPayload(); segment.palette = value
-    assert.throws(() => validateCandidate({ segment, summary: 'Legacy' }, segmentDocument(), segmentTarget()), /segment contains an unsupported field/)
+    assert.throws(() => validateProposalCandidate({ segment, summary: 'Legacy' }), /unsupported field/)
   }
   for (const background of ['gray6', 'paper', null, undefined]) {
     const doc = structuredClone(document()); doc.theme.defaults.background = background
@@ -269,7 +209,7 @@ test('theme requires mode and two finite hues and rejects legacy palette fields'
   }
 })
 
-test('new objects reservations accept supported kinds and reject removed kinds', () => {
+test('stateless object proposals accept supported kinds and reject removed kinds', () => {
   const doc = document('html'), original = doc.objects[0]
   const { id, layout: { width, placement } } = original
   const { x, y } = placement
@@ -285,148 +225,32 @@ test('new objects reservations accept supported kinds and reject removed kinds',
     { ...base, kind: 'image', src: png, alt: 'Image' }, original,
   ]
   for (const object of objects) {
-    assert.equal(validateCandidate({ object, summary: 'Candidate' }, doc, target).object.kind, object.kind)
-    if (object.kind !== 'html') assert.throws(() => validateCandidate({ object, summary: 'Candidate' }, doc, { ...target, isNew: false }), /retain target kind/)
+    assert.equal(validateProposalCandidate({ object, summary: 'Candidate' }).object.kind, object.kind)
   }
   for (const kind of ['rectangle', 'ellipse', 'line']) {
     const object = { ...base, kind }
     assert.throws(() => validateDocument({ ...doc, objects: [object] }), { status: 400 })
-    assert.throws(() => validateCandidate({ object, summary: 'Candidate' }, doc, target), { status: 400 })
+    assert.throws(() => validateProposalCandidate({ object, summary: 'Candidate' }), { status: 400 })
   }
 })
 
-test('drawings roundtrip with bounded native data and allow supported single-object conversions', () => {
-  const doc = document('html'), widget = doc.objects[0]
-  const drawing = { id: widget.id, kind: 'drawing', layout: { width: widget.layout.width, height: 100, placement: { type: 'float', anchorId: widget.layout.placement.anchorId, x: widget.layout.placement.x, y: widget.layout.placement.y } }, background: 'gray6',
-    strokes: [{ points: [[-1, 2], [3.5, 8]], color: 'primary:soft', width: 2.5 }], labels: [{ x: 1, y: 2, text: 'A < B', color: 'gray1', size: 13.5 }] }
-  doc.objects = [drawing]
-  assert.deepEqual(validateDocument(JSON.parse(JSON.stringify(doc))), doc)
-  const target = { kind: 'object', objectId: drawing.id, isNew: false, area: { x: drawing.layout.placement.x, y: drawing.layout.placement.y, width: drawing.layout.width, height: drawing.layout.height } }
-  for (const object of [drawing, widget, { id: widget.id, kind: 'image', layout: { width: widget.layout.width, placement: widget.layout.placement }, src: png, alt: 'Figure' }, document().objects[0]]) {
-    assert.deepEqual(validateCandidate({ object, summary: 'Convert sketch to figure' }, doc, target).object, object)
-  }
-  const mutations = [value => { value.layout.width = 0 }, value => { value.layout.height = 0 }, value => { value.background = 'gray1' }, value => { value.background = 'paper' },
-    value => { value.strokes[0].width = 0 }, value => { value.strokes[0].points = [] }, value => { value.strokes[0].points[0] = [NaN, 0] },
-    value => { value.strokes[0].points[0].push(0) }, value => { value.strokes[0].points = Array(100001).fill([0, 0]) },
-    value => { value.labels[0].size = -1 }, value => { value.labels[0].x = Infinity }, value => { value.labels[0].text = 'x'.repeat(4097) },
-    value => { value.labels[0].color = 'missing' }, value => { value.strokes[0].color = '#ffffff' }]
-  for (const mutate of mutations) {
-    const invalid = structuredClone(doc); mutate(invalid.objects[0])
-    assert.throws(() => validateDocument(invalid))
-  }
-  const segment = segmentPayload()
-  segment.objects.push({ ...drawing, id: 'candidate-drawing-extra', layout: { ...drawing.layout, placement: { ...drawing.layout.placement, anchorId: 'candidate-p' } } })
-  assert.equal(validateCandidate({ segment, summary: 'A drawing in a segment' }, segmentDocument(), segmentTarget()).segment, segment)
-  segment.objects.at(-1).labels[0].color = 'missing'
-  assert.throws(() => validateCandidate({ segment, summary: 'Invalid palette' }, segmentDocument(), segmentTarget()), { status: 400 })
-})
 
 test('segment targets use canonical points and exact block/object ownership', () => {
   const doc = segmentDocument()
-  const accepted = validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget() })).target
+  const accepted = checkedReservation(request(crypto.randomUUID(), doc, { target: segmentTarget() })).target
   assert.equal(accepted.kind, 'segment')
   assert.deepEqual(accepted.blockIds, ['seg-p0', 'seg-space'])
   assert.deepEqual(accepted.objectIds, ['seg-image'])
-  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget({ objectIds: [] }) })), /objectIds does not match/)
-  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: segmentTarget({ blockIds: ['seg-p0'] }) })), /blockIds does not match/)
+  assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: segmentTarget({ objectIds: [] }) })), /objectIds does not match/)
+  assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: segmentTarget({ blockIds: ['seg-p0'] }) })), /blockIds does not match/)
   const partial = segmentTarget({ range: { start: { index: 1, offset: 20 }, end: { index: 1, offset: 60 } }, blockIds: ['seg-space'], objectIds: ['seg-image'] })
-  assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target: partial })).target.range.start.offset, 20)
+  assert.equal(checkedReservation(request(crypto.randomUUID(), doc, { target: partial })).target.range.start.offset, 20)
   const empty = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
-  assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target: empty })).target.kind, 'segment')
-  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...empty, objectIds: ['seg-widget'] } })), /objectIds does not match/)
+  assert.equal(checkedReservation(request(crypto.randomUUID(), doc, { target: empty })).target.kind, 'segment')
+  assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: { ...empty, objectIds: ['seg-widget'] } })), /objectIds does not match/)
 })
 
-test('caption subobjects validate, preserve content and user width, clear when explicitly empty, and reject legacy schemas', () => {
-  const caption = (id, textValue = 'A caption', width) => ({ content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text: textValue, marks: [{ type: 'bold' }, { type: 'color', attrs: { color: 'gray2' } }, { type: 'decoration', attrs: { decoration: 'box' } }] }] }] }, ...(width === undefined ? {} : { width }) })
-  const doc = document('html')
-  doc.objects[0].caption = caption('html-caption', 'A caption', 240)
-  assert.equal(validateDocument(doc).objects[0].caption.content.content[0].content[0].text, 'A caption')
-  assert.equal(doc.objects[0].caption.width, 240, 'caption width may exceed the owner width')
-  const followsOwner = { ...document('html'), objects: [{ ...document('html').objects[0], caption: caption('owner-width-caption') }] }
-  assert.equal(validateDocument(followsOwner).objects[0].caption.width, undefined)
-  for (const width of [0, -1, Infinity, NaN, '200']) {
-    const invalid = document('html'); invalid.objects[0].caption = caption('bad-width-caption', 'A caption', width)
-    assert.throws(() => validateDocument(invalid), { status: 400 })
-  }
-  for (const key of ['id', 'x', 'y', 'placement', 'detach']) {
-    const invalid = document('html'); invalid.objects[0].caption = { ...caption('extra-caption-field'), [key]: key === 'x' || key === 'y' ? 0 : 'value' }
-    assert.throws(() => validateDocument(invalid), { status: 400 })
-  }
 
-  const table = { id: 'caption-table', kind: 'table', layout: { width: 200, placement: { type: 'float', anchorId: 'block-1', x: 0, y: 0 } }, content: { type: 'doc', content: [{ type: 'table', content: [{ type: 'tableRow', content: [{ type: 'tableCell', content: [{ type: 'paragraph', attrs: { id: 'table-cell' }, content: [] }] }] }] }] }, caption: caption('table-caption', 'Table caption', 240) }
-  const image = { id: 'caption-image', kind: 'image', layout: { width: 200, placement: { type: 'float', anchorId: 'block-1', x: 0, y: 0 } }, src: png, alt: 'Image', caption: caption('image-caption') }
-  assert.doesNotThrow(() => validateDocument({ ...document(), objects: [table, image] }))
-  for (const id of ['table-caption', 'caption-image', 'block-1']) {
-    assert.throws(() => validateDocument({ ...document(), objects: [table, { ...image, caption: caption(id) }] }), { status: 400 })
-  }
-
-  const unsupported = { ...document(), objects: [{ id: 'drawing-caption', kind: 'drawing', layout: { width: 20, height: 20, placement: { type: 'float', anchorId: 'block-1', x: 0, y: 0 } }, background: null, strokes: [], labels: [], caption: null }] }
-  assert.throws(() => validateDocument(unsupported), { status: 400 })
-  for (const mutate of [
-    value => { value.content.content.push({ type: 'paragraph', attrs: { id: 'second-caption' } }) },
-    value => { value.content.content[0].attrs.semantic = 'caption' },
-    value => { value.content.content[0].attrs.listLevel = 0 },
-    value => { value.content.content[0].content[0].type = 'image' },
-    value => { value.content.content[0].attrs = { id: 'bad-caption', semantic: 'caption' } },
-    value => { value.content.content[0].content[0].marks[0].attrs = { weight: 700 } },
-  ]) {
-    const invalid = caption('invalid-caption')
-    mutate(invalid)
-    const badDoc = document('html'); badDoc.objects[0].caption = invalid
-    assert.throws(() => validateDocument(badDoc))
-  }
-  const badPalette = document('html'); badPalette.objects[0].caption = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'bad-color-caption' }, content: [{ type: 'text', text: 'Color', marks: [{ type: 'color', attrs: { color: 'missing' } }] }] }] } }
-  assert.throws(() => validateDocument(badPalette), { status: 400 })
-
-  const original = document('html')
-  original.objects[0].caption = caption('original-caption', 'Retained caption', 240)
-  const target = { kind: 'object', objectId: 'object-1', isNew: false, area: { x: 40, y: 10, width: 200, height: 100 } }
-  const reservation = validateRequest(request(crypto.randomUUID(), original, { target }))
-  assert.equal(reservation.document.objects[0].caption.content.content[0].content[0].text, 'Retained caption')
-  const omitted = structuredClone(original.objects[0]); delete omitted.caption
-  assert.deepEqual(validateCandidate({ object: omitted, summary: 'Retain caption' }, original, target).object.caption, original.objects[0].caption)
-  const revised = { ...structuredClone(original.objects[0]), screenshot: `data:image/png;base64,${pngHeader(200, 100).toString('base64')}`, caption: caption('revised-caption', 'New text', 320) }
-  const revisedResult = { object: revised, summary: 'Revise caption' }
-  assert.equal(validateCandidate(revisedResult, original, target).object.caption.width, 240, 'AI revisions retain user-owned caption width')
-  assert.equal(validateDelivery(revisedResult, {}, original, target).object.caption.width, 240)
-  const originalFollowsOwner = document('html')
-  originalFollowsOwner.objects[0].caption = caption('original-follow-owner')
-  const candidateAddsCaption = { ...structuredClone(originalFollowsOwner.objects[0]), caption: caption('added-caption', 'New caption', 320) }
-  assert.equal(validateCandidate({ object: candidateAddsCaption, summary: 'Add caption' }, originalFollowsOwner, target).object.caption.width, undefined)
-  const cleared = { ...omitted, screenshot: `data:image/png;base64,${pngHeader(200, 100).toString('base64')}`, caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'empty-caption' }, content: [] }] }, width: 320 } }
-  const clearResult = { object: cleared, summary: 'Clear caption' }
-  assert.deepEqual(validateCandidate(clearResult, original, target).object.caption, { ...cleared.caption, width: 240 })
-  assert.deepEqual(validateDelivery(clearResult, {}, original, target).object.caption, { ...cleared.caption, width: 240 })
-  assert.throws(() => validateCandidate({ object: { ...omitted, attachment: null }, summary: 'Legacy field' }, original, target), { status: 400 })
-  const legacy = document('html'); legacy.objects[0].attachment = null
-  assert.throws(() => validateDocument(legacy), { status: 400 })
-  const nestedLegacy = document('html'); nestedLegacy.content.content[0].attachment = null
-  assert.throws(() => validateDocument(nestedLegacy), { status: 400 })
-  assert.throws(() => validateCandidate({ object: omitted, summary: 'Legacy source field' }, legacy, target), { status: 400 })
-  const bareCaption = document('html'); bareCaption.objects[0].caption = { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'bare-caption' }, content: [] }] }
-  assert.throws(() => validateDocument(bareCaption), { status: 400 })
-  assert.throws(() => validateCandidate({ object: { ...omitted, caption: bareCaption.objects[0].caption }, summary: 'Legacy caption' }, original, target), { status: 400 })
-  const legacyLabel = structuredClone(original); legacyLabel.objects[0].kind = 'label'; delete legacyLabel.objects[0].caption
-  assert.throws(() => validateDocument(legacyLabel), { status: 400 })
-})
-
-test('segment candidate rejects external refs and accepts native composition payloads', () => {
-  const doc = segmentDocument(), target = segmentTarget()
-  const candidate = validateCandidate({ segment: segmentPayload(), summary: 'native segment' }, doc, target)
-  assert.equal(candidate.segment.type, 'segment')
-  assert.deepEqual(candidate.segment.objects.map(object => object.id), ['candidate-image'])
-  assert.equal(candidate.segment.objects[0].caption.content.content[0].content[0].text, 'Generated figure')
-  const externalAnchor = segmentPayload(); externalAnchor.objects[0].layout.placement.anchorId = 'outside'
-  assert.throws(() => validateCandidate({ segment: externalAnchor, summary: 'bad' }, doc, target), { status: 400 })
-  const externalGeometry = segmentPayload(); externalGeometry.geometry.outside = { x: 0, y: 0, width: 1, height: 1 }
-  assert.throws(() => validateCandidate({ segment: externalGeometry, summary: 'bad' }, doc, target), /geometry references/)
-  const unknownPalette = segmentPayload(); unknownPalette.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
-  assert.throws(() => validateCandidate({ segment: unknownPalette, summary: 'bad' }, doc, target), { status: 400 })
-  const unknownCaptionPalette = segmentPayload(); unknownCaptionPalette.objects[0].caption.content.content[0].content[0].marks = [{ type: 'color', attrs: { color: 'outside' } }]
-  assert.throws(() => validateCandidate({ segment: unknownCaptionPalette, summary: 'bad' }, doc, target), { status: 400 })
-  const emptyTarget = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
-  assert.deepEqual(validateCandidate({ segment: { version: 1, type: 'segment', content: [], objects: [], geometry: {}, anchorTops: {}, originTop: 0 }, summary: 'empty' }, doc, emptyTarget).segment.content, [])
-})
 
 test('fake segment task returns a deterministic native composition', async t => {
   const value = await app(); t.after(() => value.close())
@@ -451,8 +275,8 @@ test('Flow validation enforces structural pairs, scope ownership, and paragraph-
   Object.assign(doc.objects[1].layout.placement, { anchorId: 'seg-flow', x: -8, y: -12 })
   assert.equal(validateDocument(doc), doc)
   const target = segmentTarget({ blockIds: ['seg-p0', 'seg-flow'], objectIds: ['seg-image', 'seg-widget'] })
-  assert.equal(validateRequest(request(crypto.randomUUID(), doc, { target })).target, target)
-  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...target, objectIds: ['seg-image'] } })), /selected segment scope/)
+  assert.equal(checkedReservation(request(crypto.randomUUID(), doc, { target })).target, target)
+  assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: { ...target, objectIds: ['seg-image'] } })), /selected segment scope/)
   for (const mutate of [
     value => { value.content.content.splice(1, 1) },
     value => { value.content.content.push({ ...flow, attrs: { ...flow.attrs, id: 'duplicate-flow' } }) },
@@ -471,31 +295,17 @@ test('Flow validation enforces structural pairs, scope ownership, and paragraph-
     assert.throws(() => validateDocument(invalid))
   }
   const textTarget = { ...request(crypto.randomUUID()).target, blockIds: ['seg-flow'] }
-  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: textTarget })), /target block/)
-  assert.throws(() => validateRequest(request(crypto.randomUUID(), doc, { target: { ...textTarget, blockIds: ['seg-p0', 'seg-p2'] } })), /consecutive paragraphs/)
-  assert.throws(() => validateCandidate({ content: [flow], summary: 'bad text' }, doc, textTarget), /paragraph/)
+  assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: textTarget })), /target block/)
+  assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: { ...textTarget, blockIds: ['seg-p0', 'seg-p2'] } })), /consecutive paragraphs/)
+  assert.throws(() => validateProposalCandidate({ content: [flow], summary: 'bad text' }), /paragraph/)
   const payload = segmentPayload()
   payload.content[1] = { type: 'flow', attrs: { id: 'candidate-space', objectId: 'candidate-image' } }
   payload.objects[0].layout.placement = { type: 'flow', x: 0 }
-  assert.equal(validateCandidate({ segment: payload, summary: 'Flow composition' }, doc, target).segment, payload)
+  assert.equal(validateProposalCandidate({ segment: payload, summary: 'Flow composition' }).segment, payload)
   payload.content.pop()
-  assert.throws(() => validateCandidate({ segment: payload, summary: 'orphaned Flow' }, doc, target), { status: 400 })
+  assert.throws(() => validateProposalCandidate({ segment: payload, summary: 'orphaned Flow' }), { status: 400 })
 })
 
-test('segment HTML screenshotPaths embed bounded screenshots for multiple widgets', async t => {
-  const payload = segmentPayload(true)
-  const value = await app({ runner: async context => {
-    await writeFile(path.join(context.outputDir, 'widget-a.png'), pngHeader(120, 80))
-    await writeFile(path.join(context.outputDir, 'widget-b.png'), pngHeader(120, 80))
-    await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ segment: payload, screenshotPaths: { 'candidate-widget-a': 'widget-a.png', 'candidate-widget-b': 'widget-b.png' }, summary: 'two widgets' }))
-  } }); t.after(() => value.close())
-  const id = crypto.randomUUID(); assert.equal((await post(value, request(id, segmentDocument(), { target: segmentTarget() }))).status, 202)
-  await waitReady(value, id)
-  const status = await (await get(value, id)).json()
-  assert.equal(status.status, 'ready')
-  assert.equal(status.versions[0].candidate.screenshotPaths, undefined)
-  assert.ok(status.versions[0].candidate.segment.objects.filter(object => object.kind === 'html').every(object => /^data:image\/png;base64,/.test(object.screenshot)))
-})
 
 test('a native KaTeX delivery reaches ready without HTML or screenshot artifacts', async t => {
   const doc = document('html'), original = doc.objects[0]
@@ -564,27 +374,7 @@ test('truncated replay announces reset and restart recovers the bounded journal'
   assert.equal(afterRestart[0].reset, true); assert.deepEqual(afterRestart.slice(1).map(event => event.id), [3, 4, 5])
 })
 
-test('deleting a task closes its transcript and removes replay state', async t => {
-  const value = await app(); t.after(() => value.close())
-  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
-  const response = await events(value, id, '?after=0'); const reader = response.body.getReader(); await reader.read()
-  const address = value.server.address(); const deleted = await fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`, { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })
-  assert.equal(deleted.status, 200); await assert.rejects(reader.read()); assert.equal((await get(value, id)).status, 404)
-})
 
-test('concurrent revision and deletion cannot queue an orphaned worker', async t => {
-  const value = await app(); t.after(() => value.close())
-  const id = crypto.randomUUID(); await post(value, request(id)); await waitReady(value, id)
-  const address = value.server.address()
-  const [revision, deletion] = await Promise.all([
-    post(value, { executorRevision: 0, prompt: 'Concurrent revision' }, `/api/ai/tasks/${id}/revise`),
-    fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`, { method: 'DELETE', headers: { origin: 'http://localhost:5173' } }),
-  ])
-  assert.ok([202, 404].includes(revision.status)); assert.equal(deletion.status, 200)
-  assert.equal(value.manager.tasks.has(id), false)
-  assert.equal(value.manager.queue.some(task => task.id === id), false)
-  assert.equal(value.manager.active, 0)
-})
 
 test('queued requests remain in the transcript when stopped before a worker starts', async t => {
   const value = await app({ maxConcurrent: 1, env: { MOTED_FAKE_DELAY_MS: '200' } }); t.after(() => value.close())
@@ -596,19 +386,7 @@ test('queued requests remain in the transcript when stopped before a worker star
   assert.equal(replay[0].kind, 'request'); assert.equal(replay[0].text, 'Improve the target')
 })
 
-test('mutations require exact configured origin and IDs collide', async t => {
-  const value = await app(); t.after(() => value.close())
-  const id = crypto.randomUUID(); const body = request(id)
-  assert.equal((await post(value, body, '/api/ai/tasks', 'http://evil.test')).status, 403)
-  assert.equal((await post(value, body)).status, 202)
-  assert.equal((await post(value, { ...body, operationId: crypto.randomUUID() })).status, 409)
- })
 
-test('stop preserves the last candidate and delete removes task files', async t => {
-  const value = await app({ env: { MOTED_FAKE_DELAY_MS: '500' } }); t.after(() => value.close())
-  const id = crypto.randomUUID(); await post(value, request(id)); const stopped = await post(value, {}, `/api/ai/tasks/${id}/stop`); assert.equal(stopped.status, 200); assert.equal((await stopped.json()).status, 'stopped'); await new Promise(resolve => setTimeout(resolve, 600)); const late = await (await get(value, id)).json(); assert.equal(late.status, 'stopped'); assert.deepEqual(late.versions, [])
-  const deleted = await (async () => { const address = value.server.address(); return fetch(`http://127.0.0.1:${address.port}/api/ai/tasks/${id}`, { method: 'DELETE', headers: { origin: 'http://localhost:5173' } }) })(); assert.equal(deleted.status, 200); assert.equal((await get(value, id)).status, 404)
- })
 
 test('HTML screenshotPath is bounded, embedded, and candidate HTML is not executed', async t => {
   const customRunner = async context => {
@@ -678,7 +456,7 @@ test('unconfirmed worker cleanup stays fenced without requeue or unsafe artifact
   assert.match(task.meta.error, /cleanup could not be confirmed/)
   assert.ok(task.meta.workerUnit)
   assert.equal((await post(value, { prompt: 'Retry', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 503)
-  assert.equal((await fetch(endpoint(value, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 409)
+  assert.equal((await fetch(endpoint(value, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 404)
   await readFile(path.join(task.dir, 'meta.json'))
   assert.equal(runs, 1)
 })
@@ -694,106 +472,12 @@ test('unavailable systemd cleanup probes have finite attempts with backoff', asy
 })
 
 const endpoint = (value, suffix) => `http://127.0.0.1:${value.server.address().port}${suffix}`
-const externalRequest = (id, doc = document(), extra = {}) => request(id, doc, { executor: 'external', operationId: crypto.randomUUID(), prompt: undefined, model: undefined, snapshot: png, ...extra })
-const delivery = (request, extra = {}) => ({ operationId: crypto.randomUUID(), executorRevision: 0, documentRevision: request.baseRevision, candidate: { content: request.document.content.content, summary: 'External candidate' }, ...extra })
-const switchMode = (value, task, executor, extra = {}) => post(value, { executor, baseExecutorRevision: task.executorRevision, operationId: crypto.randomUUID(), ...extra }, `/api/ai/tasks/${task.id}/executor`)
 async function until(predicate) {
   for (let i = 0; i < 150; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)) }
   assert.fail('condition did not become true')
 }
 
-test('external handoff serves revision-tagged context and accepts only validated candidate bytes', async t => {
-  const value = await app({ env: { MOTED_MU_BIN: '/not-an-installed-agent', MOTED_SHARED_MU_DIR: '/not-a-provider' } }); t.after(() => value.close())
-  const doc = document('html'), id = crypto.randomUUID()
-  doc.authoring = { notes: ['Internal working outline for authorized agent context'] }
-  const target = { kind: 'object', objectId: 'object-1', isNew: false, area: { x: 40, y: 10, width: 200, height: 100 } }
-  const body = externalRequest(id, doc, { target, snapshot: `data:image/png;base64,${pngHeader(800, 400).toString('base64')}` })
-  const response = await post(value, body); assert.equal(response.status, 202)
-  const task = await response.json(), base = task.externalPath
-  assert.equal((await fetch(endpoint(value, base.replace('/a/', '/api/agent/')))).status, 404)
-  assert.equal(task.status, 'waiting'); assert.equal(task.executorRevision, 0); assert.deepEqual(task.versions, [])
-  assert.equal(base.startsWith('/a/'), true); assert.equal(Buffer.from(base.split('/').at(-1), 'base64url').length, 16); assert.equal(value.manager.active, 0)
-  await assert.rejects(readFile(path.join(value.manager.tasks.get(id).dir, '.mu', 'config.jsonc')), { code: 'ENOENT' })
-  const handoff = await fetch(endpoint(value, base))
-  assert.match(handoff.headers.get('content-type'), /text\/markdown/)
-  assert.equal(handoff.headers.get('cache-control'), 'no-store'); assert.equal(handoff.headers.get('referrer-policy'), 'no-referrer')
-  const handoffText = await handoff.text()
-  assert.match(handoffText, /https:\/\/mote\.ylxdzsw\.com\/skills\/external\/SKILL\.md/)
-  assert.match(handoffText, /\/a\/[A-Za-z0-9_-]{22}\/manifest\.json/)
-  assert.match(handoffText, /documentRevision/)
-  assert.doesNotMatch(handoffText, /unix-socket|MOTED_AGENT_SOCKET|moted\.local|Builtin transport/)
-  assert.ok(!handoffText.includes(value.manager.tasks.get(id).dir))
-  const instructions = await (await fetch(endpoint(value, `${base}/instructions.md`))).text()
-  assert.ok(handoffText.startsWith(instructions))
-  const manifest = await agentRequest(endpoint(value, `${base}/manifest.json`))
-  assert.equal(manifest.protocol, 'mote-agent-v2')
-  assert.equal(manifest.documentVersion, 5)
-  assert.equal(manifest.skill, 'https://mote.ylxdzsw.com/skills/external/SKILL.md')
-  assert.equal(manifest.versions, `${base}/versions.json`)
-  assert.equal(manifest.documentContext, 'latest-cloud-saved')
-  assert.deepEqual((await agentRequest(endpoint(value, `${base}/document.json`))).document, doc)
-  assert.deepEqual(await agentRequest(endpoint(value, `${base}/target.json`)), target)
-  assert.deepEqual(Buffer.from(await (await fetch(endpoint(value, `${base}/snapshot.png`))).arrayBuffer()), pngHeader(800, 400))
-  for (const resource of ['meta.json', 'providers.json', 'tasks', 'document.json/extra']) assert.equal((await fetch(endpoint(value, `${base}/${resource}`))).status, 404)
-  assert.equal((await fetch(endpoint(value, `${base}/document.json`), { method: 'PUT', body: '{}' })).status, 404)
-  const object = { ...doc.objects[0], html: '<script>throw new Error("must never execute")</script>' }; delete object.screenshot
-  const candidate = { object, screenshotPath: 'figure.png', summary: 'Validated HTML and actual uploaded PNG', notes: 'Attempted Notes edit' }
-  const payload = delivery(body, { candidate, assets: { 'figure.png': `data:image/png;base64,${pngHeader(200, 100).toString('base64')}` } })
-  for (const invalid of [
-    { ...payload, assets: {} },
-    { ...payload, assets: { 'figure.png': png } },
-    { ...payload, assets: { 'figure.png': `data:image/png;base64,${pngHeader(400, 100).toString('base64')}` } },
-    { ...payload, assets: { 'figure.png': 'http://127.0.0.1:1/private.png' } },
-    { ...payload, candidate: { ...candidate, screenshotPath: '/etc/passwd' } },
-    { ...payload, candidate: { ...candidate, screenshotPath: 'file:///etc/passwd' } },
-    { ...payload, candidate: { ...candidate, screenshotPath: '../figure.png' } },
-    { ...payload, candidate: { ...candidate, object: { ...object, id: 'other-object' } } },
-  ]) assert.equal((await post(value, invalid, `${base}/submit`, 'http://untrusted.test')).status, 400)
-  assert.deepEqual(value.manager.tasks.get(id).meta.versions, [])
-  const local = await mkdtemp(path.join(os.tmpdir(), 'mote-external-'))
-  await writeFile(path.join(local, 'submit.mjs'), await readFile(new URL('./submit.mjs', import.meta.url)))
-  await writeFile(path.join(local, 'result.json'), JSON.stringify(candidate)); await writeFile(path.join(local, 'figure.png'), pngHeader(200, 100))
-  const standalone = await import(pathToFileURL(path.join(local, 'submit.mjs')).href)
-  const receipt = await standalone.submitResult({ taskId: id, outputDir: local, agent: { url: endpoint(value, base), executorRevision: 0, documentRevision: body.baseRevision, label: 'First proposal' } })
-  assert.equal(receipt.versionId, 'V1'); assert.equal(receipt.executorRevision, 0); assert.equal(receipt.status, 'ready')
-  const saved = await (await get(value, id)).json()
-  assert.equal(saved.versions.length, 1); assert.equal(saved.versions[0].label, 'First proposal')
-  assert.equal(saved.versions[0].candidate.object.html, object.html); assert.equal(saved.versions[0].candidate.screenshotPath, undefined)
-  assert.equal(saved.versions[0].candidate.notes, undefined)
-  assert.equal(saved.versions[0].candidate.object.screenshot, payload.assets['figure.png'])
-  assert.deepEqual((await agentRequest(endpoint(value, `${base}/document.json`))).document, doc)
-})
 
-test('unsupported task versions remain recoverable without rewriting snapshots or retry identities', async t => {
-  const value = await app()
-  const id = crypto.randomUUID(), body = externalRequest(id)
-  const created = await (await post(value, body)).json()
-  const directory = value.manager.tasks.get(id).dir
-  await value.close()
-  const metaPath = path.join(directory, 'meta.json'), inputPath = path.join(directory, 'input', 'document.json')
-  const meta = JSON.parse(await readFile(metaPath, 'utf8'))
-  meta.protocol = 'mote-agent-unsupported'
-  meta.status = 'queued'
-  await writeFile(metaPath, JSON.stringify(meta))
-  const metaBytes = await readFile(metaPath), inputBytes = await readFile(inputPath)
-  let runs = 0
-  const restarted = await app({ stateDir: value.stateDir, runner: async () => { runs++ } })
-  t.after(() => restarted.close())
-  const recovery = await (await get(restarted, id)).json()
-  assert.equal(recovery.status, 'error')
-  assert.match(recovery.error, /Unsupported task/)
-  assert.equal(recovery.versions, undefined)
-  assert.equal(recovery.externalPath, undefined)
-  assert.equal((await post(restarted, body)).status, 409)
-  assert.equal((await post(restarted, { prompt: 'Retry', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 409)
-  assert.equal((await switchMode(restarted, created, 'builtin')).status, 409)
-  assert.equal((await post(restarted, delivery(body), `${created.externalPath}/submit`)).status, 409)
-  assert.equal((await fetch(endpoint(restarted, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 409)
-  await restarted.close()
-  assert.equal(runs, 0)
-  assert.deepEqual(await readFile(metaPath), metaBytes)
-  assert.deepEqual(await readFile(inputPath), inputBytes)
-})
 
 test('unsupported task startup cleans recorded workers without rewriting retained artifacts', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mote-old-worker-test-'))
@@ -841,74 +525,6 @@ if (args[0] === 'show') {
   assert.equal(manager.queue.length, 0)
 })
 
-test('switch roundtrip retains candidates, rotates grants, and rejects late builtin delivery on narrow socket', async t => {
-  const value = await app(); t.after(() => value.close())
-  let context, finish, lateError
-  const gate = new Promise(resolve => { finish = resolve })
-  t.after(() => finish())
-  value.manager.runner = async current => {
-    context = current
-    await gate
-    try { await agentRequest(`${current.agent.url}/submit`, { socketPath: current.agent.socketPath, body: delivery(body) }) } catch (error) { lateError = error }
-    return { sessionId: 'late-builtin-session' }
-  }
-  const id = crypto.randomUUID(), body = request(id); await post(value, body); await until(() => context)
-  let task = await (await get(value, id)).json()
-  assert.equal(task.executor, 'builtin'); assert.equal(task.externalPath, undefined)
-  const internalPath = new URL(context.agent.url).pathname
-  assert.equal((await fetch(endpoint(value, internalPath))).status, 404)
-  const manifest = await agentRequest(`${context.agent.url}/manifest.json`, { socketPath: context.agent.socketPath })
-  assert.equal(manifest.taskId, id)
-  assert.equal(manifest.skill, path.join(value.manager.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md'))
-  assert.equal(manifest.helpers, value.manager.helperDirectory())
-  const prompt = await readFile(context.promptPath, 'utf8')
-  assert.ok(prompt.includes(context.documentRevision)); assert.ok(prompt.includes(context.outputDir))
-  assert.ok(prompt.includes(`curl --unix-socket '${context.agent.socketPath}' '${context.agent.url}/document.json'`))
-  assert.ok(prompt.includes(`node '${path.join(manifest.helpers, 'submit.mjs')}' '${context.agent.url}' '${context.outputDir}' 0 DOCUMENT_REVISION`))
-  assert.doesNotMatch(prompt, /Download guide|Set AGENT_URL|Builtin transport|external agents/i)
-  const servedInstructions = await new Promise((resolve, reject) => {
-    http.get(`${context.agent.url}/instructions.md`, { socketPath: context.agent.socketPath }, response => {
-      let text = ''; response.setEncoding('utf8')
-      response.on('data', chunk => { text += chunk }); response.on('end', () => resolve(text)); response.on('error', reject)
-    }).on('error', reject)
-  })
-  assert.ok(prompt.startsWith(servedInstructions))
-  assert.equal('guideVersion' in manifest, false)
-  for (const artifact of ['guide.md', 'submit.mjs', 'preview.mjs', 'preview-harness.html']) await assert.rejects(readFile(path.join(context.inputDir, artifact)), { code: 'ENOENT' })
-  for (const suffix of ['/api/documents', `/api/ai/tasks/${id}`, '/api/shared/anything']) await assert.rejects(agentRequest(`http://moted.local${suffix}`, { socketPath: context.agent.socketPath }), { status: 404 })
-  task = await (await switchMode(value, task, 'external')).json(); assert.equal(task.executorRevision, 1)
-  const oldExternal = task.externalPath
-  const externalInstructions = await (await fetch(endpoint(value, `${oldExternal}/instructions.md`))).text()
-  assert.match(externalInstructions, /https:\/\/mote\.ylxdzsw\.com\/skills\/external\/SKILL\.md/)
-  assert.match(externalInstructions, /https:\/\/mote\.ylxdzsw\.com\/skills\/helpers\/submit\.mjs/)
-  assert.doesNotMatch(externalInstructions, /unix-socket|MOTED_AGENT_SOCKET|moted\.local/)
-  assert.ok(!externalInstructions.includes(context.taskDir))
-  assert.equal((await fetch(endpoint(value, `${oldExternal}/guide.md`))).status, 404)
-  await assert.rejects(agentRequest(`${context.agent.url}/document.json`, { socketPath: context.agent.socketPath }), { status: 404 })
-  assert.equal((await post(value, delivery(body, { executorRevision: 1 }), `${oldExternal}/submit`, '')).status, 200)
-  task = await (await get(value, id)).json(); const versions = task.versions
-  task = await (await switchMode(value, task, 'builtin')).json()
-  assert.equal(task.externalPath, undefined); assert.equal(task.executorRevision, 2); assert.deepEqual(task.versions, versions)
-  await assert.rejects(agentRequest(`${context.agent.url}/document.json`, { socketPath: context.agent.socketPath }), { status: 404 })
-  assert.equal((await fetch(endpoint(value, `${oldExternal}/document.json`))).status, 404)
-  assert.equal((await post(value, { prompt: 'stale', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 409)
-  assert.equal((await post(value, { prompt: 'missing revision' }, `/api/ai/tasks/${id}/revise`)).status, 400)
-  task = await (await switchMode(value, task, 'external')).json()
-  assert.equal(task.executorRevision, 3); assert.notEqual(task.externalPath, oldExternal); assert.deepEqual(task.versions, versions)
-  assert.equal((await fetch(endpoint(value, `${oldExternal}/document.json`))).status, 404)
-  assert.equal((await post(value, { prompt: 'wrong mode', executorRevision: 3 }, `/api/ai/tasks/${id}/revise`)).status, 409)
-  finish(); await until(() => lateError && value.manager.active === 0)
-  assert.equal(lateError.status, 404)
-  task = await (await get(value, id)).json()
-  assert.equal(task.status, 'waiting'); assert.equal(task.versions.length, 1); assert.deepEqual(task.versions, versions)
-  assert.equal(value.manager.tasks.get(id).meta.sessionId, undefined)
-  task = await (await switchMode(value, task, 'builtin')).json()
-  assert.equal(value.manager.active, 0); assert.equal(task.status, 'ready')
-  value.manager.runner = fakeRunner
-  assert.equal((await post(value, { prompt: 'Explicit builtin continuation', executorRevision: 4 }, `/api/ai/tasks/${id}/revise`)).status, 202)
-  await waitReady(value, id)
-  assert.equal(value.manager.tasks.get(id).meta.versions.length, 2)
-})
 
 test('builtin file output alone is not delivery; supervisor never picks up result.json', async t => {
   const value = await app(); t.after(() => value.close())
@@ -919,108 +535,7 @@ test('builtin file output alone is not delivery; supervisor never picks up resul
   assert.match(task.error, /without submitting/); assert.deepEqual(task.versions, [])
 })
 
-test('executor roundtrip and revise issue no future grant until abort-ignoring runner and cleanup both finish', async t => {
-  const value = await app({ maxConcurrent: 2 })
-  let finishRun, finishCleanup, firstContext, calls = 0, prepared = 0, discovered = 0, cleaned = false
-  const runGate = new Promise(resolve => { finishRun = resolve }), cleanupGate = new Promise(resolve => { finishCleanup = resolve })
-  t.after(async () => { finishRun(); finishCleanup(); await value.close() })
-  const prepare = value.manager.prepareScope.bind(value.manager), discover = value.manager.discoverSession.bind(value.manager)
-  value.manager.prepareScope = async dir => { prepared++; return prepare(dir) }
-  value.manager.discoverSession = async task => { discovered++; return discover(task) }
-  value.manager.runner = async context => {
-    calls++
-    if (calls > 1) {
-      assert.equal(cleaned, true); assert.equal(context.sessionId, 'after-cleanup')
-      return fakeRunner(context)
-    }
-    firstContext = context
-    context.stop = async () => { await cleanupGate; cleaned = true }
-    await runGate
-    await writeFile(path.join(context.taskDir, '.mu', 'sessions', 'after-cleanup.jsonl'), 'completed journal')
-    await symlink('sessions/after-cleanup.jsonl', path.join(context.taskDir, '.mu', 'current-session'))
-    return { sessionId: 'after-cleanup' }
-  }
-  const id = crypto.randomUUID(); await post(value, request(id)); await until(() => firstContext)
-  let task = await (await get(value, id)).json()
-  task = await (await switchMode(value, task, 'external')).json()
-  task = await (await switchMode(value, task, 'builtin')).json()
-  assert.equal((await post(value, { prompt: 'Queued continuation', executorRevision: task.executorRevision }, `/api/ai/tasks/${id}/revise`)).status, 202)
-  const record = value.manager.tasks.get(id)
-  const assertGated = async () => {
-    assert.equal(calls, 1); assert.equal(prepared, 1); assert.equal(discovered, 1)
-    assert.equal(record.meta.status, 'queued'); assert.equal(record.meta.builtinToken, undefined)
-    assert.equal(record.executions.size, 1)
-    assert.deepEqual(await readdir(path.join(record.dir, 'runs')), ['0'])
-    await assert.rejects(readFile(path.join(record.dir, `a${record.generation}.sock`)), { code: 'ENOENT' })
-  }
-  await assertGated()
-  const oldExecution = record.current
-  finishRun(); await until(() => oldExecution.finished)
-  await assertGated()
-  finishCleanup(); await waitReady(value, id)
-  assert.equal(calls, 2); assert.equal(prepared, 2); assert.equal(discovered, 2)
-  assert.equal(record.meta.versions.length, 1); assert.equal(record.meta.sessionId, 'after-cleanup')
-})
 
-test('switch and submission operations are idempotent, CAS serialized, durable, and independently revocable', async t => {
-  const value = await app(); t.after(() => value.close())
-  const body = externalRequest(crypto.randomUUID()), id = body.id
-  const creations = await Promise.all([post(value, body), post(value, body)])
-  assert.deepEqual(creations.map(response => response.status), [202, 202]); assert.equal(value.manager.tasks.size, 1)
-  let task = await (await get(value, id)).json(), base = task.externalPath
-  const first = delivery(body)
-  const persist = value.manager.persist.bind(value.manager)
-  value.manager.persist = async () => { throw new Error('simulated failed metadata commit') }
-  assert.equal((await post(value, first, `${base}/submit`, '')).status, 500)
-  assert.equal((await (await get(value, id)).json()).versions.length, 0)
-  value.manager.persist = persist
-  const duplicate = await Promise.all([post(value, first, `${base}/submit`, ''), post(value, first, `${base}/submit`, '')])
-  assert.deepEqual(duplicate.map(response => response.status), [200, 200])
-  const receipt = await duplicate[0].json(); assert.deepEqual(await duplicate[1].json(), receipt)
-  const competitors = await Promise.all([post(value, delivery(body), `${base}/submit`, ''), post(value, delivery(body), `${base}/submit`, '')])
-  assert.deepEqual(competitors.map(response => response.status), [200, 200])
-  assert.deepEqual(await (await post(value, first, `${base}/submit`, '')).json(), receipt)
-  assert.equal((await post(value, { ...first, candidate: { ...first.candidate, summary: 'different' } }, `${base}/submit`, '')).status, 409)
-  const change = { executor: 'builtin', baseExecutorRevision: 0, operationId: crypto.randomUUID() }
-  value.manager.persist = async () => { throw new Error('simulated failed switch commit') }
-  assert.equal((await post(value, change, `/api/ai/tasks/${id}/executor`)).status, 500)
-  assert.equal((await (await get(value, id)).json()).executorRevision, 0)
-  value.manager.persist = persist
-  const changes = await Promise.all([post(value, change, `/api/ai/tasks/${id}/executor`), post(value, { ...change, operationId: crypto.randomUUID() }, `/api/ai/tasks/${id}/executor`)])
-  assert.deepEqual(changes.map(response => response.status).sort(), [200, 409])
-  // Whichever operation won can be retried without another switch.
-  const winning = changes[0].status === 200 ? change : undefined
-  if (winning) assert.equal((await post(value, winning, `/api/ai/tasks/${id}/executor`)).status, 200)
-  task = await (await get(value, id)).json(); assert.equal(task.executorRevision, 1); assert.equal(task.versions.length, 3)
-  const externalSwitch = { executor: 'external', baseExecutorRevision: 1, operationId: crypto.randomUUID() }
-  task = await (await post(value, externalSwitch, `/api/ai/tasks/${id}/executor`)).json(); base = task.externalPath
-  assert.equal((await post(value, { ...externalSwitch, executor: 'builtin' }, `/api/ai/tasks/${id}/executor`)).status, 409)
-  assert.equal((await fetch(endpoint(value, `${base}/guide.md`))).status, 404)
-  const finalSubmission = delivery(body, { executorRevision: 2 })
-  const finalReceipt = await (await post(value, finalSubmission, `${base}/submit`, '')).json()
-  const savedManifest = await agentRequest(endpoint(value, `${base}/manifest.json`))
-  await value.close()
-  const restarted = await app({ stateDir: value.stateDir }); t.after(() => restarted.close())
-  const recovered = await (await get(restarted, id)).json()
-  assert.equal(recovered.externalPath, base)
-  assert.deepEqual(recovered.versions.map(record => record.id), ['V1', 'V2', 'V3', 'V4'])
-  assert.equal(recovered.versions.at(-1).candidate.summary, finalSubmission.candidate.summary)
-  assert.deepEqual(await (await post(restarted, finalSubmission, `${base}/submit`, '')).json(), finalReceipt)
-  assert.equal((await (await post(restarted, externalSwitch, `/api/ai/tasks/${id}/executor`)).json()).externalPath, base)
-  assert.equal((await post(restarted, body)).status, 202)
-  assert.deepEqual(await agentRequest(endpoint(restarted, `${base}/manifest.json`)), savedManifest)
-  assert.equal((await fetch(endpoint(restarted, `${base}/guide.md`))).status, 404)
-  const released = await (await post(restarted, {}, `/api/ai/tasks/${id}/release`)).json()
-  assert.equal(released.released, true); assert.equal(released.externalPath, undefined); assert.equal(released.versions.length, 4)
-  assert.equal((await post(restarted, {}, `/api/ai/tasks/${id}/release`)).status, 200)
-  for (const suffix of ['', '/guide.md', '/document.json', '/candidate.json', '/manifest.json']) assert.equal((await fetch(endpoint(restarted, base + suffix))).status, 404)
-  assert.equal((await post(restarted, finalSubmission, `${base}/submit`, '')).status, 404)
-  assert.equal((await switchMode(restarted, released, 'builtin')).status, 410)
-  await readFile(path.join(restarted.manager.tasks.get(id).dir, 'input', 'document.json'))
-  assert.equal((await fetch(endpoint(restarted, `/api/ai/tasks/${id}`), { method: 'DELETE', headers: { origin: 'http://localhost:5173' } })).status, 200)
-  assert.equal((await get(restarted, id)).status, 404)
-  assert.equal((await fetch(endpoint(restarted, base))).status, 404)
-})
 
 function screenshotBytes(result) { return Buffer.from(result.screenshot.split(',')[1], 'base64') }
 function firstPixel(png) {

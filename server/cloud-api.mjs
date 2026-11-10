@@ -24,21 +24,12 @@ export async function cloudApi(store, request, pathname, readBody) {
   } else if (action === 'privacy' && parts.length === 3) {
     if (method === 'GET') body = store.privacyMeta(id)
     else if (method === 'PUT') body = store.putPrivacy(id, await readBody(request))
-  } else if (action === 'open' && parts.length === 3 && method === 'POST') {
-    store.privacyMeta(id)
-    store.noteDocumentOpen(id)
-    body = { ok: true }
   } else if (action === 'assistant' && parts.length === 3) {
     if (method === 'GET') body = store.assistant(id)
-    else if (method === 'PUT') body = store.putAssistant(id, await readBody(request))
   } else if (action === 'shares') {
     if (method === 'GET' && !child) body = store.shares(id)
     else if (method === 'PUT' && !child) body = store.putShares(id, await readBody(request))
   }
   if (body === undefined) throw new HttpError(404, 'not found')
-  if (!id && method === 'POST') store.noteDocumentOpen(body.id)
-  else if (id && !action && method === 'PUT') store.noteDocumentOpen(id)
-  else if (id && action === 'privacy' && method === 'GET'
-    && new URL(request.url, 'http://moted.local').searchParams.get('open') === '1') store.noteDocumentOpen(id)
   return { status, body }
 }

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { isDeepStrictEqual } from 'node:util'
 import { HttpError, UUID, record, text, validateDocument, loadDocument, publishDocument } from './validation.mjs'
+import { validateReservations } from './reservation-validation.mjs'
 import { fingerprint } from './agent-protocol.mjs'
 import { privateDirectory, privateFile, storagePaths } from './storage-paths.mjs'
 
@@ -33,12 +33,18 @@ export class CloudStore {
         assistantRevision TEXT NOT NULL DEFAULT '0', tasks TEXT NOT NULL DEFAULT '{"value":[],"assets":[]}',
         private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1)), privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0),
         shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0),
-        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), archiveRevision INTEGER NOT NULL DEFAULT 0 CHECK(archiveRevision >= 0),
-        externalAccessAt INTEGER NOT NULL DEFAULT 0
+        archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)), archiveRevision INTEGER NOT NULL DEFAULT 0 CHECK(archiveRevision >= 0)
       );
       CREATE TABLE IF NOT EXISTS revisions (
         documentId TEXT NOT NULL REFERENCES documents(id), revision TEXT NOT NULL,
         createdAt INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(documentId, revision)
+      );
+      CREATE TABLE IF NOT EXISTS document_reservations (
+        documentId TEXT NOT NULL, revision TEXT NOT NULL, body TEXT NOT NULL,
+        PRIMARY KEY(documentId, revision), FOREIGN KEY(documentId,revision) REFERENCES revisions(documentId,revision)
+      );
+      CREATE TABLE IF NOT EXISTS task_credentials (
+        taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL REFERENCES documents(id), token TEXT NOT NULL UNIQUE
       );
       CREATE TABLE IF NOT EXISTS assets (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS operations (
@@ -50,15 +56,7 @@ export class CloudStore {
         mode TEXT NOT NULL CHECK(mode IN ('snapshot','latest')), revision TEXT, createdAt INTEGER NOT NULL, revokedAt INTEGER,
         FOREIGN KEY(documentId, revision) REFERENCES revisions(documentId, revision)
       );
-      CREATE UNIQUE INDEX IF NOT EXISTS active_latest ON shares(documentId) WHERE mode='latest' AND revokedAt IS NULL;
       CREATE INDEX IF NOT EXISTS shares_document ON shares(documentId);
-      CREATE TABLE IF NOT EXISTS task_revisions (
-        taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL, revision TEXT NOT NULL,
-        FOREIGN KEY(documentId, revision) REFERENCES revisions(documentId, revision)
-      );
-      CREATE TABLE IF NOT EXISTS task_revocations (
-        taskId TEXT PRIMARY KEY, documentId TEXT NOT NULL, revokedAt INTEGER NOT NULL
-      );
       CREATE TABLE IF NOT EXISTS workspace_settings (
         id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL,
         builtin TEXT NOT NULL, indexing TEXT NOT NULL,
@@ -73,15 +71,6 @@ export class CloudStore {
         model TEXT, error TEXT, updatedAt INTEGER NOT NULL
       );`)
     this.transaction(() => {
-      const columns = new Set(db.prepare('PRAGMA table_info(documents)').all().map(column => column.name))
-      if (!columns.has('private')) db.exec('ALTER TABLE documents ADD COLUMN private INTEGER NOT NULL DEFAULT 0 CHECK(private IN (0,1))')
-      if (!columns.has('privacyRevision')) db.exec('ALTER TABLE documents ADD COLUMN privacyRevision INTEGER NOT NULL DEFAULT 0 CHECK(privacyRevision >= 0)')
-      if (!columns.has('shareRevision')) db.exec('ALTER TABLE documents ADD COLUMN shareRevision INTEGER NOT NULL DEFAULT 0 CHECK(shareRevision >= 0)')
-      if (!columns.has('archived')) db.exec('ALTER TABLE documents ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1))')
-      if (!columns.has('archiveRevision')) db.exec('ALTER TABLE documents ADD COLUMN archiveRevision INTEGER NOT NULL DEFAULT 0 CHECK(archiveRevision >= 0)')
-      if (!columns.has('externalAccessAt')) db.exec('ALTER TABLE documents ADD COLUMN externalAccessAt INTEGER NOT NULL DEFAULT 0')
-      const settingsColumns = new Set(db.prepare('PRAGMA table_info(workspace_settings)').all().map(column => column.name))
-      if (!settingsColumns.has('indexingEnabled')) db.exec('ALTER TABLE workspace_settings ADD COLUMN indexingEnabled INTEGER NOT NULL DEFAULT 0 CHECK(indexingEnabled IN (0,1))')
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS active_share ON shares(documentId) WHERE revokedAt IS NULL')
       db.prepare(`INSERT OR IGNORE INTO workspace_settings
         (id,revision,builtin,indexing,indexingEnabled) VALUES (1,0,'','',0)`).run()
@@ -89,14 +78,6 @@ export class CloudStore {
   }
 
   close() { this.db.close() }
-  noteDocumentOpen(id) {
-    const time = now()
-    this.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=? AND deletedAt IS NULL AND externalAccessAt<?').run(time, id, time - 60_000)
-  }
-  documentAccessUntil(id) {
-    const row = this.db.prepare('SELECT externalAccessAt FROM documents WHERE id=? AND deletedAt IS NULL').get(id)
-    return row?.externalAccessAt ? row.externalAccessAt + 24 * 60 * 60 * 1000 : 0
-  }
   settings() {
     const { revision, builtin, indexing, indexingEnabled } = this.db.prepare('SELECT revision,builtin,indexing,indexingEnabled FROM workspace_settings WHERE id=1').get()
     return { revision, models: { builtin, indexing }, indexingEnabled: indexingEnabled === 1 }
@@ -183,7 +164,7 @@ export class CloudStore {
   envelope(row, token = row.revision) {
     const saved = this.saved(row.id, token)
     // Owner reads retain raw unsupported records for recovery; load boundaries reject them without rewriting storage.
-    return { ...metadata(row), revision: token, document: this.unpack(saved.body) }
+    return { ...metadata(row), revision: token, document: this.unpack(saved.body), reservations: this.reservations(row.id, token) }
   }
   workspaceDocument(ownDocumentId, sourceId, token) {
     uuid(ownDocumentId, 'ownDocumentId'); uuid(sourceId, 'sourceId')
@@ -200,7 +181,7 @@ export class CloudStore {
         WHERE id=? AND deletedAt IS NULL AND (id=? OR private=0)`).get(access.id, access.ownDocumentId)
     } else if (access.kind === 'builtin' || access.kind === 'external') {
       this.assertReservation(access.taskId, access.id)
-      if (access.kind === 'external') this.assertExternal(access.id, access.privacyRevision)
+      if (access.kind === 'external') this.assertExternal(access.id)
       row = this.row(access.id)
     }
     if (!row) throw new HttpError(404, access.kind === 'public' ? 'share not found' : 'document not found')
@@ -394,10 +375,9 @@ export class CloudStore {
   list() { return { documents: this.db.prepare(`SELECT ${META_COLUMNS} FROM documents WHERE deletedAt IS NULL ORDER BY updatedAt DESC,id`).all().map(metadata) } }
   get(id) { return this.envelope(this.row(id)) }
   privacyMeta(id) { return metadata(this.row(id)) }
-  assertExternal(id, privacyEpoch) {
+  assertExternal(id) {
     const row = this.row(id)
     if (row.private) throw new HttpError(403, 'document is private; external access is disabled')
-    if (privacyEpoch !== undefined && privacyEpoch !== row.privacyRevision) throw new HttpError(403, 'external capability privacy revision is stale')
     return metadata(row)
   }
   compare(row, baseRevision) { if (row.revision !== revision(baseRevision)) throw new HttpError(409, 'document revision conflict', metadata(row)) }
@@ -432,6 +412,7 @@ export class CloudStore {
       const document = this.document(body.document, id); const title = name(body.name); const time = now(); const token = randomUUID()
       this.db.prepare('INSERT INTO documents(id,name,revision,createdAt,updatedAt,private) VALUES (?,?,?,?,?,?)').run(id, title, token, time, time, body.private ? 1 : 0)
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
+      this.saveReservations(id, token, body.reservations === undefined ? [] : body.reservations, document)
       this.notify(id, 'document')
       return this.remember(id, 'create', body, retry.digest, this.get(id))
     })
@@ -446,6 +427,7 @@ export class CloudStore {
       const document = this.document(body.document, id); const time = now(); const token = randomUUID()
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
+      this.saveReservations(id, token, body.reservations === undefined ? this.reservations(id, row.revision) : body.reservations, document)
       this.notify(id, 'document')
       return this.remember(id, 'put', body, retry.digest, this.get(id))
     })
@@ -504,8 +486,6 @@ export class CloudStore {
       const time = now()
       this.db.prepare('UPDATE documents SET deletedAt=?,updatedAt=?,shareRevision=? WHERE id=?').run(time, time, this.nextShareRevision(row), id)
       this.db.prepare('UPDATE shares SET revokedAt=? WHERE documentId=? AND revokedAt IS NULL').run(time, id)
-      for (const task of this.assistantTasks(id)) this.revokeTask(task.id, id)
-      for (const task of this.db.prepare('SELECT taskId FROM task_revisions WHERE documentId=?').all(id)) this.revokeTask(task.taskId, id)
       this.notify(id, 'deleted', true)
       return { ok: true }
     })
@@ -558,47 +538,30 @@ export class CloudStore {
   }
 
   assistant(id) { const row = this.row(id, true); return { revision: row.assistantRevision, tasks: this.unpack(row.tasks) } }
-  putAssistant(id, value) {
-    const body = record(value, 'request')
-    return this.transaction(() => {
-      const row = this.row(id); const retry = this.retry(id, 'assistant', body)
-      if (retry.response) return retry.response
-      if (row.assistantRevision !== revision(body.baseRevision)) throw new HttpError(409, 'assistant revision conflict', this.assistant(id))
-      if (!Array.isArray(body.tasks)) throw new HttpError(400, 'tasks must be an array')
-      const ids = new Set()
-      for (const value of body.tasks) { const task = record(value, 'task'); uuid(task.id, 'task.id'); if (ids.has(task.id)) throw new HttpError(400, 'duplicate task id'); ids.add(task.id) }
-      const active = new Set(body.tasks.filter(task => !task.acceptance && !task.released).map(task => task.id))
-      for (const task of [...this.assistantTasks(id), ...body.tasks]) if (!active.has(task.id)) this.revokeTask(task.id, id)
-      // Recovery JSON is inert. Only TaskManager.create can validate and launch work.
-      this.db.prepare('UPDATE documents SET assistantRevision=?,tasks=? WHERE id=?').run(randomUUID(), this.pack(body.tasks), id)
-      this.notify(id, 'assistant')
-      return this.remember(id, 'assistant', body, retry.digest, this.assistant(id))
-    })
+  reservations(id, token = this.row(id).revision) {
+    const saved = this.db.prepare('SELECT body FROM document_reservations WHERE documentId=? AND revision=?').get(id, token)
+    return saved ? this.unpack(saved.body) : []
   }
-
-  taskSnapshot(value) {
-    const body = record(value, 'request'); const id = uuid(body.cloudDocumentId, 'cloudDocumentId')
-    const row = this.row(id); const token = revision(body.baseRevision)
-    const reservation = this.assertReservation(body.id, id)
-    if (!isDeepStrictEqual(reservation.target, body.target) || reservation.baseRevision !== token) throw new HttpError(409, 'task does not match the active cloud reservation')
-    const document = this.envelope(row, token).document
-    if (body.document !== undefined && !isDeepStrictEqual(body.document, document)) throw new HttpError(409, 'task document differs from saved revision', metadata(row))
-    return { ...body, document, cloudDocumentId: id, baseRevision: token }
+  saveReservations(id, token, values, document) {
+    validateReservations(values, document)
+    for (const item of values) {
+      const previous = this.credential(item.id)
+      if (previous && previous.documentId !== id) throw new HttpError(409, 'reservation ID belongs to another document')
+      this.db.prepare('INSERT OR IGNORE INTO task_credentials(taskId,documentId,token) VALUES (?,?,?)').run(item.id, id, randomBytes(16).toString('base64url'))
+    }
+    this.db.prepare('INSERT INTO document_reservations(documentId,revision,body) VALUES (?,?,?)').run(id, token, this.pack(values))
   }
-  bindTask(taskId, id, token) {
-    this.transaction(() => {
-      this.assertReservation(taskId, id); this.saved(id, token)
-      const existing = this.db.prepare('SELECT * FROM task_revisions WHERE taskId=?').get(taskId)
-      if (existing && (existing.documentId !== id || existing.revision !== token)) throw new HttpError(409, 'task ID already bound')
-      this.db.prepare('INSERT OR IGNORE INTO task_revisions(taskId,documentId,revision) VALUES (?,?,?)').run(taskId, id, token)
-    })
+  credential(taskId) { return this.db.prepare('SELECT * FROM task_credentials WHERE taskId=?').get(taskId) }
+  credentialByToken(token) { return this.db.prepare('SELECT * FROM task_credentials WHERE token=?').get(token) }
+  reservation(taskId, id = this.credential(taskId)?.documentId) {
+    if (!id) throw new HttpError(404, 'reservation not found')
+    const item = this.reservations(id).find(item => item.id === taskId)
+    if (!item) throw new HttpError(404, 'reservation not found')
+    return item
   }
-  assistantTasks(id) { return this.unpack(this.db.prepare('SELECT tasks FROM documents WHERE id=?').get(id).tasks) }
-  revokeTask(taskId, documentId) { this.db.prepare('INSERT OR IGNORE INTO task_revocations(taskId,documentId,revokedAt) VALUES (?,?,?)').run(taskId, documentId, now()) }
   assertReservation(taskId, id) {
-    this.row(id)
-    const task = this.assistantTasks(id).find(task => task.id === taskId)
-    if (!task || task.acceptance || task.released || this.db.prepare('SELECT 1 FROM task_revocations WHERE taskId=?').get(taskId)) throw new HttpError(410, 'reservation was released or is not active')
+    const task = this.reservation(taskId, id)
+    if (task.released || task.expiresAt !== undefined && task.expiresAt <= now()) throw new HttpError(410, 'reservation was released or expired')
     return task
   }
 }

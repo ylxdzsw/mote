@@ -1,4 +1,5 @@
 import type { MoteDocument } from '../document/model'
+import type { Reservation } from '../ai/types'
 import { isRecord, requestJSON, RequestError } from './connection'
 
 export interface DocumentMeta {
@@ -36,6 +37,7 @@ export function mergeDocumentFlags(current: DocumentMeta, incoming: DocumentMeta
 
 export interface CloudDocument extends DocumentMeta {
   document: MoteDocument
+  reservations?: Reservation[]
 }
 
 export interface SharingState {
@@ -78,7 +80,6 @@ function validMeta(value: unknown) {
 function validResponse(path: string, method: string, value: unknown) {
   const pathname = new URL(path, 'http://moted.local').pathname
   if (!isRecord(value)) return false
-  if (pathname.endsWith('/open') && method === 'POST') return value.ok === true
   if (method === 'DELETE') return value.ok === true
   if (pathname.startsWith('/api/shared/')) return typeof value.name === 'string' && isRecord(value.document)
   if (pathname.endsWith('/shares')) return Number.isSafeInteger(value.revision) && Number(value.revision) >= 0
@@ -86,5 +87,6 @@ function validResponse(path: string, method: string, value: unknown) {
   if (pathname === '/api/documents' && method === 'GET') return Array.isArray(value.documents) && value.documents.every(validMeta)
   if (!validMeta(value)) return false
   // Native content validation/recovery remains separate from the response envelope.
-  return pathname.endsWith('/privacy') || pathname.endsWith('/archive') || method === 'PATCH' || isRecord(value.document)
+  return pathname.endsWith('/privacy') || pathname.endsWith('/archive') || method === 'PATCH'
+    || isRecord(value.document) && (value.reservations === undefined || Array.isArray(value.reservations))
 }

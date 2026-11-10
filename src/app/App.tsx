@@ -87,7 +87,7 @@ function PopupDialog({ open, onClose, title, children }: { open: boolean; onClos
 }
 
 function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initial: MoteDocument }) {
-  const history = useDocumentHistory(initial)
+  const history = useDocumentHistory(initial, copy.getSnapshot().record.reservations ?? [])
   const { doc, setDoc } = history
   const cloud = useSyncExternalStore(copy.subscribe, copy.getSnapshot)
   const [slowLocalSave, setSlowLocalSave] = useState(false)
@@ -107,7 +107,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, true, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
-    { documentId: cloud.record.meta.id, sync: () => copy.sync(true), workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
+    { documentId: cloud.record.meta.id, sync: () => copy.sync(true), earlySync: copy.requestEarlySync, revision: cloud.record.meta.revision, workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
   useLayoutEffect(() => {
     copy.preserveAssistant = assistant.flushLocal
     return () => { copy.preserveAssistant = undefined }
@@ -190,7 +190,15 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     }
   }, [doc?.objects, selectedIds, mainEditor])
 
-  useLayoutEffect(() => { if (doc) copy.update(doc) }, [doc, copy])
+  const previousReservations = useRef(history.reservations)
+  useLayoutEffect(() => {
+    if (doc) copy.update(doc, history.reservations)
+    if (previousReservations.current !== history.reservations) {
+      previousReservations.current = history.reservations
+      copy.requestEarlySync()
+    }
+  }, [doc, history.reservations, copy])
+  useEffect(() => () => copy.cancelEarlySync(), [copy])
 
   useEffect(() => {
     void copy.refreshPrivacy()
@@ -199,9 +207,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       if (!connectionSnapshot().offline && copy.getSnapshot().record.dirty) void copy.sync()
     }, 30000)
     const reconnect = window.setInterval(() => { if (connectionSnapshot().offline) void retryConnection() }, 10000)
-    // Browser-origin renewal preserves external access while this document is open;
-    // server-sent heartbeats are not owner activity.
-    const ownerActivity = window.setInterval(() => { if (!connectionSnapshot().offline) void copy.renewOwnerActivity() }, 60000)
     const unsubscribe = subscribeDocumentUpdates(copy.getSnapshot().record.meta.id, event => {
       if (event.kind === 'deleted') { copy.remoteDeleted(); return }
       if (event.kind === 'ready' || event.kind === 'privacy' || event.kind === 'document') void copy.refreshPrivacy()
@@ -217,7 +222,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     }
     window.addEventListener('keydown', saveShortcut, true)
     return () => {
-      clearInterval(autosave); clearInterval(reconnect); clearInterval(ownerActivity); unsubscribe()
+      clearInterval(autosave); clearInterval(reconnect); unsubscribe()
       window.removeEventListener('online', online); window.removeEventListener('keydown', saveShortcut, true)
     }
   }, [copy])
@@ -461,7 +466,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   function createAIArea(object: FloatingObject, area: Area) {
     if (!doc) return
     const next = { ...doc, objects: [...doc.objects, object] }
-    setDoc(next); focusRequest(assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next))
+    focusRequest(assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next))
   }
   function createAISegment(range: SegmentRange, area: Area) {
     if (!doc) return

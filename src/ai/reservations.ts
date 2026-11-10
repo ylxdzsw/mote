@@ -1,4 +1,3 @@
-import { DOCUMENT_VERSIONS } from '../../shared/document.mjs'
 import { objectY, objectAnchorId, supportsCaption, supportsMarkup, type FloatingObject, type MoteDocument } from '../document/model'
 import { canonicalEditorContent } from '../editor/canonical'
 import type { JSONContent } from '@tiptap/core'
@@ -35,20 +34,7 @@ function objectContent(object: FloatingObject) {
   return content
 }
 
-export const canResizeReservation = (task: AITask) => !task.submitted && !task.requestSent && !task.pendingExecutor && ['draft', 'error', 'stopped'].includes(task.status)
-function reservedObjectContent(task: AITask, object: FloatingObject) {
-  const content = objectContent(object)
-  if (!canResizeReservation(task)) return content
-  // Normalize only positions: repeated resize arithmetic must not release a draft.
-  // Ten decimal places tolerate subpixel rounding while keeping all other data exact.
-  const coordinate = (value: number, extent: number) => Number((value / extent).toFixed(10))
-  return { ...content, layout: {},
-    ...(object.kind === 'drawing' && {
-      strokes: object.strokes.map(stroke => ({ ...stroke, points: stroke.points.map(([x, y]) => [coordinate(x, object.layout.width), coordinate(y, object.layout.height)]) })),
-      labels: object.labels.map(label => ({ ...label, x: coordinate(label.x, object.layout.width), y: coordinate(label.y, object.layout.height) })),
-    }),
-  }
-}
+const reservedObjectContent = (_task: AITask, object: FloatingObject) => objectContent(object)
 
 function segmentTarget(target: AITarget) {
   return target.kind === 'segment' ? target : null
@@ -107,39 +93,35 @@ function segmentOriginalBlocks(task: AITask): JSONContent[] {
     ? (task.original as SegmentClipboard).content : []
 }
 
-function segmentMainIntact(task: AITask, content: JSONContent, objects: FloatingObject[] = []): boolean {
+function segmentMainUnchanged(task: AITask, before: JSONContent, after: JSONContent): boolean {
   const target = segmentTarget(task.target)
   if (!target) return true
-  const current = segmentBlocks({ content, objects }, target)
-  if (!current) return false
-  const original = segmentOriginalBlocks(task)
-  if (!target.blockIds.length) return true
-  if (original.length !== current.blocks.length) return false
-  return current.blocks.every((block, index) => sameContent(canonicalEditorContent(block), canonicalEditorContent(original[index])))
+  const previous = segmentBlocks({ content: before, objects: [] }, target)
+  const next = segmentBlocks({ content: after, objects: [] }, target)
+  return !!previous && !!next && sameContent(previous.blocks.map(canonicalEditorContent), next.blocks.map(canonicalEditorContent))
 }
 
-function segmentObjectsIntact(task: AITask, doc: MoteDocument, range: SegmentRange) {
-  const target = segmentTarget(task.target)!
-  const actualIds = [...segmentObjectIds(doc, range)]
-  if (actualIds.length !== target.objectIds.length || actualIds.some(id => !target.objectIds.includes(id))) return false
-  const current = target.objectIds.map(id => doc.objects.find(object => object.id === id))
-  if (current.some(object => !object)) return false
-  const original = task.segmentOriginalObjects ?? (task.original && !Array.isArray(task.original) && 'type' in task.original && task.original.type === 'segment'
-    ? (task.original as SegmentClipboard).objects : [])
-  if (original.length !== current.length) return false
-  return current.every((object, index) => {
-    const source = original.find(candidate => candidate.id === target.objectIds[index]) ?? original[index]
-    if (!source) return false
-    return sameContent(object, source)
-  })
-}
-
+// Compatibility is structural. A refreshed cloud document may contain new content
+// at the same target; local edits are separately checked against their before state.
 export function segmentReservationIntact(task: AITask, doc: MoteDocument): boolean {
   const target = segmentTarget(task.target)
   if (!target || doc.id !== task.documentId) return false
   const current = segmentBlocks(doc, target)
-  return !!current && segmentMainIntact(task, doc.content, doc.objects)
-    && segmentObjectsIntact(task, doc, current.range)
+  if (!current) return false
+  const original = segmentOriginalBlocks(task)
+  if (original.length !== current.blocks.length || current.blocks.some((block, index) => {
+    const source = original[index]
+    return block.type !== source.type || block.type === 'flow' && block.attrs?.objectId !== source.attrs?.objectId
+      || block.type === 'spacer' && segmentBlockHeight(block) !== segmentBlockHeight(source)
+  })) return false
+  const actualIds = [...segmentObjectIds(doc, current.range)]
+  if (actualIds.length !== target.objectIds.length || actualIds.some(id => !target.objectIds.includes(id))) return false
+  const sources = task.segmentOriginalObjects ?? (task.original as SegmentClipboard).objects ?? []
+  return target.objectIds.every(id => {
+    const object = doc.objects.find(object => object.id === id), source = sources.find(object => object.id === id)
+    return !!object && !!source && object.kind === source.kind
+      && objectAnchorId(object, doc.content) === objectAnchorId(source, { type: 'doc', content: original })
+  })
 }
 
 export function reservedText(content: JSONContent, ids: string[]) {
@@ -151,17 +133,17 @@ export function reservedText(content: JSONContent, ids: string[]) {
 }
 
 export function inactiveTaskReason(task: AITask, doc: MoteDocument): string | null {
-  if (!['mote-agent-v1', 'mote-agent-v2'].includes(task.protocol ?? '') || !DOCUMENT_VERSIONS.includes(task.documentVersion ?? 0) || task.snapshotDocument?.format !== 'mote' || task.snapshotDocument.version !== task.documentVersion) return 'Unsupported task protocol or document version. The original request, snapshot, and result are retained for recovery. Create a new reservation to generate.'
+  if (task.protocol !== 'mote-agent-v5') return 'Unsupported task protocol. Retained task data is available for recovery; create a new reservation to generate.'
   if (task.documentId !== doc.id) return 'This task belongs to another document. Its request and result are retained for recovery.'
   if (task.acceptance) return 'Applied to a local working copy. The result is retained until that exact document is saved to the cloud; it does not lock this document.'
-  if (task.released) return 'This reservation has been released. Its original input and result remain available for recovery, without document locks or agent access.'
+  if (task.released) return 'This reservation is released. Undo restores it; its proposals remain available.'
   const target = task.target
   const intact = target.kind === 'object' ? (() => {
     const object = doc.objects.find(object => object.id === target.objectId)
-    return !!object && sameContent(reservedObjectContent(task, object), reservedObjectContent(task, task.original as FloatingObject))
+    return !!object && object.kind === (task.original as FloatingObject).kind
   })() : target.kind === 'segment' ? segmentReservationIntact(task, doc)
-    : !!reservedText(doc.content, target.blockIds) && sameContent(reservedText(doc.content, target.blockIds), reservedText({ type: 'doc', content: task.original as JSONContent[] }, target.blockIds))
-  return intact ? null : 'The original target has changed or is missing. This task is recovery-only: no document locks, preview, or application. Its original snapshot and result remain available.'
+    : !!reservedText(doc.content, target.blockIds)?.every(block => block.type === 'paragraph')
+  return intact ? null : 'The reserved target is missing or its scope or kind has changed. This task is recovery-only: no document locks, preview, or application. Its original snapshot and result remain available.'
 }
 
 export function compatibleTasks(tasks: AITask[], doc: MoteDocument) {
@@ -225,6 +207,8 @@ export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocume
       return previous !== null && next !== null && sameContent(previous, next)
     }
     if (target.kind === 'segment') return segmentReservationIntact(task, before) && segmentReservationIntact(task, after)
+      && segmentMainUnchanged(task, before.content, after.content)
+      && target.objectIds.every(id => sameContent(before.objects.find(object => object.id === id), after.objects.find(object => object.id === id)))
     const previous = before.objects.find(object => object.id === target.objectId)
     const next = after.objects.find(object => object.id === target.objectId)
     return !!previous && !!next && sameContent(reservedObjectContent(task, previous), reservedObjectContent(task, next))
@@ -237,7 +221,7 @@ export function permitsEditor(tasks: AITask[], historyId: string, before: JSONCo
     || (task.target.kind === 'segment' && task.target.objectIds.includes(historyId))) || sameContent(before, after)
   return tasks.every(task => {
     if (task.target.kind === 'text') return sameContent(reservedText(before, task.target.blockIds), reservedText(after, task.target.blockIds)) && reservedText(after, task.target.blockIds) !== null
-    if (task.target.kind === 'segment') return segmentMainIntact(task, before) && segmentMainIntact(task, after)
+    if (task.target.kind === 'segment') return segmentMainUnchanged(task, before, after)
     const objectId = task.target.objectId
     const flows = (content: JSONContent) => (content.content ?? []).filter(node => node.type === 'flow' && node.attrs?.objectId === objectId)
     return sameContent(flows(before), flows(after))

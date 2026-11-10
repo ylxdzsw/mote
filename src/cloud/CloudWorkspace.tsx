@@ -3,8 +3,7 @@ import { ReaderPage } from '../reader/ReaderPage'
 import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
 import { DOCUMENT_VERSION, migrationBreaking } from '../../shared/document.mjs'
-import { aiRequest, assistantRequest } from '../ai/api'
-import type { AITask } from '../ai/types'
+import type { Reservation } from '../ai/types'
 import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
 import { setSlides } from '../document/slides'
 import { loadDraft } from '../document/storage'
@@ -15,7 +14,7 @@ import { FilesWindow } from './FilesWindow'
 import type { NewFileOptions } from './NewFileForm'
 import { WorkingCopy } from './WorkingCopy'
 import { createCopyRecord, deleteWorkingCopy, forkWorkingCopy, listWorkingCopies, loadWorkingCopy, saveWorkingCopy, workingSession, type WorkingRecord } from './workingCopies'
-import { loadAssistantRecovery, listAssistantRecoveries, saveAssistantRecovery } from '../ai/storage'
+import { loadAssistantRecovery, listAssistantRecoveries } from '../ai/storage'
 import './workspace.css'
 import { connectionSnapshot, isRecord, requestJSON } from './connection'
 
@@ -44,16 +43,13 @@ function SharedPage({ token }: { token: string }) {
   return <ReaderPage initial={loaded.document} />
 }
 
-const unresolved = (tasks: AITask[] = []) => tasks.filter(task => !task.acceptance && !task.released)
-
-// Before a breaking upgrade, the owner's choice ends unresolved tasks explicitly.
-async function releaseTasks(record: WorkingRecord, tasks: AITask[]) {
-  for (const task of tasks) await aiRequest(`/tasks/${task.id}/release`, 'POST').catch(error => { if (error?.status !== 404) throw error })
-  const ids = new Set(tasks.map(task => task.id)), release = (list: AITask[]) => list.map(task => ids.has(task.id) ? { ...task, released: true } : task)
-  const local = await loadAssistantRecovery(record.key, record.meta.id)
-  if (local) { await saveAssistantRecovery({ ...local, tasks: release(local.tasks), dirty: true }); return }
-  const cloud = await assistantRequest(record.meta.id)
-  await assistantRequest(record.meta.id, { baseRevision: cloud.revision, tasks: release(cloud.tasks), operationId: crypto.randomUUID() })
+// Release through the same document CAS; legacy assistant checkpoints are inert.
+async function releaseTasks(record: WorkingRecord, tasks: Reservation[]) {
+  const saved = await loadWorkingCopy(record.key)
+  const copy = new WorkingCopy(saved && (saved.dirty || saved.pending || saved.pendingCreate) ? saved : record)
+  const current = copy.getSnapshot().record, ids = new Set(tasks.map(task => task.id))
+  copy.update(current.document, current.reservations.map(task => ids.has(task.id) ? { ...task, released: true } : task))
+  if (!await copy.sync(true)) throw new Error(copy.getSnapshot().error || 'The release could not be confirmed. Retry to continue.')
 }
 
 type RenderDocument = (copy: WorkingCopy, files: () => void, open: (id: string) => void) => ReactNode
@@ -74,7 +70,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const [loading, setLoading] = useState(!!id)
   const [error, setError] = useState('')
   const [unopened, setUnopened] = useState<WorkingRecord>()
-  const [upgrade, setUpgrade] = useState<{ record: WorkingRecord; tasks: AITask[]; busy?: boolean; error?: string }>()
+  const [upgrade, setUpgrade] = useState<{ record: WorkingRecord; tasks: Reservation[]; busy?: boolean; error?: string }>()
   const [readOnly, setReadOnly] = useState<{ record: WorkingRecord; document: MoteDocument }>()
   const [upgradeChoice, setUpgradeChoice] = useState<'upgrade' | 'decline'>()
   const [retry, setRetry] = useState(0)
@@ -85,6 +81,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const navigation = useRef(0)
   const current = useRef({ copy, path })
   current.current = { copy, path }
+  useEffect(() => () => copy?.cancelEarlySync(), [copy])
 
   const refreshRecovery = () => Promise.all([listWorkingCopies(), listAssistantRecoveries().catch(() => {
     setNotice('Assistant recovery storage could not be read. Document recovery is still available.')
@@ -133,7 +130,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         if (!active) return
         const [cloudResult, privacyResult] = local?.draft ? [] : await Promise.allSettled([
           cloudRequest<CloudDocument>(`/api/documents/${id}`),
-          cloudRequest<DocumentMeta>(`/api/documents/${id}/privacy?open=1`),
+          cloudRequest<DocumentMeta>(`/api/documents/${id}/privacy`),
         ])
         const cloud = cloudResult?.status === 'fulfilled' ? cloudResult.value : undefined
         const privacy = privacyResult?.status === 'fulfilled' ? privacyResult.value : undefined
@@ -142,10 +139,10 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         if (!local && !cloud) throw networkError
         // A dirty local copy is never replaced merely because the cloud has moved on.
         if (cloud && (!local || !local.dirty && !local.pending)) {
-          const { document, ...meta } = cloud
+          const { document, reservations = [], ...meta } = cloud
           const pendingPrivacy = local?.pendingPrivacy
           const pendingCopy = local?.pendingCopy
-          local = { key, session, meta: local ? mergeDocumentMeta(local.meta, meta) : normalizeDocumentMeta(meta), document, dirty: false, updatedAt: Date.now(),
+          local = { key, session, meta: local ? mergeDocumentMeta(local.meta, meta) : normalizeDocumentMeta(meta), document, reservations, dirty: false, updatedAt: Date.now(),
             ...(pendingPrivacy ? { pendingPrivacy } : {}), ...(pendingCopy ? { pendingCopy } : {}) }
         }
         if (local) {
@@ -159,8 +156,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
           if (stored.version < DOCUMENT_VERSION && migrationBreaking(stored.version) && choice !== 'upgrade') {
             const document = initializeDocument(stored, true)
             if (choice === 'decline') { setReadOnly({ record: local!, document }); setLoading(false); return }
-            const [saved, cloud] = await Promise.all([loadAssistantRecovery(key, id), local!.draft ? undefined : assistantRequest(id)])
-            const tasks = unresolved((saved ?? cloud)?.tasks)
+            const tasks = local!.reservations.filter(task => !task.released)
             if (!active) return
             if (tasks.length) { setUpgrade({ record: local!, tasks }); setLoading(false); return }
           }
@@ -192,7 +188,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     if (!upgrade) return
     setUpgrade({ ...upgrade, busy: true, error: '' })
     try { await releaseTasks(upgrade.record, upgrade.tasks); setUpgradeChoice('upgrade'); setRetry(value => value + 1) }
-    catch (error) { setUpgrade({ ...upgrade, busy: false, error: `${error instanceof Error ? error.message : 'Release failed'}. Nothing was upgraded; tasks and the document are unchanged.` }) }
+    catch (error) { setUpgrade({ ...upgrade, busy: false, error: `${error instanceof Error ? error.message : 'Release failed'}. The upgrade has not continued. Local edits and release retry details are retained.` }) }
   }
 
   async function navigate(next: string, reload = false, draft?: WorkingRecord) {
@@ -219,9 +215,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     if (!options.example && options.slideHeight !== undefined) document = setSlides(document, true, options.slideHeight)
     const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
     const retain = options.example || options.modified
-    const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, dirty: retain, draft: true, updatedAt: now,
+    const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, reservations: [], dirty: retain, draft: true, updatedAt: now,
       draftDefaults: { mode: options.mode, language: options.language },
-      ...(retain ? { pendingCreate: { id: document.id, operationId: crypto.randomUUID(), name, document, private: options.private } } : {}),
+      ...(retain ? { pendingCreate: { id: document.id, operationId: crypto.randomUUID(), name, document, reservations: [], private: options.private } } : {}),
       meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0, archived: false, archiveRevision: 0 } }
     if (!await navigate(document.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
   }

@@ -1,4 +1,5 @@
 import type { DocumentLanguage, MoteDocument } from '../document/model'
+import type { Reservation } from '../ai/types'
 import type { DocumentMeta } from './api'
 import { loadAssistantRecovery, saveAssistantRecovery } from '../ai/storage'
 
@@ -6,18 +7,29 @@ export interface PendingSave {
   operationId: string
   baseRevision: string
   document: MoteDocument
+  // Old uncertain bodies stay byte-for-byte retryable; new operations include this.
+  reservations?: Reservation[]
+}
+export interface PendingCreate {
+  id: string
+  operationId: string
+  name: string
+  document: MoteDocument
+  reservations?: Reservation[]
+  private?: boolean
 }
 export interface WorkingRecord {
   key: string
   session: string
   meta: DocumentMeta
   document: MoteDocument
+  reservations: Reservation[]
   dirty: boolean
   updatedAt: number
   pending?: PendingSave
   draft?: boolean
   draftDefaults?: { mode: 'light' | 'dark'; language: DocumentLanguage }
-  pendingCreate?: { id: string; operationId: string; name: string; document: MoteDocument; private?: boolean }
+  pendingCreate?: PendingCreate
   pendingPrivacy?: { private: boolean; basePrivacyRevision: number; baseShareRevision?: number; operationId: string }
   pendingCopy?: { key: string; document: MoteDocument }
   // Stored pre-migration document, kept until an upgraded save is cloud-acknowledged.
@@ -26,8 +38,8 @@ export interface WorkingRecord {
 
 export function createCopyRecord(source: MoteDocument, name: string, session: string, privateDocument = false): WorkingRecord {
   const id = crypto.randomUUID(), document = { ...source, id }, now = Date.now()
-  return { key: `${session}:${id}`, session, document, dirty: true, draft: true, updatedAt: now,
-    pendingCreate: { id, operationId: crypto.randomUUID(), name, document, private: privateDocument },
+  return { key: `${session}:${id}`, session, document, reservations: [], dirty: true, draft: true, updatedAt: now,
+    pendingCreate: { id, operationId: crypto.randomUUID(), name, document, reservations: [], private: privateDocument },
     meta: { id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0, archived: false, archiveRevision: 0 } }
 }
 
@@ -49,8 +61,12 @@ async function transaction<T>(write: boolean, action: (store: IDBObjectStore) =>
     tx.onabort = tx.onerror = () => reject(tx.error ?? request.error)
   })
 }
-export const listWorkingCopies = () => transaction<WorkingRecord[]>(false, store => store.getAll())
-export const loadWorkingCopy = (key: string) => transaction<WorkingRecord | undefined>(false, store => store.get(key))
+const normalize = (record: WorkingRecord): WorkingRecord => ({ ...record, reservations: record.reservations ?? [] })
+export const listWorkingCopies = async () => (await transaction<WorkingRecord[]>(false, store => store.getAll())).map(normalize)
+export const loadWorkingCopy = async (key: string) => {
+  const record = await transaction<WorkingRecord | undefined>(false, store => store.get(key))
+  return record && normalize(record)
+}
 export const saveWorkingCopy = (copy: WorkingRecord, related?: WorkingRecord) => transaction(true, store => {
   if (related) store.put(related)
   return store.put(copy)

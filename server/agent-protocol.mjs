@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
-import { HttpError, MAX_RESULT, MAX_SCREENSHOT, UUID, record, validateCandidate, validatePngDataUrl } from './validation.mjs'
+import { HttpError, MAX_RESULT, MAX_SCREENSHOT, UUID, record, validateProposalCandidate, validatePngDataUrl, PROPOSAL_SCHEMA_URL } from './validation.mjs'
 
-export const AGENT_PROTOCOL = 'mote-agent-v2'
+export { PROPOSAL_SCHEMA_URL }
+
+export const AGENT_PROTOCOL = 'mote-agent-v5'
 export const TOKEN = /^[A-Za-z0-9_-]{22}$/
 export function operationId(value) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, 'operationId must be a UUID'); return value }
-export function counter(value, label) { if (!Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative integer`); return value }
 export function fingerprint(value) {
   const hash = createHash('sha256')
   const visit = (value, depth = 0) => {
@@ -16,11 +17,24 @@ export function fingerprint(value) {
   visit(value); return hash.digest('hex')
 }
 
+// Early grammar feedback only: no document, target, source version, executor or
+// session is an input. Browser Accept owns applicability and final edit checks.
 // Paths are names in the uploaded map, never paths/URLs to open on this server.
-export function validateDelivery(raw, assets, document, target) {
+export function validateProposalDelivery(raw, assets) {
+  try { return proposalDelivery(raw, assets) } catch (error) {
+    if (error instanceof HttpError) {
+      error.schemaUrl = PROPOSAL_SCHEMA_URL
+      error.message += ` Schema: ${PROPOSAL_SCHEMA_URL}`
+    }
+    throw error
+  }
+}
+
+function proposalDelivery(raw, assets) {
+  record(raw, 'candidate')
   if (Buffer.byteLength(JSON.stringify(raw)) > MAX_RESULT) throw new HttpError(413, 'candidate JSON is too large')
   const supplied = record(assets ?? {}, 'assets')
-  const candidate = validateCandidate(structuredClone(raw), document, target, { allowScreenshotPath: true })
+  const candidate = validateProposalCandidate(structuredClone(raw), { allowScreenshotPath: true })
   const used = new Set()
   let total = 0
   const png = (value, width, height, label) => {
@@ -37,15 +51,14 @@ export function validateDelivery(raw, assets, document, target) {
   }
   if (candidate.object?.kind === 'html') {
     const value = candidate.screenshotPath === undefined ? candidate.object.screenshot : asset(candidate.screenshotPath)
-    const original = document.objects.find(object => object.id === target.objectId)
-    candidate.object.screenshot = png(value, original.layout.width, original.layout.height, 'screenshot')
+    candidate.object.screenshot = png(value, candidate.object.layout.width, candidate.object.layout.height, 'screenshot')
     delete candidate.screenshotPath
   }
   for (const object of candidate.segment?.objects ?? []) if (object.kind === 'html') {
-    const name = candidate.screenshotPaths?.[object.id]
+    const name = Object.hasOwn(candidate.screenshotPaths ?? {}, object.id) ? candidate.screenshotPaths[object.id] : undefined
     object.screenshot = png(name === undefined ? object.screenshot : asset(name), object.layout.width, object.layout.height, `screenshot for ${object.id}`)
   }
   delete candidate.screenshotPaths
   if (Object.keys(supplied).some(name => !used.has(name))) throw new HttpError(400, 'unused uploaded asset')
-  return validateCandidate(candidate, document, target)
+  return validateProposalCandidate(candidate)
 }

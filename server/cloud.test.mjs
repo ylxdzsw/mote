@@ -22,7 +22,7 @@ function document(id = randomUUID(), value = 'Hello') {
 async function app(t, options = {}) {
   const root = options.root || await mkdtemp(path.join(os.tmpdir(), 'mote-cloud-test-'))
   if (!options.root) t.after(() => rm(root, { recursive: true, force: true }))
-  const value = await createMotedServer({ ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, allowDirectTasks: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0', ...options.env } })
+  const value = await createMotedServer({ ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0', ...options.env } })
   if (!options.root && options.workspaceModel !== '') value.store.putSettings({ baseRevision: 0, models: { builtin: 'fake', indexing: '' } })
   await value.start()
   t.after(() => value.close())
@@ -142,51 +142,7 @@ test('model catalog timeout returns a bounded actionable 422 without exposing Mu
   assert.ok(Date.now() - started < 5000)
 })
 
-test('missing Mu and failed workers leave cloud documents usable without automatic execution retries', async t => {
-  const value = await app(t, { runner: muRunner, env: { MOTED_MU_BIN: '/mote-test-missing-mu' } })
-  const shared = value.manager.env.MOTED_SHARED_MU_DIR
-  await mkdir(shared); await writeFile(path.join(shared, 'config.jsonc'), '{}')
-  const original = await create(value), id = randomUUID()
-  const body = { id, cloudDocumentId: original.id, baseRevision: original.revision, operationId: randomUUID(),
-    document: original.document, prompt: 'Test unavailable executable', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } }
-  await reservations(value, original, [body])
-  assert.equal((await value.call('POST', 'ai/tasks', body)).status, 202)
-  for (let i = 0; i < 100 && value.manager.tasks.get(id).meta.status !== 'error'; i++) await new Promise(resolve => setTimeout(resolve, 10))
-  const failed = value.manager.tasks.get(id)
-  assert.equal(failed.meta.status, 'error'); assert.match(failed.meta.error, /ENOENT/)
-  const saved = await value.call('PUT', `documents/${original.id}`, save(original, 'Manual edit with Mu absent'))
-  assert.equal(saved.status, 200)
-  assert.equal((await value.call('GET', 'documents')).body.documents.length, 1)
-  assert.equal((await shareMutation(value, original.id, 0, 'enable')).status, 200)
-  await new Promise(resolve => setTimeout(resolve, 100))
-  assert.equal(failed.meta.attempt, 1); assert.equal(value.manager.queue.length, 0)
-  await value.close()
-  const restarted = await app(t, { root: value.root, runner: async () => { assert.fail('must not rerun on restart') } })
-  assert.equal(restarted.manager.tasks.get(id).meta.status, 'error')
-  assert.deepEqual((await restarted.call('GET', `documents/${original.id}`)).body.document, saved.body.document)
-})
 
-test('missing model ignores global defaults, starts no worker, and leaves cloud work usable', async t => {
-  const value = await app(t, { workspaceModel: '', env: { MOTED_MU_DEFAULT_MODEL: 'global/ignored' },
-    runner: async () => assert.fail('missing configuration must not start a worker') })
-  const bin = path.join(value.root, 'configured-mu'), marker = path.join(value.root, 'mu-called')
-  await writeFile(bin, `#!${process.execPath}
-require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'called'); console.log(JSON.stringify({model:{canonical:'mu/ignored'}}))
-`, { mode: 0o700 })
-  value.manager.env.MOTED_MU_BIN = bin
-  const original = await create(value)
-  const body = { id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, operationId: randomUUID(),
-    document: original.document, prompt: 'Test unavailable model', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } }
-  await reservations(value, original, [body])
-  const result = await value.call('POST', 'ai/tasks', body)
-  assert.equal(result.status, 400)
-  assert.match(result.body.error, /Choose a model in Settings/)
-  await assert.rejects(stat(marker), { code: 'ENOENT' })
-  assert.equal(value.manager.tasks.size, 0)
-  assert.equal((await value.call('GET', 'settings')).status, 200)
-  assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
-  assert.equal((await value.call('PUT', `documents/${original.id}`, save(original, 'Still usable'))).status, 200)
-})
 
 test('competing saves CAS across SQLite connections; lost-response retry survives restart and later saves', async t => {
   const first = await app(t); const second = await app(t, { root: first.root })
@@ -217,13 +173,12 @@ test('private metadata defaults, persists, uses independent CAS/retries, and sur
   assert.deepEqual((await value.call('GET', `${base}/privacy`)).body, {
     id: original.id, name: original.name, revision: original.revision, createdAt: original.createdAt, updatedAt: original.updatedAt, private: false, privacyRevision: 0, archived: false, archiveRevision: 0,
   })
-  assert.deepEqual(value.store.assertExternal(original.id, 0), (await value.call('GET', `${base}/privacy`)).body)
-  assert.throws(() => value.store.assertExternal(original.id, 1), error => error.status === 403)
+  assert.deepEqual(value.store.assertExternal(original.id), (await value.call('GET', `${base}/privacy`)).body)
 
   const enable = { private: true, basePrivacyRevision: 0, operationId: randomUUID() }
   const enabled = await value.call('PUT', `${base}/privacy`, enable)
   assert.equal(enabled.status, 200); assert.equal(enabled.body.private, true); assert.equal(enabled.body.privacyRevision, 1)
-  assert.throws(() => value.store.assertExternal(original.id, 0), error => error.status === 403)
+  assert.throws(() => value.store.assertExternal(original.id), error => error.status === 403)
   assert.deepEqual((await value.call('PUT', `${base}/privacy`, enable)).body, enabled.body)
   const conflict = await value.call('PUT', `${base}/privacy`, { private: false, basePrivacyRevision: 0, operationId: randomUUID() })
   assert.equal(conflict.status, 409); assert.equal(conflict.body.current.private, true); assert.equal(conflict.body.current.privacyRevision, 1)
@@ -238,19 +193,17 @@ test('private metadata defaults, persists, uses independent CAS/retries, and sur
   assert.equal(persisted.body.private, true); assert.equal(persisted.body.privacyRevision, 1)
   const disabled = await restarted.call('PUT', `${base}/privacy`, { private: false, basePrivacyRevision: 1, operationId: randomUUID() })
   assert.equal(disabled.status, 200); assert.equal(disabled.body.private, false); assert.equal(disabled.body.privacyRevision, 2)
-  assert.throws(() => restarted.store.assertExternal(original.id, 1), error => error.status === 403)
-  assert.equal(restarted.store.assertExternal(original.id, 2).private, false)
+  assert.equal(restarted.store.assertExternal(original.id).private, false)
   assert.deepEqual((await restarted.call('PUT', `${base}/privacy`, enable)).body, enabled.body)
   assert.equal((await restarted.call('GET', `${base}/privacy`)).body.privacyRevision, 2)
 })
 
-test('archive metadata is independent, durable, retry-safe, and leaves content, indexing, sharing and activity alone', async t => {
+test('archive metadata is independent, durable, retry-safe, and leaves content, indexing and sharing alone', async t => {
   const value = await app(t), original = await create(value), base = `documents/${original.id}`
   assert.equal(original.archived, false); assert.equal(original.archiveRevision, 0)
   const share = (await shareMutation(value, original.id, 0, 'enable')).body
   const stream = await documentUpdates(value, original.id)
   t.after(stream.cancel)
-  const accessUntil = value.store.documentAccessUntil(original.id)
   const indexDocuments = value.store.indexDocuments()
   let wakes = 0, reconciliations = 0
   const wake = value.indexer.wake, reconcile = value.manager.reconcileReservations
@@ -262,7 +215,7 @@ test('archive metadata is independent, durable, retry-safe, and leaves content, 
     assert.equal((await value.call('PUT', `${base}/archive`, { ...archive, ...invalid })).status, 400)
   }
   const enabled = await value.call('PUT', `${base}/archive`, archive)
-  const { document: native, ...meta } = original
+  const { document: native, reservations: _reservations, ...meta } = original
   assert.equal(enabled.status, 200)
   assert.deepEqual(enabled.body, { ...meta, archived: true, archiveRevision: 1 })
   assert.equal(enabled.headers.get('cache-control'), 'no-store')
@@ -275,13 +228,12 @@ test('archive metadata is independent, durable, retry-safe, and leaves content, 
   assert.deepEqual(stream.messages, [{ kind: 'ready' }, { kind: 'document' }])
   assert.equal(wakes, 0); assert.equal(reconciliations, 0)
   value.indexer.wake = wake; value.manager.reconcileReservations = reconcile
-  assert.equal(value.store.documentAccessUntil(original.id), accessUntil)
   assert.deepEqual(value.store.indexDocuments(), indexDocuments)
   assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM revisions').get().n, 1)
   assert.deepEqual(value.store.get(original.id).document, native)
   assert.deepEqual(value.store.shares(original.id), share)
   assert.equal((await value.call('GET', `/api/shared/${share.share.token}`)).status, 200)
-  assert.equal(value.store.assertExternal(original.id, 0).archived, true)
+  assert.equal(value.store.assertExternal(original.id).archived, true)
   assert.deepEqual((await value.call('GET', 'documents')).body.documents, [enabled.body])
   const stale = await value.call('PUT', base, save(original, 'Stale archive view', { archived: false, archiveRevision: 0 }))
   assert.equal(stale.status, 200); assert.equal(stale.body.archived, true); assert.equal(stale.body.archiveRevision, 1)
@@ -297,25 +249,6 @@ test('archive metadata is independent, durable, retry-safe, and leaves content, 
   assert.deepEqual((await restarted.call('PUT', `${base}/archive`, archive)).body, renamed.body)
   assert.equal(restarted.store.privacyMeta(original.id).archived, false)
   assert.equal(restarted.store.privacyMeta(original.id).archiveRevision, 2)
-})
-
-test('legacy SQLite metadata columns migrate idempotently without resetting documents', async t => {
-  const value = await app(t); const original = await create(value)
-  await value.close()
-  const legacy = new DatabaseSync(value.store.databasePath)
-  legacy.exec('ALTER TABLE documents DROP COLUMN privacyRevision; ALTER TABLE documents DROP COLUMN private; ALTER TABLE documents DROP COLUMN archived; ALTER TABLE documents DROP COLUMN archiveRevision;')
-  legacy.close()
-  const migrated = await app(t, { root: value.root })
-  const loaded = await migrated.call('GET', `documents/${original.id}`)
-  assert.equal(loaded.status, 200); assert.deepEqual(loaded.body.document, original.document)
-  assert.equal(loaded.body.private, false); assert.equal(loaded.body.privacyRevision, 0)
-  assert.equal(loaded.body.archived, false); assert.equal(loaded.body.archiveRevision, 0)
-  assert.equal(loaded.body.revision, original.revision); assert.equal(loaded.body.updatedAt, original.updatedAt)
-  await migrated.close()
-  const reopened = await app(t, { root: value.root })
-  assert.deepEqual((await reopened.call('GET', `documents/${original.id}`)).body.document, original.document)
-  assert.equal((await reopened.call('GET', `documents/${original.id}/privacy`)).body.privacyRevision, 0)
-  assert.equal((await reopened.call('GET', `documents/${original.id}/privacy`)).body.archiveRevision, 0)
 })
 
 test('private creation is validated; latest links are revoked and never revive', async t => {
@@ -427,7 +360,7 @@ test('single latest share is CAS-controlled, retry-safe, and revoked on deletion
   assert.equal((await value.call('DELETE', base, { baseRevision: updated.revision })).status, 200)
   assert.equal((await value.call('GET', `shared/${reenabled.body.share.token}`)).status, 404)
   assert.equal(value.store.db.prepare('SELECT shareRevision FROM documents WHERE id=?').get(original.id).shareRevision, 5)
-  for (const [method, suffix, body] of [['GET', '', undefined], ['PUT', '', mutation], ['PATCH', '', { name: 'Back' }], ['GET', '/assistant', undefined], ['PUT', '/assistant', { baseRevision: '0', tasks: [], operationId: randomUUID() }]]) {
+  for (const [method, suffix, body] of [['GET', '', undefined], ['PUT', '', mutation], ['PATCH', '', { name: 'Back' }], ['GET', '/assistant', undefined]]) {
     assert.equal((await value.call(method, base + suffix, body)).status, 410)
   }
   assert.equal((await value.call('POST', `${base}/shares`, { mode: 'latest' })).status, 404)
@@ -462,23 +395,6 @@ test('Notes round-trip through saves, validate as a notes array, affect retries,
   assert.deepEqual(publicLatest.body.document, publicUpdated)
 })
 
-test('assistant state CAS and retries are independent, inert, and hydrated', async t => {
-  const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
-  assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, { revision: '0', tasks: [] })
-  const request = { baseRevision: '0', tasks: [{ id: randomUUID(), status: 'running', prompt: 'Do not execute this', candidate: { screenshot: image } }], operationId: randomUUID() }
-  const first = await value.call('PUT', `${base}/assistant`, request)
-  assert.equal(first.status, 200); assert.deepEqual(first.body.tasks, request.tasks)
-  const conflict = await value.call('PUT', `${base}/assistant`, { ...request, operationId: randomUUID() })
-  assert.equal(conflict.status, 409); assert.deepEqual(conflict.body.current, first.body)
-  assert.equal((await value.call('PUT', base, save(original, 'Content changed'))).status, 200)
-  const second = await value.call('PUT', `${base}/assistant`, { baseRevision: first.body.revision, tasks: [], operationId: randomUUID() })
-  assert.equal(second.status, 200)
-  assert.deepEqual((await value.call('PUT', `${base}/assistant`, request)).body, first.body)
-  assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, second.body)
-  assert.equal(value.manager.tasks.size, 0)
-  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM assets').get().n, 1)
-  assert.equal(value.store.db.prepare('SELECT body FROM revisions LIMIT 1').get().body.includes(image), false)
-})
 
 test('saves validate incoming documents, reads preserve unsupported data, and mutations enforce exact Origin', async t => {
   const value = await app(t); const original = await create(value); const base = `documents/${original.id}`
@@ -489,9 +405,6 @@ test('saves validate incoming documents, reads preserve unsupported data, and mu
   assert.equal((await value.call('PATCH', base, { name: 'Bad origin' }, { origin: '' })).status, 403)
   assert.equal((await value.call('DELETE', base, { baseRevision: original.revision }, { origin: 'null' })).status, 403)
   const link = (await shareMutation(value, original.id, 0, 'enable')).body.share
-  const assistantOperation = { baseRevision: '0', tasks: [{ id: randomUUID(), candidate: { summary: 'Retained candidate' } }], operationId: randomUUID() }
-  const assistant = await value.call('PUT', `${base}/assistant`, assistantOperation)
-  assert.equal(assistant.status, 200)
   const old = { version: 'V0', id: original.id, floating: [], notes: 'Retain original bytes' }
   value.store.db.prepare('UPDATE revisions SET body=? WHERE revision=?').run(value.store.pack(old), original.revision)
   assert.deepEqual((await value.call('GET', base)).body.document, old)
@@ -500,43 +413,9 @@ test('saves validate incoming documents, reads preserve unsupported data, and mu
   // Restore valid content for subsequent mutation tests
   const restored = await value.call('PUT', base, save(original, 'Restored from V0'))
   assert.equal(restored.status, 200)
-  const removal = { baseRevision: assistant.body.revision, tasks: [], operationId: randomUUID() }
-  const exactRemoval = JSON.stringify(removal)
-  const removed = await value.call('PUT', `${base}/assistant`, removal)
-  assert.equal(removed.status, 200)
-  assert.equal(JSON.stringify(removal), exactRemoval)
-  assert.deepEqual((await value.call('PUT', `${base}/assistant`, assistantOperation)).body, assistant.body)
-  assert.equal((await value.call('PUT', `${base}/assistant`, { ...assistantOperation, tasks: [] })).status, 409)
-  assert.deepEqual((await value.call('GET', `${base}/assistant`)).body, removed.body)
-  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM task_revocations WHERE documentId=?').get(original.id).n, 1)
   assert.equal(MAX_BODY, 128 * 1024 * 1024)
 })
 
-test('AI tasks bind immutable saved revisions and retain candidates/sessions past old TTL and restart', async t => {
-  const value = await app(t); const original = await create(value)
-  const target = { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }
-  const request = { id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, document: original.document, prompt: 'Improve', target, operationId: randomUUID() }
-  assert.equal((await value.call('PUT', `documents/${original.id}/assistant`, { baseRevision: '0', tasks: [request], operationId: randomUUID() })).status, 200)
-  assert.equal((await value.call('POST', 'ai/tasks', { ...request, document: document(original.id, 'Unsaved') })).status, 409)
-  assert.equal((await value.call('POST', 'ai/tasks', { ...request, cloudDocumentId: undefined })).status, 400)
-  await value.call('PUT', `documents/${original.id}`, save(original, 'Hello'))
-  const submitted = await value.call('POST', 'ai/tasks', { ...request, document: undefined })
-  assert.equal(submitted.status, 202); assert.equal(submitted.body.documentId, original.id); assert.equal(submitted.body.baseRevision, original.revision)
-  for (let i = 0; i < 100 && value.manager.tasks.get(request.id).meta.status !== 'ready'; i++) await new Promise(resolve => setTimeout(resolve, 10))
-  const task = value.manager.tasks.get(request.id)
-  assert.equal(task.meta.status, 'ready')
-  assert.equal(task.meta.versions[0].candidate.content[0].content[0].text, 'AI draft: Hello')
-  assert.equal(value.store.db.prepare('SELECT revision FROM task_revisions WHERE taskId=?').get(request.id).revision, original.revision)
-  const taskDir = task.dir
-  await value.close()
-  const meta = JSON.parse(await readFile(path.join(taskDir, 'meta.json'), 'utf8')); meta.expiresAt = 1
-  await writeFile(path.join(taskDir, 'meta.json'), JSON.stringify(meta))
-  const restarted = await app(t, { root: value.root })
-  const recovered = await restarted.call('GET', `ai/tasks/${request.id}`)
-  assert.deepEqual(recovered.body.candidate, meta.candidate)
-  assert.equal(restarted.manager.tasks.get(request.id).meta.sessionId, meta.sessionId)
-  assert.ok(recovered.body.expiresAt > Date.now())
-})
 
 test('private SQLite/WAL, worker isolation properties, and both consistent backup paths preserve live data', async t => {
   const value = await app(t); const original = await create(value)
@@ -561,14 +440,6 @@ test('private SQLite/WAL, worker isolation properties, and both consistent backu
   assert.notEqual(files[0], files[1]); await stat(files[0])
   assert.equal((await stat(value.store.backupDir)).mode & 0o777, 0o700)
 })
-
-const portableRequest = original => ({ id: randomUUID(), cloudDocumentId: original.id, baseRevision: original.revision, executor: 'external', operationId: randomUUID(), snapshot: image,
-  target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } })
-const submission = (envelope, extra = {}) => ({ executorRevision: 0, documentRevision: envelope.revision, operationId: randomUUID(), candidate: { content: envelope.document.content.content, summary: 'Retained external result' }, ...extra })
-async function reservations(value, original, tasks) {
-  const state = value.store.assistant(original.id)
-  return value.call('PUT', `documents/${original.id}/assistant`, { baseRevision: state.revision, tasks, operationId: randomUUID() })
-}
 
 async function until(predicate) {
   for (let i = 0; i < 200; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)) }
@@ -598,28 +469,15 @@ async function documentUpdates(value, id) {
   return { messages, done, cancel: () => reader.cancel().catch(() => {}) }
 }
 
-test('document streams deliver only committed scoped changes, do not renew activity, and end after deletion', { timeout: 8000 }, async t => {
+test('document streams deliver only committed scoped changes and end after deletion', { timeout: 8000 }, async t => {
   const value = await app(t, { transcriptHeartbeatMs: 10 }), original = await create(value), other = await create(value)
   const base = `documents/${original.id}`
   const missing = await value.call('GET', `documents/${randomUUID()}/events`)
   assert.equal(missing.status, 404); assert.match(missing.headers.get('content-type'), /^application\/json/)
-  const oldActivity = Date.now() - 120_000
-  value.store.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=?').run(oldActivity, original.id)
   const stream = await documentUpdates(value, original.id), isolated = await documentUpdates(value, other.id)
   t.after(stream.cancel); t.after(isolated.cancel)
-  assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
   await value.call('GET', base); await value.call('GET', `${base}/privacy`); await value.call('GET', `${base}/assistant`)
   await new Promise(resolve => setTimeout(resolve, 35))
-  assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
-  assert.deepEqual(stream.messages, [{ kind: 'ready' }])
-  assert.equal((await value.call('POST', `${base}/open`, undefined, { origin: 'http://untrusted.test' })).status, 403)
-  assert.equal(value.store.documentAccessUntil(original.id), oldActivity + 24 * 60 * 60 * 1000)
-  const opened = [], noteDocumentOpen = value.store.noteDocumentOpen.bind(value.store)
-  value.store.noteDocumentOpen = id => { opened.push(id); noteDocumentOpen(id) }
-  const renewed = await value.call('POST', `${base}/open`)
-  assert.equal(renewed.status, 200); assert.deepEqual(renewed.body, { ok: true })
-  assert.deepEqual(opened, [original.id])
-  assert.ok(value.store.documentAccessUntil(original.id) > oldActivity + 24 * 60 * 60 * 1000)
   assert.deepEqual(stream.messages, [{ kind: 'ready' }])
   assert.equal((await value.call('PATCH', `documents/${other.id}`, { name: 'Other document' })).status, 200)
   await until(() => isolated.messages.length === 2)
@@ -636,9 +494,8 @@ test('document streams deliver only committed scoped changes, do not renew activ
   assert.equal((await value.call('PUT', base, save(original, 'Conflict'))).status, 409)
   assert.equal((await value.call('PATCH', base, { name: 'Renamed' })).status, 200)
   assert.equal((await value.call('PUT', `${base}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() })).status, 200)
-  assert.equal((await reservations(value, original, [])).status, 200)
-  await until(() => stream.messages.length === 5)
-  assert.deepEqual(stream.messages.map(message => message.kind), ['ready', 'document', 'document', 'privacy', 'assistant'])
+  await until(() => stream.messages.length === 4)
+  assert.deepEqual(stream.messages.map(message => message.kind), ['ready', 'document', 'document', 'privacy'])
   assert.deepEqual(isolated.messages, [{ kind: 'ready' }, { kind: 'document' }])
   assert.equal((await value.call('DELETE', base, { baseRevision: saved.body.revision })).status, 200)
   await stream.done
@@ -647,453 +504,101 @@ test('document streams deliver only committed scoped changes, do not renew activ
   assert.equal(deleted.status, 410); assert.match(deleted.headers.get('content-type'), /^application\/json/)
 })
 
-test('document stream includes newly created task logs and committed candidate, permission, privacy and removal updates', { timeout: 10000 }, async t => {
-  const value = await app(t), original = await create(value), other = await create(value)
-  const stream = await documentUpdates(value, original.id), isolated = await documentUpdates(value, other.id)
-  t.after(stream.cancel); t.after(isolated.cancel)
-  const request = { ...portableRequest(original), executor: 'builtin', prompt: 'Stream this new task' }
-  assert.equal((await reservations(value, original, [request])).status, 200)
-  assert.equal((await value.call('POST', 'ai/tasks', request)).status, 202)
-  const task = value.manager.tasks.get(request.id)
-  await until(() => task.meta.status === 'ready' && !task.current && !task.executions.size && !task.transcript.pending)
-  await until(() => stream.messages.some(message => message.kind === 'transcript' && message.entry.kind === 'stderr'))
-  assert.ok(stream.messages.some(message => message.kind === 'task' && message.taskId === task.id))
-  const transcript = stream.messages.filter(message => message.kind === 'transcript').map(message => message.entry)
-  assert.deepEqual(transcript, task.transcript.events)
-  assert.equal(transcript[0].text, request.prompt)
-  const replay = await value.call('GET', `ai/tasks/${task.id}/transcript?after=1`)
-  assert.equal(replay.status, 200); assert.equal(replay.headers.get('cache-control'), 'no-store')
-  assert.deepEqual(replay.body, { events: transcript.slice(1), reset: false, warning: '' })
-  assert.equal((await value.call('GET', `ai/tasks/${task.id}/transcript?after=-1`)).status, 400)
-  const seen = []
-  const unsubscribe = value.manager.documentEvents.subscribe(original.id, message => {
-    if (message.kind === 'task') seen.push(value.manager.view(task))
-  }, () => {})
-  t.after(unsubscribe)
-  const permission = { enabled: true, baseWorkspaceReadRevision: 0, operationId: randomUUID() }
-  assert.equal((await value.call('POST', `ai/tasks/${task.id}/workspace-read`, permission)).status, 200)
-  assert.equal(seen.at(-1).workspaceRead, true)
-  const persist = value.manager.persist.bind(value.manager), committed = seen.length
-  value.manager.persist = async () => { throw new Error('fake commit failure') }
-  await assert.rejects(value.manager.mutate(task, () => value.manager.setWorkspaceRead(task,
-    { enabled: false, baseWorkspaceReadRevision: 1, operationId: randomUUID() })))
-  value.manager.persist = persist
-  assert.equal(seen.length, committed)
-  const external = await value.call('POST', `ai/tasks/${task.id}/executor`, { executor: 'external', baseExecutorRevision: 0, operationId: randomUUID() })
-  assert.equal(external.status, 200); assert.equal(seen.at(-1).executor, 'external')
-  assert.equal(seen.at(-1).workspaceRead, false)
-  const submitted = await value.call('POST', `${external.body.externalPath}/submit`, { ...submission(original), executorRevision: 1 })
-  assert.equal(submitted.status, 200); assert.equal(seen.at(-1).versions.length, 2)
-  const secondSubmit = await value.call('POST', `${external.body.externalPath}/submit`, { ...submission(original), executorRevision: 1 })
-  assert.equal(secondSubmit.status, 200); assert.equal(seen.at(-1).versions.length, 3)
-  assert.equal((await value.call('PUT', `documents/${original.id}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() })).status, 200)
-  assert.equal(seen.at(-1).executor, 'builtin')
-  const beforeReads = seen.length
-  await value.call('GET', `ai/tasks/${task.id}`); await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)
-  assert.equal(seen.length, beforeReads)
-  task.transcript.warn('Bounded test warning')
-  await until(() => stream.messages.some(message => message.kind === 'transcript-warning' && message.message === 'Bounded test warning'))
-  assert.equal((await value.call('POST', `ai/tasks/${task.id}/release`, {})).status, 200)
-  assert.equal(seen.at(-1).released, true)
-  const directory = task.dir, closeTranscript = task.transcript.close.bind(task.transcript)
-  task.transcript.close = async () => { await closeTranscript(); task.dir = path.join(value.root, 'missing-task') }
-  try { await assert.rejects(value.manager.remove(task), { code: 'ENOENT' }) }
-  finally { task.dir = directory; task.transcript.close = closeTranscript }
-  assert.equal(value.manager.tasks.has(task.id), true)
-  assert.equal(stream.messages.some(message => message.kind === 'transcript-closed' && message.taskId === task.id), false)
-  assert.equal((await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)).status, 200)
-  assert.equal((await value.call('DELETE', `ai/tasks/${task.id}`)).status, 200)
-  await until(() => stream.messages.some(message => message.kind === 'transcript-closed' && message.taskId === task.id))
-  assert.equal((await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)).status, 404)
-  assert.deepEqual(isolated.messages, [{ kind: 'ready' }])
+
+
+
+
+
+const reservation = doc => ({ id: randomUUID(), documentId: doc.id, workspaceRead: false, original: doc.content.content,
+  target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } })
+
+test('reservations and content commit under one CAS, preserve omission, and roll back credentials on invalid saves', async t => {
+  const value = await app(t), other = await app(t, { root: value.root })
+  const doc = document(), item = reservation(doc)
+  const original = (await value.call('POST', 'documents', { id: doc.id, name: 'Reserved', document: doc, reservations: [item], operationId: randomUUID() })).body
+  assert.deepEqual(original.reservations, [item])
+  assert.equal(value.manager.tasks.size, 0)
+  const token = value.store.credential(item.id).token
+  const left = save(original, 'Left', { reservations: [{ ...item, workspaceRead: true }] })
+  const right = save(original, 'Right', { reservations: [{ ...item, released: true }] })
+  const responses = await Promise.all([value.call('PUT', `documents/${doc.id}`, left), other.call('PUT', `documents/${doc.id}`, right)])
+  assert.deepEqual(responses.map(item => item.status).sort(), [200, 409])
+  let current = value.store.get(doc.id)
+  const winner = responses.find(result => result.status === 200).body
+  assert.deepEqual(current, winner)
+  assert.equal(current.reservations[0].workspaceRead, current.document.content.content[0].content[0].text === 'Left')
+  const omitted = await value.call('PUT', `documents/${doc.id}`, save(current, 'Non-editor save'))
+  assert.equal(omitted.status, 200)
+  assert.deepEqual(omitted.body.reservations, current.reservations)
+  current = omitted.body
+  const invalid = { ...item, id: randomUUID(), target: { ...item.target, blockIds: ['missing'] } }
+  assert.equal((await value.call('PUT', `documents/${doc.id}`, save(current, 'Invalid', { reservations: [invalid] }))).status, 400)
+  assert.equal(value.store.credential(invalid.id), undefined)
+  assert.deepEqual(value.store.get(doc.id), current)
+  assert.equal((await value.call('PUT', `documents/${doc.id}`, save(current, 'Overlap', { reservations: [item, { ...item, id: randomUUID() }] }))).status, 400)
+  assert.equal((await value.call('PUT', `documents/${doc.id}`, save(current, 'Runtime leak', { reservations: [{ ...item, versions: [] }] }))).status, 400)
+  assert.equal(value.store.credential(item.id).token, token)
+  assert.deepEqual(value.store.envelope(value.store.row(doc.id), original.revision).reservations, [item])
 })
 
-test('JSON transcript replay survives bounded truncation and restart; shutdown closes document and legacy streams', { timeout: 10000 }, async t => {
-  const value = await app(t, { transcriptMaxEvents: 3 }), original = await create(value)
-  const request = { ...portableRequest(original), executor: 'builtin', prompt: 'Bounded transcript' }
-  await reservations(value, original, [request]); await value.call('POST', 'ai/tasks', request)
-  const task = value.manager.tasks.get(request.id)
-  await until(() => task.meta.status === 'ready' && !task.current && !task.executions.size && !task.transcript.pending)
-  const before = await value.call('GET', `ai/tasks/${task.id}/transcript?after=0`)
-  assert.equal(before.body.reset, true); assert.deepEqual(before.body.events.map(event => event.id), [3, 4, 5])
-  const external = { ...portableRequest(original), prompt: 'External initial request' }
-  await reservations(value, original, [request, external]); await value.call('POST', 'ai/tasks', external)
-  const externalHistory = await value.call('GET', `ai/tasks/${external.id}/transcript?after=0`)
-  assert.deepEqual(externalHistory.body.events, [{ id: 1, attempt: 1, kind: 'request', text: external.prompt }])
-  const stream = await documentUpdates(value, original.id)
-  const legacy = await fetch(`http://127.0.0.1:${value.server.address().port}/api/ai/tasks/${task.id}/events`)
-  const reader = legacy.body.getReader(); await reader.read()
-  await value.close(); await stream.done
-  try { while (!(await reader.read()).done) {} } catch {}
-  const restarted = await app(t, { root: value.root, transcriptMaxEvents: 3 })
-  const after = await restarted.call('GET', `ai/tasks/${task.id}/transcript?after=0`)
-  assert.deepEqual(after.body, before.body)
-  assert.deepEqual((await restarted.call('GET', `ai/tasks/${external.id}/transcript?after=0`)).body, externalHistory.body)
-  assert.deepEqual((await restarted.call('GET', `ai/tasks/${task.id}/transcript?after=5`)).body, { events: [], reset: false, warning: '' })
-})
-
-test('cloud reservation authorizes creation and permanently revokes grants on acceptance/removal even if artifact persistence fails', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  assert.equal((await value.call('POST', 'ai/tasks', request)).status, 410)
-  assert.equal((await reservations(value, original, [request])).status, 200)
-  assert.equal((await value.call('POST', 'ai/tasks', { ...request, target: { ...request.target, insert: true } })).status, 409)
-  const creations = await Promise.all([value.call('POST', 'ai/tasks', request), value.call('POST', 'ai/tasks', request)])
-  assert.deepEqual(creations.map(result => result.status), [202, 202]); assert.equal(value.manager.tasks.size, 1)
-  const base = creations[0].body.externalPath
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original), { origin: '' })).status, 200)
-  const oldState = value.store.assistant(original.id)
-  const persist = value.manager.persist.bind(value.manager)
-  value.manager.persist = task => task.meta.released ? Promise.reject(new Error('simulated artifact disk failure')) : persist(task)
-  assert.equal((await reservations(value, original, [{ ...request, acceptance: { workingCopyId: 'local', document: original.document } }])).status, 200)
-  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 404)
-  const retained = await value.call('GET', `ai/tasks/${request.id}`)
-  assert.equal(retained.body.released, true); assert.equal(retained.body.versions[0].candidate.summary, 'Retained external result')
-  // Assistant JSON cannot resurrect an accepted task, even with the original active entry.
-  assert.equal((await reservations(value, original, oldState.tasks)).status, 200)
+test('release and undo restore the same durable token without document-side runtime state', async t => {
+  const value = await app(t), doc = document(), item = reservation(doc)
+  let saved = value.store.create({ id: doc.id, name: 'Undo', document: doc, reservations: [item], operationId: randomUUID() })
+  const task = (await value.call('GET', `ai/tasks/${item.id}`)).body
+  assert.equal(task.status, 'waiting')
+  assert.equal(task.protocol, 'mote-agent-v5')
+  assert.equal('executor' in task, false)
+  const token = value.store.credential(item.id).token
+  const proposal = { operationId: randomUUID(), candidate: { summary: 'Independent proposal', content: doc.content.content } }
+  const receipt = await value.call('POST', `${task.externalPath}/submit`, proposal)
+  assert.deepEqual(receipt.body, { taskId: item.id, versionId: 'V1', status: 'ready' })
+  const release = save(saved, 'Applied', { reservations: [{ ...item, released: true }] })
+  saved = (await value.call('PUT', `documents/${doc.id}`, release)).body
+  assert.equal((await value.call('GET', `${task.externalPath}/versions.json`)).status, 410)
+  const undo = save(saved, 'Undo', { reservations: [item] })
+  saved = (await value.call('PUT', `documents/${doc.id}`, undo)).body
+  assert.equal((await value.call('GET', `ai/tasks/${item.id}`)).body.externalPath, task.externalPath)
+  assert.deepEqual((await value.call('POST', `${task.externalPath}/submit`, proposal)).body, receipt.body)
+  assert.equal(saved.document.reservations, undefined)
+  assert.equal(saved.reservations[0].token, undefined)
+  assert.equal((await value.call('DELETE', `ai/tasks/${item.id}`)).status, 404)
   await value.close()
-  const restarted = await app(t, { root: value.root })
-  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
-  assert.equal((await restarted.call('GET', `ai/tasks/${request.id}`)).body.released, true)
-  assert.equal((await restarted.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'builtin', baseExecutorRevision: 0, operationId: randomUUID() })).status, 410)
-  const second = portableRequest(original)
-  assert.equal((await reservations(restarted, original, [request, second])).status, 200)
-  const secondTask = await restarted.call('POST', 'ai/tasks', second)
-  assert.equal(secondTask.status, 202)
-  // Direct CloudStore mutation models a crash before TaskManager's best-effort cleanup.
-  restarted.store.putAssistant(original.id, { baseRevision: restarted.store.assistant(original.id).revision, tasks: [request], operationId: randomUUID() })
-  assert.equal((await restarted.call('GET', `${secondTask.body.externalPath}/document.json`)).status, 404)
-  assert.equal((await restarted.call('GET', `ai/tasks/${second.id}`)).body.released, true)
-  await readFile(path.join(restarted.manager.tasks.get(second.id).dir, 'input', 'document.json'))
+  const reopened = await app(t, { root: value.root })
+  assert.equal(reopened.store.credential(item.id).token, token)
+  assert.equal((await reopened.call('GET', `ai/tasks/${item.id}`)).body.versions.length, 1)
+  assert.deepEqual((await reopened.call('PUT', `documents/${doc.id}`, undo)).body, saved)
+  assert.equal(reopened.manager.active, 0)
 })
 
-test('cloud deletion is rechecked at candidate commit and survives restart without artifact cleanup', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  let entered, continueLoad
-  const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { continueLoad = resolve })
-  const load = value.manager.loadRequest.bind(value.manager)
-  value.manager.loadRequest = async task => { entered(); await gate; return load(task) }
-  const pending = value.call('POST', `${base}/submit`, submission(original), { origin: '' })
-  await started
-  value.store.delete(original.id, { baseRevision: original.revision })
-  continueLoad()
-  assert.equal((await pending).status, 410)
-  assert.deepEqual(value.manager.tasks.get(request.id).meta.versions, [])
-  for (const resource of ['document.json', 'target.json', 'snapshot.png', 'manifest.json']) assert.equal((await value.call('GET', `${base}/${resource}`)).status, 404)
+test('legacy assistant records remain recoverable but cannot mutate current reservations', async t => {
+  const value = await app(t), saved = await create(value)
+  const artifacts = [{ id: randomUUID(), protocol: 'mote-agent-v4', candidate: { summary: 'recover' } }]
+  value.store.db.prepare('UPDATE documents SET tasks=? WHERE id=?').run(value.store.pack(artifacts), saved.id)
+  assert.deepEqual((await value.call('GET', `documents/${saved.id}/assistant`)).body.tasks, artifacts)
+  assert.equal((await value.call('PUT', `documents/${saved.id}/assistant`, { baseRevision: '0', tasks: [], operationId: randomUUID() })).status, 404)
+  assert.deepEqual(value.store.get(saved.id).reservations, [])
+})
+
+test('revise retries survive restart without automatic execution and expiry is reversible reservation state', async t => {
+  let runs = 0
+  const value = await app(t, { runner: async () => { runs++; throw new Error('intentional worker failure') } })
+  const doc = document(), item = reservation(doc)
+  let saved = value.store.create({ id: doc.id, name: 'Retry', document: doc, reservations: [item], operationId: randomUUID() })
+  const task = (await value.call('GET', `ai/tasks/${item.id}`)).body
+  const operation = { prompt: 'Run once', model: 'fake', operationId: randomUUID() }
+  assert.equal((await value.call('POST', `ai/tasks/${item.id}/revise`, operation)).status, 202)
+  await until(() => runs === 1 && value.manager.tasks.get(item.id).executions.size === 0)
+  assert.equal((await value.call('POST', `ai/tasks/${item.id}/revise`, operation)).status, 202)
+  assert.equal(runs, 1)
   await value.close()
-  const restarted = await app(t, { root: value.root })
-  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
-  assert.equal((await restarted.call('GET', `ai/tasks/${request.id}`)).body.released, true)
-  assert.equal((await restarted.call('DELETE', `ai/tasks/${request.id}`)).status, 200)
-  assert.equal((await restarted.call('POST', 'ai/tasks', request)).status, 410)
-})
-
-const privacyChange = (value, original, enabled) => value.call('PUT', `documents/${original.id}/privacy`, {
-  private: enabled, basePrivacyRevision: value.store.privacyMeta(original.id).privacyRevision, operationId: randomUUID(),
-})
-
-test('external access pauses with document inactivity, survives restart, and resumes the same token only while authorized', async t => {
-  const value = await app(t), original = await create(value), request = { ...portableRequest(original), workspaceRead: true }
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  assert.match(base, /^\/a\/[A-Za-z0-9_-]{22}$/)
-  const proposed = submission(original)
-  assert.equal((await value.call('POST', `${base}/submit`, proposed)).status, 200)
-  const shared = (await shareMutation(value, original.id, 0, 'enable')).body.share
-  const before = value.store.documentAccessUntil(original.id)
-  assert.equal((await value.call('GET', `${base}/document.json`)).status, 200)
-  assert.equal(value.store.documentAccessUntil(original.id), before)
-  const staleAt = Date.now() - 25 * 60 * 60 * 1000
-  value.store.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=?').run(staleAt, original.id)
-  for (const resource of ['manifest.json', 'document.json', 'target.json', 'snapshot.png', 'candidates.json', 'candidates/C1.json', 'workspace-index.md']) {
-    assert.equal((await value.call('GET', `${base}/${resource}`)).status, 423, resource)
-  }
-  assert.equal((await value.call('POST', `${base}/submit`, proposed)).status, 423)
-  assert.equal((await value.call('POST', `${base}/candidates/C1/remove`, { operationId: randomUUID(), executorRevision: 0, candidateRevision: 1 })).status, 423)
-  const pausedUntil = value.store.documentAccessUntil(original.id)
-  assert.equal(pausedUntil < Date.now(), true)
-  const paused = (await value.call('GET', `ai/tasks/${request.id}`)).body
-  assert.equal(paused.accessPaused, true)
-  assert.equal(paused.externalPath, base)
-  assert.equal(paused.versions.at(-1).candidate.summary, proposed.candidate.summary)
-  assert.equal((await value.call('GET', `shared/${shared.token}`)).status, 200)
-  assert.equal((await value.call('GET', `documents/${original.id}/assistant`)).status, 200)
-  assert.equal((await value.call('GET', `documents/${original.id}/privacy`)).status, 200)
-  assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
-  assert.equal((await value.call('GET', `documents/${original.id}/shares`)).status, 200)
-  assert.equal((await value.call('PATCH', `documents/${original.id}`, { name: 'Renamed from Files' })).status, 200)
-  assert.equal(value.store.documentAccessUntil(original.id), pausedUntil)
-  const shares = await value.call('GET', `documents/${original.id}/shares`)
-  assert.equal((await shareMutation(value, original.id, shares.body.revision, 'disable')).status, 200)
-  assert.equal(value.store.documentAccessUntil(original.id), pausedUntil)
-  await value.close()
-  const restarted = await app(t, { root: value.root })
-  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 423)
-  assert.equal((await restarted.call('GET', `documents/${original.id}/privacy`)).status, 200)
-  assert.equal(restarted.store.documentAccessUntil(original.id), pausedUntil)
-  const privacyMeta = restarted.store.privacyMeta.bind(restarted.store)
-  restarted.store.privacyMeta = () => { throw new Error('simulated privacy read failure') }
-  assert.equal((await restarted.call('GET', `documents/${original.id}/privacy?open=1`)).status, 500)
-  assert.equal(restarted.store.documentAccessUntil(original.id), pausedUntil)
-  restarted.store.privacyMeta = privacyMeta
-  assert.equal((await restarted.call('GET', `documents/${original.id}/privacy?open=1`)).status, 200)
-  assert.equal(restarted.store.documentAccessUntil(original.id) > Date.now(), true)
-  assert.notEqual(restarted.store.documentAccessUntil(original.id), pausedUntil)
-  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 200)
-  const resumed = (await restarted.call('GET', `ai/tasks/${request.id}`)).body
-  assert.equal(resumed.externalPath, base)
-  assert.equal(resumed.accessPaused, false)
-  assert.equal((await restarted.call('POST', `${base}/submit`, proposed)).body.versionId, "V1")
-  assert.equal((await restarted.call('POST', `ai/tasks/${request.id}/release`, {})).status, 200)
-  await restarted.call('GET', `documents/${original.id}`)
-  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
-  const openedAt = restarted.store.db.prepare('SELECT externalAccessAt FROM documents WHERE id=?').get(original.id).externalAccessAt
-  await privacyChange(restarted, original, true)
-  await privacyChange(restarted, original, false)
-  assert.equal(restarted.store.db.prepare('SELECT externalAccessAt FROM documents WHERE id=?').get(original.id).externalAccessAt, openedAt)
-})
-
-test('external submissions recheck document inactivity after asynchronous input loading', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  const load = value.manager.loadRequest.bind(value.manager)
-  value.manager.loadRequest = async task => {
-    const input = await load(task)
-    value.store.db.prepare('UPDATE documents SET externalAccessAt=? WHERE id=?').run(Date.now() - 25 * 60 * 60 * 1000, original.id)
-    return input
-  }
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 423)
-  assert.equal(value.manager.tasks.get(request.id).meta.candidate, undefined)
-})
-
-test('Private revokes external context and delivery, preserves candidate/reservation, and keeps built-in generation available', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 200)
-  assert.equal((await privacyChange(value, original, true)).status, 200)
-  const own = await value.call('GET', `ai/tasks/${request.id}`)
-  assert.equal(own.body.executor, 'builtin'); assert.equal(own.body.executorRevision, 1)
-  assert.equal(own.body.released, false); assert.equal(own.body.versions[0].candidate.summary, 'Retained external result')
-  assert.equal(own.body.externalPath, undefined)
-  for (const resource of ['', '/document.json', '/snapshot.png', '/target.json', '/manifest.json', '/candidate.json', '/guide.md']) {
-    assert.equal((await value.call('GET', base + resource)).status, 404)
-  }
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 404)
-  assert.equal((await value.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'external', baseExecutorRevision: 1, operationId: randomUUID() })).status, 403)
-  const second = portableRequest(original)
-  await reservations(value, original, [request, second])
-  assert.equal((await value.call('POST', 'ai/tasks', second)).status, 403)
-  assert.equal(value.manager.tasks.has(second.id), false)
-  assert.equal((await value.call('POST', `ai/tasks/${request.id}/revise`, { prompt: 'Revise privately', executorRevision: 1 })).status, 202)
-  const task = value.manager.tasks.get(request.id)
-  for (let i = 0; i < 100 && (task.meta.status !== 'ready' || task.current); i++) await new Promise(resolve => setTimeout(resolve, 10))
-  assert.equal(task.meta.status, 'ready'); assert.equal(task.meta.versions.length, 2)
-  assert.equal((await value.call('GET', `documents/${original.id}`)).status, 200)
-  assert.equal((await privacyChange(value, original, false)).status, 200)
-  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
-  const fresh = await value.call('POST', `ai/tasks/${request.id}/executor`, { executor: 'external', baseExecutorRevision: 1, operationId: randomUUID() })
-  assert.equal(fresh.status, 200); assert.notEqual(fresh.body.externalPath, created.body.externalPath)
-  assert.equal((await value.call('GET', `${fresh.body.externalPath}/document.json`)).status, 200)
-})
-
-test('privacy epochs revoke external grants across off/on cycles and restart even if task metadata cleanup fails', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 200)
-  const persist = value.manager.persist.bind(value.manager)
-  value.manager.persist = (task, meta = task.meta) => meta.executor === 'builtin' ? Promise.reject(new Error('simulated cleanup failure')) : persist(task, meta)
-  assert.equal((await privacyChange(value, original, true)).status, 200)
-  assert.equal((await privacyChange(value, original, false)).status, 200)
-  assert.equal(value.manager.tasks.get(request.id).meta.executor, 'external')
-  assert.equal(value.manager.view(value.manager.tasks.get(request.id)).externalPath, undefined)
-  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 404)
-  value.manager.persist = persist
-  await value.close()
-  const restarted = await app(t, { root: value.root })
-  assert.equal((await restarted.call('GET', `${base}/document.json`)).status, 404)
-  const recovered = (await restarted.call('GET', `ai/tasks/${request.id}`)).body
-  assert.equal(recovered.executor, 'builtin'); assert.equal(recovered.released, false)
-  assert.equal(recovered.versions[0].candidate.summary, 'Retained external result')
-  assert.equal((await restarted.call('POST', 'ai/tasks', request)).body.externalPath, undefined)
-})
-
-test('privacy changes serialize with asynchronous external candidate commits before acknowledging revocation', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  let entered, resume
-  const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
-  const persist = value.manager.persist.bind(value.manager)
-  value.manager.persist = async (task, meta = task.meta) => {
-    if (meta.executor === 'external' && meta.versions.length === 1) { entered(); await gate }
-    return persist(task, meta)
-  }
-  const pending = value.call('POST', `${base}/submit`, submission(original))
-  await started
-  const committing = value.manager.documentOperations.get(original.id)
-  const changing = privacyChange(value, original, true)
-  for (let i = 0; i < 100 && value.manager.documentOperations.get(original.id) === committing; i++) await new Promise(resolve => setTimeout(resolve, 5))
-  assert.notEqual(value.manager.documentOperations.get(original.id), committing)
-  assert.equal(value.store.privacyMeta(original.id).private, false)
-  resume()
-  assert.equal((await pending).status, 200)
-  assert.equal((await changing).status, 200)
-  assert.equal((await value.call('POST', `${base}/submit`, submission(original))).status, 404)
-  const retained = (await value.call('GET', `ai/tasks/${request.id}`)).body
-  assert.equal(retained.executor, 'builtin'); assert.equal(retained.versions.length, 1)
-})
-
-test('in-flight public context reads recheck privacy after asynchronous snapshot access', async t => {
-  const value = await app(t), original = await create(value), request = portableRequest(original)
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  let entered, resume
-  const started = new Promise(resolve => { entered = resolve }), gate = new Promise(resolve => { resume = resolve })
-  const load = value.manager.loadRequest.bind(value.manager)
-  value.manager.loadRequest = async task => { entered(); await gate; return load(task) }
-  const pending = value.call('GET', `${base}/manifest.json`)
-  await started
-  assert.equal((await privacyChange(value, original, true)).status, 200)
-  resume()
-  assert.equal((await pending).status, 404)
-})
-
-
-test('v2 appends immutable retry-safe versions against read revisions while own context stays latest', async t => {
-  const value = await app(t), doc = document()
-  doc.authoring = { notes: ['Owner notes'] }
-  const original = await create(value, doc), request = { ...portableRequest(original), protocol: 'mote-agent-v2' }
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  assert.equal(created.status, 202); assert.deepEqual(created.body.versions, [])
-  for (const key of ['candidate', 'candidates', 'candidateRevision']) assert.equal(key in created.body, false)
-  const firstRead = await value.call('GET', `${base}/document.json`)
-  assert.deepEqual(firstRead.body.document, original.document); assert.equal(firstRead.body.revision, original.revision)
-  assert.equal(firstRead.headers.get('cache-control'), 'no-store')
-  assert.equal((await value.call('GET', `${base}/workspace-document.json?id=${original.id}`)).status, 404)
-  const changed = structuredClone(doc)
-  changed.content.content.unshift({ type: 'paragraph', attrs: { id: 'context', semantic: 'body' }, content: [{ type: 'text', text: 'New context before the reserved text' }] })
-  const latest = await value.call('PUT', `documents/${doc.id}`, { baseRevision: original.revision, document: changed, operationId: randomUUID() })
-  assert.equal(latest.status, 200)
-  const current = (await value.call('GET', `${base}/document.json`)).body
-  assert.deepEqual(current.document, changed); assert.equal(current.revision, latest.body.revision)
-  const manifest = (await value.call('GET', `${base}/manifest.json`)).body
-  assert.equal(manifest.documentRevision, current.revision)
-  assert.equal(manifest.originalReference.documentRevision, original.revision)
-  assert.equal(manifest.originalReference.documentVersion, 5)
-  assert.equal(manifest.removeCandidate, undefined)
-  const proposed = { operationId: randomUUID(), executorRevision: 0, documentRevision: firstRead.body.revision,
-    label: 'Original context', candidate: { content: doc.content.content, summary: 'First' }, assets: {} }
-  const [first, retry, second] = await Promise.all([
-    value.call('POST', `${base}/submit`, proposed), value.call('POST', `${base}/submit`, proposed),
-    value.call('POST', `${base}/submit`, { ...proposed, operationId: randomUUID(), documentRevision: current.revision, label: 'Latest context' }),
-  ])
-  assert.equal(first.status, 200, JSON.stringify(first.body)); assert.deepEqual(retry.body, first.body)
-  assert.equal(first.body.versionId, 'V1'); assert.equal(second.body.versionId, 'V2')
-  assert.equal(first.body.documentRevision, original.revision)
-  const output = path.join(value.root, 'helper-output'); await mkdir(output)
-  await writeFile(path.join(output, 'result.json'), JSON.stringify(proposed.candidate))
-  const { submitResult } = await import('../public/skills/helpers/submit.mjs')
-  const helperRetry = await submitResult({ taskId: request.id, outputDir: output,
-    agent: { url: `http://127.0.0.1:${value.server.address().port}${base}`, executorRevision: 0, documentRevision: original.revision, label: proposed.label } }, proposed.operationId)
-  assert.deepEqual(helperRetry, first.body)
-  const versions = (await value.call('GET', `${base}/versions.json`)).body
-  assert.equal(versions.length, 2); assert.deepEqual(Object.keys(versions[0]).sort(), ['candidate', 'documentRevision', 'documentVersion', 'id', 'label'])
-  assert.deepEqual((await value.call('GET', `${base}/versions/V1.json`)).body, versions[0])
-  assert.equal((await value.call('POST', `${base}/submit`, { ...proposed, label: 'Changed retry' })).status, 409)
-  assert.equal((await value.call('POST', `${base}/submit`, { ...proposed, operationId: randomUUID(), documentRevision: undefined })).status, 400)
-  assert.equal((await value.call('POST', `${base}/submit`, { ...proposed, operationId: randomUUID(), documentRevision: randomUUID() })).status, 404)
-  assert.equal((await value.call('POST', `${base}/candidates/C1/remove`, {})).status, 404)
-  assert.equal((await value.call('POST', `${base}/versions/V1/remove`, {})).status, 404)
-  assert.equal((await value.call('GET', `${base}/candidates.json`)).status, 404)
-  const share = await shareMutation(value, original.id, 0, 'enable')
-  assert.equal(share.status, 200, JSON.stringify(share.body))
-  const token = value.store.db.prepare('SELECT token FROM shares WHERE documentId=? AND revokedAt IS NULL').get(original.id).token
-  const shared = (await value.call('GET', `shared/${token}`)).body
-  assert.equal(shared.revision, current.revision); assert.equal(shared.document.authoring, undefined)
-  assert.deepEqual(current.document.authoring, doc.authoring)
-  assert.equal((await privacyChange(value, original, true)).status, 200)
-  assert.equal((await value.call('GET', `${base}/document.json`)).status, 404)
-  assert.equal((await value.call('GET', `shared/${token}`)).status, 404)
-  assert.equal((await value.call('POST', `${base}/submit`, proposed)).status, 404)
-  const retained = (await value.call('GET', `ai/tasks/${request.id}`)).body
-  assert.deepEqual(retained.versions, versions); assert.equal(retained.status, 'ready')
-  await value.close()
-  const restarted = await app(t, { root: value.root })
-  assert.deepEqual((await restarted.call('GET', `ai/tasks/${request.id}`)).body.versions, versions)
-  assert.deepEqual(JSON.parse(await readFile(path.join(restarted.manager.tasksDir, request.id, 'input/document.json'))), doc)
-})
-
-test('v2 built-in followup refreshes private own context, accepts selectedVersion as context, and revokes exact acceptance', async t => {
-  const { agentRequest, submitResult } = await import('./submit.mjs')
-  const seen = []
-  const value = await app(t, { runner: async context => {
-    const read = await agentRequest(`${context.agent.url}/document.json`, { socketPath: context.agent.socketPath })
-    seen.push({ read, document: context.document, selectedVersion: context.selectedVersion, versions: structuredClone(context.versions), prompt: await readFile(context.promptPath, 'utf8') })
-    await writeFile(path.join(context.outputDir, 'result.json'), JSON.stringify({ content: [read.document.content.content.find(block => block.attrs.id === 'block-1')], summary: 'Version from built-in' }))
-    await submitResult(context)
-    return { sessionId: 'v2-context' }
-  } })
-  const original = await create(value)
-  assert.equal((await privacyChange(value, original, true)).status, 200)
-  const request = { ...portableRequest(original), protocol: 'mote-agent-v2', executor: 'builtin', prompt: 'First request' }
-  await reservations(value, original, [request])
-  assert.equal((await value.call('POST', 'ai/tasks', request)).status, 202)
-  await until(() => value.manager.tasks.get(request.id)?.executions.size === 0 && seen.length === 1)
-  const task = value.manager.tasks.get(request.id)
-  assert.equal(task.meta.status, 'ready', task.meta.error)
-  assert.equal(task.meta.versions[0].id, 'V1'); assert.equal(seen[0].read.revision, original.revision)
-  const changed = structuredClone(original.document); changed.authoring = { notes: ['Fresh user context'] }
-  const latest = (await value.call('PUT', `documents/${original.id}`, { baseRevision: original.revision, document: changed, operationId: randomUUID() })).body
-  const revised = await value.call('POST', `ai/tasks/${request.id}/revise`, { prompt: 'Continue from V1; make a fresh version', executorRevision: 0, selectedVersion: 'V1' })
-  assert.equal(revised.status, 202, JSON.stringify(revised.body))
-  await until(() => task.executions.size === 0 && seen.length === 2)
-  assert.equal(task.meta.status, 'ready', task.meta.error)
-  assert.equal(seen[1].read.revision, latest.revision); assert.deepEqual(seen[1].document, changed)
-  assert.equal(seen[1].selectedVersion, 'V1'); assert.equal(seen[1].versions.length, 1)
-  assert.match(seen[1].prompt, /context, not lineage/); assert.match(seen[1].prompt, new RegExp(latest.revision))
-  assert.equal(task.meta.versions[1].documentRevision, latest.revision)
-  assert.equal(task.meta.versions[1].id, 'V2'); assert.equal(task.meta.versions[1].parent, undefined)
-  const accepted = await reservations(value, original, [{ ...request, acceptance: { versionId: 'V1' } }])
-  assert.equal(accepted.status, 200)
-  const status = (await value.call('GET', `ai/tasks/${request.id}`)).body
-  assert.equal(status.released, true); assert.equal(status.versions.length, 2)
-  assert.equal((await value.call('POST', `ai/tasks/${request.id}/revise`, { prompt: 'Late', executorRevision: 0 })).status, 410)
-})
-
-test('v2 validates native read versions and protects original target content and dimensions', async t => {
-  const value = await app(t), doc = document()
-  doc.version = 4
-  const original = await create(value, doc)
-  const request = { ...portableRequest(original), protocol: 'mote-agent-v2', target: { kind: 'object', objectId: 'image-1', isNew: false, area: { x: 48, y: 48, width: 100, height: 100 } } }
-  await reservations(value, original, [request])
-  const created = await value.call('POST', 'ai/tasks', request), base = created.body.externalPath
-  const read = (await value.call('GET', `${base}/document.json`)).body
-  assert.equal(read.document.version, 5)
-  const proposed = { operationId: randomUUID(), executorRevision: 0, documentRevision: read.revision, candidate: { object: read.document.objects[0], summary: 'V5 object from nonbreaking migrated read' } }
-  const first = await value.call('POST', `${base}/submit`, proposed)
-  assert.equal(first.status, 200, JSON.stringify(first.body)); assert.equal(first.body.documentVersion, 5)
-  await reservations(value, original, [{ ...request, target: { ...request.target, objectId: 'unrelated' } }])
-  const mismatch = await value.call('POST', `${base}/submit`, { ...proposed, operationId: randomUUID() })
-  assert.equal(mismatch.status, 409); assert.match(mismatch.body.error, /does not match/)
-  await reservations(value, original, [request])
-  const changed = structuredClone(doc); changed.objects[0].layout.width = 120
-  assert.equal((await value.call('PUT', `documents/${original.id}`, { baseRevision: original.revision, document: changed, operationId: randomUUID() })).status, 200)
-  const altered = await value.call('POST', `${base}/submit`, { ...proposed, operationId: randomUUID() })
-  assert.equal(altered.status, 409); assert.match(altered.body.error, /dimensions changed/)
-  assert.equal((await value.call('GET', `${base}/versions.json`)).body.length, 1)
-  const { reservationTarget } = await import('./validation.mjs')
-  const section = { kind: 'segment', range: { start: { index: 0, offset: 0 }, end: { index: 1, offset: 0 } },
-    blockIds: ['block-1'], objectIds: ['image-1'], area: request.target.area,
-    bookmarks: { start: { blockId: 'block-1', offset: 0 }, end: { blockId: 'block-1', offset: 0, after: true } } }
-  const moved = structuredClone(doc)
-  moved.content.content.unshift({ type: 'paragraph', attrs: { id: 'preceding', semantic: 'body' } })
-  assert.deepEqual(reservationTarget(doc, moved, section).range, { start: { index: 1, offset: 0 }, end: { index: 2, offset: 0 } })
-  assert.throws(() => reservationTarget({ ...doc, version: 3 }, doc, request.target), error => error.status === 409)
+  const reopened = await app(t, { root: value.root, runner: async () => { runs++ } })
+  assert.equal((await reopened.call('POST', `ai/tasks/${item.id}/revise`, operation)).status, 202)
+  assert.equal(runs, 1)
+  assert.equal((await reopened.call('POST', `ai/tasks/${item.id}/revise`, { ...operation, prompt: 'Changed retry' })).status, 409)
+  saved = (await reopened.call('PUT', `documents/${doc.id}`, save(saved, 'Expired', { reservations: [{ ...item, expiresAt: 1 }] }))).body
+  assert.equal((await reopened.call('GET', `${task.externalPath}/manifest.json`)).status, 410)
+  assert.equal((await reopened.call('GET', `ai/tasks/${item.id}`)).body.released, true)
+  await reopened.call('PUT', `documents/${doc.id}`, save(saved, 'Reactivated', { reservations: [item] }))
+  assert.equal((await reopened.call('GET', `${task.externalPath}/manifest.json`)).status, 200)
+  assert.equal((await reopened.call('GET', `ai/tasks/${item.id}`)).body.externalPath, task.externalPath)
 })

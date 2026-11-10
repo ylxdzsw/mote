@@ -2,7 +2,7 @@
 
 ## Supplied visual context
 
-Task inputs may include `snapshot.png` (the full document) and, for an object target, `target.png` (only that object's rendered body at 2× resolution). These images remain tied to the original task revision; consult the manifest's `originalReference.documentRevision` and `originalReference.documentVersion` provenance and never present them as a current rendering after the document changes. A v2 `document.json` may be newer than these images. Use the task brief's local paths or the manifest's scoped resource URLs. The target image excludes its caption and overlapping neighboring objects, and supports every native object kind through the same renderer as document PNG export. Permanent markup on images and HTML widgets appears automatically in both images. Widgets use their saved screenshot; these inputs do not run widget scripts or capture a fresh live widget. Older tasks without `target.png` remain valid. The images describe the original input, not a later candidate, and do not replace `document.json` or `target.json`.
+Current v5 task resources do not provide pinned `snapshot.png` or `target.png` inputs. `target.json` returns the complete Reservation; `.target`, original content, and geometry are UI/authoring references, not a submission contract. Optional `document.json` returns latest saved context at access time and is not required for submission. Owner Preview/Accept checks applicability against the actual current document and reservation. For candidate HTML widgets, use the shared harness below to capture a real screenshot at the candidate object's body dimensions; the candidate's uploaded screenshot is distinct from task input context.
 
 ## Candidate widget previews
 
@@ -18,7 +18,7 @@ node ./helpers/preview.mjs ./output/widget.html ./output/preview.html
 
 Open the generated file with `?width=WIDTH&height=HEIGHT`, for example `file:///path/to/output/preview.html?width=500&height=300`. Set the browser viewport to exactly those dimensions, exercise the promised interaction, and capture only the widget body—not browser chrome, caption, margins, or surrounding page.
 
-- For an individual HTML object, use its rounded body `layout.width` × `layout.height` from the immutable snapshot.
+- For an individual HTML object, use its rounded body `layout.width` × `layout.height` from the original reservation geometry, not dimensions inferred from latest cloud context.
 - For a segment, capture each HTML object's own rounded body dimensions, not the segment rectangle or full page.
 
 Save a real PNG in the task output directory and submit its bytes with the candidate. A screenshot is not an HTML URL, server path, placeholder, or substitute for the widget source. Candidate validation does not execute HTML or capture an image for you. Use the saved screenshot for minimap/PNG rendering.

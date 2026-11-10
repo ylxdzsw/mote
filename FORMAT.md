@@ -12,8 +12,7 @@ implicit compatibility mode.
 
 Every schema or meaning change, additive or not, gets a new version. Versions
 are cheap: a closed schema needs the bump so that older app builds and stale
-tabs reject newer documents clearly instead of dropping fields on save, and so
-that a task's pinned version states exactly what its agent saw. V1 is the
+tabs reject newer documents clearly instead of dropping fields on save. V1 is the
 oldest supported version; V0 is permanently unsupported and has no converter.
 
 The single load boundary is `loadDocument(value)`. It reads `version`, applies
@@ -57,17 +56,15 @@ actionable error and remains unchanged and recoverable. It is never replaced
 with an example. A failed or unsupported import leaves the current document
 untouched. **From example** remains an explicit New File choice.
 
-Unresolved AI tasks keep their pinned input version. Under a non-breaking
-path, they keep working. Their candidates validate against the pinned version
-and pass through the same steps when accepted. Under a breaking path, opening
-a document that has unresolved tasks asks the owner first. **Upgrade**
-releases those tasks, permanently revokes their grants, and then migrates.
-**Decline** opens the document read-only at its stored version, with its tasks
-and candidates inspectable and the full task JSON downloadable. Without
-unresolved tasks, a breaking path migrates silently. Generation is never
-retried automatically. The agent transport identifier `mote-agent-v1` is a
-separate protocol version and does not replace the document's numeric
-`version`.
+Reservations are document-associated editing state, separate from native JSON.
+A non-breaking load path leaves them usable. A breaking path with active
+reservations asks the owner first: **Upgrade** releases those reservations through
+ordinary cloud document saving before migrating; **Decline** opens the stored
+version read-only. Proposals and old task artifacts remain recoverable; generation
+is never retried automatically. Task tokens follow saved reservation state, not
+permanent revocation. Proposal submission uses the current stateless schema;
+Preview/Accept checks applicability to the actual document. Task transport
+`mote-agent-v5` is independent of the native document's numeric `version`.
 
 V1–V4 load as V5; V1 keeps Slides off. V1 → V2, V2 → V3, and V4 → V5 are
 non-breaking; V3 → V4 is breaking. New documents, saves of opened documents,
