@@ -76,7 +76,7 @@ button { cursor: pointer; border: 1px solid transparent; border-radius: var(--ui
 button:hover:not(:disabled) { background: var(--ui-surface-hover); }
 button:disabled, select:disabled { opacity: .4; cursor: default; }
 button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-:where(.inspector, .settings-dialog, .cloud-dialog, .cloud-local-recovery, .drawing-editor, .widget-editor, .launchpad) :is(button, input, select, textarea, summary) { scroll-margin-block: 6px; }
+:where(.inspector, .settings-dialog, .cloud-dialog, .drawing-editor, .widget-editor, .launchpad) :is(button, input, select, textarea, summary) { scroll-margin-block: 6px; }
 input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); }
 select { background: var(--ui-surface-raised); border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); padding: 4px 8px; }
 input[type='range'] { width: 100%; margin: 12px 0 0; accent-color: var(--accent); cursor: pointer; }

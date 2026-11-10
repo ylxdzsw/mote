@@ -76,7 +76,6 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const [retry, setRetry] = useState(0)
   const [legacy, setLegacy] = useState<unknown>()
   const [recoveries, setRecoveries] = useState<WorkingRecord[]>([])
-  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const navigation = useRef(0)
   const current = useRef({ copy, path })
@@ -244,13 +243,13 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   async function recover(record: WorkingRecord) {
     try {
       const session = await workingSession(), key = `${session}:${record.meta.id}`
-      if (copy?.getSnapshot().record.key === record.key) { setRecoveryOpen(false); return }
+      if (copy?.getSnapshot().record.key === record.key) { setFilesOpen(false); return }
       if (copy?.getSnapshot().record.key === key) {
         setNotice('Open this recovery in a new tab so it does not replace the current working copy or assistant input.'); return
       }
       const existing = await loadWorkingCopy(key)
       if (existing && (existing.dirty || existing.pending || existing.pendingCreate || existing.pendingPrivacy || existing.pendingCopy) && existing.key !== record.key) { setNotice('This tab already has pending changes for that document. Open a new tab to recover this copy.'); return }
-      if (await navigate(record.meta.id, true, record)) setRecoveryOpen(false)
+      if (await navigate(record.meta.id, true, record)) setFilesOpen(false)
     } catch (error) { setNotice((error as Error).message) }
   }
 
@@ -278,22 +277,29 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
     <FilesWindow open={filesOpen && (!mobile || !id)} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument} onImport={importDocument}
-      onLocalRecovery={() => { setFilesOpen(false); void refreshRecovery(); setRecoveryOpen(true) }}
-      pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))} />
-    {recoveryOpen && <LocalRecovery onClose={() => setRecoveryOpen(false)}>
-      <h2>Local recovery</h2><p>Independent working copies with changes not confirmed in the cloud. Recovering never merges versions.</p>
-      {notice && <p role="alert">{notice}</p>}
-      {recoveries.length === 0 && <p>No pending working copies.</p>}
-      {legacy !== undefined && <button onClick={() => downloadJSON(legacy, 'mote-local-draft.json')}>Download earlier local draft</button>}
-      {recoveries.map(record => <div key={record.key}><strong>{record.meta.name}</strong><time>{new Date(record.updatedAt).toLocaleString()}</time>
-        <button onClick={() => void recover(record)}>Open working copy</button>
-        <button onClick={() => void downloadRecovery(record)}>Download recovery</button>
-        <button onClick={() => {
-          if (record.key === copy?.getSnapshot().record.key) { setNotice('Use Discard local changes in the open document.'); return }
-          if (window.confirm('Permanently discard this local working copy?')) void deleteWorkingCopy(record.key).then(refreshRecovery)
-        }}>Discard</button></div>)}
-      <button onClick={() => setRecoveryOpen(false)}>Close</button>
-    </LocalRecovery>}
+      onRecoveryOpen={() => void refreshRecovery()} recoveryCount={recoveries.length}
+      pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))}
+      recovery={<div className="files-recovery">
+        <p className="cloud-hint">Working copies with changes not confirmed in the cloud. Recovering never merges versions.</p>
+        {notice && <p className="cloud-error" role="alert">{notice}</p>}
+        {recoveries.length === 0 && <p className="files-section-empty">No pending working copies.</p>}
+        {legacy !== undefined && <button type="button" className="cloud-button" onClick={() => downloadJSON(legacy, 'mote-local-draft.json')}>Download earlier local draft</button>}
+        <ul className="files-recovery-list" aria-label="Local working copies">
+          {recoveries.map(record => <li key={record.key}>
+            <strong>{record.meta.name}</strong><time dateTime={new Date(record.updatedAt).toISOString()}>{new Date(record.updatedAt).toLocaleString()}</time>
+            <div className="cloud-actions">
+              <button type="button" className="cloud-button" onClick={() => void recover(record)}>Open working copy</button>
+              <button type="button" className="cloud-button" onClick={() => { void downloadRecovery(record).catch(error => setNotice((error as Error).message)) }}>Download recovery</button>
+              <button type="button" className="cloud-button files-quiet cloud-danger" onClick={event => {
+                if (record.key === copy?.getSnapshot().record.key) { setNotice('Use Discard local changes in the open document.'); return }
+                const toggle = event.currentTarget.closest('.files-section')?.querySelector<HTMLButtonElement>('.files-section-toggle')
+                if (window.confirm('Permanently discard this local working copy?')) void deleteWorkingCopy(record.key).then(refreshRecovery)
+                  .then(() => toggle?.focus()).catch(error => setNotice((error as Error).message))
+              }}>Discard</button>
+            </div>
+          </li>)}
+        </ul>
+      </div>} />
     </WorkspaceOverlays>
   </>
 }
@@ -305,12 +311,6 @@ function WorkspaceOverlays({ copy, children }: { copy?: WorkingCopy; children: R
   const theme = state?.record.document.theme, language = state?.record.document.language
   const style = useMemo(() => theme && uiThemeVariables(theme, language ?? 'en'), [theme, language])
   return <div className="workspace-overlays" style={style}>{children}</div>
-}
-
-function LocalRecovery({ children, onClose }: { children: ReactNode; onClose: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  useEffect(() => { const element = dialog.current!; element.showModal(); return () => element.close() }, [])
-  return <dialog ref={dialog} className="cloud-local-recovery" aria-label="Local recovery" onCancel={event => { event.preventDefault(); onClose() }}>{children}</dialog>
 }
 
 function downloadJSON(value: unknown, name: string) {

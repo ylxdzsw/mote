@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { PanelIcon } from '../app/PanelIcon'
 import type { MoteDocument } from '../document/model'
 import { decodeDocument } from '../document/file'
@@ -19,7 +19,9 @@ interface Props {
   onNew: (options: NewFileOptions) => Promise<void>
   onImport: (document: MoteDocument, name: string) => Promise<void>
   pending?: Record<string, string>
-  onLocalRecovery?: () => void
+  recovery: ReactNode
+  recoveryCount: number
+  onRecoveryOpen: () => void
 }
 
 const documentPath = (id: string) => `/api/documents/${encodeURIComponent(id)}`
@@ -45,9 +47,8 @@ export function FilesWindow({ open, ...props }: Props) {
   return open ? <FilesDialog {...props} /> : null
 }
 
-function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pending = {}, onLocalRecovery }: Omit<Props, 'open'>) {
+function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pending = {}, recovery, recoveryCount, onRecoveryOpen }: Omit<Props, 'open'>) {
   const titleId = useId()
-  const archiveId = useId()
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const importTrigger = useRef<HTMLButtonElement>(null)
@@ -61,12 +62,14 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const locked = useRef(true)
   const [busy, setBusy] = useState('Loading files…')
   const [error, setError] = useState('')
+  const [listFailed, setListFailed] = useState(false)
   const [auth, setAuth] = useState(false)
   const [result, setResult] = useState('')
   const [documents, setDocuments] = useState<DocumentMeta[]>([])
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('modified')
   const [archiveOpen, setArchiveOpen] = useState(false)
+  const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [selectedId, setSelectedId] = useState(currentId ?? '')
   const [action, setAction] = useState<'rename' | 'delete' | 'import' | null>(null)
   const [newFile, setNewFile] = useState<boolean | null>(null)
@@ -78,7 +81,6 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const ordinary = matching.filter(item => !item.archived), archived = matching.filter(item => item.archived)
   const visible = archiveOpen ? [...ordinary, ...archived] : ordinary
   const selected = documents.find(item => item.id === selectedId)
-  const recoveryCount = Object.keys(pending).length
   const mutating = !!busy && !['Loading files…', 'Refreshing files…'].includes(busy)
   const creating = newFile !== null
 
@@ -136,15 +138,17 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     search.current?.focus()
     void cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
       .then(data => { if (!canceled) setDocuments(current => mergeList(current, data.documents)) })
-      .catch(error => { if (!canceled) { setError(message(error)); setAuth(error instanceof CloudError && error.status === 401) } })
+      .catch(error => { if (!canceled) { setListFailed(true); setError(message(error)); setAuth(error instanceof CloudError && error.status === 401) } })
       .finally(() => { if (!canceled) { locked.current = false; setBusy('') } })
     return () => { canceled = true; active.current = false; element.close() }
   }, [])
 
   async function refresh() {
-    if (connectionSnapshot().offline) await retryConnection()
-    const data = await cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
-    setDocuments(current => mergeList(current, data.documents))
+    try {
+      if (connectionSnapshot().offline) await retryConnection()
+      const data = await cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
+      setDocuments(current => mergeList(current, data.documents)); setListFailed(false)
+    } catch (error) { setListFailed(true); throw error }
   }
 
   async function run(label: string, task: () => Promise<void>, propagate = false) {
@@ -202,7 +206,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
         updated = await cloudRequest<DocumentMeta>(`${documentPath(item.id)}/archive`, 'PUT', change)
       }
       catch (error) {
-        if (error instanceof CloudError && error.status === 0) throw new Error(`${message(error)} Archive state was not confirmed. Refresh Files to check or retry the action.`)
+        if (error instanceof CloudError && error.status === 0) throw new Error(`${message(error)} Archive state was not confirmed. Close and reopen Files to check or retry the action.`)
         throw error
       }
       archiveChanges.current.delete(item.id)
@@ -276,16 +280,16 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
           : error ? 'No documents to show.' : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
         {!busy && !error && !archived.length && <span>{query ? 'Try a different name.' : 'Create a document or import one to get started.'}</span>}
       </div>}
-      {!action && <section className="files-archive">
-        <button ref={archiveToggle} type="button" className="cloud-button files-quiet files-archive-toggle" disabled={!!busy}
-          aria-expanded={archiveOpen} aria-controls={archiveId} onClick={() => setArchiveOpen(!archiveOpen)}>
-          <PanelIcon name="chevron" />Archived ({archived.length})
-        </button>
-        <div id={archiveId} hidden={!archiveOpen}>
-          {archiveOpen && renderFiles(archived, 'Archived documents')}
-          {archiveOpen && !archived.length && <p className="files-archive-empty">{query ? 'No matching archived documents.' : 'No archived documents.'}</p>}
-        </div>
-      </section>}
+      {!action && <div className="files-secondary">
+        <FilesDisclosure label="Archived" count={archived.length} open={archiveOpen} onToggle={() => setArchiveOpen(!archiveOpen)} disabled={!!busy} buttonRef={archiveToggle}>
+          {renderFiles(archived, 'Archived documents')}
+          {!archived.length && <p className="files-section-empty">{query ? 'No matching archived documents.' : 'No archived documents.'}</p>}
+        </FilesDisclosure>
+        <FilesDisclosure label="Local recovery" count={recoveryCount} warning={recoveryCount > 0} open={recoveryOpen} disabled={mutating}
+          onToggle={() => { if (!recoveryOpen) onRecoveryOpen(); setRecoveryOpen(!recoveryOpen) }}>
+          {recovery}
+        </FilesDisclosure>
+      </div>}
       {action === 'import' && <section className="cloud-confirm" aria-label="Import document">
         <h2>Import a document</h2>
         <p className="cloud-hint">Choose a .mote file or Mote-exported HTML. It opens as a new document; existing documents stay unchanged.</p>
@@ -321,23 +325,30 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
           }) }}>Delete document</button></div>
       </section>}
     </div>
-    <footer className={`cloud-feedback files-footer${creating ? ' files-footer-create' : ''}`} hidden={creating && !busy && !result && !error && !auth}>
-      {!creating && <div className="files-footer-actions">
-        {onLocalRecovery && <button type="button" className={`cloud-button files-quiet${recoveryCount ? ' files-recovery-pending' : ''}`} disabled={mutating} onClick={onLocalRecovery}
-          title={recoveryCount ? `${recoveryCount} documents with changes on this device` : 'Find unsynced working copies on this device'}>
-          Local recovery{recoveryCount > 0 && <span className="files-count">{recoveryCount}</span>}
-        </button>}
-        <button type="button" className="cloud-button files-quiet files-refresh" aria-label="Refresh files" title="Refresh files" disabled={!!busy || !!action} onClick={() => { void run('Refreshing files…', refresh) }}><PanelIcon name="reset" /></button>
-      </div>}
+    <footer className={`cloud-feedback files-footer${creating ? ' files-footer-create' : ''}`} hidden={!busy && !result && !error && !auth && (creating || !listFailed)}>
       <p className="cloud-status" role="status">{busy || result}</p>
       {error && <p className="cloud-error" role="alert">{error}</p>}
-      {auth && <a href="/" target="_blank" rel="noopener noreferrer">Sign in, then refresh Files</a>}
+      {!creating && listFailed && <button type="button" className="cloud-button files-retry" disabled={!!busy || !!action} onClick={() => { void run('Refreshing files…', async () => { await refresh(); search.current?.focus() }) }}>Retry</button>}
+      {auth && <a href="/" target="_blank" rel="noopener noreferrer">Sign in, then reopen Files</a>}
     </footer>
   </dialog>
   {shareTarget && <ShareWindow open documentId={shareTarget.id} name={shareTarget.name} privateDocument={shareTarget.private}
     copy={shareTarget.id === currentId ? copy : undefined} pendingLocal={!!pending[shareTarget.id]}
     onClose={() => { setShareTarget(undefined); focusFile(shareTarget.id, true) }} />}
   </>
+}
+
+function FilesDisclosure({ label, count, open, onToggle, disabled, warning, buttonRef, children }: {
+  label: string; count: number; open: boolean; onToggle: () => void; disabled: boolean; warning?: boolean; buttonRef?: Ref<HTMLButtonElement>; children: ReactNode
+}) {
+  const id = useId()
+  return <section className="files-section">
+    <button ref={buttonRef} type="button" className={`cloud-button files-quiet files-section-toggle${warning ? ' files-recovery-pending' : ''}`}
+      disabled={disabled} aria-expanded={open} aria-controls={id} onClick={onToggle}>
+      <PanelIcon name="chevron" /><span>{label}</span><span className="files-count">{count}</span>
+    </button>
+    <div id={id} hidden={!open}>{open && children}</div>
+  </section>
 }
 
 function FilesMenu({ label, disabled, icon = 'more', children }: { label: string; disabled: boolean; icon?: 'more' | 'chevron'; children: ReactNode }) {

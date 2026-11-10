@@ -2003,3 +2003,8 @@ Archived uses the spare space below the regular file list to sit at the bottom o
 ## 2026-11-10 — Quieter folded bookmark edges
 
 Folded minimap bookmarks hide only their accented minimap-side border, restoring it with the existing hover expansion or keyboard focus. Keeping border widths, tabs, and hit areas intact avoids layout shifts and preserves discoverability; the viewport stays visible for glanceable orientation.
+
+
+## 2026-11-10 — Shared compact Files disclosures
+
+Archived and Local recovery now share a compact disclosure component in one bottom-aligned stack, rather than an archive section plus a separate recovery footer/dialog. Matching chevrons and right-aligned counts give both secondary lists the same visual weight; recovery retains warning emphasis for pending copies and its distinct recovery actions. Inline expansion preserves the file-search context and keeps a single scroll region. A permanent Refresh action adds little value because reopening Files fetches the list; loading failures instead offer a contextual Retry. The feedback footer takes space only when it has feedback.
