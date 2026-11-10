@@ -2017,3 +2017,13 @@ Retain the self-contained HTML reader and native document payload rather than fr
 User-facing reading now uses window scrolling and native browser zoom. The editor and offscreen capture surfaces keep their controlled canvas. Fit the authored width once on opening, capped at 100%, and refit on device orientation changes; ordinary resize retains that scale so desktop browser zoom is not cancelled by continuous fitting. Use device-width rather than a fixed 960px viewport, preserving the mobile reading-only boundary and normal responsive controls. Readers no longer intercept pinch/wheel zoom or progressively crop unused margins. The fixed minimap tracks the window; presentation temporarily fits a slide and returns to that slide in ordinary reading.
 
 Native Print/Save as PDF is deliberately a browser operation from a reader, not a new export format or pagination engine. Print CSS hides navigation and removes screen fitting and presentation constraints. Browser page breaks, paper settings, and their limitations for spatial compositions are accepted; no temporary Slides conversion is applied.
+
+
+## 2026-11-10 — Distinct Title and Heading bookmark treatments
+
+Title bookmarks now use a persistent soft Primary-tinted fill, semibold text, and a thin neutral border instead of a heavier left accent. Heading bookmarks retain their narrow left accent, hidden while folded. Fill communicates hierarchy even in the folded tabs; accent-colored borders and text identify the current landmark without repurposing the Title fill as selection feedback. Existing hover/focus expansion, navigation, and the visible viewport remain unchanged.
+
+
+## 2026-11-10 — Edge-only idle landmarks
+
+The owner replaced folded bookmark tabs with identical visible left-edge marks: background, text, and the other borders disappear at rest, including current-location emphasis. The transparent hit areas and layout lane remain stable. Hover/focus restores neutral labels with the same left accent for Title and Heading; only semibold Title text conveys hierarchy. Current location keeps accent text and borders when revealed. This supersedes both the hidden-edge and soft-filled Title treatments above, keeping the idle minimap quiet without losing landmark positions or changing the viewport indicator.
