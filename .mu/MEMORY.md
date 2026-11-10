@@ -1998,3 +1998,8 @@ Reservation locks now depend only on document-owned reservation state, not wheth
 ## 2026-11-10 — Bottom-aligned archive in Files
 
 Archived uses the spare space below the regular file list to sit at the bottom of the list area, keeping less frequent navigation separate from active documents. Both groups retain one scroll region when content exceeds the available height.
+
+
+## 2026-11-10 — Quieter folded bookmark edges
+
+Folded minimap bookmarks hide only their accented minimap-side border, restoring it with the existing hover expansion or keyboard focus. Keeping border widths, tabs, and hit areas intact avoids layout shifts and preserves discoverability; the viewport stays visible for glanceable orientation.
