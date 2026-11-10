@@ -105,7 +105,7 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
       <label className="files-private-choice">
         <input type="checkbox" aria-label="Private" aria-describedby={privacyDescription} checked={isPrivate} disabled={busy}
           onChange={event => { setPrivate(event.target.checked); setModified(true) }} />
-        <span><strong>Private</strong><small id={privacyDescription}>Blocks public sharing, external agents, and access by agents working on other documents. The built-in assistant remains available. Unchecked does not make the file public.</small></span>
+        <span>Private<small id={privacyDescription}>Blocks public sharing, external agents, and agents in other documents. The built-in assistant still works.</small></span>
       </label>
     </div>
     <div className="files-create-actions">
