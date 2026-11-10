@@ -76,10 +76,10 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
       </fieldset>
     </div>
     <div className="files-form-row files-language-row">
-      <span className="files-form-label" aria-hidden="true">Text language</span>
+      <span className="files-form-label" aria-hidden="true">Language</span>
       <div className="files-language-choice">
         <fieldset className="files-choice-group" aria-labelledby={languageName} disabled={busy}>
-          <legend id={languageName} className="files-form-sr-only">Text language</legend>
+          <legend id={languageName} className="files-form-sr-only">Language</legend>
           <div className="files-choice-segments">
             <label><input type="radio" name="new-file-language" value="en" checked={language === 'en'}
               onChange={() => { setLanguage('en'); setModified(true) }} /><span>English</span></label>
@@ -87,7 +87,6 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
               onChange={() => { setLanguage('zh-Hans'); setModified(true) }} /><span lang="zh-Hans">简体中文</span></label>
           </div>
         </fieldset>
-        <small>{example ? 'Chooses the example language, not the interface.' : 'For document text, not the interface.'}</small>
       </div>
     </div>
     <div className="files-form-row">
