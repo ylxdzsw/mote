@@ -2027,3 +2027,8 @@ Title bookmarks now use a persistent soft Primary-tinted fill, semibold text, an
 ## 2026-11-10 — Edge-only idle landmarks
 
 The owner replaced folded bookmark tabs with identical visible left-edge marks: background, text, and the other borders disappear at rest, including current-location emphasis. The transparent hit areas and layout lane remain stable. Hover/focus restores neutral labels with the same left accent for Title and Heading; only semibold Title text conveys hierarchy. Current location keeps accent text and borders when revealed. This supersedes both the hidden-edge and soft-filled Title treatments above, keeping the idle minimap quiet without losing landmark positions or changing the viewport indicator.
+
+
+## 2026-11-10 — Quiet File actions, visible failures
+
+Remove the Files feedback footer rather than briefly showing it for every load or mutation: that transient line shifted the list and reported routine work without useful decisions. Keep operation locking and accessible busy state, but let list changes speak for success. Failures that prevent a File action now use a dismissible modal popup, preserving the form/list beneath it and existing conflict recovery. A failed list retains a contextual Retry after dismissal, so removing the footer never strands recovery or makes a failed load look like an empty workspace.

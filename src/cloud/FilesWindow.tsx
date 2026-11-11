@@ -58,13 +58,13 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const archiveToggle = useRef<HTMLButtonElement>(null)
   const archiveChanges = useRef(new Map<string, { archived: boolean; baseArchiveRevision: number; operationId: string }>())
   const returnFocus = useRef<string | null>(null)
+  const errorFocus = useRef<HTMLElement | null>(null)
   const active = useRef(true)
   const locked = useRef(true)
-  const [busy, setBusy] = useState('Loading files…')
+  const [busy, setBusy] = useState<'loading' | 'working' | null>('loading')
   const [error, setError] = useState('')
   const [listFailed, setListFailed] = useState(false)
   const [auth, setAuth] = useState(false)
-  const [result, setResult] = useState('')
   const [documents, setDocuments] = useState<DocumentMeta[]>([])
   const [filter, setFilter] = useState('')
   const [sort, setSort] = useState('modified')
@@ -81,7 +81,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const ordinary = matching.filter(item => !item.archived), archived = matching.filter(item => item.archived)
   const visible = archiveOpen ? [...ordinary, ...archived] : ordinary
   const selected = documents.find(item => item.id === selectedId)
-  const mutating = !!busy && !['Loading files…', 'Refreshing files…'].includes(busy)
+  const mutating = busy === 'working'
   const creating = newFile !== null
 
   function focusFile(id: string, menu = false) {
@@ -98,6 +98,16 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     setAction(null)
   }
 
+  function dismissError() {
+    setError('')
+    if (returnFocus.current !== null) return
+    requestAnimationFrame(() => {
+      const target = errorFocus.current
+      if (target?.isConnected && dialog.current?.contains(target)) target.focus()
+      else search.current?.focus()
+    })
+  }
+
   function dismiss() {
     if (mutating) return
     if (creating) cancelNewFile()
@@ -112,13 +122,13 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   }
 
   useEffect(() => {
-    if (busy || action || returnFocus.current === null) return
+    if (busy || error || action || returnFocus.current === null) return
     const target = returnFocus.current
     returnFocus.current = null
     if (target === 'import') importTrigger.current?.focus()
     else if (target === 'archived') archiveToggle.current?.focus()
     else focusFile(target, true)
-  }, [busy, action])
+  }, [busy, error, action])
 
   function navigateFiles(event: KeyboardEvent, index = -1) {
     const next = event.key === 'ArrowDown' ? Math.min(index + 1, visible.length - 1)
@@ -139,7 +149,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     void cloudRequest<{ documents: DocumentMeta[] }>('/api/documents')
       .then(data => { if (!canceled) setDocuments(current => mergeList(current, data.documents)) })
       .catch(error => { if (!canceled) { setListFailed(true); setError(message(error)); setAuth(error instanceof CloudError && error.status === 401) } })
-      .finally(() => { if (!canceled) { locked.current = false; setBusy('') } })
+      .finally(() => { if (!canceled) { locked.current = false; setBusy(null) } })
     return () => { canceled = true; active.current = false; element.close() }
   }, [])
 
@@ -151,13 +161,14 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     } catch (error) { setListFailed(true); throw error }
   }
 
-  async function run(label: string, task: () => Promise<void>, propagate = false) {
+  async function run(task: () => Promise<void>, propagate = false, operation: 'loading' | 'working' = 'working') {
     if (locked.current) {
       if (propagate) throw new Error('Another Files operation is in progress.')
       return
     }
     locked.current = true
-    setBusy(label); setError(''); setResult(''); setAuth(false)
+    errorFocus.current = document.activeElement as HTMLElement
+    setBusy(operation); setError(''); setAuth(false)
     try { await task() }
     catch (error) {
       let detail = message(error)
@@ -171,12 +182,16 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       if (propagate) throw error
     } finally {
       locked.current = false
-      if (active.current) setBusy('')
+      if (active.current) setBusy(null)
     }
   }
 
+  function retryList() {
+    void run(async () => { await refresh(); search.current?.focus() }, false, 'loading')
+  }
+
   async function runCreation(options: NewFileOptions) {
-    await run('Creating document…', () => onNew(options), true)
+    await run(() => onNew(options), true)
   }
 
   function openDocument(id: string) {
@@ -184,18 +199,18 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   }
 
   function newDocument(example = false) {
-    setError(''); setResult(''); setNewFile(example)
+    setNewFile(example)
   }
 
   function importFile(file: File) {
-    void run('Importing as a new document…', async () => {
+    void run(async () => {
       const document = await decodeDocument(file)
       if (active.current) await onImport(document, file.name.replace(/\.(mote|html?)$/i, '').trim() || 'Untitled')
     })
   }
 
   function toggleArchive(item: DocumentMeta) {
-    void run(item.archived ? 'Unarchiving document…' : 'Archiving document…', async () => {
+    void run(async () => {
       const previous = archiveChanges.current.get(item.id)
       const change = previous?.baseArchiveRevision === item.archiveRevision ? previous
         : { archived: !item.archived, baseArchiveRevision: item.archiveRevision, operationId: crypto.randomUUID() }
@@ -277,9 +292,10 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       {!action && renderFiles(ordinary, 'Documents')}
       {!action && !ordinary.length && <div className="cloud-empty">
         <p>{busy ? 'Loading documents…' : query ? archived.length ? 'Matches are in Archived.' : 'No matching documents.'
-          : error ? 'No documents to show.' : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
-        {!busy && !error && !archived.length && <span>{query ? 'Try a different name.' : 'Create a document or import one to get started.'}</span>}
+          : listFailed ? 'Files could not be loaded.' : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
+        {!busy && !listFailed && !archived.length && <span>{query ? 'Try a different name.' : 'Create a document or import one to get started.'}</span>}
       </div>}
+      {!action && listFailed && <button type="button" className="cloud-button files-retry" disabled={!!busy} onClick={retryList}>Retry loading files</button>}
       {!action && <div className="files-secondary">
         <FilesDisclosure label="Archived" count={archived.length} open={archiveOpen} onToggle={() => setArchiveOpen(!archiveOpen)} disabled={!!busy} buttonRef={archiveToggle}>
           {renderFiles(archived, 'Archived documents')}
@@ -301,10 +317,10 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       {selected && action === 'rename' && <form className="cloud-confirm" onSubmit={event => {
         event.preventDefault()
         if (!name.trim()) return
-        void run('Renaming document…', async () => {
+        void run(async () => {
           const renamed = await cloudRequest<DocumentMeta>(documentPath(selected.id), 'PATCH', { name: name.trim() })
           setDocuments(items => items.map(item => item.id === renamed.id ? mergeDocumentMeta(item, renamed) : item))
-          finishAction(); setResult('Document renamed.')
+          finishAction()
         })
       }}>
         <h2>Rename document</h2>
@@ -317,25 +333,41 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
         <p className="cloud-hint">Delete “{selected.name}”? All share links will be revoked. This cannot be undone.</p>
         {pending[selected.id] && <p className="cloud-pending">This document has pending local changes: {pending[selected.id]}</p>}
         <div className="cloud-actions"><button type="button" autoFocus className="cloud-button" disabled={!!busy} onClick={finishAction}>Cancel</button>
-          <button type="button" className="cloud-button cloud-danger" disabled={!!busy} onClick={() => { void run('Deleting document…', async () => {
+          <button type="button" className="cloud-button cloud-danger" disabled={!!busy} onClick={() => { void run(async () => {
             await cloudRequest(documentPath(selected.id), 'DELETE', { baseRevision: selected.revision })
             setDocuments(items => items.filter(item => item.id !== selected.id)); setSelectedId(''); finishAction()
-            setResult('Document deleted. All share links have been revoked.')
             if (active.current && selected.id === currentId) onOpen('')
           }) }}>Delete document</button></div>
       </section>}
     </div>
-    <footer className={`cloud-feedback files-footer${creating ? ' files-footer-create' : ''}`} hidden={!busy && !result && !error && !auth && (creating || !listFailed)}>
-      <p className="cloud-status" role="status">{busy || result}</p>
-      {error && <p className="cloud-error" role="alert">{error}</p>}
-      {!creating && listFailed && <button type="button" className="cloud-button files-retry" disabled={!!busy || !!action} onClick={() => { void run('Refreshing files…', async () => { await refresh(); search.current?.focus() }) }}>Retry</button>}
-      {auth && <a href="/" target="_blank" rel="noopener noreferrer">Sign in, then reopen Files</a>}
-    </footer>
   </dialog>
+  {error && !busy && <FilesError message={error} auth={auth} onClose={dismissError} onRetry={listFailed ? retryList : undefined} />}
   {shareTarget && <ShareWindow open documentId={shareTarget.id} name={shareTarget.name} privateDocument={shareTarget.private}
     copy={shareTarget.id === currentId ? copy : undefined} pendingLocal={!!pending[shareTarget.id]}
     onClose={() => { setShareTarget(undefined); focusFile(shareTarget.id, true) }} />}
   </>
+}
+
+function FilesError({ message, auth, onClose, onRetry }: { message: string; auth: boolean; onClose: () => void; onRetry?: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const titleId = useId(), messageId = useId()
+  useEffect(() => {
+    const element = dialog.current!
+    element.showModal()
+    return () => element.close()
+  }, [])
+  return <dialog ref={dialog} className="cloud-dialog files-error" role="alertdialog" aria-labelledby={titleId} aria-describedby={messageId}
+    onCancel={event => { event.preventDefault(); onClose() }} onKeyDown={event => event.stopPropagation()}>
+    <header className="cloud-heading"><h1 id={titleId}>File operation failed</h1></header>
+    <div className="cloud-body">
+      <p id={messageId} className="cloud-hint">{message}</p>
+      {auth && <a className="cloud-management-signin" href="/" target="_blank" rel="noopener noreferrer">Sign in, then retry</a>}
+      <div className="cloud-actions">
+        {onRetry && <button type="button" className="cloud-button" onClick={onRetry}>Retry</button>}
+        <button type="button" className="cloud-button" autoFocus onClick={onClose}>Close</button>
+      </div>
+    </div>
+  </dialog>
 }
 
 function FilesDisclosure({ label, count, open, onToggle, disabled, warning, buttonRef, children }: {

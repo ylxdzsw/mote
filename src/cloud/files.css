@@ -61,7 +61,7 @@
 .cloud-files .cloud-confirm .cloud-field { grid-template-columns: 100px minmax(0, 1fr); align-items: center; gap: 10px; margin: 8px 0; }
 .cloud-files .cloud-confirm .cloud-actions { justify-content: flex-end; margin-top: 12px; }
 .files-new-view { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px 20px 16px; }
-.files-new-view[hidden], .files-search[hidden], .files-scroll[hidden], .files-footer[hidden] { display: none; }
+.files-new-view[hidden], .files-search[hidden], .files-scroll[hidden] { display: none; }
 .files-create-form { width: min(100%, 560px); margin: 0 auto; }
 .files-form-row { display: grid; grid-template-columns: 112px minmax(0, 1fr); align-items: center; gap: 12px; min-width: 0; margin: 0; padding: 7px 0; border: 0; border-bottom: 1px solid var(--ui-border); }
 .files-form-label { color: var(--ui-muted); font-size: var(--ui-label-size); }
@@ -85,12 +85,9 @@
 .files-private-choice input:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .files-private-choice small { margin-top: 2px; }
 .files-create-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 10px; }
-.cloud-files .files-footer { padding: 7px 16px 10px; }
-.cloud-files .files-footer-create { max-height: min(96px, 20dvh); padding: 5px 12px 8px; }
-.cloud-files .files-footer-create .cloud-error { margin-top: 4px; padding: 5px 8px; }
-.files-retry { margin-top: 6px; }
-.files-footer .cloud-status:not(:empty) { padding-top: 5px; }
-.files-footer a { display: inline-block; margin-top: 4px; color: var(--ui-accent); }
+.files-retry { align-self: flex-start; margin: 6px 4px; }
+.files-error { width: min(440px, calc(100vw - 32px)); }
+.files-error .cloud-actions { justify-content: flex-end; margin-top: 12px; }
 
 @media (max-width: 767px) {
   .cloud-files { width: calc(100vw - 16px); height: calc(100dvh - 16px); max-height: calc(100dvh - 16px); }
@@ -119,7 +116,6 @@
   .files-name-input { min-height: 44px; font-size: 16px; }
   .files-choice-segments label { min-height: 40px; padding-inline: 7px; font-size: var(--ui-label-size); }
   .files-create-actions .cloud-button { min-height: 44px; }
-  .cloud-files .files-footer { padding: 6px 12px 8px; }
   .files-recovery-list > li { grid-template-columns: minmax(0, 1fr); }
   .files-recovery-list .cloud-actions { grid-column: 1; grid-row: auto; margin-top: 4px; }
 }
