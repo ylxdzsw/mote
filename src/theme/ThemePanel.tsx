@@ -189,13 +189,9 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         <label className="link-margins"><input type="checkbox" checked={theme.justifyText ?? false} onChange={event => {
           history.boundary(); onChange({ ...theme, justifyText: event.target.checked })
         }} /> Justify text</label>
-        <div className="style-field">
-          <div className="field-heading"><span>First-line indent</span></div>
-          <div className="placement-options" role="radiogroup" aria-label="First-line indent">
-            {([[false, 'None'], [true, '2 characters']] as const).map(([indent, label]) => <label key={label}><input type="radio" name="theme-first-line-indent" checked={(theme.firstLineIndent ?? false) === indent}
-              onChange={() => { history.boundary(); onChange({ ...theme, firstLineIndent: indent }) }} /><span>{label}</span></label>)}
-          </div>
-        </div>
+        <label className="link-margins"><input type="checkbox" checked={theme.firstLineIndent ?? false} onChange={event => {
+          history.boundary(); onChange({ ...theme, firstLineIndent: event.target.checked })
+        }} /> First-line indent</label>
       </>}
       {(defaults || isParagraphBlock || isCode) && <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
