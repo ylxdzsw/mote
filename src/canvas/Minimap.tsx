@@ -68,6 +68,7 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
     let frame = 0
     let dirty = true
     let scrollHeight = 0
+    let documentBottom = 0
     let bookmarks: Bookmark[] = []
 
     function bookmarkFocusOffset() { return Math.min(120, viewport.clientHeight * .15) }
@@ -99,6 +100,7 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
         const size = nativeSize(source)
         const zoom = rect.width / size.width
         const pageTop = (rect.top - viewportTop() + viewport.scrollTop) / zoom
+        documentBottom = pageTop * zoom + rect.height
         const width = source.classList.contains('is-reading') ? size.width : Math.max(size.width, source.scrollWidth)
         const x = (rail.clientWidth - 12) / width
         const height = viewport.scrollHeight / zoom
@@ -157,11 +159,13 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
       rail.dataset.scrollable = String(maximum > 0)
 
       const offset = progress * overflow
-      const current = bookmarks.findLast(bookmark => bookmark.scrollY <= viewport.scrollTop + bookmarkFocusOffset())
-      const visible = bookmarks.filter(({ button, y }) => {
+      const visible = bookmarks.filter(({ button, y, scrollY }, index) => {
         button.hidden = y < offset || y > offset + rail.clientHeight
-        if (button === current?.button) button.setAttribute('aria-current', 'location')
-        else button.removeAttribute('aria-current')
+        const end = bookmarks[index + 1]?.scrollY ?? documentBottom
+        const inView = scrollY < viewport.scrollTop + viewport.clientHeight && end > viewport.scrollTop
+        button.toggleAttribute('data-in-view', inView)
+        if (inView) button.setAttribute('aria-description', 'In view')
+        else button.removeAttribute('aria-description')
         return !button.hidden
       })
       // Keep nearby landmarks readable without changing their navigation targets.

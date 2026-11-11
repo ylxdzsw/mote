@@ -2043,3 +2043,7 @@ ResizeObserver runs before paint, but ordinary React state updates from it may c
 ## 2026-11-11 — Page margins own outer theme spacing
 
 Ignore theme Space before on the first paragraph/Flow block and Space after on the last at each document or slide edge, superseding edge collapse with the page margins. Page margins now align the main-flow footprint regardless of the boundary block's semantic class or theme spacing; Before/After continue to collapse to their maximum between blocks. Explicit leading/trailing spaces remain authored blocks, and signed object margins, internal object whitespace, and Float placement remain independent. This is a shared-renderer edge-spacing policy, without rewriting saved theme values or changing the native schema.
+
+## 2026-11-11 — Highlight all visible bookmark sections
+
+Minimap emphasis now describes sections in view, not a single landmark chosen by the inset focus line. Each landmark spans to the next, with the last ending at the measured document bottom; slide landmarks naturally span their measured slides. Every range intersecting the viewport receives the same revealed accent, including a section whose heading has scrolled above the viewport. Folded marks remain identical. The existing click target, inset alignment, horizontal position, and text-selection behavior are unchanged. Multiple visible locations use an accessible In view description rather than claiming a single aria-current location. Shared editor and reader geometry supplies the ranges without saved state or a new setting.
