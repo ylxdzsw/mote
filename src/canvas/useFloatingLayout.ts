@@ -156,10 +156,10 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       for (const [index, { element, paragraph }] of blocks.entries()) if (paragraph || element.hasAttribute('data-flow')) {
         const before = paragraph ? 'var(--text-spaceBefore)' : 'var(--flow-spaceBefore)'
         const after = paragraph ? 'var(--text-spaceAfter)' : 'var(--flow-spaceAfter)'
-        // Page padding already supplies its margin; retain only excess style
-        // spacing. Object margins stay inside the Flow mount's footprint.
-        property(element, 'margin-top', index === 0 || blocks[index - 1].slideIndex !== blocks[index].slideIndex ? `max(0px, calc(${before} - var(--margin-top)))` : before)
-        property(element, 'margin-bottom', index === blocks.length - 1 || blocks[index + 1].slideIndex !== blocks[index].slideIndex ? `max(0px, calc(${after} - var(--margin-bottom)))` : after)
+        // Page margins alone supply edge spacing. Explicit spaces remain blocks;
+        // object margins stay inside the Flow mount's footprint.
+        property(element, 'margin-top', index === 0 || blocks[index - 1].slideIndex !== blocks[index].slideIndex ? '0px' : before)
+        property(element, 'margin-bottom', index === blocks.length - 1 || blocks[index + 1].slideIndex !== blocks[index].slideIndex ? '0px' : after)
       }
       // A spacer separates margins that would otherwise collapse to their maximum.
       const visible = new Set(blocks.map(block => block.element))

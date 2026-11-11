@@ -209,7 +209,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       <details className="settings-help"><summary>Typography details</summary>
         <p>1em = Defaults font size ({theme.defaults.size}px). × line height follows the local font size.</p>
         {!defaults && <p className="inherit-help"><PanelIcon name="inherit" /> marks an inherited value. <PanelIcon name="reset" /> resets an override to inherit again.</p>}
-        {(defaults || isParagraphBlock || isFlow) && <p>Adjacent paragraph and Flow spacing collapses to the larger value, including at the page’s top and bottom margins. Object margins add to that gap; explicit spaces add a separate pause.</p>}
+        {(defaults || isParagraphBlock || isFlow) && <p>Adjacent paragraph and Flow spacing collapses to the larger value. Space before the first block and after the last is ignored at page and slide edges. Object margins and explicit spaces remain unchanged.</p>}
         {(defaults || isParagraphBlock) && <p>{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>}
         {defaults && <p>Mixed-script spacing adds a small gap between Chinese and English letters or numbers where supported. It does not change your text; Code stays literal.</p>}
       </details>
