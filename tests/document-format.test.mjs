@@ -11,19 +11,19 @@ const { initializeDocument } = await server.ssrLoadModule('/src/document/initial
 const { currentPlacement } = await server.ssrLoadModule('/src/ai/reservations.ts')
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
 
-test('loading migrates V1 to V5 without mutating input or changing current weights', () => {
+test('loading migrates V1 to V6 without mutating input or changing current weights', () => {
   const v1 = { ...createDocument(), version: 1 }, before = structuredClone(v1)
   assert.equal(migrationBreaking(1), true)
   const loaded = loadDocument(v1)
   assert.deepEqual(v1, before)
-  assert.deepEqual(loaded, { ...before, version: 5 })
+  assert.deepEqual(loaded, { ...before, version: 6 })
   validateDocument(v1)
 })
 
 test('V3 table color pairs round-trip while V2 migrates without recoloring', async () => {
   const v2 = { ...createDocument(), version: 2 }, before = structuredClone(v2)
   const document = loadDocument(v2), table = document.objects.find(object => object.kind === 'table')
-  assert.deepEqual(document, { ...before, version: 5 })
+  assert.deepEqual(document, { ...before, version: 6 })
   assert.equal(migrationBreaking(2), true)
   assert.deepEqual(v2, before)
   for (const color of ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink', 'gray4']) {
@@ -39,7 +39,7 @@ test('V3 table color pairs round-trip while V2 migrates without recoloring', asy
 
 test('V4 restricts typography to regular/bold and migrates sparse legacy weights', async () => {
   const document = createBlankDocument()
-  assert.equal(document.version, 5)
+  assert.equal(document.version, 6)
   for (const name of ['title', 'heading', 'subheading']) assert.equal(document.theme.paragraphs[name].weight, 700)
   assert.equal(migrationBreaking(3), true)
   assert.equal(migrationBreaking(4), false)
@@ -55,7 +55,7 @@ test('V4 restricts typography to regular/bold and migrates sparse legacy weights
   for (const version of [1, 2, 3]) validateServerDocument({ ...legacy, version })
   assert.throws(() => validateServerDocument({ ...legacy, version: 4 }))
   const loaded = loadDocument(legacy), expected = structuredClone(before)
-  expected.version = 5
+  expected.version = 6
   expected.theme.defaults.weight = 400
   expected.theme.paragraphs.title.weight = 700
   expected.theme.paragraphs.body.weight = 400
@@ -73,7 +73,7 @@ test('V5 markup is closed, owner-bound, preserved by patches and candidates, and
   const document = loadDocument(legacy)
   assert.equal(migrationBreaking(4), false)
   assert.equal(migrationBreaking(5), false)
-  assert.deepEqual(document, { ...before, version: 5 })
+  assert.deepEqual(document, { ...before, version: 6 })
   assert.deepEqual(legacy, before)
   const markup = { width: 300, height: 150,
     strokes: [{ points: [[0, 0], [300, 150]], color: 'red', width: 2 }],
@@ -140,15 +140,42 @@ test('V1 has one strict browser/server contract and initialization never strips 
   }
 })
 
+test('V6 Justify is optional, boolean, version-gated, and survives native Slides round-trip', async () => {
+  const blank = createBlankDocument()
+  assert.equal(blank.version, 6)
+  assert.equal('justifyText' in blank.theme, false)
+  validateDocument(blank)
+
+  for (const version of [1, 2, 3, 4, 5]) {
+    const old = { ...blank, version }
+    validateDocument(old)
+    assert.throws(() => validateDocument({ ...old, theme: { ...old.theme, justifyText: false } }))
+  }
+  for (const justifyText of [false, true]) validateServerDocument({ ...blank, theme: { ...blank.theme, justifyText } })
+  for (const justifyText of [null, 0, 'true']) {
+    assert.throws(() => validateDocument({ ...blank, theme: { ...blank.theme, justifyText } }))
+  }
+
+  const legacy = { ...blank, version: 5 }, before = structuredClone(legacy)
+  assert.equal(migrationBreaking(5), false)
+  assert.deepEqual(loadDocument(legacy), { ...before, version: 6 })
+  assert.deepEqual(legacy, before)
+
+  const slides = createDocument({ slideHeight: 540 })
+  slides.theme.justifyText = true
+  validateServerDocument(slides)
+  assert.deepEqual(await decodeMote(new File([await encodeMote(slides)], 'justify-slides.mote')), slides)
+})
+
 test('unsupported versions are rejected without conversion or mutation', () => {
-  for (const version of ['V0', 0, 6, 'V1', undefined]) {
+  for (const version of ['V0', 0, 7, 'V1', undefined]) {
     const value = { ...createBlankDocument(), version }, before = structuredClone(value)
     assert.throws(() => loadDocument(value), error => error instanceof DocumentFormatError && error.code === 'unsupported' && /has not been changed/.test(error.message))
     assert.deepEqual(value, before)
   }
 })
 
-test('native V1 round-trips every example kind and publication omits all authoring data', async () => {
+test('native V6 round-trips every example kind and publication omits all authoring data', async () => {
   const document = createDocument()
   document.authoring = { notes: ['Unpublished plan', ''], aiModel: 'private-provider/model' }
   const file = new File([await encodeMote(document)], 'document.mote')

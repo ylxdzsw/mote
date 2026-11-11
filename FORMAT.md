@@ -1,10 +1,11 @@
-# Mote document formats V1–V5
+# Mote document formats V1–V6
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, or `5`. V1 is the
-original continuous-page format. V2 adds Slides; V3 adds optional table color
-pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
+exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, `5`, or `6`.
+V1 is the original continuous-page format. V2 adds Slides; V3 adds optional
+table color pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
 V5 adds optional permanent image/HTML markup without changing unmarked objects.
+V6 adds optional document-level `theme.justifyText`; omission means false.
 Unknown versions and unknown fields are rejected; there is no extension bag or
 implicit compatibility mode.
 
@@ -39,6 +40,7 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | V2 → V3 | No | Sets `version: 3`; omitted table colors retain prior styling |
 | V3 → V4 | Yes | Maps each explicit saved theme font weight below 550 to 400 and each weight at least 550 to 700; omitted overrides stay omitted; V4 table headers render at 700 instead of 600 |
 | V4 → V5 | No | Sets `version: 5`; omitted image/HTML markup retains the original rendering |
+| V5 → V6 | No | Sets `version: 6`; omitted `theme.justifyText` retains start alignment |
 
 For V3 → V4, the explicit weights are `theme.defaults.weight`, any
 `theme.paragraphs.*.weight`, and `theme.objects.table.weight` or
@@ -66,11 +68,11 @@ permanent revocation. Proposal submission uses the current stateless schema;
 Preview/Accept checks applicability to the actual document. Task transport
 `mote-agent-v5` is independent of the native document's numeric `version`.
 
-V1–V4 load as V5; V1 keeps Slides off. V1 → V2, V2 → V3, and V4 → V5 are
-non-breaking; V3 → V4 is breaking. New documents, saves of opened documents,
-exports, and new task inputs use the current version. `validateDocument`
-still accepts every supported version, so pinned task snapshots and stored
-revisions stay readable as they are.
+V1–V5 load as V6; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5, and
+V5 → V6 are non-breaking; V3 → V4 is breaking. New documents, saves of opened
+documents, exports, and new task inputs use the current version.
+`validateDocument` still accepts every supported version, so pinned task
+snapshots and stored revisions stay readable as they are.
 
 ## Top-level document
 
@@ -79,7 +81,7 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5
+  version: 1 | 2 | 3 | 4 | 5 | 6
   id: string
   language: 'en' | 'zh-Hans'
   page: {
@@ -138,9 +140,9 @@ Slides removes `slideHeight` and markers, concatenates content, and translates
 marker-anchored Floats into continuous coordinates. The document keeps its version (V2 or newer).
 
 A new document starts in Light mode with Primary hue 29°, Secondary hue 262°,
-mixed-script autospace enabled, and a 16px Sans default in Gray 2 at weight
-400. Its default line height is 1.5em, Before is 0em, After is 1em, and
-letter spacing is 0px. New themes seed Title, Heading, Subheading, Body,
+mixed-script autospace enabled, justification off, and a 16px Sans default in
+Gray 2 at weight 400. Its default line height is 1.5em, Before is 0em, After
+is 1em, and letter spacing is 0px. New themes seed Title, Heading, Subheading, Body,
 Caption, and List paragraph styles; Table, Code, and Formula object styles;
 and Flow spacing of 1.5em Before and After. The seeded Title, Heading, and
 Subheading styles each explicitly use weight 700. Subheading is 1.125em, with
@@ -169,6 +171,7 @@ type Theme = {
     secondaryHue: number     // degrees, 0 <= hue < 360
   }
   autospace: boolean
+  justifyText?: boolean          // V6 only; omission means false
   defaults: {
     family: Family
     size: number             // positive document pixels
@@ -201,13 +204,24 @@ type TextStyle = {
 type ParagraphClass = 'title' | 'heading' | 'subheading' | 'body' | 'caption' | 'list'
 ```
 
-Theme objects have closed keys. `defaults` is complete; paragraph and object
-overrides are sparse. A missing style or style property inherits from the
-saved defaults. There is no special implicit Subheading fallback: new-document
-themes seed a Subheading style explicitly. Table and caption paragraph styling
-is semantic and fixed; `objects.table` controls the table's theme typography.
-Code is always monospace and its theme style accepts only size, weight, line
-height, and letter spacing. Formula accepts only size and color.
+Theme objects have closed keys. V1–V5 reject `justifyText`; V6 permits this one
+optional boolean document-level field, whose omission means false. It has no
+per-class, per-paragraph, or inline override. When true, browser-native
+`text-align: justify` applies to native prose paragraphs in main text and Text
+objects in either Flow or Float placement, including headings, lists, and
+captions. Final lines remain start-aligned. Table cell/column alignment is
+unchanged; Code, formulas, and HTML widget contents are unaffected. Existing
+CSS `hyphens: auto` remains enabled, including when prose is justified;
+automatic hyphenation depends on the document language and browser dictionaries.
+There is no language detection, inserted soft hyphens, or stored text rewrite.
+
+`defaults` is complete; paragraph and object style overrides are sparse. A
+missing style or style property inherits from the saved defaults. There is no
+special implicit Subheading fallback: new-document themes seed a Subheading
+style explicitly. Table and caption paragraph styling is semantic and fixed;
+`objects.table` controls the table's theme typography. Code is always monospace
+and its theme style accepts only size, weight, line height, and letter spacing.
+Formula accepts only size and color.
 
 All finite `Length` values are `{value,unit}` objects—never numbers or unit
 strings. `em` resolves against `defaults.size`; pixel values use document
@@ -507,9 +521,9 @@ as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
 per image; PNG signatures are checked. Each Drawing or object markup allows at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain a V1, V2, V3, V4, or V5 document and embedded assets; native saves
-preserve `authoring`. Public projection validates the document and returns a
-clone without `authoring`. Standalone HTML likewise omits `authoring` from its
+Native `.mote` files contain a V1, V2, V3, V4, V5, or V6 document and embedded
+assets; native saves preserve `authoring`. Public projection validates the
+document and returns a clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
 document. Cloud loading and publication never reset unsupported content.
 
@@ -527,7 +541,7 @@ native document version.
 Slide-aware segment transfers use `version:2` with the same envelope fields,
 permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
 whole-slide clipboard uses its distinct `type:"slides"` envelope with
-`documentVersion:2|3|4|5` declaring its native object schema. AI V2 segments
+`documentVersion:2|3|4|5|6` declaring its native object schema. AI V2 segments
 require a Slides document and retain internal boundaries in the reserved range.
 The leading boundary may be omitted; application preserves the original boundary
 IDs and remaps marker-anchored Floats. Empty candidates clear content without

@@ -21,7 +21,7 @@ function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme
     : { ...theme, paragraphs: { ...theme.paragraphs, [name as BlockClass]: style } }
 }
 
-export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 5): CSSProperties {
+export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 6): CSSProperties {
   const entries = paletteEntries(theme)
   const colors = new Map<string, string>()
   const neutralSoft = entries.find(entry => entry.id === 'gray5')!.strong
@@ -30,6 +30,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage, version
     '--page-background': pageColor(theme),
     '--table-header-weight': version >= 4 ? '700' : '600',
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
+    '--prose-align': theme.justifyText ? 'justify' : 'start',
     '--flow-spaceBefore': `${pixels(theme.flow?.spaceBefore ?? 0, theme.defaults.size)}px`,
     '--flow-spaceAfter': `${pixels(theme.flow?.spaceAfter ?? body.spaceAfter, theme.defaults.size)}px`,
   }
@@ -184,6 +185,9 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {
           history.boundary(); onChange({ ...theme, autospace: event.target.checked })
         }} /> Mixed-script spacing</label>
+        <label className="link-margins"><input type="checkbox" checked={theme.justifyText ?? false} onChange={event => {
+          history.boundary(); onChange({ ...theme, justifyText: event.target.checked })
+        }} /> Justify text</label>
       </>}
       {(defaults || isParagraphBlock || isCode) && <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
@@ -212,6 +216,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         {(defaults || isParagraphBlock || isFlow) && <p>Adjacent paragraph and Flow spacing collapses to the larger value. Space before the first block and after the last is ignored at page and slide edges. Object margins and explicit spaces remain unchanged.</p>}
         {(defaults || isParagraphBlock) && <p>{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>}
         {defaults && <p>Mixed-script spacing adds a small gap between Chinese and English letters or numbers where supported. It does not change your text; Code stays literal.</p>}
+        {defaults && <p>Justify text aligns prose and captions to both edges, leaving final lines at the start. Tables keep their column alignment. Native automatic hyphenation depends on the document language and available browser dictionaries.</p>}
       </details>
     </section>}
   </>

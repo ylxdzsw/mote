@@ -1,8 +1,8 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
-export const DOCUMENT_VERSION = 5
-export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5]
+export const DOCUMENT_VERSION = 6
+export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -81,11 +81,12 @@ function style(value, path, fields = STYLE, defaults = false, version = DOCUMENT
   }
 }
 function theme(value, version) {
-  record(value, 'theme', ['appearance', 'autospace', 'defaults', 'paragraphs', 'objects', 'flow'])
+  record(value, 'theme', ['appearance', 'autospace', 'defaults', 'paragraphs', 'objects', 'flow'], version >= 6 ? ['justifyText'] : [])
   const appearance = record(value.appearance, 'theme.appearance', ['mode', 'primaryHue', 'secondaryHue'])
   choice(appearance.mode, ['light', 'dark'], 'theme.appearance.mode')
   for (const key of ['primaryHue', 'secondaryHue']) if (number(appearance[key], `theme.appearance.${key}`, 0) >= 360) fail(`theme.appearance.${key}`, 'must be less than 360')
   boolean(value.autospace, 'theme.autospace')
+  if (present(value, 'justifyText')) boolean(value.justifyText, 'theme.justifyText')
   style(value.defaults, 'theme.defaults', STYLE, true, version)
   record(value.paragraphs, 'theme.paragraphs', [], CLASSES)
   for (const name of CLASSES) if (present(value.paragraphs, name)) style(value.paragraphs[name], `theme.paragraphs.${name}`, STYLE, false, version)
@@ -328,7 +329,7 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V5 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V6 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
@@ -375,6 +376,7 @@ const MIGRATIONS = [
     } }
   } },
   { from: 4, breaking: false, migrate: document => ({ ...document, version: 5 }) },
+  { from: 5, breaking: false, migrate: document => ({ ...document, version: 6 }) },
 ]
 
 export function migrationBreaking(version) {

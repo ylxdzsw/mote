@@ -1,7 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument } from '../src/document/model'
 
-export const DOCUMENT_VERSION: 5
+export const DOCUMENT_VERSION: 6
 export const DOCUMENT_VERSIONS: readonly number[]
 export class DocumentFormatError extends Error {
   path: string

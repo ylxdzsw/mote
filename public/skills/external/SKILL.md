@@ -5,7 +5,7 @@ description: Author and submit a candidate for a Mote reserved region using the 
 
 # Mote external agent
 
-Use this workflow for a Mote task whose brief supplies a secret public HTTPS task URL. The current transport is `mote-agent-v5`, separate from native document V1–V5. If the manifest protocol is retired or unknown, stop; retained legacy task data is recovery-only. Do not convert histories or try a legacy route.
+Use this workflow for a Mote task whose brief supplies a secret public HTTPS task URL. The current transport is `mote-agent-v5`, separate from native document V1–V6. If the manifest protocol is retired or unknown, stop; retained legacy task data is recovery-only. Do not convert histories or try a legacy route.
 
 ## Required workflow
 

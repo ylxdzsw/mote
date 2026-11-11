@@ -3,7 +3,7 @@
   "$id": "https://mote.ylxdzsw.com/skills/proposal-schema.json",
   "title": "Mote current-schema proposal (mote-agent-v5)",
   "documentFormat": "mote",
-  "documentFormatVersion": 5,
+  "documentFormatVersion": 6,
   "description": "Schema for result.json / the candidate field of a proposal submission. documentFormat and documentFormatVersion here are advisory schema metadata, not candidate fields. Exactly one of object, content or segment is delivered. Validation is independent of document, target, source version, executor and agent session; browser Accept checks reservation compatibility. Optional screenshot transport keys are resolved to embedded PNG bytes and removed before storing the candidate.",
   "type": "object",
   "properties": {
