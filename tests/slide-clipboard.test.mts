@@ -44,16 +44,18 @@ test('slide copy/paste refreshes IDs and top anchors without scaling local geome
   }
 })
 
-test('V6 slide clipboard round-trips its native document version', () => {
+test('V7 slide clipboard round-trips its native document version', () => {
   const doc = source()
-  doc.version = 6
+  doc.version = 7
   doc.theme.justifyText = true
+  doc.theme.firstLineIndent = true
   const payload = parseSlides(serializeSlides(copySlides(doc, { first: 0, last: 2 })))
-  assert.equal(payload.documentVersion, 6)
+  assert.equal(payload.documentVersion, 7)
   const inserted = insertSlides(doc, payload, 3).doc
   validateDocument(inserted)
-  assert.equal(inserted.version, 6)
+  assert.equal(inserted.version, 7)
   assert.equal(inserted.theme.justifyText, true)
+  assert.equal(inserted.theme.firstLineIndent, true)
 })
 
 test('slide deletion and cut/paste preserve ownership and one writable slide', () => {

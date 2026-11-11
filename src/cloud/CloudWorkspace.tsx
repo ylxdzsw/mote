@@ -36,7 +36,7 @@ function SharedPage({ token }: { token: string }) {
   useEffect(() => {
     let active = true
     void sharedDocument(token).then(value => { if (active) { setLoaded(value); document.title = `${value.name} · Mote` } },
-      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1–V6 document.` : 'This shared document could not be opened.') })
+      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1–V7 document.` : 'This shared document could not be opened.') })
     return () => { active = false }
   }, [token])
   if (!loaded) return <main className="loading"><h1>Mote</h1><p role={error ? 'alert' : 'status'}>{error || 'Opening shared document…'}</p></main>
@@ -164,7 +164,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
           if (local!.document !== stored) local!.migratedFrom ??= stored
         } catch (error) {
           setUnopened(local)
-          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a supported V1–V6 document.`)
+          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a supported V1–V7 document.`)
         }
         if (!active) return
         await saveWorkingCopy(local!)

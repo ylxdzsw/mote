@@ -21,7 +21,7 @@ function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme
     : { ...theme, paragraphs: { ...theme.paragraphs, [name as BlockClass]: style } }
 }
 
-export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 6): CSSProperties {
+export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 7): CSSProperties {
   const entries = paletteEntries(theme)
   const colors = new Map<string, string>()
   const neutralSoft = entries.find(entry => entry.id === 'gray5')!.strong
@@ -31,6 +31,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage, version
     '--table-header-weight': version >= 4 ? '700' : '600',
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
     '--prose-align': theme.justifyText ? 'justify' : 'start',
+    '--body-first-line-indent': theme.firstLineIndent ? '2ic' : '0px',
     '--flow-spaceBefore': `${pixels(theme.flow?.spaceBefore ?? 0, theme.defaults.size)}px`,
     '--flow-spaceAfter': `${pixels(theme.flow?.spaceAfter ?? body.spaceAfter, theme.defaults.size)}px`,
   }
@@ -188,6 +189,13 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         <label className="link-margins"><input type="checkbox" checked={theme.justifyText ?? false} onChange={event => {
           history.boundary(); onChange({ ...theme, justifyText: event.target.checked })
         }} /> Justify text</label>
+        <div className="style-field">
+          <div className="field-heading"><span>First-line indent</span></div>
+          <div className="placement-options" role="radiogroup" aria-label="First-line indent">
+            {([[false, 'None'], [true, '2 characters']] as const).map(([indent, label]) => <label key={label}><input type="radio" name="theme-first-line-indent" checked={(theme.firstLineIndent ?? false) === indent}
+              onChange={() => { history.boundary(); onChange({ ...theme, firstLineIndent: indent }) }} /><span>{label}</span></label>)}
+          </div>
+        </div>
       </>}
       {(defaults || isParagraphBlock || isCode) && <>
         {length('lineHeight', 'Line height', 1, 1024, .5)}
@@ -217,6 +225,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
         {(defaults || isParagraphBlock) && <p>{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>}
         {defaults && <p>Mixed-script spacing adds a small gap between Chinese and English letters or numbers where supported. It does not change your text; Code stays literal.</p>}
         {defaults && <p>Justify text aligns prose and captions to both edges, leaving final lines at the start. Tables keep their column alignment. Native automatic hyphenation depends on the document language and available browser dictionaries.</p>}
+        {defaults && <p>First-line indent adds two ideographic character widths to Body paragraphs, including text boxes. Wrapped lines and Shift+Enter lines stay at the start. Other paragraph styles and tables are unchanged; no spaces are inserted into your text.</p>}
       </details>
     </section>}
   </>

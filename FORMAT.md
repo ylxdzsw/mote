@@ -1,11 +1,14 @@
-# Mote document formats V1–V6
+# Mote document formats V1–V7
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, `5`, or `6`.
+exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, `5`, `6`, or
+`7`.
 V1 is the original continuous-page format. V2 adds Slides; V3 adds optional
 table color pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
 V5 adds optional permanent image/HTML markup without changing unmarked objects.
 V6 adds optional document-level `theme.justifyText`; omission means false.
+V7 adds optional document-level `theme.firstLineIndent`; omission or false
+means no first-line indent.
 Unknown versions and unknown fields are rejected; there is no extension bag or
 implicit compatibility mode.
 
@@ -41,6 +44,7 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | V3 → V4 | Yes | Maps each explicit saved theme font weight below 550 to 400 and each weight at least 550 to 700; omitted overrides stay omitted; V4 table headers render at 700 instead of 600 |
 | V4 → V5 | No | Sets `version: 5`; omitted image/HTML markup retains the original rendering |
 | V5 → V6 | No | Sets `version: 6`; omitted `theme.justifyText` retains start alignment |
+| V6 → V7 | No | Sets `version: 7`; omitted `theme.firstLineIndent` retains no first-line indent |
 
 For V3 → V4, the explicit weights are `theme.defaults.weight`, any
 `theme.paragraphs.*.weight`, and `theme.objects.table.weight` or
@@ -68,9 +72,10 @@ permanent revocation. Proposal submission uses the current stateless schema;
 Preview/Accept checks applicability to the actual document. Task transport
 `mote-agent-v5` is independent of the native document's numeric `version`.
 
-V1–V5 load as V6; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5, and
-V5 → V6 are non-breaking; V3 → V4 is breaking. New documents, saves of opened
-documents, exports, and new task inputs use the current version.
+V1–V6 load as V7; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5,
+V5 → V6, and V6 → V7 are non-breaking; V3 → V4 is breaking. New documents,
+saves of opened documents, exports, and new task inputs use the current
+version.
 `validateDocument` still accepts every supported version, so pinned task
 snapshots and stored revisions stay readable as they are.
 
@@ -81,7 +86,7 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   id: string
   language: 'en' | 'zh-Hans'
   page: {
@@ -171,7 +176,8 @@ type Theme = {
     secondaryHue: number     // degrees, 0 <= hue < 360
   }
   autospace: boolean
-  justifyText?: boolean          // V6 only; omission means false
+  justifyText?: boolean          // V6+; omission means false
+  firstLineIndent?: boolean      // V7+; omission or false means no indent
   defaults: {
     family: Family
     size: number             // positive document pixels
@@ -204,7 +210,7 @@ type TextStyle = {
 type ParagraphClass = 'title' | 'heading' | 'subheading' | 'body' | 'caption' | 'list'
 ```
 
-Theme objects have closed keys. V1–V5 reject `justifyText`; V6 permits this one
+Theme objects have closed keys. V1–V5 reject `justifyText`; V6+ permits this
 optional boolean document-level field, whose omission means false. It has no
 per-class, per-paragraph, or inline override. When true, browser-native
 `text-align: justify` applies to native prose paragraphs in main text and Text
@@ -214,6 +220,15 @@ unchanged; Code, formulas, and HTML widget contents are unaffected. Existing
 CSS `hyphens: auto` remains enabled, including when prose is justified;
 automatic hyphenation depends on the document language and browser dictionaries.
 There is no language detection, inserted soft hyphens, or stored text rewrite.
+
+V1–V6 reject `firstLineIndent`; V7 permits this optional document-level
+boolean, whose omission or false value means no indent. It is independent of
+`justifyText` and has no class, paragraph, or inline override. When true, it
+uses `text-indent: 2ic` only for semantic Body paragraphs in main text and
+Text objects in either Flow or Float placement. Only the first formatted line
+is indented; wrapped and soft-break lines start normally. Headings, lists,
+captions, tables, Code, formulas, and HTML widget contents are unaffected.
+The behavior is language-independent and does not rewrite content whitespace.
 
 `defaults` is complete; paragraph and object style overrides are sparse. A
 missing style or style property inherits from the saved defaults. There is no
@@ -521,7 +536,7 @@ as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
 per image; PNG signatures are checked. Each Drawing or object markup allows at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain a V1, V2, V3, V4, V5, or V6 document and embedded
+Native `.mote` files contain a V1, V2, V3, V4, V5, V6, or V7 document and embedded
 assets; native saves preserve `authoring`. Public projection validates the
 document and returns a clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
@@ -541,7 +556,7 @@ native document version.
 Slide-aware segment transfers use `version:2` with the same envelope fields,
 permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
 whole-slide clipboard uses its distinct `type:"slides"` envelope with
-`documentVersion:2|3|4|5|6` declaring its native object schema. AI V2 segments
+`documentVersion:2|3|4|5|6|7` declaring its native object schema. AI V2 segments
 require a Slides document and retain internal boundaries in the reserved range.
 The leading boundary may be omitted; application preserves the original boundary
 IDs and remaps marker-anchored Floats. Empty candidates clear content without

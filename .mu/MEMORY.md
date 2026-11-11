@@ -2063,3 +2063,7 @@ Continuous minimap sections now end at their last displayed main-flow block’s 
 ## 2026-11-11 — Tight table and image bounds
 
 Remove the fixed 12px table and 8px image outer padding so selection bounds track the visible object rather than an invisible wrapper. Keep the 1px body border, table-cell spacing, text-box padding, and owned-caption gap. The owner chose a shared-renderer styling correction that also reflows existing documents, rather than a native version bump, geometry migration, or legacy-padding field. Saved widths and positions remain unchanged; content uses the recovered interior width, and natural heights and subsequent Flow positions may change. Existing standalone HTML retains its embedded renderer until exported again.
+
+## 2026-11-11 — Optional document-wide Body first-line indent
+
+Native V7 adds optional `theme.firstLineIndent`, defaulting off without rewriting prior V1–V6 documents; the V6→V7 migration changes only the version. A document-wide None / 2 characters control uses `text-indent: 2ic` only for semantic Body paragraphs in main text and Flow/Float Text objects. Keeping it outside paragraph/style inheritance makes the scope predictable: only the first formatted line indents, while wrapped and soft-break lines begin normally; headings, lists, captions, tables, and non-prose objects are unaffected. It remains language-independent, independent of V6 justification, and never alters authored whitespace.

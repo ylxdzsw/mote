@@ -222,6 +222,7 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .text-content .tiptap { outline: none; min-height: 24px; overflow-wrap: anywhere; }
 .text-content p { -webkit-hyphens: auto; hyphens: auto; margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
 .text-content p:not([data-semantic='table']) { text-align: var(--prose-align, start); text-align-last: start; }
+.text-content p[data-semantic='body'] { text-indent: var(--body-first-line-indent, 0px); }
 .text-content p:last-child { margin-bottom: 0; }
 .main-paragraph { display: flow-root; box-sizing: content-box; }
 .paragraph-content { display: block; }

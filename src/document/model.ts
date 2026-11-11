@@ -32,6 +32,7 @@ export interface Theme {
   appearance: { mode: 'light' | 'dark'; primaryHue: number; secondaryHue: number }
   autospace: boolean
   justifyText?: boolean
+  firstLineIndent?: boolean
   flow: { spaceBefore?: ThemeLength; spaceAfter?: ThemeLength }
   defaults: Omit<BlockStyle, 'size'> & { size: number }
   paragraphs: Partial<Record<BlockClass, Partial<BlockStyle>>>
@@ -148,7 +149,7 @@ export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   id: string
   language: DocumentLanguage
   page: { width: number; margins: Margins; slideHeight?: number }
@@ -195,7 +196,7 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 }
 
 export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 6, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+  return { format: 'mote', version: 7, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }
