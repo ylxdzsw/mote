@@ -218,8 +218,8 @@ export function useSegmentSelection(props: Props) {
     const { editable, sheet, scale, doc } = live.current
     if (!editable || !sheet.current || !(event.target as Element).matches('.sheet, .main-text, [data-spacer], [data-slide-break]')) return false
     const rect = sheet.current.getBoundingClientRect()
-    const x = (event.clientX - rect.left) / scale - sheet.current.clientLeft
-    return x >= 0 && x < doc.page.margins.left && event.clientY >= rect.top && event.clientY < rect.bottom
+    const x = (event.clientX - rect.left) / scale
+    return x >= 0 && x < sheet.current.clientLeft + doc.page.margins.left && event.clientY >= rect.top && event.clientY < rect.bottom
   }
   useLayoutEffect(() => { setMarginHover(false) }, [props.editable, props.scale, props.doc.page.margins.left])
   function begin(event: ReactPointerEvent) {

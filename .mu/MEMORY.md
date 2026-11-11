@@ -2084,3 +2084,7 @@ Merge the Context/Assistant lane instead of retaining a user-selected tab. A res
 ## 2026-11-11 — First-line indent as a checkbox
 
 Use a simple First-line indent checkbox beside Mixed-script spacing and Justify text in the dedicated Theme dialog’s Defaults section. Its boolean on/off behavior does not need a segmented None / 2 characters choice; the existing typography help explains the fixed two-character amount and Body-only scope. Native V7 storage, rendering, and undo semantics are unchanged.
+
+## 2026-11-11 — Continuous segment-selection hit area
+
+Include the transparent left page border in the existing background-only margin hit-test. The outer gutter ends at the page’s outer edge, so excluding the border left a one-document-pixel dead strip that switched cursors and could not start segment selection. Measure from the outer edge while retaining the same inner margin endpoint, object/control priority, and document geometry.
