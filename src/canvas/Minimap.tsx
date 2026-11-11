@@ -23,6 +23,7 @@ interface Bookmark {
   button: HTMLButtonElement
   y: number
   scrollY: number
+  endY: number | null
 }
 
 function landmarks(source: HTMLElement) {
@@ -35,16 +36,22 @@ function landmarks(source: HTMLElement) {
     return slides.map(({ target, paragraphs }, index) => {
       const first = (semantic: string) => paragraphs.find(paragraph => paragraph.dataset.semantic === semantic && paragraph.textContent?.trim())
       const label = first('title') ?? first('heading')
-      return { target, text: label?.textContent?.trim() || `Slide ${index + 1}`, semantic: 'slide' }
+      return { target, endTarget: null, text: label?.textContent?.trim() || `Slide ${index + 1}`, semantic: 'slide' }
     })
   }
-  const paragraphs = [...source.querySelectorAll<HTMLElement>('.main-text [data-semantic]:not(.ai-original-hidden)')]
+  const blocks = [...source.querySelectorAll<HTMLElement>('.main-text :is(.main-paragraph, [data-flow], [data-spacer], [data-space-preview])')]
+    .filter(block => !block.closest('.ai-original-hidden'))
+  const paragraphs = blocks.filter(block => block.classList.contains('main-paragraph'))
   const titles = paragraphs.filter(paragraph => paragraph.dataset.semantic === 'title')
   const hiddenTitle = titles.length === 1 && titles[0] === paragraphs[0] ? titles[0] : null
-  return paragraphs.filter(paragraph => paragraph.dataset.semantic === 'heading'
-    || paragraph.dataset.semantic === 'title' && paragraph !== hiddenTitle).map(target => ({
-    target, semantic: target.dataset.semantic!, text: target.textContent?.trim() || `Untitled ${target.dataset.semantic}`,
-  }))
+  const sections: { target: HTMLElement; endTarget: HTMLElement; semantic: string; text: string }[] = []
+  for (const block of blocks) {
+    const semantic = block.dataset.semantic
+    if (semantic === 'heading' || semantic === 'title' && block !== hiddenTitle) {
+      sections.push({ target: block, endTarget: block, semantic, text: block.textContent?.trim() || `Untitled ${semantic}` })
+    } else if (sections.length) sections.at(-1)!.endTarget = block
+  }
+  return sections
 }
 
 export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }: Props) {
@@ -70,8 +77,6 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
     let scrollHeight = 0
     let documentBottom = 0
     let bookmarks: Bookmark[] = []
-
-    function bookmarkFocusOffset() { return Math.min(120, viewport.clientHeight * .15) }
 
     function paint() {
       frame = 0
@@ -119,7 +124,7 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
 
         navigation.setAttribute('aria-label', source.hasAttribute('data-slides') ? 'Slide bookmarks' : 'Title and heading bookmarks')
         const existing = new Map(bookmarks.map(bookmark => [bookmark.target, bookmark.button]))
-        bookmarks = landmarks(source).map(({ target, semantic, text }) => {
+        bookmarks = landmarks(source).map(({ target, endTarget, semantic, text }) => {
           let button = existing.get(target)
           if (!button) {
             button = document.createElement('button')
@@ -127,7 +132,9 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
             button.className = 'minimap-bookmark'
             button.onpointerdown = event => event.preventDefault()
             button.onclick = () => {
-              viewport.scrollTop = Math.ceil(viewport.scrollTop + target.getBoundingClientRect().top - viewportTop() - bookmarkFocusOffset())
+              const zoom = source.getBoundingClientRect().width / nativeSize(source).width
+              const before = source.hasAttribute('data-slides') ? 0 : parseFloat(getComputedStyle(target).marginTop)
+              viewport.scrollTop = Math.ceil(viewport.scrollTop + target.getBoundingClientRect().top - viewportTop() - before * zoom)
             }
           }
           button.classList.toggle('minimap-bookmark-title', semantic === 'title')
@@ -135,7 +142,10 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
           button.title = text
           button.setAttribute('aria-label', `Go to ${semantic}: ${text}`)
           const scrollY = target.getBoundingClientRect().top - rect.top + pageTop * zoom
-          return { target, button, y: scrollY / zoom * y, scrollY }
+          // Content boxes exclude outer theme margins; Flow includes its caption,
+          // and authored spacers remain content. Slides keep their full bounds.
+          const endY = endTarget ? endTarget.getBoundingClientRect().bottom - rect.top + pageTop * zoom : null
+          return { target, button, y: scrollY / zoom * y, scrollY, endY }
         }).sort((a, b) => a.y - b.y)
         for (const [target, button] of existing) {
           if (!bookmarks.some(bookmark => bookmark.target === target)) button.remove()
@@ -159,10 +169,10 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
       rail.dataset.scrollable = String(maximum > 0)
 
       const offset = progress * overflow
-      const visible = bookmarks.filter(({ button, y, scrollY }, index) => {
+      const visible = bookmarks.filter(({ button, y, scrollY, endY }, index) => {
         button.hidden = y < offset || y > offset + rail.clientHeight
-        const end = bookmarks[index + 1]?.scrollY ?? documentBottom
-        const inView = scrollY < viewport.scrollTop + viewport.clientHeight && end > viewport.scrollTop
+        const end = endY ?? bookmarks[index + 1]?.scrollY ?? documentBottom
+        const inView = Math.min(end, viewport.scrollTop + viewport.clientHeight) > Math.max(scrollY, viewport.scrollTop)
         button.toggleAttribute('data-in-view', inView)
         if (inView) button.setAttribute('aria-description', 'In view')
         else button.removeAttribute('aria-description')
