@@ -2059,3 +2059,7 @@ Replace the viewport-relative 15%/120px focus inset with the heading’s effecti
 ## 2026-11-11 — Content-bounded section highlighting
 
 Continuous minimap sections now end at their last displayed main-flow block’s bottom, not the following heading’s top or the document’s padded bottom. Their starts remain the heading boxes. Exclude outer theme Space before/after while retaining internal gaps, explicit spacers, and Flow mounts with captions; hidden AI originals do not extend the displayed section. This prevents a jump to a heading’s Space-before start from highlighting its predecessor solely for the inter-section gap. Require positive-height intersection, excluding exact edge contact and zero-height ranges. Slides retain their full slide bounds. Jump targets, folded marks, and multiple equally emphasized visible sections are unchanged.
+
+## 2026-11-11 — Tight table and image bounds
+
+Remove the fixed 12px table and 8px image outer padding so selection bounds track the visible object rather than an invisible wrapper. Keep the 1px body border, table-cell spacing, text-box padding, and owned-caption gap. The owner chose a shared-renderer styling correction that also reflows existing documents, rather than a native version bump, geometry migration, or legacy-padding field. Saved widths and positions remain unchanged; content uses the recovered interior width, and natural heights and subsequent Flow positions may change. Existing standalone HTML retains its embedded renderer until exported again.

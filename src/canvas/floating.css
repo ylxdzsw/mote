@@ -34,8 +34,7 @@
 .sheet.is-editing .has-caption-support > .object-body:hover { outline: 1px solid var(--ui-border); }
 .sheet.is-editing .has-caption-support.is-selected > .object-body { outline: 1px solid var(--ui-accent-border); }
 .sheet.is-editing .has-caption-support:focus-visible > .object-body { outline: 1px solid var(--ui-accent-border); }
-.floating-image > .object-body { padding: 8px; }
-.floating-table > .object-body { padding: 12px; background: var(--page-background); }
+.floating-table > .object-body { background: var(--page-background); }
 .object-caption { position: relative; display: flow-root; margin-top: 8px; border: 1px solid transparent; border-radius: 3px; touch-action: none; }
 .object-caption .tiptap { min-height: 0; text-align: left; }
 .sheet.is-editing .object-caption { cursor: move; }

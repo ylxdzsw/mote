@@ -264,9 +264,7 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .is-editing .floating-note.is-selected { border-color: var(--ui-accent-border); outline: none; }
 .is-editing .floating-note:focus-visible { outline: 1px solid var(--ui-accent-border); }
 .floating-note .text-content { cursor: text; }
-.floating-image { padding: 8px; background: transparent; }
 .floating-image img { display: block; width: 100%; height: auto; border-radius: 2px; user-select: none; }
-.floating-table { padding: 12px; background: var(--page-background); }
 .floating-table table { border-collapse: collapse; table-layout: fixed; width: 100%; }
 .table-layout { position: relative; }
 .table-column-controls { position: absolute; inset: 0; pointer-events: none; }
