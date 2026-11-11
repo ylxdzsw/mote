@@ -23,7 +23,7 @@ import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
-import { FloatingInspector, kindName } from './FloatingInspector'
+import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { MarkupEditor } from './MarkupEditor'
 import { patchFloating } from '../canvas/patchFloating'
@@ -124,7 +124,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const settingsOpen = settingsDialog === 'settings'
   const themeOpen = settingsDialog === 'theme'
   const [settingsSection, setSettingsSection] = useState<'document' | 'workspace' | 'browser'>('document')
-  useEffect(() => { if (assistant.open) setSettingsDialog(null) }, [assistant.open])
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
   // The shell and canvas keep editing geometry while recovery gates editing permissions.
   const showInspector = !mobile
@@ -436,19 +435,20 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const selectedTask = assistant.tasks.find(task => task.id === selectedSegment.taskId)
     ?? (target && doc && overlappingTasks.length === 1 && containsTarget(overlappingTasks[0].target, target, doc) ? overlappingTasks[0] : undefined)
   const reservationSelection: ReservationSelection = {
-    title: selectedIds.length > 1 ? `${selectedIds.length} objects` : selectedObject ? kindName(selectedObject)
-      : target?.kind === 'segment' ? target.range.start.index === target.range.end.index && target.range.start.offset === target.range.end.offset ? 'New section' : 'Document section'
-      : target?.kind === 'text' ? `${target.blockIds.length} paragraph${target.blockIds.length === 1 ? '' : 's'}` : 'Assistant',
     detail: overlappingTasks.length && !selectedTask ? 'Select one reserved area to view its task.'
       : selectedIds.length > 1 ? 'Select one object, or select a section using the gutter.'
       : selectedObject ? selectedObject.kind === 'table' ? selectedObject.caption ? 'Entire table and caption.' : 'Entire table.' : 'caption' in selectedObject && selectedObject.caption ? 'Includes its caption.' : undefined
       : target?.kind === 'text' ? 'Reserves whole paragraphs, including any unselected text.'
       : target?.kind === 'segment' ? target.blockIds.length || target.objectIds.length ? 'Reserves this section and its owned objects.' : 'Creates a section at this insertion point.'
       : activeEditor === mainEditor && mainEditor ? 'Select consecutive paragraphs, or use the gutter to include spaces and Flow objects.'
-      : 'Select a reserved area to view its task.',
+      : undefined,
     canReserve: !!target && !overlappingTasks.length,
   }
   const assistantTaskId = assistant.allTasks.some(task => task.id === assistant.activeId) ? assistant.activeId : selectedTask?.id ?? null
+
+  const showProperties = !assistantTaskId && !overlappingTasks.length || selectedObjectTask && assistantTaskId === selectedObjectTask.id
+  const panelScroll = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => { panelScroll.current?.scrollTo(0, 0) }, [selectedObject?.id, assistantTaskId, tool])
 
   function reserveSelection() {
     if (!target || !reservationSelection.canReserve) return
@@ -624,72 +624,47 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     </PopupDialog>
     <main ref={workspace} className={`workspace ${showInspector ? '' : 'reader'}`}>
       {showInspector && <aside className="inspector side-panel" aria-label="Context and assistant">
-        <div className="panel-tabs" role="tablist" aria-label="Side panel" onKeyDown={event => {
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-          event.preventDefault()
-          const next = event.key === 'Home' ? false : event.key === 'End' ? true : !assistant.open
-          history.boundary(); assistant.setOpen(next)
-          event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next ? 1 : 0].focus()
-        }}>
-          <button id="context-tab" role="tab" aria-selected={!assistant.open} aria-controls="context-panel" tabIndex={assistant.open ? -1 : 0}
-            onClick={() => { history.boundary(); assistant.setOpen(false) }}>Context</button>
-          <button id="assistant-tab" role="tab" aria-selected={assistant.open} aria-controls="assistant-panel" tabIndex={assistant.open ? 0 : -1}
-            onClick={() => { history.boundary(); assistant.setOpen(true) }}>Assistant
-            {assistant.allTasks.some(task => task.status === 'ready' || task.status === 'error') && <span className="assistant-dot" aria-label="Tasks need review" />}
-          </button>
-        </div>
-        {assistant.open ? <div id="assistant-panel" className="side-panel-body" role="tabpanel" aria-labelledby="assistant-tab">
-          <AssistantPanel assistant={assistant} activeId={assistantTaskId} selection={reservationSelection} onReserve={reserveSelection} onLocate={locateTask} />
-        </div> : <div id="context-panel" className="side-panel-body" role="tabpanel" aria-labelledby="context-tab">
-              {!tool && <TextToolsRow editor={activeEditor} theme={doc.theme} caption={isCaptionEditor(activeEditor)} onPalette={() => openThemeClass('palette')}
-                recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
-              <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
-              {selectedObject && assistant.lockedIds.has(selectedObject.id) && !selectedObjectTask ? <div className="context-inspector">
-                <ContextHeading title="Reserved for AI" />
-                <div className="inspector-stack">
-                  <button onClick={() => assistant.openTask(assistant.tasks.find(task => task.target.kind === 'object' ? task.target.objectId === selectedObject.id : task.target.kind === 'segment' && task.target.objectIds.includes(selectedObject.id))!.id)}>Open AI task</button>
+        <div className="side-panel-body">
+          {!tool && !assistantTaskId && !overlappingTasks.length && <TextToolsRow editor={activeEditor} theme={doc.theme} caption={isCaptionEditor(activeEditor)} onPalette={() => openThemeClass('palette')}
+            recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
+          <div className="side-panel-scroll" ref={panelScroll}>
+            {showProperties && <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
+              {selectedObject ? <>{selectedSlideOwner !== null && <p className="hint">Slide {selectedSlideOwner + 1}{(() => {
+                const context = actions.current?.segmentContext(), box = context?.geometry[selectedObject.id]
+                const slide = slideRanges(doc)[selectedSlideOwner]
+                const top = slide.id ? context?.anchors.find(anchor => anchor.id === slide.id)?.top ?? 0 : 0
+                return box && (box.y < top || box.y + box.height > top + doc.page.slideHeight!) ? ' · Extends beyond slide' : ''
+              })()}</p>}<FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
+                captionMaxWidth={doc.page.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
+                onCaption={() => actions.current?.caption()}
+                textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
+                tableControls={isCaptionEditor(activeEditor) ? null : <TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
+                onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
+                onPlacement={placement => actions.current?.placement(placement)}
+                onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
+                onWidgetRun={runWidget}
+                onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
+                onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
+                onMarkupEdit={editMarkup}
+                reserved={!!selectedObjectTask}
+                newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew} /></>
+              : tool ? <div className="context-inspector">
+                  <ContextHeading title={tool === 'slideBreak' ? 'Slide break' : tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'slideBreak' ? 'Click a boundary to start a new slide.' : tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag to reserve an AI object. Click the left gutter to reserve an AI section.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
+                  <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                 </div>
-                <InspectorHelp><p>Individually reserved objects can move and resize before their first request. Segment compositions stay together.</p></InspectorHelp>
-              </div> : <>
-                {selectedObject ? <>{selectedSlideOwner !== null && <p className="hint">Slide {selectedSlideOwner + 1}{(() => {
-                  const context = actions.current?.segmentContext(), box = context?.geometry[selectedObject.id]
-                  const slide = slideRanges(doc)[selectedSlideOwner]
-                  const top = slide.id ? context?.anchors.find(anchor => anchor.id === slide.id)?.top ?? 0 : 0
-                  return box && (box.y < top || box.y + box.height > top + doc.page.slideHeight!) ? ' · Extends beyond slide' : ''
-                })()}</p>}<FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
-                  captionMaxWidth={doc.page.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
-                  onCaption={() => actions.current?.caption()}
-                  textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
-                  tableControls={isCaptionEditor(activeEditor) ? null : <TableControls selection={selection?.table ? selection : null} onCommand={tableCommand} />}
-                  onChange={patch => updateObject(selectedObject.id, patch)} onAction={action => actions.current?.[action]()} onFront={() => reorder(true)} onBack={() => reorder(false)}
-                  onPlacement={placement => actions.current?.placement(placement)}
-                  onHistoryBegin={history.begin} onHistoryEnd={history.boundary} imageLoading={imageLoading} onTheme={openThemeClass}
-                  onWidgetRun={runWidget}
-                  onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
-                  onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
-                  onMarkupEdit={editMarkup}
-                  reserved={!!selectedObjectTask}
-                  newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew}
-                  onOpenTask={selectedObjectTask ? () => assistant.openTask(selectedObjectTask.id) : undefined} /></>
-                : selectedTask ? <div className="context-inspector">
-                    <ContextHeading title="Reserved for AI" />
-                    <button onClick={() => assistant.openTask(selectedTask.id)}>Open AI task</button>
-                  </div>
-                : tool ? <div className="context-inspector">
-                    <ContextHeading title={tool === 'slideBreak' ? 'Slide break' : tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'slideBreak' ? 'Click a boundary to start a new slide.' : tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag to reserve an AI object. Click the left gutter to reserve an AI section.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
-                    <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
-                  </div>
-                : selectedSlides ? <div className="context-inspector">
-                    <ContextHeading title={selectedSlides.first === selectedSlides.last ? 'Slide' : `${selectedSlides.last - selectedSlides.first + 1} slides`}
-                      subtitle={selectedSlides.first === selectedSlides.last ? `Slide ${selectedSlides.first + 1}` : `Slides ${selectedSlides.first + 1}–${selectedSlides.last + 1}`} />
-                    {selectedSlides.first === selectedSlides.last && selectedSlides.first > 0 && <button onClick={() => actions.current?.joinSlide(selectedSlides.first)}>Join with previous slide</button>}
-                    <InspectorHelp><p>Copy or cut these slides, then paste after another slide or at a slide border. Delete removes the selected slides.</p></InspectorHelp>
-                  </div>
-                : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
-                : <div className="context-inspector"><p className="hint">Select text or an object.</p></div>}
-              </>}
-              </div>
+              : selectedSlides ? <div className="context-inspector">
+                  <ContextHeading title={selectedSlides.first === selectedSlides.last ? 'Slide' : `${selectedSlides.last - selectedSlides.first + 1} slides`}
+                    subtitle={selectedSlides.first === selectedSlides.last ? `Slide ${selectedSlides.first + 1}` : `Slides ${selectedSlides.first + 1}–${selectedSlides.last + 1}`} />
+                  {selectedSlides.first === selectedSlides.last && selectedSlides.first > 0 && <button onClick={() => actions.current?.joinSlide(selectedSlides.first)}>Join with previous slide</button>}
+                  <InspectorHelp><p>Copy or cut these slides, then paste after another slide or at a slide border. Delete removes the selected slides.</p></InspectorHelp>
+                </div>
+              : target?.kind === 'segment' ? <div className="context-inspector"><ContextHeading title={target.blockIds.length || target.objectIds.length ? 'Document section' : 'New section'} /></div>
+              : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
+              : <div className="context-inspector"><p className="hint">Select text or an object.</p></div>}
             </div>}
+            <AssistantPanel assistant={assistant} activeId={assistantTaskId} selection={tool ? null : reservationSelection} onReserve={reserveSelection} onLocate={locateTask} />
+          </div>
+        </div>
       </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} editingLayout minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onInteraction={followCanvasSelection} onCaptionSelection={setSelectedCaptionId}

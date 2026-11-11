@@ -73,7 +73,6 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const connection = useConnection()
   const persistence = useAssistantState(cloud, writable)
   const [notice, setNotice] = useState('')
-  const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
   const [access, setAccess] = useState<Record<string, RemoteTask>>({})
@@ -93,7 +92,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     return reservation && asTask(reservation)
   }
   const inactiveReason = (task: AITask) => inactiveTaskReason(task, current.current.history.doc!)
-  const openTask = (id: string) => { setActiveId(id); setOpen(true); history.boundary() }
+  const openTask = (id: string) => { setActiveId(id); history.boundary() }
   const followSelection = () => setActiveId(null)
   const warn = (allowed: boolean) => {
     if (!allowed) setNotice('That change would edit another reserved region. Accept or discard its task first.')
@@ -289,7 +288,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (connectionSnapshot().offline) { void retryConnection(); return }
     fetchStatus.current(id)
   }
-  return { tasks, allTasks, loaded: persistence.loaded, open, setOpen, activeId, openTask, followSelection,
+  return { tasks, allTasks, loaded: persistence.loaded, activeId, openTask, followSelection,
     offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, selectVersion, update,
     runs, deleteObjects, deleteTarget, inactiveReason, privateDocument: cloud?.privateDocument ?? false,
     externalBlocked: cloud?.externalBlocked ?? false,

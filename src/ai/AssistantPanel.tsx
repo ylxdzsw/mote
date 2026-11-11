@@ -15,16 +15,17 @@ const targetLabel = ({ target, original }: AITask) => target.kind === 'segment'
   : !Array.isArray(original) && 'id' in original ? `${kindName(original)} revision` : 'Object revision'
 const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim().split('\n')[0].slice(0, 40) || targetLabel(task)
 const statusLabel = { draft: 'Reservation pending', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Ready for agents', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
-export interface ReservationSelection { title: string; detail?: string; canReserve: boolean }
+export interface ReservationSelection { detail?: string; canReserve: boolean }
 
 export function AssistantPanel({ assistant, activeId, selection, onReserve, onLocate }: {
-  assistant: Assistant; activeId: string | null; selection: ReservationSelection; onReserve: () => void; onLocate: (task: AITask) => void
+  assistant: Assistant; activeId: string | null; selection: ReservationSelection | null; onReserve: () => void; onLocate: (task: AITask) => void
 }) {
   const retained = assistant.allTasks.filter(task => !!assistant.inactiveReason(task))
   return <div className="ai-panel" aria-label="AI assistant">
     <CloudStatus assistant={assistant} />
-    {!activeId && <div className="ai-empty"><ContextHeading title={selection.title} subtitle={selection.detail} />
+    {!activeId && selection && (selection.canReserve || selection.detail) && <div className="ai-empty">
       {selection.canReserve && <button className="ai-primary ai-reserve" onClick={onReserve}>Reserve for Assistant <PanelIcon name="spark" /></button>}
+      {selection.detail && <p>{selection.detail}</p>}
     </div>}
     {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
     <RecoveryArchives assistant={assistant} />
@@ -32,12 +33,12 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
       {!!retained.length && <details className="ai-recovery-tasks"><summary>Retained tasks ({retained.length})</summary>
         {retained.map(task => <button key={task.id} aria-pressed={activeId === task.id} onClick={() => assistant.openTask(task.id)}>{taskTitle(task)}</button>)}
       </details>}
-      <details className="ai-info"><summary>Help & privacy</summary>
+      {(activeId || selection?.canReserve) && <details className="ai-info"><summary>Help & privacy</summary>
         <p>Reservations, task permissions, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
         <p>Built-in and external agents can work together. These tabs only change the controls shown; switching tabs does not stop work or change access. Proposals share one version list and never edit your document automatically.</p>
         <p>The task link can read the latest saved document and, when allowed, non-Private workspace sources. Each request checks current access. Private blocks the public endpoint; the internal built-in socket still works. Downloaded content cannot be recalled.</p>
         <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task; it never restarts generation. Proposals remain available independently of document saving.</p>
-      </details>
+      </details>}
     </footer>
   </div>
 }
@@ -58,7 +59,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
     catch { setCopyNotice(`Could not copy ${label.toLowerCase()}. Check clipboard permissions and retry.`) }
   }
   const expiry = task.expiresAt ? new Date(task.expiresAt - new Date(task.expiresAt).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : ''
-  return <section className={`ai-task${external ? ' ai-task-external' : ''}`} data-ai-task={task.id} aria-label={taskTitle(task)} hidden={!active}>
+  return <section className="ai-task" data-ai-task={task.id} aria-label={taskTitle(task)} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
         <div className="ai-task-title"><ContextHeading title={taskTitle(task)} /><button aria-label="Show in document" disabled={!!inactive} onClick={onLocate}><PanelIcon name="arrow" /></button></div>

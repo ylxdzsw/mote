@@ -49,9 +49,9 @@ This file holds durable invariants and the working agreement. Current behavior a
 
 Load the mote-ui skill for any UI work. README → Editing and reading / AI assistant describe the exact current behavior. Durable structure:
 
-- A stable right Context/Assistant lane, a fixed Text strip only for eligible rich text, and the minimap on the left. The Bold control reflects effective bold state and is unavailable when all selected paragraphs are already bold.
+- A stable combined right Context/Assistant lane, a fixed Text strip only for eligible unreserved rich text, and the minimap on the left. The Bold control reflects effective bold state and is unavailable when all selected paragraphs are already bold.
 - Creation happens through Add or the right-click launchpad, with an Add slide shortcut at the Slides endpoint. Object actions live in Context, and Alt is for space/object manipulation.
-- Reservations are created only in Assistant. Canvas selection changes the panel's target, never its tab.
+- The right lane follows canvas selection, without Context/Assistant tabs. Unreserved content offers Reserve after its properties; reserved content keeps only still-editable properties above Assistant. Selection never reserves or generates implicitly.
 
 ### Cloud and agents
 

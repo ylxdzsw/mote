@@ -42,12 +42,11 @@ interface Props {
   onMarkupEdit: () => void
   reserved?: boolean
   newAIObject?: boolean
-  onOpenTask?: () => void
 }
 
 export const kindName = (object: FloatingObject) => object.kind === 'drawing' ? 'Drawing' : object.kind === 'code' ? 'Code' : object.kind === 'image' ? 'Image' : object.kind === 'table' ? 'Table' : object.kind === 'formula' ? 'Formula' : object.kind === 'html' ? 'HTML widget' : 'Text box'
 
-export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onMarkupEdit, reserved, newAIObject, onOpenTask }: Props) {
+export function FloatingInspector({ object, count, theme, defaultFontSize, onChange, onPlacement, onAction, onFront, onBack, onHistoryBegin, onHistoryEnd, imageLoading, onCaption, captionSelected, onCaptionWidth, captionMaxWidth, onSelectOwner, textStyle, tableControls, onTheme, onWidgetRun, onUpdateScreenshot, screenshotStatus, screenshotOffline, onReplaceImage, onDrawingEdit, onMarkupEdit, reserved, newAIObject }: Props) {
   const katex = object.kind === 'formula' ? object as FloatingFormula : null
   const widget = object.kind === 'html' ? object as FloatingHTMLWidget : null
   const text = isText(object)
@@ -59,7 +58,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     const ownerSelectionLabel = object.kind === 'image' ? 'Select image' : object.kind === 'table' ? 'Select table' : 'Select widget'
     return <div className="context-inspector floating-inspector">
       <ContextHeading title={reserved ? 'Caption · Reserved for AI' : 'Caption'} actions={!reserved && <button className="icon-action delete-action" aria-label="Remove caption" title="Remove caption" onClick={() => onChange({ caption: null })}><PanelIcon name="trash" /></button>} />
-      <InspectorRow>{reserved && onOpenTask && <button className="inspector-primary" onClick={onOpenTask}>Open AI task</button>}{!reserved && <button onClick={onCaption}>Edit caption</button>}<button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
+      <InspectorRow>{!reserved && <button onClick={onCaption}>Edit caption</button>}<button onClick={onSelectOwner}>{ownerSelectionLabel}</button></InspectorRow>
       <InspectorGroup title="Layout">
         <InspectorField label="Width">
           <NumberField label="Caption width" value={object.caption.width ?? object.layout.width} min={16} max={captionMaxWidth} onChange={onCaptionWidth} />
@@ -80,7 +79,7 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
     </div>
   }
   return <div className="context-inspector floating-inspector">
-    <ContextHeading title={newAIObject ? 'AI object' : reserved ? 'Reserved for AI' : count > 1 ? `${count} objects` : name} subtitle={newAIObject ? 'Reserved for AI' : reserved ? name : undefined} actions={!reserved && <>
+    <ContextHeading title={newAIObject ? 'AI object' : count > 1 ? `${count} objects` : name} subtitle={reserved ? 'Reserved for AI' : undefined} actions={!reserved && <>
       <button className="icon-action" aria-label="Duplicate" title={count > 1 ? `Duplicate ${count} objects` : 'Duplicate'} onClick={() => onAction('duplicate')}><PanelIcon name="copy" /></button>
       <button className="icon-action delete-action" aria-label={count > 1 ? `Delete ${count} objects` : 'Delete'} title={count > 1 ? `Delete ${count} objects` : 'Delete'} onClick={() => onAction('remove')}><PanelIcon name="trash" /></button>
     </>} />
@@ -93,7 +92,6 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
             <span>{placement === 'flow' ? 'Flow' : 'Float'}</span>
           </label>)}
         </div>
-        {reserved && onOpenTask && <button className="inspector-primary" onClick={onOpenTask}>Open AI task</button>}
       </div>
       {!reserved && <>
       {object.kind === 'drawing' && <button onClick={onDrawingEdit}>Edit drawing…</button>}
