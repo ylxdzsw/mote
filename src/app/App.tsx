@@ -577,7 +577,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>x</button></div>}
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>x</button>}</div>}
 
-    <PopupDialog open={editable && themeOpen} onClose={() => { history.boundary(); setSettingsDialog(null) }} title="Theme">
+    <PopupDialog open={editable && themeOpen} onClose={() => { history.boundary(); setSettingsDialog(null) }} title="Document Theme">
       <div className="document-settings-body">
         <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={themeClass} onSelect={setThemeClass}
           onChange={theme => setDoc({ ...doc, theme })} /></div>
@@ -596,7 +596,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>
       <div className="settings-scope-panel settings-document" id="settings-document-panel" role="tabpanel" aria-labelledby="settings-document-tab" hidden={settingsSection !== 'document'}>
         <div className="settings-document-heading">
-          <p>Layout for this document.</p>
           <button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
             title={creatingPrivate ? 'Private will be confirmed when this file is saved to the cloud.' : cloud.record.meta.private
               ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'

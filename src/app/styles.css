@@ -412,8 +412,7 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .settings-scope-panel[hidden] { display: none; }
 .settings-scope-panel.settings-dialog-section { padding: 16px; }
 .settings-document { display: flex; flex-direction: column; overflow: hidden; }
-.settings-document-heading { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px 0; color: var(--ui-muted); font-size: 11px; }
-.settings-document-heading p { margin: 0; }
+.settings-document-heading { display: flex; flex: none; align-items: center; padding: 8px 16px 0; }
 .settings-document > .document-settings { flex: 1; }
 .settings-scope-panel .cloud-management { border: 0; margin: 0; }
 .settings-scope-panel .cloud-management-panel { padding: 0; border: 0; }
