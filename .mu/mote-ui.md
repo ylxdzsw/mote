@@ -26,7 +26,8 @@ Organize by what the user is doing and what the action affects. Extend an existi
 | Change the selected object or caption | Context: properties stay with their target |
 | Reserve content or work with an AI task | Assistant: reservation, request, access, and review stay together |
 | Find or manage a document | Title → Files: search and opening lead; row actions handle maintenance |
-| Choose a document layout | Settings → Document → Layout: continuous or Slides, with slide boundaries kept on the editing canvas |
+| Choose a document layout | Settings → Document: direct layout controls for continuous or Slides, with slide boundaries kept on the editing canvas |
+| Change document typography and colors | Header Theme: a dedicated dialog for Defaults, Palette, and semantic styles; Context style shortcuts open the relevant section |
 | Change wider settings | Settings → Document / Workspace / Browser: scope is explicit |
 | Share or export | Header Share or Files row → Share → Link / Export: one dialog, scoped to its named document without requiring navigation |
 | Navigate or keep scratch material | Left minimap/bookmarks; Notes overlay below the canvas |

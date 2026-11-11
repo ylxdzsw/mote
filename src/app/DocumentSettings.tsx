@@ -1,16 +1,15 @@
 import { useState } from 'react'
 import { type DocumentLanguage, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
-import { NumberField, ThemePanel, type ThemeClass } from '../theme/ThemePanel'
+import { NumberField } from '../theme/ThemePanel'
 import type { PrivacyState } from '../cloud/WorkingCopy'
 import { ModelField } from './ModelField'
 import { setSlides } from '../document/slides'
 import type { SegmentContext } from '../ai/segments'
 
-export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onChange,
+export function DocumentSettings({ doc, onChange,
   privacy, onPrivacyRetry, onPrivacyReconcile, layoutContext }: {
-  doc: MoteDocument; tab: 'layout' | 'theme'; onTab: (tab: 'layout' | 'theme') => void
-  selectedClass: ThemeClass; onClass: (value: ThemeClass) => void; onChange: (doc: MoteDocument) => void
+  doc: MoteDocument; onChange: (doc: MoteDocument) => void
   privacy: PrivacyState
   onPrivacyRetry: () => void; onPrivacyReconcile: () => void
   layoutContext?: () => SegmentContext | undefined
@@ -22,17 +21,7 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
   }
   const available = doc.page.width - 120
   return <div className="document-settings" id="document-settings">
-    <div className="settings-tabs" role="tablist" aria-label="Document settings section">
-      {(['layout', 'theme'] as const).map(name => <button key={name} role="tab" id={`${name}-tab`} aria-selected={tab === name}
-        tabIndex={tab === name ? 0 : -1} aria-controls={`${name}-settings`}
-        onKeyDown={event => {
-          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-          event.preventDefault(); history.boundary()
-          const next = event.key === 'Home' ? 'layout' : event.key === 'End' ? 'theme' : tab === 'layout' ? 'theme' : 'layout'
-          onTab(next); document.getElementById(`${next}-tab`)?.focus()
-        }} onClick={() => { history.boundary(); onTab(name) }}>{name === 'layout' ? 'Layout' : 'Theme'}</button>)}
-    </div>
-    <div key={tab} className="document-settings-body" role="tabpanel" id={`${tab}-settings`} aria-labelledby={`${tab}-tab`}>
+    <div className="document-settings-body">
       <span className="sr-only" role="status">{!privacy.busy && privacy.message}</span>
       {(privacy.busy || privacy.error || privacy.pending) && <section className="privacy-feedback" aria-label="Document privacy status">
         {privacy.busy && privacy.pending && <p className="hint" role="status">Saving privacy setting…</p>}
@@ -43,7 +32,7 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
           <button type="button" onClick={onPrivacyReconcile}>Check server status</button>
         </div>}
       </section>}
-      {tab === 'layout' ? <section className="panel-section layout-properties">
+      <section className="panel-section layout-properties">
         <h2>Page</h2>
         <div className="style-field"><div className="field-heading">Document width</div>
           <NumberField label="Document width" value={doc.page.width} min={Math.max(320, doc.page.margins.left + doc.page.margins.right + 120)} max={2400}
@@ -99,7 +88,7 @@ export function DocumentSettings({ doc, tab, onTab, selectedClass, onClass, onCh
             onChange={aiModel => onChange({ ...doc, authoring: { notes: [], ...doc.authoring, aiModel } })} />
         </div>
         <p className="hint">Blank uses the workspace default. Generation is explicit and sends the full document to the selected model.</p>
-      </section> : <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={selectedClass} onSelect={onClass} onChange={theme => onChange({ ...doc, theme })} /></div>}
+      </section>
     </div>
   </div>
 }

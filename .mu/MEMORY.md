@@ -2067,3 +2067,11 @@ Remove the fixed 12px table and 8px image outer padding so selection bounds trac
 ## 2026-11-11 — Optional document-wide Body first-line indent
 
 Native V7 adds optional `theme.firstLineIndent`, defaulting off without rewriting prior V1–V6 documents; the V6→V7 migration changes only the version. A document-wide None / 2 characters control uses `text-indent: 2ic` only for semantic Body paragraphs in main text and Flow/Float Text objects. Keeping it outside paragraph/style inheritance makes the scope predictable: only the first formatted line indents, while wrapped and soft-break lines begin normally; headings, lists, captions, tables, and non-prose objects are unaffected. It remains language-independent, independent of V6 justification, and never alters authored whitespace.
+
+## 2026-11-11 — Minimap visibility belongs in Browser settings
+
+Remove the duplicate title-bar minimap toggle to keep the header focused on document actions. Settings → Browser remains the single editor home for automatic/show/hide visibility and minimap sizing; existing browser-local preferences and reader behavior are unchanged.
+
+## 2026-11-11 — Direct Theme entry and flatter Settings
+
+Give document typography and colors a dedicated palette-icon entry beside Settings in the title bar. Theme reuses the existing style editor and modal geometry; Context class-style and text-color palette shortcuts open the same dialog at their target. Settings keeps Document/Workspace/Browser scope tabs, but Document opens layout directly without a second Layout/Theme tab row. Preserve its existing privacy control and model override rather than relocating unrelated settings. Both dialogs retain live undoable document edits and leave the canvas geometry unchanged; workspace drafts remain mounted across dialog use.

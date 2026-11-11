@@ -18,7 +18,7 @@ import { connectionSnapshot, retryConnection, useConnection } from '../cloud/con
 import { subscribeDocumentUpdates, useDocumentStream } from '../cloud/documentEvents'
 import { ShareWindow } from '../cloud/ShareWindow'
 import { deleteWorkingCopy } from '../cloud/workingCopies'
-import type { ThemeClass } from '../theme/ThemePanel'
+import { ThemePanel, type ThemeClass } from '../theme/ThemePanel'
 import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
@@ -79,7 +79,7 @@ function PopupDialog({ open, onClose, title, children }: { open: boolean; onClos
     <div className="settings-dialog-inner">
       <div className="settings-dialog-header">
         <h2>{title}</h2>
-        <div className="settings-dialog-actions"><button aria-label="Close settings" onClick={onClose}>×</button></div>
+        <div className="settings-dialog-actions"><button aria-label={`Close ${title.toLowerCase()}`} onClick={onClose}>×</button></div>
       </div>
       {children}
     </div>
@@ -120,10 +120,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const editable = assistant.loaded && !mobile
   const screenshot = useWidgetScreenshot(history, editable, assistant.lockedIds)
   const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsDialog, setSettingsDialog] = useState<'settings' | 'theme' | null>(null)
+  const settingsOpen = settingsDialog === 'settings'
+  const themeOpen = settingsDialog === 'theme'
   const [settingsSection, setSettingsSection] = useState<'document' | 'workspace' | 'browser'>('document')
-  useEffect(() => { if (assistant.open) setSettingsOpen(false) }, [assistant.open])
-  const [settingsTab, setSettingsTab] = useState<'layout' | 'theme'>('layout')
+  useEffect(() => { if (assistant.open) setSettingsDialog(null) }, [assistant.open])
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
   // The shell and canvas keep editing geometry while recovery gates editing permissions.
   const showInspector = !mobile
@@ -164,7 +165,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   useEffect(() => {
     if (editable) return
-    setSettingsOpen(false)
+    setSettingsDialog(null)
     setShareOpen(false)
     setLaunchpadPoint(null)
     setLaunchpadAnchor(null)
@@ -172,11 +173,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }, [editable])
 
   useEffect(() => {
-    if (!settingsOpen) return
+    if (!settingsDialog) return
     actions.current?.clearSelection()
     assistant.followSelection()
     setActiveEditor(null)
-  }, [settingsOpen])
+  }, [settingsDialog])
 
   function followCanvasSelection() {
     if (!editable) return
@@ -392,9 +393,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   function openThemeClass(className: string) {
     history.boundary()
     setThemeClass(className as ThemeClass)
-    setSettingsTab('theme')
-    setSettingsOpen(true)
-    setSettingsSection('document')
+    setSettingsDialog('theme')
   }
 
   function runWidget(id: string) {
@@ -556,13 +555,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
           <PanelIcon name="plus" /><span>Add</span>
         </button>}
         <div className="header-zoom" ref={setZoomHost} />
-        {showInspector && <button className="header-icon-btn" aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'} title="Minimap" aria-pressed={showMinimap}
-          onClick={() => updateSettings({ ...settings, minimap: showMinimap ? 'hide' : 'show' })}><PanelIcon name="map" /></button>}
         {showInspector && <>
           <button className="header-icon-btn" aria-label="Share" title="Share or export" disabled={!editable} aria-haspopup="dialog" aria-expanded={shareOpen}
             onClick={() => setShareOpen(true)}><PanelIcon name="share" /></button>
+          <button className="header-icon-btn" aria-label="Theme" title="Theme" disabled={!editable} aria-haspopup="dialog" aria-expanded={themeOpen}
+            onClick={() => { history.boundary(); setSettingsDialog('theme') }}><PanelIcon name="palette" /></button>
           <button className="header-icon-btn" aria-label="Settings" title="Settings" disabled={!editable} aria-haspopup="dialog" aria-expanded={settingsOpen}
-            onClick={() => { history.boundary(); setSettingsOpen(!settingsOpen) }}><PanelIcon name="settings" /></button>
+            onClick={() => { history.boundary(); setSettingsDialog('settings') }}><PanelIcon name="settings" /></button>
         </>}
         <button className="preview-button" aria-label="Preview document" title="Preview in a new tab or window" disabled={preview.busy}
           onClick={() => void preview.open(doc)}><span>Preview</span><PanelIcon name="export" /></button>
@@ -578,7 +577,13 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>x</button></div>}
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>x</button>}</div>}
 
-    <PopupDialog open={editable && settingsOpen} onClose={() => { history.boundary(); setSettingsOpen(false) }} title="Settings">
+    <PopupDialog open={editable && themeOpen} onClose={() => { history.boundary(); setSettingsDialog(null) }} title="Theme">
+      <div className="document-settings-body">
+        <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={themeClass} onSelect={setThemeClass}
+          onChange={theme => setDoc({ ...doc, theme })} /></div>
+      </div>
+    </PopupDialog>
+    <PopupDialog open={editable && settingsOpen} onClose={() => { history.boundary(); setSettingsDialog(null) }} title="Settings">
       <div className="settings-tabs settings-scopes" role="tablist" aria-label="Settings scope">
         {(['document', 'workspace', 'browser'] as const).map((section, index, sections) => <button key={section} id={`settings-${section}-tab`}
           role="tab" aria-selected={settingsSection === section} aria-controls={`settings-${section}-panel`} tabIndex={settingsSection === section ? 0 : -1}
@@ -591,7 +596,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </div>
       <div className="settings-scope-panel settings-document" id="settings-document-panel" role="tabpanel" aria-labelledby="settings-document-tab" hidden={settingsSection !== 'document'}>
         <div className="settings-document-heading">
-          <p>Layout and theme for this document.</p>
+          <p>Layout for this document.</p>
           <button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
             title={creatingPrivate ? 'Private will be confirmed when this file is saved to the cloud.' : cloud.record.meta.private
               ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
@@ -602,9 +607,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
             ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /><span>Private</span></button>
         </div>
         {creatingPrivate && <p className="settings-dialog-note" role="status">Private is awaiting the first cloud save. Sharing and external agents are blocked. Use the sync indicator to retry.</p>}
-        <DocumentSettings doc={doc} tab={settingsTab} onTab={setSettingsTab}
+        <DocumentSettings doc={doc}
           layoutContext={() => actions.current?.segmentContext()}
-          selectedClass={themeClass} onClass={setThemeClass} onChange={setDoc} privacy={cloud.privacy}
+          onChange={setDoc} privacy={cloud.privacy}
           onPrivacyRetry={() => void copy.retryPrivacy()}
           onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
       </div>
