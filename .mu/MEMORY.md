@@ -2032,3 +2032,10 @@ The owner replaced folded bookmark tabs with identical visible left-edge marks: 
 ## 2026-11-10 — Quiet File actions, visible failures
 
 Remove the Files feedback footer rather than briefly showing it for every load or mutation: that transient line shifted the list and reported routine work without useful decisions. Keep operation locking and accessible busy state, but let list changes speak for success. Failures that prevent a File action now use a dismissible modal popup, preserving the form/list beneath it and existing conflict recovery. A failed list retains a contextual Retry after dismissal, so removing the footer never strands recovery or makes a failed load look like an empty workspace.
+
+
+## 2026-11-11 — Stable canvas geometry and pre-paint fitting
+
+Desktop recovery readiness is an editing-permission gate, not a reading-mode transition. Keep the editing canvas layout from mount: padding, Auto zoom policy, scroll-past-bottom clearance, and expanded Slides must not switch after asynchronous Assistant recovery. The shared canvas separates editing layout from editable content; readers and offscreen captures retain their existing geometry.
+
+ResizeObserver runs before paint, but ordinary React state updates from it may commit afterward. Flush the controlled canvas fit and its existing focal correction synchronously at observer delivery; do the same for presentation fit. This covers minimap visibility, viewport dimensions, and other shell resizes without per-control timing fixes, hiding the page, or animating through incorrect geometry. Initial layout-effect measurement remains synchronous without flushSync inside React lifecycles. Native readers keep their fit-once policy rather than counteracting browser zoom.

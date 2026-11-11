@@ -125,8 +125,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   useEffect(() => { if (assistant.open) setSettingsOpen(false) }, [assistant.open])
   const [settingsTab, setSettingsTab] = useState<'layout' | 'theme'>('layout')
   const [themeClass, setThemeClass] = useState<ThemeClass>('defaults')
-  // Mounts with the stable desktop shell immediately; editing affordances still wait
-  // for assistant.loaded (lock state) via `editable`, so this never reflows later.
+  // The shell and canvas keep editing geometry while recovery gates editing permissions.
   const showInspector = !mobile
   const showMinimap = settings.minimap === 'show' || (settings.minimap === 'auto' && !smallScreen)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
@@ -687,7 +686,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
               </div>
             </div>}
       </aside>}
-      <DocumentCanvas key={doc.id} doc={doc} editable={editable} minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
+      <DocumentCanvas key={doc.id} doc={doc} editable={editable} editingLayout minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onInteraction={followCanvasSelection} onCaptionSelection={setSelectedCaptionId}
         onSegmentSelection={(range, taskId) => setSelectedSegment({ range, taskId })}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onAISegmentCreate={createAISegment} onDeleteObjects={assistant.deleteObjects}

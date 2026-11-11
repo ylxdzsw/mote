@@ -58,6 +58,7 @@ export interface CanvasActions {
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
+  editingLayout?: boolean
   selectedIds: string[]; onSelect: (ids: string[]) => void
   onCaptionSelection?: (id: string | null) => void
   onSegmentSelection?: (range: SegmentRange | null, taskId: string | null) => void
@@ -91,16 +92,16 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'formula' && !object.latex.length)
   || (object.kind === 'code' && !object.source.length)
 
-export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, editingLayout = editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
   const footprint = useRef<HTMLDivElement>(null)
-  const scrollFloor = useScrollFloor(stage, footprint, editable)
+  const scrollFloor = useScrollFloor(stage, footprint, editingLayout)
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
   const presenting = usePresentation(doc, presentation, stage, sheet, nativeScroll)
-  const { scale: canvasScale, automatic, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editable, initialScale, nativeScroll || presenting.active)
+  const { scale: canvasScale, automatic, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editingLayout, initialScale, nativeScroll || presenting.active)
   const readerScale = useReaderFit(stage, doc.page.width, nativeScroll)
   const scale = presenting.active ? presenting.scale : nativeScroll ? readerScale : canvasScale
   const [previews, setPreviews] = useState<FloatingPreviews>({})
@@ -148,11 +149,11 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     const candidate = task ? selectedCandidateVersion(task)?.candidate : undefined
     return task && task.preview && candidate?.object ? currentPlacement(candidate.object, object) : object
   }), ...inserting, ...(creating ? [creating] : [])] }), [projection.document, creating, inserting, editable, aiReview?.tasks])
-  const { geometry, anchors, minHeight, sideInsets, flowMounts, slides, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews, editable || expandSlides)
+  const { geometry, anchors, minHeight, sideInsets, flowMounts, slides, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews, editingLayout || expandSlides)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, doc.page.margins.left, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
-  useLayoutEffect(scrollFloor.reset, [doc.id, editable, scale, scrollFloor.reset])
+  useLayoutEffect(scrollFloor.reset, [doc.id, editingLayout, scale, scrollFloor.reset])
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
     selectedObjectIds: selectedIds, slidePositions: slides.map(slide => ({ index: slide.index, top: slide.top, bottom: slide.top + slide.height })),
     onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
@@ -909,7 +910,7 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
     <PanelIcon name="chevron" />
   </div>
 
-  return <div className={`canvas-pane ${minimap && !presenting.active ? 'has-minimap' : ''} ${editable ? '' : 'reading-canvas'}${nativeScroll ? ' native-scroll' : ''}${presenting.active ? ' is-presenting' : ''}`}
+  return <div className={`canvas-pane ${minimap && !presenting.active ? 'has-minimap' : ''} ${editingLayout ? '' : 'reading-canvas'}${nativeScroll ? ' native-scroll' : ''}${presenting.active ? ' is-presenting' : ''}`}
     onPointerMove={presenting.reveal} onPointerDown={presenting.reveal} onClick={presenting.click}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onClickCapture={event => {
@@ -929,11 +930,11 @@ export function DocumentCanvas({ doc, editable, minimap, minimapSize, zoomHost, 
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="canvas-scroll-floor" ref={scrollFloor.container}>
       <div className="sheet-footprint" ref={footprint} style={{
-        width: editable || nativeScroll ? doc.page.width * scale : `clamp(${(doc.page.width - sideSpace) * scale}px, 100%, ${doc.page.width * scale}px)`,
+        width: editingLayout || nativeScroll ? doc.page.width * scale : `clamp(${(doc.page.width - sideSpace) * scale}px, 100%, ${doc.page.width * scale}px)`,
         '--scaled-page-width': `${doc.page.width * scale}px`, '--crop-left': !nativeScroll && sideSpace ? sideInsets.left / sideSpace : 0,
         height: presenting.active ? doc.page.slideHeight! * scale : `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
-      <div className={`sheet ${editable ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
+      <div className={`sheet ${editingLayout ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}

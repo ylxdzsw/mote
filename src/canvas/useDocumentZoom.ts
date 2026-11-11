@@ -1,11 +1,12 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { flushSync } from 'react-dom'
 
 interface Point { x: number; y: number }
 
-export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editable: boolean, initialScale?: number, paused = false) {
+export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editingLayout: boolean, initialScale?: number, paused = false) {
   const [autoScale, setAutoScale] = useState(1)
   const [zooms, setZooms] = useState<{ edit: number | null; read: number | null | undefined }>({ edit: initialScale ?? null, read: initialScale })
-  const mode = editable ? 'edit' : 'read'
+  const mode = editingLayout ? 'edit' : 'read'
   const zoom = zooms[mode]
   const scale = zoom === undefined ? Math.min(autoScale, 1) : zoom ?? autoScale
   const minScale = Math.min(.25, autoScale)
@@ -13,7 +14,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
   const topPadding = useRef<number | null>(null)
   const wheelGesture = useRef<{ scale: number; time: number } | null>(null)
 
-  useLayoutEffect(() => { wheelGesture.current = null; pinch.current = null }, [autoScale, editable, paused])
+  useLayoutEffect(() => { wheelGesture.current = null; pinch.current = null }, [autoScale, editingLayout, paused])
 
   const measure = useEffectEvent(() => {
     if (paused) return
@@ -34,16 +35,18 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
       rememberFocal({ x: rect.left + viewport.clientWidth / 2, y: Math.max(rect.top, pageTop) }, pageTop < rect.top ? paddingChange : 0)
     }
     setAutoScale(automatic)
-    if (!editable) setZooms(current => current.read === undefined ? { ...current, read: Math.min(automatic, 1) } : current)
+    if (!editingLayout) setZooms(current => current.read === undefined ? { ...current, read: Math.min(automatic, 1) } : current)
   })
 
   useLayoutEffect(() => {
     if (paused) return
     measure()
-    const observer = new ResizeObserver(measure)
+    // Observer delivery is before paint, but a batched React update need not be.
+    // Commit scale and focal correction together before showing the resized viewport.
+    const observer = new ResizeObserver(() => flushSync(measure))
     observer.observe(stage.current!)
     return () => observer.disconnect()
-  }, [stage, width, editable, paused])
+  }, [stage, width, editingLayout, paused])
 
   function rememberFocal(client: Point, paddingChange = 0) {
     const page = sheet.current!.getBoundingClientRect()

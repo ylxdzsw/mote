@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type RefObject } from 'react'
+import { flushSync } from 'react-dom'
 import type { MoteDocument } from '../document/model'
 import { objectSlideIndex, slideRanges } from '../document/slides'
 import { isComposingKey } from '../editor/composition'
@@ -53,7 +54,8 @@ export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefO
     function fit() { setScale(Math.min(viewport.clientWidth / doc.page.width, viewport.clientHeight / height!)) }
     fit()
     viewport.scrollTo(0, 0)
-    const observer = new ResizeObserver(fit)
+    // Do not paint the resized viewport with the previous slide fit.
+    const observer = new ResizeObserver(() => flushSync(fit))
     observer.observe(viewport)
     return () => observer.disconnect()
   }, [active, doc.page.width, height, stage])
