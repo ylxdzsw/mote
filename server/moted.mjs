@@ -395,6 +395,57 @@ export class TaskManager {
   helperDirectory() {
     return path.join(this.sourcePath, 'public', 'skills', 'helpers')
   }
+  description(task, reservation, base, scope) {
+    const source = reservation.target
+    const area = ({ x, y, width, height }) => ({ x, y, width, height })
+    const selection = value => value && ({ from: value.from, to: value.to })
+    const point = value => ({ index: value.index, offset: value.offset })
+    const bookmark = value => ({ blockId: value.blockId, offset: value.offset, ...(value.after === undefined ? {} : { after: value.after }) })
+    const target = source.kind === 'object'
+      ? { kind: source.kind, objectId: source.objectId, isNew: source.isNew, area: area(source.area), ...(source.selection ? { selection: selection(source.selection) } : {}) }
+      : source.kind === 'text'
+        ? { kind: source.kind, blockIds: [...source.blockIds], selection: selection(source.selection), insert: source.insert, area: area(source.area) }
+        : { kind: source.kind, range: { start: point(source.range.start), end: point(source.range.end) }, blockIds: [...source.blockIds],
+          objectIds: [...source.objectIds], area: area(source.area), ...(source.bookmarks ? { bookmarks: {
+            start: bookmark(source.bookmarks.start), end: bookmark(source.bookmarks.end),
+          } } : {}) }
+    const resources = { 'document.json': `${base}/document.json`,
+      ...(reservation.workspaceRead ? { 'workspace-index.md': `${base}/workspace-index.md`, 'workspace-document.json': `${base}/workspace-document.json` } : {}) }
+    const value = {
+      protocol: task.meta.protocol,
+      taskId: task.id,
+      request: task.meta.prompt ?? null,
+      ...(task.meta.feedback === undefined ? {} : { feedback: task.meta.feedback }),
+      target,
+      skill: scope ? path.join(this.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md') : EXTERNAL_SKILL,
+      helpers: scope ? this.helperDirectory() : 'https://mote.ylxdzsw.com/skills/helpers',
+      schemaUrl: PROPOSAL_SCHEMA_URL,
+      resources,
+      documentContext: 'optional-latest',
+      versions: `${base}/versions.json`,
+      version: `${base}/versions/{versionId}.json`,
+      submit: `${base}/submit`,
+      ...(task.meta.selectedVersion ? { selectedVersion: task.meta.selectedVersion } : {}),
+      workspaceRead: reservation.workspaceRead,
+      ...(reservation.expiresAt === undefined ? {} : { expiresAt: reservation.expiresAt }),
+      documentMeta: this.store.privacyMeta(task.meta.documentId),
+    }
+    if (target.kind === 'segment') {
+      const original = reservation.original
+      const geometry = {}
+      const objectIds = new Set(target.objectIds)
+      for (const [id, box] of Object.entries(original?.geometry ?? {})) {
+        if (!objectIds.has(id) || !/^[A-Za-z0-9_-]+$/.test(id) || ['__proto__', 'constructor', 'prototype'].includes(id)
+          || !box || typeof box !== 'object' || Array.isArray(box)
+          || !['x', 'y', 'width', 'height'].every(key => Number.isFinite(box[key]))) continue
+        geometry[id] = Object.fromEntries(['x', 'y', 'width', 'height'].map(key => [key, box[key]]))
+      }
+      const blockIds = new Set(target.blockIds)
+      const anchorTops = Object.fromEntries(Object.entries(original?.anchorTops ?? {}).filter(([id, top]) => blockIds.has(id) && Number.isFinite(top)))
+      value.geometry = { geometry, anchorTops, originTop: Number.isFinite(original?.originTop) ? original.originTop : 0 }
+    }
+    return value
+  }
   view(task) {
     let reservation
     try { reservation = this.store.reservation(task.id, task.meta.documentId) } catch {}
@@ -516,24 +567,9 @@ export class TaskManager {
 
       if (request.method !== 'GET') throw new HttpError(404, 'not found')
       let data, type = 'text/plain; charset=utf-8'
-      const workspace = reservation.workspaceRead
-        ? { 'workspace-index.md': `${base}/workspace-index.md`, 'workspace-document.json': `${base}/workspace-document.json` } : {}
-      const resources = { 'document.json': `${base}/document.json`, 'target.json': `${base}/target.json`, ...workspace }
       if (!resource) {
-        type = 'text/markdown; charset=utf-8'
-        const names = ['manifest.json', ...Object.keys(resources), 'instructions.md', 'versions.json']
-        data = `${this.instructions(task, scope, token)}\n\n## Task resources\n${names.map(name => `- [${name}](${base}/${name})`).join('\n')}\n`
-      } else if (resource === 'manifest.json') {
-        const manifest = { protocol: task.meta.protocol, taskId: task.id, schemaUrl: PROPOSAL_SCHEMA_URL,
-          skill: scope ? path.join(this.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md') : EXTERNAL_SKILL,
-          helpers: scope ? this.helperDirectory() : 'https://mote.ylxdzsw.com/skills/helpers',
-          workspaceRead: reservation.workspaceRead, documentMeta: this.store.privacyMeta(task.meta.documentId),
-          ...(reservation.expiresAt === undefined ? {} : { expiresAt: reservation.expiresAt }),
-          documentContext: 'optional-latest', resources,
-          instructions: `${base}/instructions.md`, versions: `${base}/versions.json`, version: `${base}/versions/{versionId}.json`,
-          ...(task.meta.selectedVersion ? { selectedVersion: task.meta.selectedVersion } : {}), submit: `${base}/submit` }
-        data = JSON.stringify(manifest); type = 'application/json; charset=utf-8'
-      } else if (resource === 'instructions.md') { data = this.instructions(task, scope, token); type = 'text/markdown; charset=utf-8' }
+        data = JSON.stringify(this.description(task, reservation, base, scope)); type = 'application/json; charset=utf-8'
+      }
       else if (resource === 'workspace-index.md' || resource === 'workspace-document.json') {
         if (!reservation.workspaceRead || !task.meta.documentId) throw new HttpError(404, 'workspace resource not found')
         if (resource === 'workspace-index.md') {
@@ -545,7 +581,6 @@ export class TaskManager {
           data = JSON.stringify({ ...source, sourceUrl: `${PROD_ORIGIN}/d/${source.id}` }); type = 'application/json; charset=utf-8'
         }
       }
-      else if (resource === 'target.json') { data = JSON.stringify(reservation); type = 'application/json; charset=utf-8' }
       else if (resource === 'document.json') {
         data = JSON.stringify(this.ownDocument(task)); type = 'application/json; charset=utf-8'
       } else if (resource === 'versions.json') {
@@ -577,42 +612,14 @@ export class TaskManager {
   async writePrompt(task, generation, context) {
     const run = path.join(task.dir, 'runs', String(generation)); const output = path.join(run, 'output')
     await mkdirSafe(run, 0o755); await mkdirSafe(output, 0o770)
-    let promptText = this.instructions(task, { generation, token: this.store.credential(task.id).token })
     const file = path.join(run, 'document.json')
     await writeImmutable(file, JSON.stringify({ document: context.document, revision: context.documentRevision }))
-    promptText += `\nCloud context refreshed immediately before this run: ${file} (revision ${context.documentRevision}). This is advisory context, not a submission prerequisite. document.json via the agent API returns the latest saved document; proposals may use stale or no document context.\n`
+    const scope = { generation, token: this.store.credential(task.id).token }
+    const reservation = this.store.reservation(task.id, task.meta.documentId)
+    const descriptor = this.description(task, reservation, context.agent.url, scope)
+    const promptText = `${JSON.stringify(descriptor, null, 2)}\n\n# Run-local execution details\nFull document copy: ${file} (revision ${context.documentRevision})\nOutput directory: ${output}\nAgent URL: ${context.agent.url}\nUnix socket: ${context.agent.socketPath}\nSubmission command: MOTED_AGENT_SOCKET='${context.agent.socketPath}' node '${path.join(descriptor.helpers, 'submit.mjs')}' '${context.agent.url}' '${output}'\n`
     await writeImmutable(path.join(run, 'prompt.md'), promptText)
     return { promptPath: path.join(run, 'prompt.md'), outputDir: output }
-  }
-
-  instructions(task, scope, token = this.store.credential(task.id)?.token) {
-    if (scope) scope = { generation: task.current?.generation ?? task.generation, ...scope }
-    const base = scope ? `http://moted.local/api/agent/${scope.token}` : `${PROD_ORIGIN}/a/${token}`
-    const socket = scope ? path.join(task.dir, `a${scope.generation}.sock`) : undefined
-    const helpers = scope ? this.helperDirectory() : 'https://mote.ylxdzsw.com/skills/helpers'
-    const output = scope ? path.join(task.dir, 'runs', String(scope.generation), 'output') : 'OUTPUT_DIR'
-    const skill = scope ? path.join(this.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md') : EXTERNAL_SKILL
-    const versions = (task.meta.versions ?? []).map(version => `${version.id}${version.label === undefined ? '' : ` (${JSON.stringify(version.label)})`}`).join('; ') || 'none'
-    return `# Mote task — mote-agent-v5
-
-Skill: ${skill}
-Helpers: ${helpers}
-Request: ${task.meta.prompt || 'none supplied'}
-${task.meta.feedback ? `Previous feedback: ${task.meta.feedback}\n` : ''}
-Manifest: ${base}/manifest.json
-Optional own document: ${base}/document.json — returns the latest saved document. You may propose from stale context or without reading it; submission has no source-revision requirement. This read does not require workspace-read permission. Notes are tentative user-owned context, never an edit target.
-Current reservation: ${base}/target.json. Only this scope may be replaced; optional context reads never expand the original reservation.
-Current proposal schema: ${PROPOSAL_SCHEMA_URL}. target.json is the current Reservation envelope; its target field identifies the reserved scope. Original snapshot fields are advisory authoring context, never a delivery-validation contract.
-Versions: ${versions}. Read ${base}/versions.json or ${base}/versions/V1.json. Every submission appends a new immutable version, without parents or per-version revisions.
-${task.meta.selectedVersion ? `Selected request context: ${task.meta.selectedVersion} (${base}/versions/${task.meta.selectedVersion}.json). This is context, not lineage or current review selection.` : 'No selected version for this request.'}
-Workspace-read permission: ${this.store.reservation(task.id, task.meta.documentId).workspaceRead ? `enabled; ${base}/workspace-index.md; ${base}/workspace-document.json?id=DOCUMENT_ID` : 'disabled'}.
-${socket ? `All http://moted.local requests require Unix socket ${socket}. Use curl --unix-socket '${socket}' '${base}/document.json'. Write result.json and PNG assets to ${path.join(task.dir, 'runs', String(scope.generation), 'output')}.` : 'Read the task resources using the agent URL; write result.json and PNG assets locally.'}
-
-Submit POST ${base}/submit with {operationId,candidate,label?,assets?}. The stable token authorizes this task, not a document revision or execution. Do not supply documentRevision or executorRevision. Document changes never invalidate proposal delivery; the owner reviews and checks their current working copy when accepting. The helper persists operation UUIDs for exact-payload retries; retain its sidecar files with your output.
-${socket ? '' : `Download ${helpers}/submit.mjs to ./submit.mjs first. Replace OUTPUT_DIR with your local output directory.\n`}Submit; after an uncertain reply repeat the same command with the same files:
-${socket ? `MOTED_AGENT_SOCKET='${socket}' ` : ''}node '${socket ? `${helpers}/submit.mjs` : './submit.mjs'}' '${base}' '${output}'
-For an optional label, append: "Label". Read document.json again if newer context is useful. Only the owner can accept a proposal; source freshness is not a submission condition.
-`
   }
 
   ensure(id) {

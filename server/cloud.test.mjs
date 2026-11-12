@@ -546,7 +546,7 @@ test('release and undo restore the same durable token without document-side runt
   let saved = value.store.create({ id: doc.id, name: 'Undo', document: doc, reservations: [item], operationId: randomUUID() })
   const task = (await value.call('GET', `ai/tasks/${item.id}`)).body
   assert.equal(task.status, 'waiting')
-  assert.equal(task.protocol, 'mote-agent-v5')
+  assert.equal(task.protocol, 'mote-agent-v6')
   assert.equal('executor' in task, false)
   const token = value.store.credential(item.id).token
   const proposal = { operationId: randomUUID(), candidate: { summary: 'Independent proposal', content: doc.content.content } }
@@ -596,9 +596,9 @@ test('revise retries survive restart without automatic execution and expiry is r
   assert.equal(runs, 1)
   assert.equal((await reopened.call('POST', `ai/tasks/${item.id}/revise`, { ...operation, prompt: 'Changed retry' })).status, 409)
   saved = (await reopened.call('PUT', `documents/${doc.id}`, save(saved, 'Expired', { reservations: [{ ...item, expiresAt: 1 }] }))).body
-  assert.equal((await reopened.call('GET', `${task.externalPath}/manifest.json`)).status, 410)
+  assert.equal((await reopened.call('GET', `${task.externalPath}/versions.json`)).status, 410)
   assert.equal((await reopened.call('GET', `ai/tasks/${item.id}`)).body.released, true)
   await reopened.call('PUT', `documents/${doc.id}`, save(saved, 'Reactivated', { reservations: [item] }))
-  assert.equal((await reopened.call('GET', `${task.externalPath}/manifest.json`)).status, 200)
+  assert.equal((await reopened.call('GET', task.externalPath)).status, 200)
   assert.equal((await reopened.call('GET', `ai/tasks/${item.id}`)).body.externalPath, task.externalPath)
 })

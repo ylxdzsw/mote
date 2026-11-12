@@ -3,7 +3,7 @@ import { HttpError, MAX_RESULT, MAX_SCREENSHOT, UUID, record, validateProposalCa
 
 export { PROPOSAL_SCHEMA_URL }
 
-export const AGENT_PROTOCOL = 'mote-agent-v5'
+export const AGENT_PROTOCOL = 'mote-agent-v6'
 export const TOKEN = /^[A-Za-z0-9_-]{22}$/
 export function operationId(value) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, 'operationId must be a UUID'); return value }
 export function fingerprint(value) {
@@ -54,7 +54,7 @@ function proposalDelivery(raw, assets) {
     candidate.object.screenshot = png(value, candidate.object.layout.width, candidate.object.layout.height, 'screenshot')
     delete candidate.screenshotPath
   }
-  for (const object of candidate.segment?.objects ?? []) if (object.kind === 'html') {
+  for (const object of candidate.segment?.objects ?? []) if (typeof object === 'object' && object?.kind === 'html') {
     const name = Object.hasOwn(candidate.screenshotPaths ?? {}, object.id) ? candidate.screenshotPaths[object.id] : undefined
     object.screenshot = png(name === undefined ? object.screenshot : asset(name), object.layout.width, object.layout.height, `screenshot for ${object.id}`)
   }

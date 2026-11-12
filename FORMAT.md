@@ -70,7 +70,9 @@ version read-only. Proposals and old task artifacts remain recoverable; generati
 is never retried automatically. Task tokens follow saved reservation state, not
 permanent revocation. Proposal submission uses the current stateless schema;
 Preview/Accept checks applicability to the actual document. Task transport
-`mote-agent-v5` is independent of the native document's numeric `version`.
+`mote-agent-v6` is independent of the native document's numeric `version`.
+Segment proposal object-ID shorthand is expanded before native validation; it
+is never part of a native document or export.
 
 V1–V6 load as V7; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5,
 V5 → V6, and V6 → V7 are non-breaking; V3 → V4 is breaking. New documents,

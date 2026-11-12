@@ -2,7 +2,7 @@ import type { JSONContent } from '@tiptap/core'
 import { paragraph, patchObject, objectAnchorId, objectY, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
 import { parseSegment, replaceSegment, segmentObjectIds, type SegmentClipboard, type SegmentPoint, type SegmentRange, type Geometries } from '../document/segment'
-import type { Area, SegmentBookmark, SegmentTarget } from './types'
+import type { AITarget, Area, SegmentBookmark, SegmentCandidate, SegmentTarget } from './types'
 
 export interface SegmentContext {
   anchors: { id: string; top: number; bottom?: number }[]
@@ -112,6 +112,18 @@ export function resolveSegmentRange(doc: MoteDocument, target: SegmentTarget): S
     return canonicalRange(doc, { start, end })
   }
   return canonicalRange(doc, target.range)
+}
+
+export function expandSegmentCandidate(doc: MoteDocument, target: AITarget, payload: SegmentCandidate): SegmentClipboard {
+  if (target.kind !== 'segment') throw new Error('Object ID reuse is only available for segment candidates.')
+  const expanded = { ...payload, objects: payload.objects.map(value => {
+    if (typeof value !== 'string') return value
+    if (!target.objectIds.includes(value)) throw new Error(`Object "${value}" is outside this reserved segment.`)
+    const object = doc.objects.find(item => item.id === value)
+    if (!object) throw new Error(`Reserved object "${value}" is missing from the current working document.`)
+    return structuredClone(object)
+  }) }
+  return parseSegment(JSON.stringify(expanded))
 }
 
 export function applySegmentCandidate(doc: MoteDocument, target: SegmentTarget, payload: SegmentClipboard | null, context: SegmentContext): MoteDocument {

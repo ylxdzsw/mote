@@ -133,7 +133,7 @@ export function reservedText(content: JSONContent, ids: string[]) {
 }
 
 export function inactiveTaskReason(task: AITask, doc: MoteDocument): string | null {
-  if (task.protocol !== 'mote-agent-v5') return 'Unsupported task protocol. Retained task data is available for recovery; create a new reservation to generate.'
+  if (task.protocol !== 'mote-agent-v6') return 'Unsupported task protocol. Retained task data is available for recovery; create a new reservation to generate.'
   if (task.documentId !== doc.id) return 'This task belongs to another document. Its request and result are retained for recovery.'
   if (task.acceptance) return 'Applied to a local working copy. The result is retained until that exact document is saved to the cloud; it does not lock this document.'
   if (task.released) return 'This reservation is released. Undo restores it; its proposals remain available.'

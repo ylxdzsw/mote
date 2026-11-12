@@ -18,10 +18,11 @@ export type AITarget = { kind: 'object'; objectId: string; isNew: boolean; area:
   | { kind: 'text'; blockIds: string[]; selection: { from: number; to: number }; selectedText?: string; insert: boolean; area: Area }
   | SegmentTarget
 interface CandidateBase { summary: string; sources?: { title: string; url: string }[] }
+export type SegmentCandidate = Omit<SegmentClipboard, 'objects'> & { objects: (FloatingObject | string)[] }
 export type Candidate = CandidateBase & (
   { object: FloatingObject; content?: never; segment?: never }
   | { content: JSONContent[]; object?: never; segment?: never }
-  | { segment: SegmentClipboard; object?: never; content?: never }
+  | { segment: SegmentCandidate; object?: never; content?: never }
 )
 export interface TaskVersion { id: string; label?: string; candidate: Candidate }
 export type Executor = 'builtin' | 'external'

@@ -309,17 +309,21 @@ export function validateComposition(blocks, objects, options = {}) {
   array(objects, 'objects')
   const state = { count: 0, ids: new Set(), slides: options.slides }
   rich({ type: 'doc', content: blocks }, 'content', 'main', ['doc'], state, 0, options.allowEmpty)
-  objects.forEach((value, index) => object(value, `objects[${index}]`, state, { version: options.version, allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) }))
-  const byId = new Map(objects.map(value => [value.id, value]))
+  objects.forEach((value, index) => {
+    if (options.allowObjectIdShorthand && typeof value === 'string') identifier(value, `objects[${index}]`, state.ids)
+    else object(value, `objects[${index}]`, state, { version: options.version, allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) })
+  })
+  const byId = new Map(objects.map(value => [typeof value === 'string' ? value : value.id, value]))
   const blockIds = new Set(blocks.map(block => block.attrs.id))
   const flowAnchors = new Set(), flows = new Set()
   for (const block of blocks) {
     if (block.type !== 'flow') continue
     const id = block.attrs.objectId, owner = byId.get(id)
-    if (!owner || owner.layout.placement.type !== 'flow' || flows.has(id)) fail('content', 'each Flow block must reference one distinct Flow object')
+    if (!owner || (typeof owner !== 'string' && owner.layout.placement.type !== 'flow') || flows.has(id)) fail('content', 'each Flow block must reference one distinct Flow object')
     flowAnchors.add(block.attrs.id); flows.add(id)
   }
   for (const value of objects) {
+    if (typeof value === 'string') continue
     const placement = value.layout.placement
     if (placement.type === 'flow') {
       if (!flows.has(value.id)) fail(`objects.${value.id}`, 'Flow object requires exactly one main Flow block')

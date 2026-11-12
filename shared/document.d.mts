@@ -19,4 +19,5 @@ export function validateComposition(blocks: unknown, objects: unknown, options?:
   allowEmpty?: boolean
   slides?: boolean
   allowMissingScreenshotIds?: Set<string>
+  allowObjectIdShorthand?: boolean
 }): void

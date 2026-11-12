@@ -8,7 +8,7 @@ import type { AITask } from '../src/ai/types.ts'
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
 const { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } = await server.ssrLoadModule('/src/ai/reservations.ts')
-const { makeSegmentTarget, resolveSegmentRange, applySegmentCandidate } = await server.ssrLoadModule('/src/ai/segments.ts')
+const { makeSegmentTarget, resolveSegmentRange, applySegmentCandidate, expandSegmentCandidate } = await server.ssrLoadModule('/src/ai/segments.ts')
 const { candidateVersions, selectedCandidateVersion, reconcileCandidateState } = await server.ssrLoadModule('/src/ai/candidates.ts')
 const { candidateDocument } = await server.ssrLoadModule('/src/ai/useAssistant.ts')
 const { patchFloating } = await server.ssrLoadModule('/src/canvas/patchFloating.ts')
@@ -18,7 +18,7 @@ const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, 
 const captionContent = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }, width: 240 }
 const object: FloatingHTMLWidget = { id: 'box', kind: 'html', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, html: 'before', screenshot: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9uoAAAAASUVORK5CYII=', alt: 'Figure', caption: captionContent }
 const doc = { ...createBlankDocument(), id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, objects: [object] } as MoteDocument
-const taskVersion = { protocol: 'mote-agent-v5', documentVersion: doc.version, snapshotDocument: doc }
+const taskVersion = { protocol: 'mote-agent-v6', documentVersion: doc.version, snapshotDocument: doc }
 const textTask = { ...taskVersion, target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
 const objectTask = { ...taskVersion, target: { kind: 'object', objectId: 'box' } } as AITask
 
@@ -107,7 +107,7 @@ test('released executor reservations retain their result without locking documen
 })
 
 test('unsupported task protocols retain raw recovery data without reservations or previews', () => {
-  for (const protocol of [undefined, 'mote-agent-v0', 'mote-agent-v1', 'mote-agent-v2', 'mote-agent-v3', 'mote-agent-v4']) {
+  for (const protocol of [undefined, 'mote-agent-v0', 'mote-agent-v1', 'mote-agent-v2', 'mote-agent-v3', 'mote-agent-v4', 'mote-agent-v5']) {
     const task = { ...objectTask, protocol, documentId: doc.id, original: object,
       candidate: { object, summary: 'Retained result' }, candidates: [{ id: 'C1', revision: 1 }],
       versions: [version('V1')], selectedVersion: 'V1', preview: true }
@@ -117,7 +117,7 @@ test('unsupported task protocols retain raw recovery data without reservations o
     assert.deepEqual(candidateVersions(task), [])
     assert.equal(selectedCandidateVersion(task), undefined)
     assert.throws(() => candidateDocument(doc, task, task.candidate), /Unsupported task/)
-    assert.deepEqual(reconcileCandidateState(task, { protocol: 'mote-agent-v5', versions: [version('V2')] }), {})
+    assert.deepEqual(reconcileCandidateState(task, { protocol: 'mote-agent-v6', versions: [version('V2')] }), {})
     assert.deepEqual(reconcileCandidateState(objectTask, { protocol, versions: [version('V2')] }), {})
     assert.deepEqual(task, before)
   }
@@ -126,11 +126,11 @@ test('unsupported task protocols retain raw recovery data without reservations o
 test('new versions preserve the exact review selection and never replace an unavailable selection', () => {
   const first = version('V1'), second = version('V2'), third = version('V3')
   const task = { ...objectTask, versions: [first, second], selectedVersion: first.id, preview: false } as AITask
-  const patch = reconcileCandidateState(task, { protocol: 'mote-agent-v5', versions: [first, second, third], selectedVersion: third.id })
+  const patch = reconcileCandidateState(task, { protocol: 'mote-agent-v6', versions: [first, second, third], selectedVersion: third.id })
   const updated = { ...task, ...patch }
   assert.equal(selectedCandidateVersion(updated), first)
   assert.equal(updated.preview, false)
-  const missing = { ...task, ...reconcileCandidateState(task, { protocol: 'mote-agent-v5', versions: [second, third] }) }
+  const missing = { ...task, ...reconcileCandidateState(task, { protocol: 'mote-agent-v6', versions: [second, third] }) }
   assert.equal(missing.selectedVersion, first.id)
   assert.equal(selectedCandidateVersion(missing), undefined)
   assert.equal(missing.preview, false)
@@ -200,6 +200,49 @@ const segmentTask = (target: ReturnType<typeof segmentTarget>, blocks: ReturnTyp
   ...taskVersion, id: 'segment-task', documentId: 'document', target, original: { version: 1, type: 'segment', content: structuredClone(blocks), objects: structuredClone(objects), geometry: {}, anchorTops: {}, originTop: 0 },
   segmentOriginalBlocks: structuredClone(blocks), segmentOriginalObjects: structuredClone(objects), status: 'draft', submitted: false,
 } as unknown as AITask)
+
+test('segment object IDs expand to the exact current object before ordinary candidate application', () => {
+  const source = { ...doc, objects: [object] }
+  const target = makeSegmentTarget(source, { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, { x: 0, y: 0, width: 600, height: 100 })
+  const blocks = structuredClone(source.content.content!.slice(0, 2))
+  const segment = { version: 1, type: 'segment', content: blocks, objects: ['box'], geometry: {}, anchorTops: { a: 0, b: 0 }, originTop: 0 }
+  const fullSegment = { ...segment, objects: [structuredClone(object)] }
+  const beforeDoc = structuredClone(source), beforeSegment = structuredClone(segment)
+  assert.deepEqual(expandSegmentCandidate(source, target, segment), fullSegment)
+  const task = segmentTask(target, blocks, [object])
+  const context = { anchors: [], geometry: {} }
+  const shorthandResult = candidateDocument(source, task, { summary: 'Reuse', segment }, context)
+  const fullResult = candidateDocument(source, task, { summary: 'Reuse', segment: fullSegment }, context)
+  assert.equal(shorthandResult.objects[0].id === 'box', false)
+  assert.equal(shorthandResult.objects[0].kind, fullResult.objects[0].kind)
+  assert.equal(shorthandResult.objects[0].html, fullResult.objects[0].html)
+  assert.equal(shorthandResult.objects[0].caption?.content.content![0].content![0].text, fullResult.objects[0].caption?.content.content![0].content![0].text)
+  assert.equal(shorthandResult.objects[0].layout.placement.anchorId, shorthandResult.content.content![0].attrs!.id)
+  assert.equal(fullResult.objects[0].layout.placement.anchorId, fullResult.content.content![0].attrs!.id)
+  assert.deepEqual(source, beforeDoc)
+  assert.deepEqual(segment, beforeSegment)
+})
+
+test('segment object ID expansion rejects missing and out-of-scope objects', () => {
+  const source = { ...doc, objects: [object] }
+  const target = makeSegmentTarget(source, { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, { x: 0, y: 0, width: 600, height: 100 })
+  const payload = { version: 1, type: 'segment', content: [paragraph('a')], objects: ['missing'], geometry: {}, anchorTops: { a: 0 }, originTop: 0 }
+  assert.throws(() => expandSegmentCandidate(source, { ...target, objectIds: ['missing'] }, payload), /missing from the current working document/)
+  const outside = { ...object, id: 'outside', layout: { ...object.layout, placement: { type: 'float', anchorId: 'd', x: 12, y: 20 } } } as FloatingObject
+  assert.throws(() => expandSegmentCandidate({ ...source, objects: [object, outside] }, target, { ...payload, objects: ['outside'] }), /outside this reserved segment/)
+})
+
+test('invalid expanded segment candidates fail validation instead of becoming deletions', () => {
+  const source = { ...doc, objects: [object] }
+  const target = makeSegmentTarget(source, { start: { index: 0, offset: 0 }, end: { index: 2, offset: 0 } }, { x: 0, y: 0, width: 600, height: 100 })
+  const task = segmentTask(target, source.content.content!.slice(0, 2), [object])
+  const candidate = { summary: 'Invalid', segment: { version: 1, type: 'segment', content: [{ type: 'unknown' }], objects: ['box'], geometry: {}, anchorTops: {}, originTop: 0 } }
+  const before = structuredClone(source)
+  assert.throws(() => candidateDocument(source, task, candidate, { anchors: [], geometry: {} }), /Invalid Mote segment/)
+  assert.deepEqual(source, before)
+  const duplicate = { ...candidate.segment, content: [paragraph('a')], objects: ['box', 'box'], anchorTops: { a: 0 } }
+  assert.throws(() => expandSegmentCandidate(source, target, duplicate), /duplicate ID/)
+})
 
 test('empty reservations stay zero-width when preceding paragraphs are inserted or replaced', () => {
   const source = { ...doc, objects: [] }

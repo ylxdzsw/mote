@@ -145,7 +145,11 @@ test('public task resources use current reservation permission and latest worksp
   const base = task.externalPath
   assert.equal((await agent(value, `${base}/workspace-index.md`)).status, 404)
   await changeReservation(value, own.id, { workspaceRead: true })
-  assert.equal((await agent(value, `${base}/manifest.json`)).body.workspaceRead, true)
+  const description = await agent(value, base)
+  assert.equal(description.status, 200)
+  assert.equal(description.headers.get('content-type'), 'application/json; charset=utf-8')
+  assert.equal(description.body.workspaceRead, true)
+  assert.ok(description.body.resources['workspace-index.md'])
   let index = await agent(value, `${base}/workspace-index.md`)
   assert.equal(index.status, 200)
   assert.equal(index.body.includes(hidden.id), false)
@@ -161,9 +165,87 @@ test('public task resources use current reservation permission and latest worksp
   await changeReservation(value, own.id, { workspaceRead: false })
   assert.equal((await agent(value, `${base}/workspace-index.md`)).status, 404)
   assert.equal((await agent(value, `${base}/document.json`)).status, 200)
-  assert.equal((await agent(value, `${base}/target.json`)).body.workspaceRead, false)
+  assert.equal((await agent(value, base)).body.workspaceRead, false)
+  assert.equal('workspace-index.md' in (await agent(value, base)).body.resources, false)
+  for (const resource of ['manifest.json', 'instructions.md', 'target.json']) assert.equal((await agent(value, `${base}/${resource}`)).status, 404)
   for (const action of ['executor', 'workspace-read', 'release']) assert.equal((await value.call('POST', `ai/tasks/${task.id}/${action}`, { operationId: randomUUID() })).status, 404)
-  assert.equal((await agent(value, `${base}/manifest.json`)).status, 200)
+  assert.equal((await agent(value, base)).status, 200)
+})
+
+test('canonical descriptions expose scoped metadata and segment measurements without reservation originals', async t => {
+  let context, finish
+  const finished = new Promise(resolve => { finish = resolve })
+  const value = await app(t, { runner: async input => { context = input; await finished; return {} } })
+  t.after(() => finish())
+  const own = await createDocument(value, 'Descriptor')
+  own.document.objects.push({ id: 'secret-object', kind: 'image', src: 'data:image/svg+xml,%3Csvg%2F%3E', alt: 'Current figure',
+    layout: { width: 3, placement: { type: 'float', anchorId: 'block-1', x: 1, y: 2 } } })
+  const id = randomUUID(), expiresAt = Date.now() + 60_000
+  const targetScope = {
+    kind: 'segment', range: { start: { index: 0, offset: 0 }, end: { index: 1, offset: 0 } },
+    blockIds: ['block-1'], objectIds: ['secret-object'], area: { x: 48, y: 48, width: 200, height: 40 },
+    selectedText: 'private selected text', bookmarks: {
+      start: { blockId: 'block-1', offset: 0 }, end: { blockId: 'block-1', offset: 0, after: true },
+    },
+  }
+  const reservation = {
+    id, documentId: own.id, target: targetScope, workspaceRead: true, expiresAt,
+    original: {
+      version: 1, type: 'segment', content: [{ type: 'paragraph', attrs: { id: 'block-1' }, content: [{ type: 'text', text: 'private original text' }] }],
+      objects: [{ id: 'secret-object', kind: 'image', src: 'private original object' }],
+      geometry: { 'secret-object': { x: 1, y: 2, width: 3, height: 4, content: 'must not copy' } },
+    anchorTops: { 'block-1': 12, 'secret-block': 24 }, originTop: 8, private: 'must not copy',
+    },
+    snapshotDocument: { ...own.document, authoring: { notes: ['private snapshot notes'] } },
+  }
+  const saved = await value.call('PUT', `documents/${own.id}`, {
+    baseRevision: own.revision, document: own.document, reservations: [reservation], operationId: randomUUID(),
+  })
+  assert.equal(saved.status, 200, JSON.stringify(saved.body))
+  const task = (await value.call('GET', `ai/tasks/${id}`)).body
+  const base = task.externalPath
+  const publicReply = await agent(value, base)
+  assert.equal(publicReply.status, 200)
+  const description = publicReply.body
+  assert.equal(description.protocol, 'mote-agent-v6')
+  assert.equal(description.taskId, id)
+  assert.equal(description.request, null)
+  const expectedTarget = structuredClone(targetScope)
+  delete expectedTarget.selectedText
+  assert.deepEqual(description.target, expectedTarget)
+  assert.equal(description.target.selectedText, undefined)
+  assert.deepEqual(description.geometry, {
+    geometry: { 'secret-object': { x: 1, y: 2, width: 3, height: 4 } },
+    anchorTops: { 'block-1': 12 }, originTop: 8,
+  })
+  assert.equal(description.workspaceRead, true)
+  assert.equal(description.expiresAt, expiresAt)
+  assert.equal(description.documentMeta.id, own.id)
+  assert.equal(description.resources['document.json'], `${base}/document.json`)
+  assert.equal(description.resources['workspace-document.json'], `${base}/workspace-document.json`)
+  assert.equal(description.versions, `${base}/versions.json`)
+  assert.equal(description.version, `${base}/versions/{versionId}.json`)
+  assert.equal(description.submit, `${base}/submit`)
+  assert.equal('original' in description, false)
+  assert.equal('snapshotDocument' in description, false)
+  assert.doesNotMatch(JSON.stringify(description), /private selected text|private original text|private original object|private snapshot notes|must not copy/)
+
+  const revise = await value.call('POST', `ai/tasks/${id}/revise`, { prompt: 'Improve this scope', model: 'fake', operationId: randomUUID() })
+  assert.equal(revise.status, 202)
+  await waitFor(() => context)
+  const socketReply = await socketGet(context.agent.url, context.agent.socketPath)
+  assert.equal(socketReply.status, 200)
+  const socketDescription = JSON.parse(socketReply.body)
+  const prompt = await readFile(context.promptPath, 'utf8')
+  const promptDescription = JSON.parse(prompt.split('\n\n# Run-local execution details')[0])
+  assert.deepEqual(promptDescription, socketDescription)
+  assert.equal(socketDescription.request, 'Improve this scope')
+  assert.equal(socketDescription.target.selectedText, undefined)
+  for (const resource of ['manifest.json', 'instructions.md', 'target.json']) {
+    assert.equal((await agent(value, `${base}/${resource}`)).status, 404)
+    assert.equal((await socketGet(`${context.agent.url}/${resource}`, context.agent.socketPath)).status, 404)
+  }
+  finish()
 })
 
 test('Private denies every public resource while trusted task socket retains own access and excludes other Private documents', async t => {
@@ -178,7 +260,7 @@ test('Private denies every public resource while trusted task socket retains own
   const internal = resource => socketGet(`${context.agent.url}/${resource}`, context.agent.socketPath)
   assert.equal(new URL(context.agent.url).pathname.split('/').at(-1), base.split('/').at(-1))
   await setPrivate(value, own.id, true)
-  for (const resource of ['', 'manifest.json', 'document.json', 'target.json', 'instructions.md', 'versions.json', 'workspace-index.md']) assert.equal((await agent(value, `${base}/${resource}`)).status, 403)
+  for (const resource of ['', 'document.json', 'manifest.json', 'target.json', 'instructions.md', 'versions.json', 'workspace-index.md']) assert.equal((await agent(value, `${base}/${resource}`)).status, 403)
   assert.equal((await agent(value, `${base}/submit`, 'POST', { operationId: randomUUID() })).status, 403)
   assert.equal((await internal('document.json')).status, 200)
   assert.equal((await internal(`workspace-document.json?id=${own.id}`)).status, 200)

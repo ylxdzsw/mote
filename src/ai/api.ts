@@ -55,13 +55,13 @@ async function request<T>(url: string, method: string, body?: unknown): Promise<
           && isRecord(task.target) && ['object', 'text', 'segment'].includes(String(task.target.kind))
           && ['draft', 'preparing', 'queued', 'running', 'ready', 'stopped', 'error', 'waiting'].includes(String(task.status))
           && typeof task.submitted === 'boolean' && typeof task.prompt === 'string' && typeof task.progress === 'string'
-          && (task.protocol !== 'mote-agent-v5' || validVersionFields(task)))
+          && (task.protocol !== 'mote-agent-v6' || validVersionFields(task)))
       if (method === 'DELETE') return value.ok === true
       const id = url.split('/')[4]
       if (id && value.id !== id) return false
-      return value.protocol === 'mote-agent-v5' && typeof value.id === 'string' && ['queued', 'running', 'ready', 'stopped', 'error', 'waiting'].includes(String(value.status))
+      return typeof value.protocol === 'string' && typeof value.id === 'string' && ['queued', 'running', 'ready', 'stopped', 'error', 'waiting'].includes(String(value.status))
         && typeof value.progress === 'string' && typeof value.workspaceRead === 'boolean'
-        && validVersionFields(value)
+        && (value.protocol !== 'mote-agent-v6' || validVersionFields(value))
     })
   } catch (error) {
     if (!(error instanceof RequestError)) throw error

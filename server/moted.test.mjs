@@ -35,7 +35,7 @@ function document(kind = 'text') {
   if (kind === 'html') doc.objects.push({ id: 'object-1', kind: 'html', layout: { width: 200, height: 100, placement: { type: 'float', anchorId: 'block-1', x: 40, y: 10 } }, html: '<button>+</button>', screenshot: svg, alt: 'demo' })
   return doc
 }
-function request(id, doc = document(), extra = {}) { return { id, protocol: 'mote-agent-v5', operationId: crypto.randomUUID(), document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
+function request(id, doc = document(), extra = {}) { return { id, protocol: 'mote-agent-v6', operationId: crypto.randomUUID(), document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
 function segmentDocument() {
   const doc = document('text')
   doc.content.content = [

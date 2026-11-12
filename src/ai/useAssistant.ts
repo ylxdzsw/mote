@@ -13,7 +13,7 @@ import { connectionSnapshot, retryConnection, useConnection } from '../cloud/con
 import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 import { useAssistantState } from './useAssistantState'
 import type { Area, AITarget, AITask, AssistantCloud, RemoteTask, Reservation } from './types'
-import { applySegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
+import { applySegmentCandidate, expandSegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
 import { copySegment, type SegmentClipboard } from '../document/segment'
 
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
@@ -36,7 +36,7 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
   const documentVersion = doc.version
-  if (task.protocol !== 'mote-agent-v5' || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
+  if (task.protocol !== 'mote-agent-v6' || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
   const incompatible = inactiveTaskReason(task, doc)
   if (incompatible) throw new Error(incompatible)
@@ -61,8 +61,9 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
     } else {
       if (!candidate.segment || candidate.object || candidate.content) throw new Error('The candidate must deliver exactly one V1 segment.')
       if (!context) throw new Error('Segment geometry is not available for this preview.')
-      candidate.segment.objects.forEach(object => validateObject(object, { version: documentVersion }))
-      result = applySegmentCandidate(doc, target, candidate.segment, context)
+      const expanded = expandSegmentCandidate(doc, target, candidate.segment)
+      expanded.objects.forEach(object => validateObject(object, { version: documentVersion }))
+      result = applySegmentCandidate(doc, target, expanded, context)
     }
     validateDocument(result)
     return initializeDocument(structuredClone(result))
@@ -81,8 +82,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const mounted = useRef(true)
   const current = useRef({ history, cloud, persistence })
   current.current = { history, cloud, persistence }
-  const update = (id: string, patch: Partial<AITask>) => current.current.persistence.update(id, patch)
-  const asTask = (reservation: Reservation): AITask => ({ protocol: 'mote-agent-v5', status: 'draft', progress: '', prompt: '',
+  const update = (id: string, patch: Partial<AITask>) => current.current.persistence.update(id, {
+    protocol: current.current.persistence.views[id]?.protocol ?? 'mote-agent-v6', ...patch,
+  })
+  const asTask = (reservation: Reservation): AITask => ({ protocol: 'mote-agent-v6', status: 'draft', progress: '', prompt: '',
     submitted: false, preview: false, ...current.current.persistence.views[reservation.id], ...reservation })
   const allTasks = history.reservations.map(asTask)
   const activeTasks = (doc = current.current.history.doc!) => compatibleTasks(current.current.history.currentReservations().map(asTask), doc)
@@ -111,7 +114,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
 
   function receive(remote: RemoteTask) {
     const task = getTask(remote.id)
-    if (!task || remote.protocol !== 'mote-agent-v5') return
+    if (!task) return
+    if (remote.protocol !== 'mote-agent-v6') {
+      update(task.id, { protocol: remote.protocol, status: 'error', progress: remote.progress,
+        error: remote.error ?? 'Unsupported task protocol; artifacts are retained for recovery.', versions: remote.versions, preview: false })
+      setStatusIssues(value => ({ ...value, [task.id]: '' }))
+      return
+    }
     setAccess(value => ({ ...value, [remote.id]: remote }))
     if ((remote.versions?.length ?? 0) < (task.versions?.length ?? 0)) return
     update(task.id, { status: remote.status, progress: remote.progress, error: remote.error,
@@ -142,7 +151,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       } finally { fetching = false }
     }
     function refresh(id?: string) {
-      for (const task of current.current.history.currentReservations()) if (!id || task.id === id) wanted.add(task.id)
+      for (const task of current.current.history.currentReservations()) {
+        if ((!id || task.id === id) && asTask(task).protocol === 'mote-agent-v6') wanted.add(task.id)
+      }
       void drain()
     }
     fetchStatus.current = refresh
@@ -225,7 +236,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   async function start(id: string, prompt: string) {
     const task = getTask(id), connection = current.current.cloud
-    if (!writable || !connection || !task || task.released || preparing.current.has(id) || !task.pendingRun && !prompt.trim()) return
+    if (!writable || !connection || !task || task.protocol !== 'mote-agent-v6' || task.released || preparing.current.has(id) || !task.pendingRun && !prompt.trim()) return
     const attempt = Symbol(); preparing.current.set(id, attempt)
     const valid = () => mounted.current && preparing.current.get(id) === attempt && !getTask(id)?.released
     const operation = task.pendingRun ?? { operationId: crypto.randomUUID(), prompt,
@@ -253,6 +264,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
   }
   async function stop(id: string) {
+    if (getTask(id)?.protocol !== 'mote-agent-v6') return
     preparing.current.delete(id)
     try {
       const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
@@ -292,7 +304,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, selectVersion, update,
     runs, deleteObjects, deleteTarget, inactiveReason, privateDocument: cloud?.privateDocument ?? false,
     externalBlocked: cloud?.externalBlocked ?? false,
-    agentLink: (task: AITask) => !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
+    agentLink: (task: AITask) => task.protocol === 'mote-agent-v6' && !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
       ? new URL(access[task.id].externalPath!, window.location.origin).href : undefined,
     setWorkspaceRead: (id: string, enabled: boolean) => setProperties(id, { workspaceRead: enabled }),
     setExpiration: (id: string, expiresAt?: number) => setProperties(id, { expiresAt }),

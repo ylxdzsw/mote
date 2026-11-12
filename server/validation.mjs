@@ -66,7 +66,7 @@ function validateSegmentGeometry(value, objectIds) {
 function segmentScreenshotPathMap(value, payload) {
   if (value === undefined) return new Map()
   const paths = record(value, 'candidate.screenshotPaths')
-  const objects = new Map(payload.objects.map(object => [object?.id, object]))
+  const objects = new Map(payload.objects.filter(object => typeof object !== 'string').map(object => [object?.id, object]))
   const result = new Map()
   if (Object.keys(paths).length > 32) throw new HttpError(400, 'candidate.screenshotPaths has too many files')
   for (const [id, pathValue] of Object.entries(paths)) {
@@ -84,9 +84,9 @@ function validateSegmentPayload(value, options = {}) {
   if (![1, 2].includes(payload.version) || payload.type !== 'segment') throw new HttpError(400, 'candidate.segment must be V1 or V2')
   if (!Array.isArray(payload.objects) || payload.objects.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.objects must be an array')
   const paths = segmentScreenshotPathMap(options.screenshotPaths, payload)
-  composition(payload.content, payload.objects, { version: DOCUMENT_VERSION, allowEmpty: true, slides: payload.version === 2, allowMissingScreenshotIds: new Set(paths.keys()) })
+  composition(payload.content, payload.objects, { version: DOCUMENT_VERSION, allowEmpty: true, slides: payload.version === 2, allowMissingScreenshotIds: new Set(paths.keys()), allowObjectIdShorthand: true })
   const topIds = new Set(payload.content.map(node => node.attrs.id))
-  validateSegmentGeometry(payload.geometry, new Set(payload.objects.map(object => object.id)))
+  validateSegmentGeometry(payload.geometry, new Set(payload.objects.map(object => typeof object === 'string' ? object : object.id)))
   const anchorTops = record(payload.anchorTops, 'candidate.segment.anchorTops')
   for (const [id, value] of Object.entries(anchorTops)) {
     safeId(id, 'candidate.segment.anchorTops ID')

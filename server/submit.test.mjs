@@ -20,15 +20,15 @@ async function fixture(t) {
   await fs.writeFile(path.join(outputDir, 'result.json'), JSON.stringify({ content: [], screenshotPath: 'shot.png' }))
   await fs.writeFile(path.join(outputDir, 'shot.png'), 'image')
   const value = {
-    root, outputDir, bodies: [], headers: [], identities: [], manifestReads: 0,
-    manifest: { protocol: 'mote-agent-v5', taskId: randomUUID() },
+    root, outputDir, bodies: [], headers: [], identities: [], descriptionReads: 0,
+    description: { protocol: 'mote-agent-v6', taskId: randomUUID() },
     receipt: {}, dropResponse: false,
   }
   const server = http.createServer(async (request, response) => {
     try {
-      if (request.url.endsWith('/manifest.json')) {
-        value.manifestReads++
-        response.end(JSON.stringify(value.manifest))
+      if (!request.url.endsWith('/submit')) {
+        value.descriptionReads++
+        response.end(JSON.stringify(value.description))
         return
       }
       assert.ok(request.url.endsWith('/submit'))
@@ -42,14 +42,14 @@ async function fixture(t) {
       }))))
       if (value.errorResponse) { response.statusCode = 400; response.end(JSON.stringify(value.errorResponse)); return }
       if (value.dropResponse) { value.dropResponse = false; response.destroy(); return }
-      const { taskId } = value.manifest
+      const { taskId } = value.description
       response.end(JSON.stringify({ taskId, versionId: 'V1', status: 'ready', ...value.receipt }))
     } catch (error) { response.statusCode = 500; response.end(JSON.stringify({ error: error.message })) }
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   t.after(async () => { await new Promise(resolve => server.close(resolve)); await fs.rm(root, { recursive: true, force: true }) })
   value.base = `http://127.0.0.1:${server.address().port}/a/secret-token`
-  value.context = { outputDir, taskId: value.manifest.taskId, agent: { url: value.base, protocol: 'untrusted', executorRevision: 99, documentRevision: 'untrusted', documentVersion: 1 } }
+  value.context = { outputDir, taskId: value.description.taskId, agent: { url: value.base, protocol: 'untrusted', executorRevision: 99, documentRevision: 'untrusted', documentVersion: 1 } }
   value.cli = (...args) => execute(process.execPath, [helper, value.base, outputDir, ...args], { env: { ...process.env, MOTED_AGENT_SOCKET: '' } })
   return value
 }
@@ -60,7 +60,7 @@ test('CLI persists a private identity before submission and reuses it after resp
   await assert.rejects(value.cli('Proposal'))
   const { stdout } = await value.cli('Proposal')
   assert.deepEqual(Object.keys(JSON.parse(stdout)).sort(), ['status', 'taskId', 'versionId'])
-  assert.equal(value.manifestReads, 2)
+  assert.equal(value.descriptionReads, 2)
   assert.deepEqual(value.bodies[0], value.bodies[1])
   assert.deepEqual(Object.keys(value.bodies[0]).sort(), ['assets', 'candidate', 'label', 'operationId'])
   assert.deepEqual(Object.keys(value.bodies[0].assets), ['shot.png'])
@@ -68,7 +68,7 @@ test('CLI persists a private identity before submission and reuses it after resp
   assert.match(identity.name, /^\.mote-submit-[0-9a-f]{64}\.uuid$/)
   assert.equal(identity.text, `${value.bodies[0].operationId}\n`)
   assert.equal(identity.mode, 0o600)
-  assert.ok(value.headers.every(headers => headers['user-agent'] === 'Mote-agent/v5'))
+  assert.ok(value.headers.every(headers => headers['user-agent'] === 'Mote-agent/v6'))
   assert.equal((await fs.readdir(value.outputDir)).some(name => name.endsWith('.tmp')), false)
 })
 
@@ -86,10 +86,10 @@ test('concurrent processes share one identity; payload, image, label and base ch
   await fs.writeFile(path.join(value.outputDir, 'result.json'), JSON.stringify({ content: [], summary: 'changed', screenshotPath: 'shot.png' }))
   await submitResult(value.context)
   assert.equal(new Set(value.bodies.map(body => body.operationId)).size, 5)
-  assert.equal(value.manifestReads, value.bodies.length)
+  assert.equal(value.descriptionReads, value.bodies.length)
 })
 
-test('v5 proposals use only task ID and protocol from the manifest to check receipts', async t => {
+test('v6 proposals use only task ID and protocol from the task description to check receipts', async t => {
   const value = await fixture(t)
   const operationId = randomUUID()
   const receipt = await submitResult(value.context, operationId)
@@ -98,9 +98,9 @@ test('v5 proposals use only task ID and protocol from the manifest to check rece
   assert.deepEqual(Object.keys(value.bodies[0]).sort(), ['assets', 'candidate', 'operationId'])
   await submitResult(value.context)
   const firstOperationId = value.bodies[1].operationId
-  value.manifest.documentRevision = 'a different, stale document revision'
-  value.manifest.documentVersion = 999
-  value.manifest.executorRevision = -1
+  value.description.documentRevision = 'a different, stale document revision'
+  value.description.documentVersion = 999
+  value.description.executorRevision = -1
   await submitResult({ ...value.context, agent: { ...value.context.agent, documentRevision: 'unavailable', documentVersion: 0 } })
   assert.equal(value.bodies.at(-1).operationId, firstOperationId)
   for (const receipt of [
@@ -110,12 +110,12 @@ test('v5 proposals use only task ID and protocol from the manifest to check rece
     await assert.rejects(submitResult(value.context), /Invalid submission receipt/)
   }
   const submitted = value.bodies.length
-  await assert.rejects(submitResult({ ...value.context, taskId: randomUUID() }), /Invalid agent manifest/)
-  value.manifest.protocol = 'mote-agent-v3'
+  await assert.rejects(submitResult({ ...value.context, taskId: randomUUID() }), /Invalid task description/)
+  value.description.protocol = 'mote-agent-v3'
   await assert.rejects(submitResult(value.context), /Unsupported agent protocol/)
-  value.manifest.protocol = 'mote-agent-v5'
-  value.manifest.taskId = 'invalid'
-  await assert.rejects(submitResult(value.context), /Invalid agent manifest/)
+  value.description.protocol = 'mote-agent-v6'
+  value.description.taskId = 'invalid'
+  await assert.rejects(submitResult(value.context), /Invalid task description/)
   assert.equal(value.bodies.length, submitted)
 })
 

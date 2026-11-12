@@ -1,10 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mote.ylxdzsw.com/skills/proposal-schema.json",
-  "title": "Mote current-schema proposal (mote-agent-v5)",
+  "title": "Mote current-schema proposal (mote-agent-v6)",
   "documentFormat": "mote",
   "documentFormatVersion": 7,
-  "description": "Schema for result.json / the candidate field of a proposal submission. documentFormat and documentFormatVersion here are advisory schema metadata, not candidate fields. Exactly one of object, content or segment is delivered. Validation is independent of document, target, source version, executor and agent session; browser Accept checks reservation compatibility. Optional screenshot transport keys are resolved to embedded PNG bytes and removed before storing the candidate.",
+  "description": "Schema for result.json / the candidate field of a proposal submission. documentFormat and documentFormatVersion here are advisory schema metadata, not candidate fields. Exactly one of object, content or segment is delivered. Segment objects may be native payloads or bare safe IDs for existing objects; the stateless server validates explicit payloads and decidable references without resolving IDs against a document or reservation. Browser Accept expands IDs and checks reservation compatibility. Optional screenshot transport keys are resolved to embedded PNG bytes and removed before storing the candidate.",
   "type": "object",
   "properties": {
     "summary": {
@@ -48,7 +48,7 @@
     "summary"
   ],
   "additionalProperties": false,
-  "$comment": "The server also checks native cross-reference/ID uniqueness, rectangular table dimensions and matching column counts, the aggregate 100000 rich-node / drawing-point limits, rich-content depth (100), finite numbers, decoded image safety and size, actual PNG dimensions, mapped HTML screenshot completeness, unused assets, and candidate JSON size (8 MiB). JSON Schema cannot express all these cross-field or byte-level constraints. Native document historical schemas are not proposal contexts.",
+  "$comment": "The server also checks native cross-reference/ID uniqueness, rectangular table dimensions and matching column counts, the aggregate 100000 rich-node / drawing-point limits, rich-content depth (100), finite numbers, decoded image safety and size, actual PNG dimensions, mapped HTML screenshot completeness (screenshotPaths may reference only explicit HTML objects, never ID strings), unused assets, and candidate JSON size (8 MiB). In segment proposals, ID strings use the native safe-ID grammar; duplicates, block references, explicit Flow objects, explicit Float anchors, and geometry references to listed IDs are checked, while existence and composition after expansion are left to the browser. JSON Schema cannot express all these cross-field or byte-level constraints. Native document historical schemas are not proposal contexts.",
   "oneOf": [
     {
       "required": [
@@ -109,7 +109,7 @@
               "objects": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/$defs/object"
+                  "$ref": "#/$defs/segmentObject"
                 },
                 "minItems": 0,
                 "maxItems": 100000
@@ -1363,6 +1363,26 @@
         }
       ]
     },
+    "segmentObject": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/object"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ]
+    },
+    "segmentTransportObject": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/transportObject"
+        },
+        {
+          "$ref": "#/$defs/id"
+        }
+      ]
+    },
     "geometry": {
       "type": "object",
       "properties": {
@@ -1412,7 +1432,7 @@
         "objects": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/transportObject"
+            "$ref": "#/$defs/segmentTransportObject"
           },
           "minItems": 0,
           "maxItems": 100000
@@ -1472,7 +1492,7 @@
           }
         }
       ],
-      "description": "Self-contained composition. IDs are unique across blocks, objects, captions and nested paragraphs. Every Flow object has exactly one Flow block. Float anchors reference a top-level block or null; negative y is allowed only on a Flow anchor. Geometry keys reference its objects; anchorTops keys reference its top-level blocks. V2 permits slideBreak atoms without consulting a document."
+      "description": "Composition with native objects or bare safe IDs for existing objects. IDs are unique across blocks, explicit objects, shorthand object IDs, captions and nested paragraphs. Every explicit Flow object has exactly one Flow block. Float anchors on explicit objects reference a top-level block or null; negative y is allowed only on a Flow anchor. Geometry keys reference a listed object ID; anchorTops keys reference top-level blocks. Shorthand existence and composition after browser expansion are checked against the current document. V2 permits slideBreak atoms without consulting a document."
     },
     "assetPath": {
       "type": "string",

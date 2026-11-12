@@ -49,8 +49,12 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
       if (saved?.tasks.length) retained = [...retained, { id: 'retired-local', label: 'Earlier local task recovery', tasks: saved.tasks }]
       if (legacy.length) retained = [...retained, { id: 'retired-browser', label: 'Earlier browser task recovery', tasks: legacy }]
       if (!active) return
+      // V5 views did not persist their protocol. Keep them recovery-only instead
+      // of interpreting cached proposals or pending runs as the current protocol.
+      const views = Object.fromEntries(Object.entries(saved?.views ?? {}).map(([id, view]) => [id,
+        { ...view, protocol: view.protocol ?? 'mote-agent-v5' }]))
       const current: AssistantRecovery = { workingCopyId: cloud.workingCopyId, documentId: cloud.documentId,
-        revision: null, tasks: [], dirty: saved?.dirty ?? false, archives: retained, views: saved?.views ?? {} }
+        revision: null, tasks: [], dirty: saved?.dirty ?? false, archives: retained, views }
       record.current = current
       setViews(current.views!); setArchives(retained); setLoaded(true); setWarning('')
       // Retired cloud artifacts are optional recovery, never a dependency of

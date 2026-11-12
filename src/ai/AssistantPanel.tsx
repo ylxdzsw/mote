@@ -53,7 +53,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   const prompt = task.draftPrompt ?? ''
   const link = assistant.agentLink(task)
   const expanded = busy || !activityCollapsed
-  const instructions = link && `Please help with this Mote task: ${link}\nSkill: https://mote.ylxdzsw.com/skills/external/SKILL.md\nOptional document and workspace reads return latest cloud content. Submit one or more proposals; each receives a server-assigned version ID. Other agents may submit concurrently. The owner reviews and accepts proposals as document edits.${selected ? `\nSelected version for context: ${selected.id}.` : ''}`
+  const instructions = link && `Please help with this Mote task: ${link}\nRead the JSON task descriptor at this URL and follow the linked skill: https://mote.ylxdzsw.com/skills/external/SKILL.md\nOptional document and workspace reads return latest cloud content. Submit one or more proposals; each receives a server-assigned version ID. Other agents may submit concurrently. The owner reviews and accepts proposals as document edits.${selected ? `\nSelected version for context: ${selected.id}.` : ''}`
   async function copy(text: string, label: string) {
     try { await navigator.clipboard.writeText(text); setCopyNotice(`${label} copied.`) }
     catch { setCopyNotice(`Could not copy ${label.toLowerCase()}. Check clipboard permissions and retry.`) }
@@ -122,10 +122,14 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       </div>
       {copyNotice && <p className="ai-copy-notice" role="status">{copyNotice}</p>}
       {assistant.externalBlocked ? <p role="status">Public task access is unavailable while the document is Private or a privacy change is pending. Built-in access is separate.</p>
-        : !link && !task.released ? <p role="status">The link becomes available after the reservation is saved. Check the document’s sync status if it remains unavailable.</p> : null}
+        : task.protocol !== 'mote-agent-v6' ? <p role="status">This task protocol is retained for recovery only. Create a new reservation for agent access.</p>
+          : !link && !task.released ? <p role="status">The link becomes available after the reservation is saved. Check the document’s sync status if it remains unavailable.</p> : null}
       <p className="ai-privacy">This link allows access to the latest saved document, not only the reserved area. Each request checks saved permissions and task lifetime. Built-in and external agents share the same proposal list. Switching tabs changes no access.</p>
       {!versions.length && !task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
-    </div> : <form className="ai-composer" onSubmit={event => { event.preventDefault(); void assistant.start(task.id, prompt) }}>
+    </div> : task.protocol !== 'mote-agent-v6' ? <div className="ai-composer">
+      {!task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
+    </div>
+      : <form className="ai-composer" onSubmit={event => { event.preventDefault(); void assistant.start(task.id, prompt) }}>
       {!task.released && <>
         <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>
         <textarea id={`ai-request-${task.id}`} aria-label="AI request" rows={3} value={prompt} placeholder="Describe the change or refer to any version…"

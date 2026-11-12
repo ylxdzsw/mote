@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { AGENT_PROTOCOL, PROPOSAL_SCHEMA_URL, validateProposalDelivery } from './agent-protocol.mjs'
-import { DOCUMENT_VERSION } from '../shared/document.mjs'
+import { DOCUMENT_VERSION, validateComposition } from '../shared/document.mjs'
 
 const paragraph = (id = 'paragraph') => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [{ type: 'text', text: 'Proposal' }] })
 const doc = content => ({ type: 'doc', content })
@@ -49,7 +49,7 @@ test('all object kinds, text and V1/V2 segment proposals validate without any do
     assert.notEqual(result, raw)
     assert.deepEqual(raw, before)
   }
-  assert.equal(AGENT_PROTOCOL, 'mote-agent-v5')
+  assert.equal(AGENT_PROTOCOL, 'mote-agent-v6')
   assert.deepEqual(validateProposalDelivery({ segment: { ...segment(), content: [], anchorTops: {} }, summary: 'Delete section' }).segment.content, [])
 })
 
@@ -97,6 +97,38 @@ test('segments validate their own composition, geometry and anchors, not an exte
     const payload = structuredClone(value); change(payload)
     invalid({ segment: payload, summary: 'Invalid composition' })
   }
+})
+
+test('segments preserve ID shorthand while checking decidable references and explicit native payloads', () => {
+  const value = segment()
+  value.objects = ['existing-object']
+  value.content.push({ type: 'flow', attrs: { id: 'flow', objectId: 'existing-object' } })
+  value.geometry['existing-object'] = { x: 0, y: 10, width: 120, height: 80 }
+  const result = validateProposalDelivery({ segment: value, summary: 'Use an existing object' })
+  assert.deepEqual(result.segment.objects, ['existing-object'])
+
+  const malformed = [
+    payload => { payload.objects = ['unsafe/id'] },
+    payload => { payload.objects = ['paragraph'] },
+    payload => { payload.objects = ['same', 'same'] },
+    payload => { payload.objects = ['existing-object']; payload.content.push({ type: 'flow', attrs: { id: 'flow', objectId: 'missing-object' } }) },
+    payload => { payload.objects = ['existing-object']; payload.content.push({ type: 'flow', attrs: { id: 'flow-1', objectId: 'existing-object' } }, { type: 'flow', attrs: { id: 'flow-2', objectId: 'existing-object' } }) },
+    payload => { payload.objects = ['existing-object']; payload.geometry.missing = { x: 0, y: 0, width: 1, height: 1 } },
+    payload => { payload.objects = ['existing-object', { id: 'existing-object', kind: 'formula', layout: { width: 120, placement: { type: 'float', anchorId: 'paragraph', x: 0, y: 0 } }, latex: 'x' }] },
+    payload => { payload.objects = ['existing-object', { id: 'invalid-native', kind: 'formula', layout: { width: 0, placement: { type: 'float', anchorId: 'paragraph', x: 0, y: 0 } }, latex: 'x' }] },
+  ]
+  for (const change of malformed) {
+    const invalidValue = structuredClone(value)
+    change(invalidValue)
+    invalid({ segment: invalidValue, summary: 'Invalid shorthand composition' })
+  }
+
+  assert.throws(() => validateComposition([paragraph()], ['existing-object'], { allowEmpty: true }))
+  invalid({ segment: { ...segment(), objects: Array(100001).fill('object-id') }, summary: 'Too many object IDs' })
+  assert.throws(() => validateProposalDelivery({
+    segment: { ...segment(), objects: ['existing-object'] },
+    screenshotPaths: { 'existing-object': 'shot.png' }, summary: 'Invalid screenshot mapping',
+  }, { 'shot.png': png(120, 80) }))
 })
 
 test('HTML screenshots use supplied object dimensions and resolve transport assets without retained paths', () => {
