@@ -53,7 +53,7 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
   const prompt = task.draftPrompt ?? ''
   const link = assistant.agentLink(task)
   const expanded = busy || !activityCollapsed
-  const instructions = link && `Please help with this Mote task: ${link}\nRead the JSON task descriptor at this URL and follow the linked skill: https://mote.ylxdzsw.com/skills/external/SKILL.md\nOptional document and workspace reads return latest cloud content. Submit one or more proposals; each receives a server-assigned version ID. Other agents may submit concurrently. The owner reviews and accepts proposals as document edits.${selected ? `\nSelected version for context: ${selected.id}.` : ''}`
+  const instructions = link && `Please help me with this Mote document: ${link}\nSkill: https://mote.ylxdzsw.com/skills/external/SKILL.md`
   async function copy(text: string, label: string) {
     try { await navigator.clipboard.writeText(text); setCopyNotice(`${label} copied.`) }
     catch { setCopyNotice(`Could not copy ${label.toLowerCase()}. Check clipboard permissions and retry.`) }
