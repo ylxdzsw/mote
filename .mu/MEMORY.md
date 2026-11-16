@@ -2098,3 +2098,7 @@ Segment proposal objects may be complete native objects or bare IDs of objects o
 ## 2026-11-13 — Two-link external handoff
 
 Keep copied external instructions to the task link and reusable skill link, without protocol explanations or a suffix derived from the owner's local review selection. Task-specific context belongs in the canonical JSON task description, including its existing selected-version request context; reusable guidance belongs in the skill and linked references. Those sources already cover latest-cloud reads, proposal IDs, concurrent submissions, and owner review. This keeps the handoff short and avoids duplicating guidance or treating a transient review selection as a new agent request.
+
+## 2026-11-16 — Noninteractive slide separators
+
+Make editing slide separators and their numbers passive, nonselectable guides rather than full-width paste targets or slide-selection buttons. Pointer events pass through to the canvas and gutter, so boundaries no longer intercept segment gestures. Whole-slide selection still comes from the existing gutter promotion rules; slide paste follows the current or last-selected slide. Keep Add slide as the explicit endpoint action, with no changes to saved boundaries, geometry, or reader/export rendering.

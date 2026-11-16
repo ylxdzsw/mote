@@ -41,7 +41,6 @@ export function useSegmentSelection(props: Props) {
   const selected = useRef<SegmentRange | null>(null)
   const insertion = useRef<SegmentPoint | null>(null)
   const selectedSlides = useRef<SlideSelection | null>(null)
-  const slideBoundary = useRef<number | null>(null)
   const [slides, setSlides] = useState<SlideSelection | null>(null)
   const [range, setRange] = useState<SegmentRange | null>(null)
   const [paint, setPaint] = useState<Paint>({ bands: [], objects: [], top: 0, bottom: 0 })
@@ -53,7 +52,7 @@ export function useSegmentSelection(props: Props) {
   const content = useRef(props.doc.content)
 
   function select(next: SegmentRange | null, whole = next ? promoteSlideSelection(live.current.doc, next) : null) {
-    insertion.current = null; slideBoundary.current = null
+    insertion.current = null
     selectedSlides.current = whole; setSlides(whole)
     const promoted = whole ? slideSelectionRange(live.current.doc, whole) : next
     selected.current = promoted; setRange(promoted); setNotice('')
@@ -65,25 +64,6 @@ export function useSegmentSelection(props: Props) {
   function slideAtY(y: number) {
     const boxes = slideBoxes()
     return boxes.find(box => y < box.bottom)?.index ?? boxes.at(-1)!.index
-  }
-  function selectSlideRange(first: number, last = first) {
-    if (!live.current.editable || !live.current.doc.page.slideHeight) return
-    const count = slideRanges(live.current.doc).length
-    if (first < 0 || last < first || last >= count) return
-    live.current.onStart(); live.current.stage.current?.focus({ preventScroll: true })
-    window.getSelection()?.removeAllRanges()
-    const whole = { first, last }
-    select(slideSelectionRange(live.current.doc, whole), whole)
-  }
-  function targetSlideBoundary(boundary: number) {
-    const { doc } = live.current
-    const ranges = slideRanges(doc)
-    if (!live.current.editable || !doc.page.slideHeight || boundary < 0 || boundary > ranges.length) return
-    live.current.onStart(); live.current.stage.current?.focus({ preventScroll: true })
-    const point = edge(ranges[boundary]?.start ?? doc.content.content!.length)
-    select({ start: point, end: point }, null)
-    slideBoundary.current = boundary
-    insertion.current = point
   }
   function measure(): Block[] {
     const { editor, sheet, scale } = live.current
@@ -154,9 +134,7 @@ export function useSegmentSelection(props: Props) {
       return [{ ...bounds, id }]
     })
     const boxes = whole ? slideBoxes().filter(box => box.index >= whole.first && box.index <= whole.last) : []
-    const boundary = slideBoundary.current
-    const borderTop = boundary === null ? undefined : slideBoxes()[boundary]?.top ?? slideBoxes().at(-1)!.bottom
-    const top = boxes[0]?.top ?? borderTop ?? boundaryY(current.start, 'start', blocks), bottom = boxes.at(-1)?.bottom ?? (equal(current) ? top : boundaryY(current.end, 'end', blocks))
+    const top = boxes[0]?.top ?? boundaryY(current.start, 'start', blocks), bottom = boxes.at(-1)?.bottom ?? (equal(current) ? top : boundaryY(current.end, 'end', blocks))
     const bands = whole ? boxes.map(box => ({ x: 0, y: box.top, width: doc.page.width - 2, height: box.bottom - box.top })) : equal(current) ? [] : [{ x: 0, y: top, width: doc.page.width - 2, height: bottom - top }]
     const next = { bands, objects, top, bottom }
     setPaint(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next)
@@ -363,7 +341,7 @@ export function useSegmentSelection(props: Props) {
         if (doc.page.slideHeight) {
           const object = doc.objects.find(object => live.current.selectedObjectIds?.includes(object.id))
           const currentSlide = object ? objectSlideIndex(doc, object) : slideAtIndex(doc, insertion.current?.index ?? editor.state.selection.$from.index(0)).index
-          const boundary = slideBoundary.current ?? (selectedSlides.current ? selectedSlides.current.last + 1 : currentSlide + 1)
+          const boundary = selectedSlides.current ? selectedSlides.current.last + 1 : currentSlide + 1
           const next = insertSlides(doc, payload, boundary)
           if (!live.current.history.guard.current(doc, next.doc)) throw new Error('Accept or discard the affected AI task before inserting slides.')
           commitSelection(next.doc, next.range, true, next.slides)
@@ -524,7 +502,7 @@ export function useSegmentSelection(props: Props) {
   </div>
   const selectionLabel = slides ? slides.first === slides.last ? 'Slide' : `${slides.last - slides.first + 1} slides` : range ? 'Segment' : null
   return { begin, clear, overlay, notice, range, marginHover, slides, selectionLabel, slideCount: slides ? slides.last - slides.first + 1 : 0,
-    selectSlideRange, targetSlideBoundary, deleteSelection,
+    deleteSelection,
     hover: (event: ReactPointerEvent | null) => setMarginHover(!!event && marginTarget(event)),
     target: (y: number, alt = false) => {
       const blocks = measure(), point = endpoint(y, alt, blocks)

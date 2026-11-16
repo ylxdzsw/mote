@@ -4,13 +4,10 @@
 .sheet[data-slides] .main-text :is(.main-paragraph, [data-flow], [data-spacer], [data-space-preview], [data-slide-break]) { position: relative; top: var(--slide-offset, 0px); }
 .main-text [data-slide-break] { display: flow-root; height: 0; margin: 0; padding: 0; border: 0; }
 .sheet[data-slides] .has-tail-caret > .ProseMirror-gapcursor { transform: translateY(var(--tail-slide-offset, 0px)); }
-.slide-rulers { position: absolute; inset: 0 auto auto 0; z-index: 4; pointer-events: none; transform-origin: top left; }
+.slide-rulers { position: absolute; inset: 0 auto auto 0; z-index: 4; pointer-events: none; user-select: none; transform-origin: top left; }
 .slide-ruler { position: absolute; left: 0; right: 0; border-top: calc(1px / var(--ruler-scale)) solid var(--ui-border); }
 .slide-ruler > span { position: absolute; right: calc(100% + 8px / var(--ruler-scale)); top: calc(5px / var(--ruler-scale)); color: var(--ui-muted); font: calc(10px / var(--ruler-scale))/1.2 var(--ui-font-family, sans-serif); font-variant-numeric: tabular-nums; }
 .slide-ruler-saved { border-top-style: dashed; border-top-color: var(--ui-muted); }
-.slide-border-target { position: absolute; inset: calc(-4px / var(--ruler-scale)) 0 auto; height: calc(8px / var(--ruler-scale)); width: 100%; padding: 0; border: 0; background: transparent; pointer-events: auto; border-radius: 0; }
-.slide-border-target:hover, .slide-border-target:focus-visible { background: var(--ui-accent-tint); }
-.slide-number { position: absolute; right: 100%; top: calc(4px / var(--ruler-scale)); width: calc(24px / var(--ruler-scale)); min-height: calc(24px / var(--ruler-scale)); padding: 0; border: 0; background: var(--ui-surface); color: var(--ui-muted); font-size: calc(11px / var(--ruler-scale)); pointer-events: auto; }
 .slide-ruler-saved > span { right: auto; left: calc(4px / var(--ruler-scale)); top: calc(3px / var(--ruler-scale)); background: var(--ui-surface); }
 .slide-append { position: absolute; left: 50%; margin-top: calc(24px / var(--ruler-scale)); display: inline-flex; align-items: center; gap: 6px; height: var(--ui-control-height); padding: 0 8px; border: 1px solid var(--ui-border); background: var(--ui-surface); color: var(--ui-muted); font-size: var(--ui-font-size); white-space: nowrap; pointer-events: auto; transform: translateX(-50%) scale(calc(1 / var(--ruler-scale))); transform-origin: top center; }
 .slide-append:hover:not(:disabled) { color: var(--ui-ink); background: var(--ui-surface-hover); }

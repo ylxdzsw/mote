@@ -980,7 +980,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       </div>}
       {segments.overlay}
       {editable && <SlideRulers slides={slides} width={doc.page.width} scale={scale}
-        onSelect={segments.selectSlideRange} onBorder={segments.targetSlideBoundary} onAppend={appendSlide} />}
+        onAppend={appendSlide} />}
       {editable && creationObject && insertionHint?.boundary && !creating && <div className="segment-layer creation-guides" aria-hidden="true"><div className="segment-drop" style={{ top: (insertionHint.boundary.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>{tool === 'ai' ? 'Reserve AI section' : 'Insert Flow'}</span></div></div>}
       {flowDrop && <div className="segment-layer flow-drag-guides" aria-hidden="true">
         {flowDrop.top !== undefined && <div className="segment-drop" style={{ top: (flowDrop.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Move Flow here</span></div>}
