@@ -40,6 +40,7 @@ import { resolveSegmentRange, type SegmentContext } from '../ai/segments'
 import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { SegmentBorders } from '../ai/SegmentBorders'
+import { ReservationMarkupOverlay } from '../ai/ReservationMarkupOverlay'
 import { selectedCandidateVersion } from '../ai/candidates'
 import { currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/types'
@@ -967,6 +968,8 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>
       {/* Outside the sheet so layout measurement, minimaps, and exports never see it. */}
+      {editable && aiReview?.tasks.some(task => task.markup) && <ReservationMarkupOverlay doc={layoutDoc}
+        tasks={aiReview.tasks} context={{ anchors, geometry }} scale={scale} />}
       {editable && creationObject && insertionHint && !creating && (tool === 'ai' ? !insertionHint.boundary : !!insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert data-mode={doc.theme.appearance.mode}
         style={{ ...themeVariables(doc.theme, doc.language ?? 'en', doc.version), width: doc.page.width, transform: `scale(${scale})` } as React.CSSProperties}>
         {(() => {

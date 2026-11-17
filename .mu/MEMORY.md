@@ -2133,3 +2133,8 @@ Empty Separators keep a full-width centered editable text area instead of collap
 ## 2026-11-17 — Consistent main-flow gap carets
 
 Render every main-document GapCursor as a vertical Body-colored writing position, not only document/slide tails. The inherited horizontal black dash made interior Flow/space boundaries inconsistent and nearly invisible in Dark mode; tail-only slide offsets could paint an interior caret on an earlier slide. Position the existing transient cursor from shared measured block edges, including caption footprints and spacer margin overlap, rather than maintaining a separate tail offset. Match Body font metrics and first-line indentation so typing starts where the caret indicates. Selection remains geometry- and content-neutral; tail keyboard semantics, native text carets, and reader/export content are unchanged.
+
+
+## 2026-11-17 — Spatial instructions on the editing canvas
+
+Show reservation annotations directly over their current targets while editing, including deselected reservations, so spatial instructions remain legible in context without reopening the annotation editor. The pointer-transparent overlay lives outside the measured sheet, shares its palette and target-coordinate resolver, and follows zoom/layout without changing document geometry or entering minimap/reader/export rendering. Hide a task’s marks while its proposal is previewed; Original, reservation Undo, and ordinary annotation edits restore/update the overlay. Accept/Discard releases it with the reservation.
