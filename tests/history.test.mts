@@ -13,7 +13,7 @@ const { createBlankDocument } = await server.ssrLoadModule('/src/document/model.
 const initial = createBlankDocument()
 const reserved: Reservation[] = [{ id: 'task', documentId: initial.id, original: [], workspaceRead: false,
   target: { kind: 'text', blockIds: [], selection: { from: 1, to: 1 }, insert: false, area: { x: 0, y: 0, width: 100, height: 40 } } }]
-const released = reserved.map(task => ({ ...task, released: true }))
+const released: Reservation[] = []
 const changed = { ...initial, authoring: { notes: ['Accepted with prior notes'] } }
 type History = ReturnType<typeof HistoryHook>
 
@@ -39,6 +39,7 @@ test('acceptance is one atomic history entry, restores selections, and bypasses 
     h => {
       assert.equal(h.doc, changed)
       assert.equal(h.reservations, released)
+      assert.deepEqual([...h.referencedTaskIds()], ['task'])
       assert.equal(h.canUndo, true)
       selection = { type: 'text', anchor: 3, head: 4 }
       h.undo()
@@ -130,10 +131,34 @@ test('spatial instructions travel with reservation history without entering docu
   const annotated = reserved.map(task => ({ ...task, markup }))
   run(reserved, [
     h => h.setReservations(annotated),
-    h => { assert.equal(h.doc, initial); assert.deepEqual(h.reservations[0].markup, markup); h.setState(changed, annotated.map(task => ({ ...task, released: true }))) },
-    h => { assert.equal(h.reservations[0].released, true); h.undo() },
+    h => { assert.equal(h.doc, initial); assert.deepEqual(h.reservations[0].markup, markup); h.setState(changed, []) },
+    h => { assert.equal(h.reservations.length, 0); h.undo() },
     h => { assert.equal(h.doc, initial); assert.equal(h.reservations, annotated); h.undo() },
     h => { assert.equal(h.reservations[0].markup, undefined); h.redo() },
     h => { assert.deepEqual(h.reservations[0].markup, markup); assert.equal(h.doc, initial) },
+  ])
+})
+
+test('task references follow present, undo and redo roots, not released records', () => {
+  run([], [
+    h => h.setReservations(reserved),
+    h => { assert.deepEqual([...h.referencedTaskIds()], ['task']); h.undo() },
+    h => {
+      assert.equal(h.reservations.length, 0)
+      assert.deepEqual([...h.referencedTaskIds()], ['task'], 'redo still owns the task')
+      h.setDoc(changed)
+    },
+    h => assert.equal(h.referencedTaskIds().size, 0, 'a new branch releases the last redo reference'),
+  ])
+  run(reserved, [
+    h => h.setReservations([]),
+    h => {
+      assert.deepEqual([...h.referencedTaskIds()], ['task'])
+      for (let i = 0; i < 100; i++) h.setDoc({ ...initial, authoring: { notes: [String(i)] } })
+    },
+    h => assert.equal(h.referencedTaskIds().size, 0, 'evicting the last undo reference releases the task'),
+  ])
+  run(reserved.map(task => ({ ...task, released: true })), [
+    h => { assert.equal(h.reservations.length, 0); assert.equal(h.referencedTaskIds().size, 0) },
   ])
 })

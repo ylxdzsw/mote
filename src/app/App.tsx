@@ -107,7 +107,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const actions = useRef<CanvasActions | null>(null)
   const assistant = useAssistant(history, true, id => actions.current?.without([id]),
     id => measuredArea(document.querySelector(`.workspace [data-note-id="${id}"]`)), () => actions.current?.segmentContext(),
-    { documentId: cloud.record.meta.id, sync: () => copy.sync(true), earlySync: copy.requestEarlySync, revision: cloud.record.meta.revision, workingCopyId: cloud.record.key, privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
+    { documentId: cloud.record.meta.id, sync: () => copy.sync(true), earlySync: copy.requestEarlySync, revision: cloud.record.meta.revision, workingCopyId: cloud.record.key,
+      localSaved: cloud.local === 'saved' && cloud.record.document === doc && cloud.record.reservations === history.reservations,
+      privateDocument, externalBlocked: sharingBlocked, draft: cloud.record.draft })
   useLayoutEffect(() => {
     copy.preserveAssistant = assistant.flushLocal
     return () => { copy.preserveAssistant = undefined }
@@ -432,7 +434,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       : undefined,
     canReserve: !!target && !overlappingTasks.length,
   }
-  const assistantTaskId = assistant.allTasks.some(task => task.id === assistant.activeId) ? assistant.activeId : selectedTask?.id ?? null
+  const assistantTaskId = assistant.tasks.some(task => task.id === assistant.activeId) ? assistant.activeId : selectedTask?.id ?? null
 
   const showProperties = !assistantTaskId && !overlappingTasks.length || selectedObjectTask && assistantTaskId === selectedObjectTask.id
   const panelScroll = useRef<HTMLDivElement>(null)

@@ -23,7 +23,6 @@ export interface ReservationSelection { detail?: string; canReserve: boolean }
 export function AssistantPanel({ assistant, activeId, selection, onReserve, onLocate, onAnnotate, theme }: {
   assistant: Assistant; activeId: string | null; selection: ReservationSelection | null; onReserve: () => void; onLocate: (task: AITask) => void; onAnnotate: (task: AITask) => void; theme: Theme
 }) {
-  const retained = assistant.allTasks.filter(task => !!assistant.inactiveReason(task))
   const palette = { '--page-background': pageColor(theme), ...Object.fromEntries(paletteEntries(theme).flatMap(entry => [[`--palette-${entry.id}`, entry.strong], [`--palette-${entry.id}-soft`, entry.soft ?? entry.strong]])) } as CSSProperties
   return <div className="ai-panel" aria-label="AI assistant" style={palette}>
     <CloudStatus assistant={assistant} />
@@ -31,17 +30,13 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
       {selection.canReserve && <button className="ai-primary ai-reserve" onClick={onReserve}>Reserve for Assistant <PanelIcon name="spark" /></button>}
       {selection.detail && <p>{selection.detail}</p>}
     </div>}
-    {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} onAnnotate={() => onAnnotate(task)} />)}
-    <RecoveryArchives assistant={assistant} />
+    {assistant.tasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} onAnnotate={() => onAnnotate(task)} />)}
     <footer className="ai-footer">
-      {!!retained.length && <details className="ai-recovery-tasks"><summary>Retained tasks ({retained.length})</summary>
-        {retained.map(task => <button key={task.id} aria-pressed={activeId === task.id} onClick={() => assistant.openTask(task.id)}>{taskTitle(task)}</button>)}
-      </details>}
       {(activeId || selection?.canReserve) && <details className="ai-info"><summary>Help & privacy</summary>
         <p>Reservations, task permissions, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
         <p>Built-in and external agents can work together. These tabs only change the controls shown; switching tabs does not stop work or change access. Proposals share one version list and never edit your document automatically.</p>
         <p>The task link can read the latest saved document and, when allowed, non-Private workspace sources. Each request checks current access. Private blocks the public endpoint; the internal built-in socket still works. Downloaded content cannot be recalled.</p>
-        <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task; it never restarts generation. Proposals remain available independently of document saving.</p>
+        <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task and cached proposals; it never restarts generation.</p>
       </details>}
     </footer>
   </div>
@@ -169,16 +164,4 @@ function RecoveryDetails({ task }: { task: AITask }) {
 
 function CloudStatus({ assistant }: { assistant: Assistant }) {
   return assistant.cloudWarning ? <div className="ai-cloud-status"><p className="ai-error" role="alert">{assistant.cloudWarning}</p><button onClick={assistant.retryCloud}>Retry local saving</button></div> : null
-}
-
-function RecoveryArchives({ assistant }: { assistant: Assistant }) {
-  if (!assistant.archives.length) return null
-  return <details className="ai-archives"><summary>Saved recovery copies ({assistant.archives.length})</summary>
-    <p>These copies are retained in this browser, without locks or automatic application.</p>
-    {assistant.archives.map(archive => <details key={archive.id}><summary>{archive.label} · {archive.tasks.length} tasks</summary>
-      {archive.tasks.map(task => <div key={task.id}><h3>{taskTitle(task)}</h3><RecoveryDetails task={task} /></div>)}
-      <div className="ai-actions"><button onClick={() => downloadRecovery(archive, `mote-ai-recovery-${archive.id}.json`)}>Save recovery copy</button>
-        <button onClick={() => { if (window.confirm('Discard this saved recovery copy from this browser? This cannot be undone.')) assistant.discardArchive(archive.id) }}>Discard recovery copy</button></div>
-    </details>)}
-  </details>
 }

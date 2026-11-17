@@ -81,6 +81,7 @@ export interface AssistantCloud {
   draft?: boolean
   documentId: string
   workingCopyId: string
+  localSaved: boolean
   revision: string
   privateDocument: boolean
   externalBlocked: boolean

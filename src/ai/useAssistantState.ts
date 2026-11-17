@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { assistantRequest } from './api'
-import { loadAssistantRecovery, loadTasks, saveAssistantRecovery, type AssistantRecovery } from './storage'
+import { loadAssistantRecovery, saveAssistantRecovery, type AssistantRecovery } from './storage'
 import type { AITask, AssistantCloud } from './types'
+import type { useDocumentHistory } from '../document/history'
 
 // Only browser review state and unsent requests live here. Reservations are in
 // document history; proposals are fetched independently from the task service.
-export function useAssistantState(cloud: AssistantCloud | undefined, writable: boolean) {
+export function useAssistantState(cloud: AssistantCloud | undefined, writable: boolean, history: ReturnType<typeof useDocumentHistory>) {
   const [views, setViews] = useState<Record<string, Partial<AITask>>>({})
   const [loaded, setLoaded] = useState(false), [warning, setWarning] = useState('')
   const [retry, setRetry] = useState(0)
-  const [archives, setArchives] = useState<AssistantRecovery['archives']>([])
+  const current = useRef({ cloud, history })
+  current.current = { cloud, history }
   const record = useRef<AssistantRecovery | undefined>(undefined)
   const writes = useRef(Promise.resolve())
   const mounted = useRef(true)
@@ -41,43 +42,51 @@ export function useAssistantState(cloud: AssistantCloud | undefined, writable: b
     let active = true
     mounted.current = true
     setLoaded(false)
+    record.current = undefined
     if (!cloud || !writable) { setLoaded(true); return }
     void (async () => {
       const saved = await loadAssistantRecovery(cloud.workingCopyId, cloud.documentId)
-      const legacy = saved ? [] : await loadTasks()
-      let retained = saved?.archives ?? []
-      if (saved?.tasks.length) retained = [...retained, { id: 'retired-local', label: 'Earlier local task recovery', tasks: saved.tasks }]
-      if (legacy.length) retained = [...retained, { id: 'retired-browser', label: 'Earlier browser task recovery', tasks: legacy }]
       if (!active) return
       // V5 views did not persist their protocol. Keep them recovery-only instead
       // of interpreting cached proposals or pending runs as the current protocol.
       const views = Object.fromEntries(Object.entries(saved?.views ?? {}).map(([id, view]) => [id,
         { ...view, protocol: view.protocol ?? 'mote-agent-v5' }]))
-      const current: AssistantRecovery = { workingCopyId: cloud.workingCopyId, documentId: cloud.documentId,
-        revision: null, tasks: [], dirty: saved?.dirty ?? false, archives: retained, views }
-      record.current = current
-      setViews(current.views!); setArchives(retained); setLoaded(true); setWarning('')
-      // Retired cloud artifacts are optional recovery, never a dependency of
-      // current document editing or browser proposal/request state.
-      if (!saved && !cloud.draft) void assistantRequest(cloud.documentId).then(remote => {
-        if (!active || !remote.tasks.length || !record.current) return
-        record.current = { ...record.current, archives: [...record.current.archives,
-          { id: 'retired-cloud', label: 'Earlier cloud task recovery', tasks: remote.tasks }] }
-        setArchives(record.current.archives); void persist()
-      }).catch(() => {})
+      // Leave legacy recovery records intact, without importing them into the
+      // current task lifecycle or exposing a parallel task-history interface.
+      record.current = { workingCopyId: cloud.workingCopyId, documentId: cloud.documentId,
+        revision: null, tasks: [], dirty: false, archives: [], ...saved, views }
+      setViews(views); setLoaded(true); setWarning('')
     })().catch(error => { if (active) { setWarning(`Assistant recovery could not be loaded: ${(error as Error).message}`); setLoaded(true) } })
-    return () => { active = false; mounted.current = false }
+    return () => {
+      active = false; mounted.current = false
+      if (current.current.cloud?.localSaved) collect(new Set(current.current.history.currentReservations().map(task => task.id)), false)
+    }
   }, [cloud?.workingCopyId, cloud?.documentId, writable, retry, persist])
+  function dirty(views: Record<string, Partial<AITask>>) {
+    return !!record.current?.pending || !!record.current?.tasks.length && !!record.current.dirty
+      || current.current.history.currentReservations().some(task => !!views[task.id]?.draftPrompt || !!views[task.id]?.pendingRun)
+  }
+  function collect(ids: Set<string>, notify = true) {
+    const saved = record.current
+    if (!saved) return
+    const views = Object.keys(saved.views ?? {}).every(id => ids.has(id)) ? saved.views ?? {}
+      : Object.fromEntries(Object.entries(saved.views ?? {}).filter(([id]) => ids.has(id)))
+    const pending = dirty(views)
+    if (views === saved.views && pending === saved.dirty) return
+    record.current = { ...saved, views, dirty: pending }
+    if (notify && views !== saved.views) setViews(views)
+    void persist().catch(() => {})
+  }
+  useEffect(() => {
+    // The persisted working copy must stop referencing a task before its cache
+    // can be removed. Failed local saves retain the cache for recovery.
+    if (loaded && cloud?.localSaved) collect(history.referencedTaskIds())
+  })
   function update(id: string, patch: Partial<AITask>) {
-    if (!record.current) return
+    if (!record.current || !current.current.history.referencedTaskIds().has(id)) return
     const views = { ...record.current.views, [id]: { ...record.current.views?.[id], ...patch } }
-    record.current = { ...record.current, views, dirty: Object.values(views).some(view => !!view.draftPrompt || !!view.pendingRun) }
+    record.current = { ...record.current, views, dirty: dirty(views) }
     setViews(views); void persist()
   }
-  function discardArchive(id: string) {
-    if (!record.current) return
-    record.current = { ...record.current, archives: record.current.archives.filter(item => item.id !== id) }
-    setArchives(record.current.archives); void persist()
-  }
-  return { views, loaded, warning, archives, update, discardArchive, flushLocal, retry: () => { if (!record.current) setRetry(value => value + 1); else void persist() } }
+  return { views, loaded, warning, update, flushLocal, retry: () => { if (!record.current) setRetry(value => value + 1); else void persist() } }
 }

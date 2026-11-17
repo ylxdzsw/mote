@@ -48,7 +48,7 @@ async function releaseTasks(record: WorkingRecord, tasks: Reservation[]) {
   const saved = await loadWorkingCopy(record.key)
   const copy = new WorkingCopy(saved && (saved.dirty || saved.pending || saved.pendingCreate) ? saved : record)
   const current = copy.getSnapshot().record, ids = new Set(tasks.map(task => task.id))
-  copy.update(current.document, current.reservations.map(task => ids.has(task.id) ? { ...task, released: true } : task))
+  copy.update(current.document, current.reservations.filter(task => !ids.has(task.id)))
   if (!await copy.sync(true)) throw new Error(copy.getSnapshot().error || 'The release could not be confirmed. Retry to continue.')
 }
 

@@ -108,16 +108,13 @@
 .ai-panel summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: 2px; }
 .ai-info p { margin-bottom: 0; }
 .ai-empty { padding: 12px var(--ui-panel-padding); color: var(--ui-muted); }
-.ai-recovery-tasks { margin-bottom: 8px; }
-.ai-recovery-tasks button { display: flex; margin-top: 6px; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
 .ai-empty > p { margin: 12px 0 0; }
 .ai-empty strong { font-weight: 600; color: var(--ui-ink); }
 .ai-note { margin: 6px 12px; color: var(--ui-muted); font-size: 12px; }
 .ai-cloud-status:empty { display: none; }
-.ai-cloud-status, .ai-archives { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--panel-line); font-size: 11px; }
+.ai-cloud-status { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--panel-line); font-size: 11px; }
 .ai-cloud-status p { margin: 5px 0 8px; }
 .ai-recovery-details { flex: none; margin: 6px 12px 12px; color: var(--ui-muted); font-size: 11px; overflow-wrap: anywhere; }
-.ai-archives details { margin-block: 6px; }
 .ai-panel a { color: var(--ui-accent); text-underline-offset: 3px; }
 .ai-progress, .ai-summary { line-height: 1.5; overflow-wrap: anywhere; white-space: pre-wrap; }
 .ai-progress { color: var(--ui-muted); font-size: 12px; margin: 6px 0; }

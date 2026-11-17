@@ -14,7 +14,8 @@ export function useDocumentHistory(initial: MoteDocument, initialReservations: R
   const guardState = useRef<(before: MoteDocument, beforeReservations: Reservation[], after: MoteDocument, afterReservations: Reservation[]) => boolean>(() => true)
   const guardEditor = useRef<(id: string, before: JSONContent, after: JSONContent) => boolean>(() => true)
   const lockedBlocks = useRef<Record<string, string>>({})
-  const [{ doc, reservations }, render] = useState({ doc: initial, reservations: initialReservations })
+  const [{ doc, reservations }, render] = useState(() => ({ doc: initial,
+    reservations: initialReservations.some(task => task.released) ? initialReservations.filter(task => !task.released) : initialReservations }))
   const [revision, setRevision] = useState(0)
   const state = useRef({ doc, reservations, past: [] as Snapshot[], future: [] as Snapshot[],
     editors: new Map<string, HistoryEditor>(), restored: {} as Snapshot['selections'],
@@ -84,6 +85,7 @@ export function useDocumentHistory(initial: MoteDocument, initialReservations: R
     try { action() } finally { s.options = {} }
   }
   return { doc, reservations, currentReservations: () => s.reservations,
+    referencedTaskIds: () => new Set([s, ...s.past, ...s.future].flatMap(snapshot => snapshot.reservations.filter(task => !task.released).map(task => task.id))),
     setDoc, setState, setReservations: (reservations: Reservation[]) => setState(s.doc, reservations),
     revision, guard, guardState, guardEditor, lockedBlocks, canUndo: !!s.past.length, canRedo: !!s.future.length,
     undo: () => travel(), redo: () => travel(true), boundary, edit,

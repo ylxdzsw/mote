@@ -2,7 +2,7 @@
 .side-panel-body { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; overflow: hidden; }
 .side-panel-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--ui-border) transparent; }
 .selection-inspector { padding: var(--ui-panel-padding) var(--ui-panel-padding) 16px; }
-.selection-inspector + .ai-panel:has(.ai-empty, .ai-task:not([hidden]), .ai-archives, .ai-recovery-tasks, .ai-cloud-status) { border-top: 1px solid var(--panel-line); }
+.selection-inspector + .ai-panel:has(.ai-empty, .ai-task:not([hidden]), .ai-cloud-status) { border-top: 1px solid var(--panel-line); }
 .context-inspector { display: grid; align-content: start; gap: 12px; min-width: 0; font-size: var(--ui-font-size); line-height: 1.45; }
 .context-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .context-heading > div { min-width: 0; }

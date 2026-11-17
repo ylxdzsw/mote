@@ -72,7 +72,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
 
 export function useAssistant(history: ReturnType<typeof useDocumentHistory>, writable: boolean, withoutObject: (id: string) => FloatingObject[] | undefined, objectArea: (id: string) => Area, segmentContext?: () => SegmentContext | undefined, cloud?: AssistantCloud) {
   const connection = useConnection()
-  const persistence = useAssistantState(cloud, writable)
+  const persistence = useAssistantState(cloud, writable, history)
   const [notice, setNotice] = useState('')
   const [activeId, setActiveId] = useState<string | null>(null)
   const [runs, setRuns] = useState<Record<string, number>>({})
@@ -111,6 +111,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   history.guardEditor.current = (id, before, after) => permitsEditor(activeTasks(), id, before, after)
   history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' || task.target.kind === 'segment' ? task.target.blockIds.map(id => [id, task.id]) : []))
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; preparing.current.clear() } }, [])
+  useEffect(() => {
+    const ids = history.referencedTaskIds()
+    const retain = <T,>(values: Record<string, T>) => Object.keys(values).every(id => ids.has(id))
+      ? values : Object.fromEntries(Object.entries(values).filter(([id]) => ids.has(id)))
+    setAccess(retain); setStatusIssues(retain)
+    for (const id of preparing.current.keys()) if (!ids.has(id)) preparing.current.delete(id)
+  })
 
   function receive(remote: RemoteTask) {
     const task = getTask(remote.id)
@@ -207,7 +214,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     if (!writable || !task || task.released) return
     history.setReservations(history.currentReservations().map(item => item.id === id ? { ...item, ...patch } : item))
   }
-  const release = (ids: string[]) => history.currentReservations().map(task => ids.includes(task.id) ? { ...task, released: true } : task)
+  const release = (ids: string[]) => history.currentReservations().filter(task => !ids.includes(task.id))
   function discard(id: string) {
     if (!writable || !getTask(id) || getTask(id)!.released) return
     history.setState(history.doc!, release([id]))
@@ -238,7 +245,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     const task = getTask(id), connection = current.current.cloud
     if (!writable || !connection || !task || task.protocol !== 'mote-agent-v7' || task.released || preparing.current.has(id) || !task.pendingRun && !prompt.trim()) return
     const attempt = Symbol(); preparing.current.set(id, attempt)
-    const valid = () => mounted.current && preparing.current.get(id) === attempt && !getTask(id)?.released
+    const valid = () => mounted.current && preparing.current.get(id) === attempt && !!getTask(id) && !getTask(id)!.released
     const operation = task.pendingRun ?? { operationId: crypto.randomUUID(), prompt,
       ...(history.doc?.authoring?.aiModel?.trim() ? { model: history.doc.authoring.aiModel.trim() } : {}),
       ...(selectedCandidateVersion(task) ? { selectedVersion: selectedCandidateVersion(task)!.id } : {}) }
@@ -314,6 +321,5 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     missingRemote: (id: string) => setStatusIssues(value => ({ ...value, [id]: 'Execution details are unavailable. Retained proposals can still be reviewed.' })),
     statusIssue: (id: string) => statusIssues[id], checkStatus,
     flushLocal: persistence.flushLocal, cloudWarning: persistence.warning, retryCloud: persistence.retry,
-    archives: persistence.archives, discardArchive: persistence.discardArchive,
     lockedIds: new Set(tasks.flatMap(task => task.target.kind === 'object' ? [task.target.objectId] : task.target.kind === 'segment' ? task.target.objectIds : [])) }
 }
