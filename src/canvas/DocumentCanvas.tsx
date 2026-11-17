@@ -41,6 +41,7 @@ import { projectSegments } from '../ai/segmentProjection'
 import { OriginalGeometry } from '../ai/OriginalGeometry'
 import { SegmentBorders } from '../ai/SegmentBorders'
 import { ReservationMarkupOverlay } from '../ai/ReservationMarkupOverlay'
+import { hasReservationMarkup } from '../ai/markup'
 import { selectedCandidateVersion } from '../ai/candidates'
 import { currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/types'
@@ -473,7 +474,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
-    if ((event.target as Element).closest('[data-slide-control]')) return
+    if ((event.target as Element).closest('[data-slide-control], .reservation-markup-overlay')) return
     if ((event.ctrlKey || event.metaKey) && (event.target as Element).closest('.text-content a[href]')) {
       event.stopPropagation()
       return
@@ -862,7 +863,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
 
   function interact(event: React.SyntheticEvent) {
     // Zoom controls are portaled into the header, outside the document surface.
-    if (!editable || !event.currentTarget.contains(event.target as Node)) return
+    if (!editable || !event.currentTarget.contains(event.target as Node) || (event.target as Element).closest('.reservation-markup-overlay')) return
     onInteraction?.(event)
   }
 
@@ -879,6 +880,18 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       [...range.getClientRects()].some(rect => event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom)) return
     event.preventDefault()
     onContextMenu({ x: event.clientX, y: event.clientY })
+  }
+
+  function editReservationMarkup(event: React.MouseEvent) {
+    if (!editable || tool || !aiReview?.editMarkup || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    const element = event.target as Element
+    if (element.closest('button, input, textarea, select, a[href], [data-floating-control], [data-caption-control]')) return
+    const objectId = element.closest<HTMLElement>('[data-note-id]')?.dataset.noteId
+    const reservationId = element.closest<HTMLElement>('[data-ai-reservation]')?.dataset.aiReservation
+    const task = objectId ? segmentTask(objectId) ?? aiReview.tasks.find(task => task.target.kind === 'object' && task.target.objectId === objectId)
+      : aiReview.tasks.find(task => task.id === reservationId)
+    if (!task || !hasReservationMarkup(task) || task.preview && selectedCandidateVersion(task)) return
+    event.preventDefault(); event.stopPropagation(); aiReview.editMarkup(task)
   }
 
   function renderObject(original: FloatingObject, inFlow = false) {
@@ -937,6 +950,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       } as React.CSSProperties}>
       <div className={`sheet ${editingLayout ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined}
+        onDoubleClickCapture={editReservationMarkup}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
         onDropCapture={event => {
@@ -969,7 +983,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       </div>
       {/* Outside the sheet so layout measurement, minimaps, and exports never see it. */}
       {editable && aiReview?.tasks.some(task => task.markup) && <ReservationMarkupOverlay doc={layoutDoc}
-        tasks={aiReview.tasks} context={{ anchors, geometry }} scale={scale} />}
+        tasks={aiReview.tasks} context={{ anchors, geometry }} scale={scale} activeId={aiReview.activeTaskId} onEdit={aiReview.editMarkup} />}
       {editable && creationObject && insertionHint && !creating && (tool === 'ai' ? !insertionHint.boundary : !!insertionHint.boundary) && <div className="object-insertion-preview is-editing" aria-hidden="true" inert data-mode={doc.theme.appearance.mode}
         style={{ ...themeVariables(doc.theme, doc.language ?? 'en', doc.version), width: doc.page.width, transform: `scale(${scale})` } as React.CSSProperties}>
         {(() => {

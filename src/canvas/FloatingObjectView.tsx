@@ -8,6 +8,7 @@ import { MathView } from './MathView'
 import { HTMLWidgetView } from './HTMLWidgetView'
 import { CodeView } from './CodeView'
 import { DrawingView, MarkupView } from './DrawingView'
+import { DrawingEditButton } from './DrawingEditButton'
 import { pixels } from '../theme/ThemePanel'
 import { paletteCSS } from '../theme/palette'
 import type { AITask } from '../ai/types'
@@ -111,10 +112,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       : 'content' in note ? <TextEditor content={note.content} editable={editable && contentActive && !captionSelected && !locked} table={kind === 'table'}
         label={`Floating ${kind}`} historyId={note.id} onChange={content => onChange({ content })} onActive={onActive}
         onReady={value => { editor.current = value }} /> : null}
-    {editable && selected && !locked && note.kind === 'drawing' && onDrawingEdit && <button className="drawing-edit-button" aria-label="Edit drawing" title="Edit drawing"
-      onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onDrawingEdit() }}>
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 4 5 5M4 20l5-1L21 7a2 2 0 0 0-5-5L4 14z" /></svg>
-    </button>}
+    {editable && selected && !locked && note.kind === 'drawing' && onDrawingEdit && <DrawingEditButton onEdit={onDrawingEdit} />}
     {editable && !sizeLocked && <div className="floating-border-right" data-floating-control="width" role="separator" aria-orientation="vertical" tabIndex={-1}
       aria-label={`Resize floating ${kind} width`} aria-valuemin={kind === 'html' ? 16 : 120} aria-valuenow={Math.round(box.width)}
       onPointerDown={event => begin('width', event)} onFocus={() => onActive(editor.current)} />}

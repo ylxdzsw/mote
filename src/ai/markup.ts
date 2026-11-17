@@ -4,9 +4,11 @@ import { promoteSlideSelection } from '../document/slideClipboard'
 import { slideRanges } from '../document/slides'
 import { segmentBlockIds } from './segments'
 import { resolveSegmentRange, type SegmentContext } from './segments'
-import type { AITarget, Area, SegmentTarget } from './types'
+import type { AITarget, Area, Reservation, SegmentTarget } from './types'
 
 export type { ReservationMarkup } from './types'
+
+export const hasReservationMarkup = (task: Pick<Reservation, 'markup'>) => !!(task.markup?.strokes.length || task.markup?.labels.length)
 
 export interface ReservationMarkupGeometry {
   // Current target origin in page coordinates; saved x/y are relative to this point.

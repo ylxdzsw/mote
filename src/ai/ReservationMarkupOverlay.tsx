@@ -1,18 +1,20 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { MoteDocument } from '../document/model'
 import { MarkupView } from '../canvas/DrawingView'
+import { DrawingEditButton } from '../canvas/DrawingEditButton'
 import { themeVariables } from '../theme/ThemePanel'
 import { selectedCandidateVersion } from './candidates'
-import { measureReservationMarkup } from './markup'
+import { hasReservationMarkup, measureReservationMarkup } from './markup'
 import type { SegmentContext } from './segments'
 import type { AITask } from './types'
 
 // Outside the sheet: instructions never enter layout, minimap snapshots or exports.
-export function ReservationMarkupOverlay({ doc, tasks, context, scale }: {
+export function ReservationMarkupOverlay({ doc, tasks, context, scale, activeId, onEdit }: {
   doc: MoteDocument; tasks: AITask[]; context: SegmentContext; scale: number
+  activeId?: string | null; onEdit?: (task: AITask) => void
 }) {
   const root = useRef<HTMLDivElement>(null)
-  const marked = tasks.filter(task => task.markup && !task.released && !(task.preview && selectedCandidateVersion(task)))
+  const marked = tasks.filter(task => hasReservationMarkup(task) && !task.released && !(task.preview && selectedCandidateVersion(task)))
   useLayoutEffect(() => {
     const footprint = root.current!.parentElement!
     const sheet = footprint.querySelector<HTMLElement>(':scope > .sheet')!
@@ -36,10 +38,11 @@ export function ReservationMarkupOverlay({ doc, tasks, context, scale }: {
     resize.observe(sheet)
     return () => { mutations.disconnect(); resize.disconnect() }
   })
-  return <div ref={root} className="reservation-markup-overlay" aria-hidden="true" inert
+  return <div ref={root} className="reservation-markup-overlay"
     style={themeVariables(doc.theme, doc.language ?? 'en', doc.version)}>
     {marked.map(task => <div key={task.id} data-reservation-markup={task.id} hidden style={{ position: 'absolute' }}>
-      <MarkupView markup={task.markup!} />
+      <div aria-hidden="true"><MarkupView markup={task.markup!} /></div>
+      {task.id === activeId && onEdit && <DrawingEditButton label="Edit annotations" scale={scale} onEdit={() => onEdit(task)} />}
     </div>)}
   </div>
 }
