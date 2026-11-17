@@ -48,6 +48,7 @@ export const defaultTheme: Theme = {
     subheading: defaultSubheadingStyle,
     body: { size: em(1) }, caption: { size: em(.75), color: 'gray3', lineHeight: em(1.25) },
     list: { size: em(1), spaceBefore: em(.375), spaceAfter: em(.375) },
+    separator: { color: 'gray4' },
   },
   objects: { table: { size: em(1) }, formula: {}, code: { size: em(.875), lineHeight: em(1.375) } },
 }

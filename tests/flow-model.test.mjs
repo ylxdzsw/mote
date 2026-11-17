@@ -25,7 +25,9 @@ const p = id => ({ ...paragraph(id), attrs: { id, semantic: 'body' } })
 const figure = { id: 'figure', kind: 'image', layout: { width: 200, placement: { type: 'flow', x: 30 } },
   src: 'data:image/png;base64,iVBORw0KGgo=', alt: 'Figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Figure caption' }] }] }, width: 230 } }
 const annotation = { id: 'annotation', kind: 'code', layout: { width: 40, placement: { type: 'float', anchorId: 'flow-block', x: -20, y: -10 } }, source: 'x', language: 'text' }
-const doc = () => ({ format: 'mote', version: 1, language: 'en', id: 'document', page: { width: 800, margins: { top: 20, left: 40, right: 40, bottom: 20 } }, theme: structuredClone(defaultTheme),
+const legacyTheme = structuredClone(defaultTheme)
+delete legacyTheme.paragraphs.separator
+const doc = () => ({ format: 'mote', version: 1, language: 'en', id: 'document', page: { width: 800, margins: { top: 20, left: 40, right: 40, bottom: 20 } }, theme: structuredClone(legacyTheme),
   content: { type: 'doc', content: [p('before'), flowBlock('figure', 'flow-block'), p('after')] }, objects: structuredClone([figure, annotation]) })
 const anchors = [{ id: 'before', top: 20, bottom: 50 }, { id: 'flow-block', top: 80, bottom: 200 }, { id: 'after', top: 240, bottom: 270 }]
 const geometry = { figure: { x: 70, y: 80, width: 200, height: 100 }, annotation: { x: 50, y: 70, width: 40, height: 30 } }

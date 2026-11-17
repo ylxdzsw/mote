@@ -153,11 +153,13 @@ A new document starts in Light mode with Primary hue 29°, Secondary hue 262°,
 mixed-script autospace enabled, justification off, and a 16px Sans default in
 Gray 2 at weight 400. Its default line height is 1.5em, Before is 0em, After
 is 1em, and letter spacing is 0px. New themes seed Title, Heading, Subheading, Body,
-Caption, and List paragraph styles; Table, Code, and Formula object styles;
+Caption, List, and Separator paragraph styles; Table, Code, and Formula object styles;
 and Flow spacing of 1.5em Before and After. The seeded Title, Heading, and
 Subheading styles each explicitly use weight 700. Subheading is 1.125em, with
 1.5em line height, Before 2em, and After 0.5em; absence in another theme
 still means inheritance from Defaults, not this preset.
+Separator is seeded with text color `gray4`; an omitted Separator color in an
+existing theme still inherits Defaults. Loading does not apply creation presets.
 
 Privacy, sharing, cloud/task revisions, selection, zoom, and other view state
 are not document fields. Native saves preserve `authoring`. Public shared

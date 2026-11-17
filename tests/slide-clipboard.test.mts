@@ -14,7 +14,12 @@ const p = (id: string) => ({ ...paragraph(id), attrs: { id, semantic: 'body' } }
 const marker = (id: string) => ({ type: 'slideBreak', attrs: { id } })
 const code = (id: string, anchorId: string | null, y = 12): FloatingObject => ({ id, kind: 'code', source: id, language: 'text', layout: { width: 100, placement: { type: 'float', anchorId, x: 7, y } } })
 const range = (start: number, end: number) => ({ start: { index: start, offset: 0 }, end: { index: end, offset: 0 } })
-const source = (): MoteDocument => ({ ...createBlankDocument(), version: 2, page: { ...createBlankDocument().page, slideHeight: 540 },
+const legacyBlank = () => {
+  const document = createBlankDocument()
+  delete document.theme.paragraphs.separator
+  return document
+}
+const source = (): MoteDocument => ({ ...legacyBlank(), version: 2, page: { ...createBlankDocument().page, slideHeight: 540 },
   content: { type: 'doc', content: [p('a'), p('b'), marker('s1'), p('c'), marker('s2'), p('d')] },
   objects: [code('first', null, 1200), code('middle', 's1', 900), code('last', 'd')] })
 
@@ -93,7 +98,7 @@ test('Flow, captions and signed Flow-anchor offsets survive slide paste', () => 
 
 test('continuous paste flattens and ordinary segment paste never creates slides', () => {
   const doc = source(), payload = flattenSlides(copySlides(doc, { first: 0, last: 2 }))
-  const blank = { ...createBlankDocument(), version: 1 }
+  const blank = { ...legacyBlank(), version: 1 }
   const pasted = replaceSegment(blank, range(0, 0), payload, [], {})
   validateDocument(pasted)
   assert.equal(pasted.page.slideHeight, undefined)

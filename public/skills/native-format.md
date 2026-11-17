@@ -68,6 +68,8 @@ rule. Rich-text label content centers between equal flank rules; wrapped labels
 remain centered and the flanks shorten. The Separator class's resolved text color determines the rule color,
 independently of any inline color mark on the label. Separator is excluded from
 document-wide justification and first-line indent.
+New-document themes preset Separator text color to `gray4`. Existing themes
+retain their saved overrides; an omitted color still inherits Defaults.
 
 The fixed palette is 22 slots: Strong/Soft pairs for Primary, Secondary, Red, Amber, Green, Pink, Blue, and Violet (`primary`, `secondary`, etc., with `:soft` for Soft), plus `gray1` through `gray6`. Grays have no Soft form. Primary/Secondary follow saved hues; every slot adapts to Light/Dark mode. `PairColor` used by text-box borders is one of the eight families or `gray4` (which pairs with Gray 5).
 
