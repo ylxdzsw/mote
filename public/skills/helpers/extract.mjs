@@ -4,7 +4,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 export function extractCandidate(task, envelope) {
-  if (task.protocol !== 'mote-agent-v6') throw new Error('Unsupported task protocol; request a current task.')
+  if (task.protocol !== 'mote-agent-v7') throw new Error('Unsupported task protocol; request a current task.')
   const document = envelope.document ?? envelope
   const { target } = task, blocks = document.content.content
   const objects = new Map(document.objects.map(object => [object.id, object]))

@@ -8,7 +8,7 @@ import { NodeSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
-import { replaceMainContent, supportsMarkup, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
+import { replaceMainContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { columnAlignment } from '../editor/table'
 import { readImage } from '../document/image'
 import { useWidgetScreenshot } from './useWidgetScreenshot'
@@ -25,7 +25,7 @@ import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
 import { FloatingInspector } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
-import { MarkupEditor } from './MarkupEditor'
+import { ReservationMarkupEditor } from '../ai/ReservationMarkupEditor'
 import { patchFloating } from '../canvas/patchFloating'
 import { constrainCaptionResize, extentBounds } from '../canvas/floatingGeometry'
 import { reconcileObjectDeletions } from '../document/flow'
@@ -146,10 +146,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     : undefined
   const [drawingId, setDrawingId] = useState<string | null>(null)
   const drawing = doc?.objects.find(object => object.id === drawingId)
-  const [markupTarget, setMarkupTarget] = useState<{ documentId: string; id: string; size: { width: number; height: number } } | null>(null)
-  const markupObject = doc?.objects.find(object => object.id === markupTarget?.id)
-  const markupEditable = editable && markupTarget?.documentId === doc?.id && markupObject && supportsMarkup(markupObject)
-    && !assistant.lockedIds.has(markupObject.id) && selectedIds.length === 1 && selectedIds[0] === markupObject.id && !selectedCaptionId
+  const [markupId, setMarkupId] = useState<string | null>(null)
+  const markupTask = assistant.tasks.find(task => task.id === markupId)
   const imageInput = useRef<HTMLInputElement>(null)
   const imageTarget = useRef<{ documentId: string; anchorId: string | null; objectId?: string } | null>(null)
   const [imageError, setImageError] = useState('')
@@ -160,7 +158,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (drawingId && (!editable || drawing?.kind !== 'drawing' || assistant.lockedIds.has(drawingId))) setDrawingId(null)
   }, [drawingId, drawing, editable, assistant.lockedIds])
 
-  useEffect(() => { if (!markupEditable) setMarkupTarget(null) }, [markupEditable])
+  useEffect(() => { if (!editable || !markupTask) setMarkupId(null) }, [editable, markupTask])
 
   useEffect(() => {
     if (editable) return
@@ -291,7 +289,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }
 
   function editDrawing(id: string) {
-    setMarkupTarget(null)
+    setMarkupId(null)
     history.boundary(); setActiveEditor(null); setTool(null); setDrawingId(id)
   }
 
@@ -300,24 +298,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>(`[data-note-id="${drawingId}"]`)?.focus({ preventScroll: true }))
   }
 
-  function editMarkup() {
-    if (!editable || !doc || !selectedObject || !supportsMarkup(selectedObject) || assistant.lockedIds.has(selectedObject.id)) return
-    let size = { width: selectedObject.layout.width, height: selectedObject.kind === 'html' ? selectedObject.layout.height : 0 }
-    if (selectedObject.kind === 'image') {
-      const element = workspace.current?.querySelector<HTMLElement>(`[data-note-id="${selectedObject.id}"]`)
-      const image = element?.querySelector<HTMLImageElement>('.object-body img')
-      if (!image?.naturalWidth || !image.naturalHeight) { setImageError('The image has not loaded. Try Edit markup again when it is visible.'); return }
-      const rect = image.getBoundingClientRect(), outer = element!.getBoundingClientRect()
-      const width = rect.width && outer.width ? rect.width / outer.width * selectedObject.layout.width : selectedObject.layout.width
-      size = { width, height: width * image.naturalHeight / image.naturalWidth }
-    }
-    history.boundary(); setImageError(''); setActiveEditor(null); setTool(null); setDrawingId(null)
-    setMarkupTarget({ documentId: doc.id, id: selectedObject.id, size })
+  function editMarkup(task: AITask) {
+    if (!editable || assistant.inactiveReason(task)) return
+    history.boundary(); assistant.openTask(task.id); setTool(null); setDrawingId(null); setMarkupId(task.id)
   }
 
   function closeMarkup() {
-    history.boundary(); setMarkupTarget(null)
-    requestAnimationFrame(() => workspace.current?.querySelector<HTMLElement>(`[data-note-id="${markupTarget?.id}"]`)?.focus({ preventScroll: true }))
+    history.boundary(); setMarkupId(null)
+    if (markupTask) { locateTask(markupTask, false); assistant.openTask(markupTask.id) }
   }
 
   function reorder(front: boolean) {
@@ -472,10 +460,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     focusRequest(task)
     return task?.id
   }
-  function locateTask(task: AITask) {
+  function locateTask(task: AITask, reveal = true) {
     setTool(null)
     const hasCandidate = !!selectedCandidateVersion(task)
-    if (task.target.kind === 'segment') { actions.current?.locateSegment(task.id); return }
+    if (task.target.kind === 'segment') { actions.current?.locateSegment(task.id, reveal); return }
     if (task.target.kind === 'object') { setSelectedIds([task.target.objectId]); setActiveEditor(null) }
     else if (mainEditor) {
       const ids = task.target.blockIds
@@ -486,7 +474,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       })
       setSelectedIds([]); setActiveEditor(mainEditor); mainEditor.commands.setTextSelection({ from, to })
     }
-    requestAnimationFrame(() => {
+    if (reveal) requestAnimationFrame(() => {
       const selector = task.target.kind === 'object' ? `[data-note-id="${task.target.objectId}"]`
         : task.preview && hasCandidate ? `[data-ai-preview="${task.id}"] > .main-paragraph` : `[data-ai-reservation="${task.id}"]`
       const element = document.querySelector<HTMLElement>(`.workspace > .canvas-pane ${selector}`)
@@ -644,7 +632,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 onWidgetRun={runWidget}
                 onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                 onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
-                onMarkupEdit={editMarkup}
                 reserved={!!selectedObjectTask}
                 newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew} /></>
               : tool ? <div className="context-inspector">
@@ -661,7 +648,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
               : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
               : <div className="context-inspector"><p className="hint">Select text or an object.</p></div>}
             </div>}
-            <AssistantPanel assistant={assistant} activeId={assistantTaskId} selection={tool ? null : reservationSelection} onReserve={reserveSelection} onLocate={locateTask} />
+            <AssistantPanel assistant={assistant} activeId={assistantTaskId} selection={tool ? null : reservationSelection} onReserve={reserveSelection} onLocate={locateTask} onAnnotate={editMarkup} theme={doc.theme} />
           </div>
         </div>
       </aside>}
@@ -688,9 +675,9 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         maxWidth={drawing.layout.placement.type === 'flow' ? doc.page.width - doc.page.margins.left - doc.page.margins.right : doc.page.width}
         signedY={doc.content.content!.some(node => node.type === 'flow' && node.attrs?.id === objectAnchorId(drawing, doc.content))} onChange={patch => updateObject(drawing.id, patch)} onClose={closeDrawing} />,
       document.querySelector('.app')!)}
-    {markupEditable && markupTarget && markupObject && supportsMarkup(markupObject) && createPortal(
-      <MarkupEditor key={markupObject.id} object={markupObject} size={markupTarget.size} theme={doc.theme}
-        onChange={markup => updateObject(markupObject.id, { markup })} onClose={closeMarkup} />,
+    {editable && markupTask && createPortal(
+      <ReservationMarkupEditor key={markupTask.id} doc={doc} reservation={markupTask}
+        onChange={markup => assistant.setMarkup(markupTask.id, markup)} onClose={closeMarkup} />,
       document.querySelector('.app')!)}
     {editable && <Launchpad
       slides={doc.page.slideHeight !== undefined}

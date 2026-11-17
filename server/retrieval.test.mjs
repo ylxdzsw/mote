@@ -96,8 +96,8 @@ async function saveDocument(value, envelope, text) {
 
 const target = () => ({ kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } })
 
-async function createTask(value, own, { workspaceRead = false, id = randomUUID() } = {}) {
-  const reservation = { id, documentId: own.id, target: target(), original: own.document.content.content, workspaceRead }
+async function createTask(value, own, { workspaceRead = false, markup, id = randomUUID() } = {}) {
+  const reservation = { id, documentId: own.id, target: target(), original: own.document.content.content, workspaceRead, ...(markup === undefined ? {} : { markup }) }
   const saved = await value.call('PUT', `documents/${own.id}`, { baseRevision: own.revision, document: own.document, reservations: [reservation], operationId: randomUUID() })
   assert.equal(saved.status, 200, JSON.stringify(saved.body))
   const created = await value.call('GET', `ai/tasks/${id}`)
@@ -173,6 +173,27 @@ test('public task resources use current reservation permission and latest worksp
   assert.equal((await agent(value, base)).status, 200)
 })
 
+test('task description rereads the latest saved reservation markup without starting execution', async t => {
+  let runs = 0
+  const value = await app(t, { runner: async () => { runs++; return {} } })
+  const own = await createDocument(value, 'Markup')
+  const markup = {
+    x: -48, y: -120, width: 960, height: 1200,
+    strokes: [{ points: [[0, 0], [960, 1200]], color: 'primary', width: 3 }],
+    labels: [{ x: 24, y: 32, text: 'Current note', color: 'gray1', size: 18 }],
+  }
+  const task = await createTask(value, own, { markup }), base = task.externalPath
+  const taskState = value.manager.tasks.get(task.id)
+  assert.equal(task.protocol, 'mote-agent-v7')
+  assert.deepEqual((await agent(value, base)).body.markup, markup)
+  const latest = { ...markup, y: -160, labels: [{ ...markup.labels[0], text: 'Updated note' }] }
+  await changeReservation(value, own.id, { markup: latest })
+  assert.deepEqual((await agent(value, base)).body.markup, latest)
+  assert.equal(taskState.meta.status, 'waiting')
+  assert.equal(taskState.meta.generation, 0)
+  assert.equal(runs, 0)
+})
+
 test('canonical descriptions expose scoped metadata and segment measurements without reservation originals', async t => {
   let context, finish
   const finished = new Promise(resolve => { finish = resolve })
@@ -208,7 +229,7 @@ test('canonical descriptions expose scoped metadata and segment measurements wit
   const publicReply = await agent(value, base)
   assert.equal(publicReply.status, 200)
   const description = publicReply.body
-  assert.equal(description.protocol, 'mote-agent-v6')
+  assert.equal(description.protocol, 'mote-agent-v7')
   assert.equal(description.taskId, id)
   assert.equal(description.request, null)
   const expectedTarget = structuredClone(targetScope)

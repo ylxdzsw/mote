@@ -5,6 +5,10 @@
 .ai-status.error { color: var(--ui-error-text); }
 .ai-task, .ai-task-body { display: flex; flex-direction: column; min-width: 0; }
 .ai-task[hidden] { display: none; }
+.ai-spatial-instructions { margin: 0 var(--ui-panel-padding) 10px; padding-top: 8px; border-top: 1px solid var(--panel-line); }
+.ai-spatial-instructions h3 { margin: 0 0 6px; color: var(--ui-muted); font-size: var(--ui-label-size); font-weight: 500; }
+.ai-spatial-instructions p { margin: 6px 0 0; color: var(--ui-muted); font-size: 11px; }
+.ai-markup-thumbnail { position: relative; max-width: 100%; height: 64px; margin-bottom: 6px; overflow: hidden; background: var(--page-background); }
 .ai-task-header { flex: none; padding: 12px var(--ui-panel-padding) 8px; }
 .ai-task-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .ai-task-title .context-heading { flex: 1; min-width: 0; }

@@ -3,7 +3,7 @@ import { HttpError, MAX_RESULT, MAX_SCREENSHOT, UUID, record, validateProposalCa
 
 export { PROPOSAL_SCHEMA_URL }
 
-export const AGENT_PROTOCOL = 'mote-agent-v6'
+export const AGENT_PROTOCOL = 'mote-agent-v7'
 export const TOKEN = /^[A-Za-z0-9_-]{22}$/
 export function operationId(value) { if (typeof value !== 'string' || !UUID.test(value)) throw new HttpError(400, 'operationId must be a UUID'); return value }
 export function fingerprint(value) {

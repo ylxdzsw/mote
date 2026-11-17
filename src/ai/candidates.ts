@@ -3,7 +3,7 @@ import type { AITask, RemoteTask, TaskVersion } from './types'
 type CandidateState = Pick<AITask, 'protocol' | 'versions' | 'selectedVersion' | 'candidateNotice'>
 
 export function candidateVersions(task: CandidateState): TaskVersion[] {
-  return task.protocol === 'mote-agent-v6' ? task.versions ?? [] : []
+  return task.protocol === 'mote-agent-v7' ? task.versions ?? [] : []
 }
 
 export function selectedCandidateVersion(task: CandidateState): TaskVersion | undefined {
@@ -17,7 +17,7 @@ export function candidateVersionName(version: TaskVersion) {
 }
 
 export function reconcileCandidateState(task: AITask, remote: RemoteTask): Partial<AITask> {
-  if (task.protocol !== 'mote-agent-v6' || remote.protocol !== 'mote-agent-v6' || !remote.versions) return {}
+  if (task.protocol !== 'mote-agent-v7' || remote.protocol !== 'mote-agent-v7' || !remote.versions) return {}
   const versions = remote.versions
   const selectedVersion = task.selectedVersion ?? selectedCandidateVersion(task)?.id
   if (selectedVersion) return versions.some(version => version.id === selectedVersion)

@@ -9,7 +9,7 @@ const { createBlankDocument } = await server.ssrLoadModule('/src/document/model.
 const { copySegment } = await server.ssrLoadModule('/src/document/segment.ts')
 const { makeSegmentTarget } = await server.ssrLoadModule('/src/ai/segments.ts')
 const paragraph = id => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [] })
-const protocol = 'mote-agent-v6'
+const protocol = 'mote-agent-v7'
 
 test('copy-edit extraction preserves segment semantics, shorthand, partial spacers, Slides and empty boundaries', () => {
   const document = { ...createBlankDocument(), content: { type: 'doc', content: [
@@ -50,5 +50,5 @@ test('extraction copies individual objects and paragraphs and rejects missing ta
   assert.deepEqual(extractCandidate({ protocol, target: { kind: 'text', blockIds: ['a', 'b'] } }, document).content, document.content.content)
   assert.throws(() => extractCandidate({ protocol, target: { kind: 'object', objectId: 'missing' } }, document), /missing/)
   assert.throws(() => extractCandidate({ protocol, target: { kind: 'text', blockIds: ['b', 'a'] } }, document), /no longer match/)
-  assert.throws(() => extractCandidate({ protocol: 'mote-agent-v5' }, document), /Unsupported/)
+  assert.throws(() => extractCandidate({ protocol: 'mote-agent-v6' }, document), /Unsupported/)
 })

@@ -21,7 +21,7 @@ async function fixture(t) {
   await fs.writeFile(path.join(outputDir, 'shot.png'), 'image')
   const value = {
     root, outputDir, bodies: [], headers: [], identities: [], descriptionReads: 0,
-    description: { protocol: 'mote-agent-v6', taskId: randomUUID() },
+    description: { protocol: 'mote-agent-v7', taskId: randomUUID() },
     receipt: {}, dropResponse: false,
   }
   const server = http.createServer(async (request, response) => {
@@ -68,7 +68,7 @@ test('CLI persists a private identity before submission and reuses it after resp
   assert.match(identity.name, /^\.mote-submit-[0-9a-f]{64}\.uuid$/)
   assert.equal(identity.text, `${value.bodies[0].operationId}\n`)
   assert.equal(identity.mode, 0o600)
-  assert.ok(value.headers.every(headers => headers['user-agent'] === 'Mote-agent/v6'))
+  assert.ok(value.headers.every(headers => headers['user-agent'] === 'Mote-agent/v7'))
   assert.equal((await fs.readdir(value.outputDir)).some(name => name.endsWith('.tmp')), false)
 })
 
@@ -89,7 +89,7 @@ test('concurrent processes share one identity; payload, image, label and base ch
   assert.equal(value.descriptionReads, value.bodies.length)
 })
 
-test('v6 proposals use only task ID and protocol from the task description to check receipts', async t => {
+test('v7 proposals use only task ID and protocol from the task description to check receipts', async t => {
   const value = await fixture(t)
   const operationId = randomUUID()
   const receipt = await submitResult(value.context, operationId)
@@ -111,9 +111,9 @@ test('v6 proposals use only task ID and protocol from the task description to ch
   }
   const submitted = value.bodies.length
   await assert.rejects(submitResult({ ...value.context, taskId: randomUUID() }), /Invalid task description/)
-  value.description.protocol = 'mote-agent-v3'
-  await assert.rejects(submitResult(value.context), /Unsupported agent protocol/)
   value.description.protocol = 'mote-agent-v6'
+  await assert.rejects(submitResult(value.context), /Unsupported agent protocol/)
+  value.description.protocol = 'mote-agent-v7'
   value.description.taskId = 'invalid'
   await assert.rejects(submitResult(value.context), /Invalid task description/)
   assert.equal(value.bodies.length, submitted)

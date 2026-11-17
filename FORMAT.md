@@ -72,14 +72,14 @@ version read-only. Proposals and old task artifacts remain recoverable; generati
 is never retried automatically. Task tokens follow saved reservation state, not
 permanent revocation. Proposal submission uses the current stateless schema;
 Preview/Accept checks applicability to the actual document. Task transport
-`mote-agent-v6` is independent of the native document's numeric `version`.
+`mote-agent-v7` is independent of the native document's numeric `version`.
 Segment proposal object-ID shorthand is expanded before native validation; it
 is never part of a native document or export.
 
 V1–V7 load as V8; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5,
 V5 → V6, V6 → V7, and V7 → V8 are non-breaking; V3 → V4 is breaking. New
 documents, saves of opened documents, exports, and new task inputs use the
-current version. Current `mote-agent-v6` candidates use native V8 grammar;
+current version. Current `mote-agent-v7` candidates use native V8 grammar;
 the task transport version remains independent of native document versions.
 `validateDocument` still accepts every supported version, so pinned task
 snapshots and stored revisions stay readable as they are.
@@ -515,6 +515,8 @@ separate from the owner; deleting or cutting only a caption leaves its owner.
 
 ### Permanent object markup (V5+)
 
+Retained for native compatibility: permanent image/HTML markup is no longer offered for authoring. Existing marks still render and round-trip; the owner may clear them. New spatial instructions belong to reservations, outside native JSON and exports, and do not change this grammar.
+
 Only image and HTML objects may contain optional `markup`:
 
 ```ts
@@ -579,7 +581,7 @@ They use `version:1`, `type:'segment'|'objects'`, and `objects` (never
 Transient `geometry`, `anchorTops`, and `originTop` may accompany these
 payloads for placement/coordinate translation. They are not fields of
 `MoteDocument` or object `layout`. Main block/object/caption records inside
-these envelopes use the current native shapes above; current `mote-agent-v6`
+these envelopes use the current native shapes above; current `mote-agent-v7`
 candidates use native V8 grammar. The transfer version is separate from the
 native document and task-transport versions.
 

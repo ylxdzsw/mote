@@ -18,7 +18,7 @@ const paragraph = (id: string, text = id) => ({ type: 'paragraph', attrs: { id, 
 const captionContent = { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Caption' }] }] }, width: 240 }
 const object: FloatingHTMLWidget = { id: 'box', kind: 'html', layout: { width: 320, height: 180, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, html: 'before', screenshot: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9uoAAAAASUVORK5CYII=', alt: 'Figure', caption: captionContent }
 const doc = { ...createBlankDocument(), id: 'document', content: { type: 'doc', content: ['a', 'b', 'c', 'd'].map(id => paragraph(id)) }, objects: [object] } as MoteDocument
-const taskVersion = { protocol: 'mote-agent-v6', documentVersion: doc.version, snapshotDocument: doc }
+const taskVersion = { protocol: 'mote-agent-v7', documentVersion: doc.version, snapshotDocument: doc }
 const textTask = { ...taskVersion, target: { kind: 'text', blockIds: ['b', 'c'] } } as AITask
 const objectTask = { ...taskVersion, target: { kind: 'object', objectId: 'box' } } as AITask
 
@@ -117,7 +117,7 @@ test('unsupported task protocols retain raw recovery data without reservations o
     assert.deepEqual(candidateVersions(task), [])
     assert.equal(selectedCandidateVersion(task), undefined)
     assert.throws(() => candidateDocument(doc, task, task.candidate), /Unsupported task/)
-    assert.deepEqual(reconcileCandidateState(task, { protocol: 'mote-agent-v6', versions: [version('V2')] }), {})
+    assert.deepEqual(reconcileCandidateState(task, { protocol: 'mote-agent-v7', versions: [version('V2')] }), {})
     assert.deepEqual(reconcileCandidateState(objectTask, { protocol, versions: [version('V2')] }), {})
     assert.deepEqual(task, before)
   }
@@ -126,11 +126,11 @@ test('unsupported task protocols retain raw recovery data without reservations o
 test('new versions preserve the exact review selection and never replace an unavailable selection', () => {
   const first = version('V1'), second = version('V2'), third = version('V3')
   const task = { ...objectTask, versions: [first, second], selectedVersion: first.id, preview: false } as AITask
-  const patch = reconcileCandidateState(task, { protocol: 'mote-agent-v6', versions: [first, second, third], selectedVersion: third.id })
+  const patch = reconcileCandidateState(task, { protocol: 'mote-agent-v7', versions: [first, second, third], selectedVersion: third.id })
   const updated = { ...task, ...patch }
   assert.equal(selectedCandidateVersion(updated), first)
   assert.equal(updated.preview, false)
-  const missing = { ...task, ...reconcileCandidateState(task, { protocol: 'mote-agent-v6', versions: [second, third] }) }
+  const missing = { ...task, ...reconcileCandidateState(task, { protocol: 'mote-agent-v7', versions: [second, third] }) }
   assert.equal(missing.selectedVersion, first.id)
   assert.equal(selectedCandidateVersion(missing), undefined)
   assert.equal(missing.preview, false)

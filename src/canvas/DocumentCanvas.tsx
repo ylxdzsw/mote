@@ -52,7 +52,7 @@ export interface CanvasActions {
   selectOwner: () => void; captionWidth: (width: number | null) => void
   placement: (placement: 'flow' | 'float') => void
   segmentSelection: () => { range: SegmentRange; area: Area } | null
-  segmentContext: () => SegmentContext | undefined; locateSegment: (id: string) => void
+  segmentContext: () => SegmentContext | undefined; locateSegment: (id: string, reveal?: boolean) => void
   joinSlide: (index: number) => void
 }
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
@@ -828,9 +828,9 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     segmentSelection: segments.selection,
     joinSlide: index => { if (commitDocument(joinSlide(doc, index))) { segments.clear(); select([]); onActive(null) } },
     segmentContext: () => candidates.length ? measuredSource?.doc === doc ? measuredSource.context : undefined : segments.context(),
-    locateSegment: id => {
+    locateSegment: (id, reveal = true) => {
       selectAISegment(id)
-      requestAnimationFrame(() => {
+      if (reveal) requestAnimationFrame(() => {
         const element = sheet.current?.querySelector<HTMLElement>(`[data-ai-segment-owner="${id}"], [data-ai-segment-tasks~="${id}"], [data-ai-segment="${id}"]`)
         const target = element?.firstElementChild instanceof HTMLElement ? element.firstElementChild : element
         target?.scrollIntoView({ block: 'center', inline: 'nearest' }); target?.focus({ preventScroll: true })

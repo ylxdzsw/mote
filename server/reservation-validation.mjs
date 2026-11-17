@@ -1,4 +1,4 @@
-import { HttpError, UUID, DOCUMENT_VERSIONS, record, text, finite, safeId, validateDocument } from './validation.mjs'
+import { HttpError, UUID, DOCUMENT_VERSIONS, record, text, finite, safeId, validateDocument, validateNativeObjectMarkup } from './validation.mjs'
 
 function area(value, label) { const object = record(value, label); for (const key of ['x', 'y']) finite(object[key], `${label}.${key}`); for (const key of ['width', 'height']) finite(object[key], `${label}.${key}`, 0); return object }
 
@@ -127,7 +127,7 @@ function target(value, document) {
 }
 
 
-const fields = new Set(['id', 'documentId', 'target', 'original', 'snapshotDocument', 'documentVersion', 'segmentOriginalBlocks', 'segmentOriginalObjects', 'createdAt', 'workspaceRead', 'expiresAt', 'released', 'title'])
+const fields = new Set(['id', 'documentId', 'target', 'original', 'snapshotDocument', 'documentVersion', 'segmentOriginalBlocks', 'segmentOriginalObjects', 'createdAt', 'workspaceRead', 'expiresAt', 'released', 'title', 'markup'])
 function currentTarget(value, document) {
   if (value.kind !== 'segment' || !value.bookmarks) return target(value, document)
   const blocks = document.content.content
@@ -181,6 +181,14 @@ export function validateReservations(values, document) {
     if (item.documentId !== document.id) throw new HttpError(400, 'reservation.documentId must match document')
     if (typeof item.workspaceRead !== 'boolean') throw new HttpError(400, 'reservation.workspaceRead must be boolean')
     if (item.released !== undefined && typeof item.released !== 'boolean') throw new HttpError(400, 'reservation.released must be boolean')
+    if (item.markup !== undefined) {
+      const markup = record(item.markup, 'reservation.markup')
+      for (const key of Object.keys(markup)) if (!['x', 'y', 'width', 'height', 'strokes', 'labels'].includes(key)) throw new HttpError(400, `reservation.markup.${key}: unsupported field`)
+      finite(markup.x, 'reservation.markup.x')
+      finite(markup.y, 'reservation.markup.y')
+      const { x, y, ...objectMarkup } = markup
+      validateNativeObjectMarkup(objectMarkup, 'reservation.markup')
+    }
     record(item.target, 'reservation.target')
     if (item.original === undefined || item.original === null || typeof item.original !== 'object') throw new HttpError(400, 'reservation.original is required')
     for (const key of ['createdAt', 'expiresAt']) if (item[key] !== undefined) finite(item[key], `reservation.${key}`, 0)

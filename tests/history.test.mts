@@ -124,3 +124,16 @@ test('combined-state guard protects other reservations on explicit edits and und
     },
   ])
 })
+
+test('spatial instructions travel with reservation history without entering document content', () => {
+  const markup = { x: -20, y: 0, width: 960, height: 540, strokes: [], labels: [{ x: 40, y: 30, text: 'Move here', color: 'gray1', size: 20 }] }
+  const annotated = reserved.map(task => ({ ...task, markup }))
+  run(reserved, [
+    h => h.setReservations(annotated),
+    h => { assert.equal(h.doc, initial); assert.deepEqual(h.reservations[0].markup, markup); h.setState(changed, annotated.map(task => ({ ...task, released: true }))) },
+    h => { assert.equal(h.reservations[0].released, true); h.undo() },
+    h => { assert.equal(h.doc, initial); assert.equal(h.reservations, annotated); h.undo() },
+    h => { assert.equal(h.reservations[0].markup, undefined); h.redo() },
+    h => { assert.deepEqual(h.reservations[0].markup, markup); assert.equal(h.doc, initial) },
+  ])
+})

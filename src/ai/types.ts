@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import type { FloatingObject, MoteDocument } from '../document/model'
+import type { FloatingObject, MoteDocument, ObjectMarkup } from '../document/model'
 import type { SegmentClipboard, SegmentRange } from '../document/segment'
 
 export interface Area { x: number; y: number; width: number; height: number }
@@ -37,12 +37,14 @@ export interface RemoteTask {
   released?: boolean
 }
 // Document-owned editing state; execution and proposal data live separately.
+export type ReservationMarkup = ObjectMarkup & { x: number; y: number }
 export interface Reservation {
   id: string
   documentId: string
   target: AITarget
   original: FloatingObject | JSONContent[] | SegmentClipboard
   workspaceRead: boolean
+  markup?: ReservationMarkup
   expiresAt?: number
   released?: boolean
   title?: string

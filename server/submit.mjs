@@ -27,7 +27,7 @@ export function agentRequest(url, { socketPath, body } = {}) {
   if (!['http:', 'https:'].includes(endpoint.protocol)) throw new Error('Agent URL must use HTTP(S)')
   const data = body === undefined ? undefined : JSON.stringify(body)
   return new Promise((resolve, reject) => {
-    const request = (endpoint.protocol === 'https:' ? https : http).request(endpoint, { socketPath, method: data === undefined ? 'GET' : 'POST', headers: { 'user-agent': 'Mote-agent/v6', ...(data === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }) } }, response => {
+    const request = (endpoint.protocol === 'https:' ? https : http).request(endpoint, { socketPath, method: data === undefined ? 'GET' : 'POST', headers: { 'user-agent': 'Mote-agent/v7', ...(data === undefined ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) }) } }, response => {
       const chunks = []
       response.on('data', chunk => chunks.push(chunk)); response.on('error', reject)
       response.on('end', () => {
@@ -87,7 +87,7 @@ export async function submitResult(context, operationId) {
   const { socketPath, label } = context.agent
   const url = context.agent.url.replace(/\/$/, '')
   const description = await agentRequest(url, { socketPath })
-  if (description?.protocol !== 'mote-agent-v6') throw new Error('Unsupported agent protocol')
+  if (description?.protocol !== 'mote-agent-v7') throw new Error('Unsupported agent protocol')
   const { taskId } = description
   if (typeof taskId !== 'string' || !UUID.test(taskId) || (context.taskId !== undefined && context.taskId !== taskId)) throw new Error('Invalid task description')
   if (label !== undefined && typeof label !== 'string') throw new Error('Label must be a string')

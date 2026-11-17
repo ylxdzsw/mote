@@ -547,7 +547,7 @@ test('release and undo restore the same durable token without document-side runt
   let saved = value.store.create({ id: doc.id, name: 'Undo', document: doc, reservations: [item], operationId: randomUUID() })
   const task = (await value.call('GET', `ai/tasks/${item.id}`)).body
   assert.equal(task.status, 'waiting')
-  assert.equal(task.protocol, 'mote-agent-v6')
+  assert.equal(task.protocol, 'mote-agent-v7')
   assert.equal('executor' in task, false)
   const token = value.store.credential(item.id).token
   const proposal = { operationId: randomUUID(), candidate: { summary: 'Independent proposal', content: doc.content.content } }

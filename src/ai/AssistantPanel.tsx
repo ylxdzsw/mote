@@ -1,10 +1,13 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useState, type CSSProperties } from 'react'
 import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
 import { candidateVersionName, candidateVersions, selectedCandidateVersion } from './candidates'
 import { ContextHeading } from '../app/Inspector'
 import { PanelIcon } from '../app/PanelIcon'
 import { kindName } from '../app/FloatingInspector'
+import { MarkupView } from '../canvas/DrawingView'
+import type { Theme } from '../document/model'
+import { paletteEntries, pageColor } from '../theme/palette'
 import './assistant.css'
 
 const Transcript = lazy(() => import('./Transcript'))
@@ -17,17 +20,18 @@ const taskTitle = (task: AITask) => task.title || task.target.selectedText?.trim
 const statusLabel = { draft: 'Reservation pending', preparing: 'Preparing…', queued: 'Queued', running: 'Working…', waiting: 'Ready for agents', ready: 'Ready to review', stopped: 'Stopped', error: 'Needs attention' }
 export interface ReservationSelection { detail?: string; canReserve: boolean }
 
-export function AssistantPanel({ assistant, activeId, selection, onReserve, onLocate }: {
-  assistant: Assistant; activeId: string | null; selection: ReservationSelection | null; onReserve: () => void; onLocate: (task: AITask) => void
+export function AssistantPanel({ assistant, activeId, selection, onReserve, onLocate, onAnnotate, theme }: {
+  assistant: Assistant; activeId: string | null; selection: ReservationSelection | null; onReserve: () => void; onLocate: (task: AITask) => void; onAnnotate: (task: AITask) => void; theme: Theme
 }) {
   const retained = assistant.allTasks.filter(task => !!assistant.inactiveReason(task))
-  return <div className="ai-panel" aria-label="AI assistant">
+  const palette = { '--page-background': pageColor(theme), ...Object.fromEntries(paletteEntries(theme).flatMap(entry => [[`--palette-${entry.id}`, entry.strong], [`--palette-${entry.id}-soft`, entry.soft ?? entry.strong]])) } as CSSProperties
+  return <div className="ai-panel" aria-label="AI assistant" style={palette}>
     <CloudStatus assistant={assistant} />
     {!activeId && selection && (selection.canReserve || selection.detail) && <div className="ai-empty">
       {selection.canReserve && <button className="ai-primary ai-reserve" onClick={onReserve}>Reserve for Assistant <PanelIcon name="spark" /></button>}
       {selection.detail && <p>{selection.detail}</p>}
     </div>}
-    {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} />)}
+    {assistant.allTasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} onAnnotate={() => onAnnotate(task)} />)}
     <RecoveryArchives assistant={assistant} />
     <footer className="ai-footer">
       {!!retained.length && <details className="ai-recovery-tasks"><summary>Retained tasks ({retained.length})</summary>
@@ -43,7 +47,7 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
   </div>
 }
 
-function TaskView({ task, active, assistant, onLocate }: { task: AITask; active: boolean; assistant: Assistant; onLocate: () => void }) {
+function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AITask; active: boolean; assistant: Assistant; onLocate: () => void; onAnnotate: () => void }) {
   const [activityCollapsed, setActivityCollapsed] = useState(true)
   const [copyNotice, setCopyNotice] = useState('')
   const inactive = assistant.inactiveReason(task)
@@ -82,6 +86,15 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
           {!task.released && assistant.permissionPending(task) && <p className="ai-note" role="status">Access changes are pending document sync.</p>}
         </div>
       </div>
+      {!inactive && <section className="ai-spatial-instructions" aria-label="Spatial instructions">
+        <h3>Spatial instructions</h3>
+        {task.markup && <div className="ai-markup-thumbnail" style={{ aspectRatio: `${task.markup.width} / ${task.markup.height}` }}><MarkupView markup={task.markup} /></div>}
+        <div className="ai-actions">
+          <button onClick={onAnnotate}>{task.markup ? 'Edit…' : 'Annotate…'}</button>
+          {task.markup && <button className="ai-quiet" onClick={() => assistant.setMarkup(task.id, undefined)}>Clear</button>}
+        </div>
+        <p>Saved with this reservation, not the document content.</p>
+      </section>}
       {inactive && <p className="ai-note" role="status">{inactive}</p>}
       {!external && (task.submitted || busy) && <div className={`ai-activity${expanded ? '' : ' is-collapsed'}`}>
         <button className="ai-activity-toggle" aria-expanded={expanded} disabled={busy} onClick={() => setActivityCollapsed(!activityCollapsed)}><span>Activity</span><span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span></button>
@@ -122,11 +135,11 @@ function TaskView({ task, active, assistant, onLocate }: { task: AITask; active:
       </div>
       {copyNotice && <p className="ai-copy-notice" role="status">{copyNotice}</p>}
       {assistant.externalBlocked ? <p role="status">Public task access is unavailable while the document is Private or a privacy change is pending. Built-in access is separate.</p>
-        : task.protocol !== 'mote-agent-v6' ? <p role="status">This task protocol is retained for recovery only. Create a new reservation for agent access.</p>
+        : task.protocol !== 'mote-agent-v7' ? <p role="status">This task protocol is retained for recovery only. Create a new reservation for agent access.</p>
           : !link && !task.released ? <p role="status">The link becomes available after the reservation is saved. Check the document’s sync status if it remains unavailable.</p> : null}
       <p className="ai-privacy">This link allows access to the latest saved document, not only the reserved area. Each request checks saved permissions and task lifetime. Built-in and external agents share the same proposal list. Switching tabs changes no access.</p>
       {!versions.length && !task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
-    </div> : task.protocol !== 'mote-agent-v6' ? <div className="ai-composer">
+    </div> : task.protocol !== 'mote-agent-v7' ? <div className="ai-composer">
       {!task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
     </div>
       : <form className="ai-composer" onSubmit={event => { event.preventDefault(); void assistant.start(task.id, prompt) }}>

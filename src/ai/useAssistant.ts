@@ -12,7 +12,7 @@ import { candidateVersions, reconcileCandidateState, selectedCandidateVersion } 
 import { connectionSnapshot, retryConnection, useConnection } from '../cloud/connection'
 import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 import { useAssistantState } from './useAssistantState'
-import type { Area, AITarget, AITask, AssistantCloud, RemoteTask, Reservation } from './types'
+import type { Area, AITarget, AITask, AssistantCloud, RemoteTask, Reservation, ReservationMarkup } from './types'
 import { applySegmentCandidate, expandSegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
 import { copySegment, type SegmentClipboard } from '../document/segment'
 
@@ -36,7 +36,7 @@ function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string,
 
 export function candidateDocument(doc: MoteDocument, task: AITask, candidate = selectedCandidateVersion(task)?.candidate, context?: SegmentContext): MoteDocument {
   const documentVersion = doc.version
-  if (task.protocol !== 'mote-agent-v6' || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
+  if (task.protocol !== 'mote-agent-v7' || !DOCUMENT_VERSIONS.includes(documentVersion ?? 0)) throw new Error('Unsupported task version. The candidate is retained for recovery.')
   if (!candidate) throw new Error('This task has no complete candidate.')
   const incompatible = inactiveTaskReason(task, doc)
   if (incompatible) throw new Error(incompatible)
@@ -83,9 +83,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   const current = useRef({ history, cloud, persistence })
   current.current = { history, cloud, persistence }
   const update = (id: string, patch: Partial<AITask>) => current.current.persistence.update(id, {
-    protocol: current.current.persistence.views[id]?.protocol ?? 'mote-agent-v6', ...patch,
+    protocol: current.current.persistence.views[id]?.protocol ?? 'mote-agent-v7', ...patch,
   })
-  const asTask = (reservation: Reservation): AITask => ({ protocol: 'mote-agent-v6', status: 'draft', progress: '', prompt: '',
+  const asTask = (reservation: Reservation): AITask => ({ protocol: 'mote-agent-v7', status: 'draft', progress: '', prompt: '',
     submitted: false, preview: false, ...current.current.persistence.views[reservation.id], ...reservation })
   const allTasks = history.reservations.map(asTask)
   const activeTasks = (doc = current.current.history.doc!) => compatibleTasks(current.current.history.currentReservations().map(asTask), doc)
@@ -115,7 +115,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   function receive(remote: RemoteTask) {
     const task = getTask(remote.id)
     if (!task) return
-    if (remote.protocol !== 'mote-agent-v6') {
+    if (remote.protocol !== 'mote-agent-v7') {
       update(task.id, { protocol: remote.protocol, status: 'error', progress: remote.progress,
         error: remote.error ?? 'Unsupported task protocol; artifacts are retained for recovery.', versions: remote.versions, preview: false })
       setStatusIssues(value => ({ ...value, [task.id]: '' }))
@@ -152,7 +152,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
     function refresh(id?: string) {
       for (const task of current.current.history.currentReservations()) {
-        if ((!id || task.id === id) && asTask(task).protocol === 'mote-agent-v6') wanted.add(task.id)
+        if ((!id || task.id === id) && asTask(task).protocol === 'mote-agent-v7') wanted.add(task.id)
       }
       void drain()
     }
@@ -202,7 +202,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     openTask(reservation.id); setNotice('')
     return asTask(reservation)
   }
-  function setProperties(id: string, patch: Pick<Reservation, 'workspaceRead'> | Pick<Reservation, 'expiresAt'>) {
+  function setProperties(id: string, patch: Pick<Reservation, 'workspaceRead'> | Pick<Reservation, 'expiresAt'> | Pick<Reservation, 'markup'>) {
     const task = getTask(id)
     if (!writable || !task || task.released) return
     history.setReservations(history.currentReservations().map(item => item.id === id ? { ...item, ...patch } : item))
@@ -236,7 +236,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
   }
   async function start(id: string, prompt: string) {
     const task = getTask(id), connection = current.current.cloud
-    if (!writable || !connection || !task || task.protocol !== 'mote-agent-v6' || task.released || preparing.current.has(id) || !task.pendingRun && !prompt.trim()) return
+    if (!writable || !connection || !task || task.protocol !== 'mote-agent-v7' || task.released || preparing.current.has(id) || !task.pendingRun && !prompt.trim()) return
     const attempt = Symbol(); preparing.current.set(id, attempt)
     const valid = () => mounted.current && preparing.current.get(id) === attempt && !getTask(id)?.released
     const operation = task.pendingRun ?? { operationId: crypto.randomUUID(), prompt,
@@ -264,7 +264,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     }
   }
   async function stop(id: string) {
-    if (getTask(id)?.protocol !== 'mote-agent-v6') return
+    if (getTask(id)?.protocol !== 'mote-agent-v7') return
     preparing.current.delete(id)
     try {
       const remote = await aiRequest<RemoteTask>(`/tasks/${id}/stop`, 'POST')
@@ -304,10 +304,11 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     offline: connection.offline, notice: persistence.warning || notice, setNotice, reserve, start, stop, discard, accept, selectVersion, update,
     runs, deleteObjects, deleteTarget, inactiveReason, privateDocument: cloud?.privateDocument ?? false,
     externalBlocked: cloud?.externalBlocked ?? false,
-    agentLink: (task: AITask) => task.protocol === 'mote-agent-v6' && !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
+    agentLink: (task: AITask) => task.protocol === 'mote-agent-v7' && !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
       ? new URL(access[task.id].externalPath!, window.location.origin).href : undefined,
     setWorkspaceRead: (id: string, enabled: boolean) => setProperties(id, { workspaceRead: enabled }),
     setExpiration: (id: string, expiresAt?: number) => setProperties(id, { expiresAt }),
+    setMarkup: (id: string, markup?: ReservationMarkup) => setProperties(id, { markup }),
     permissionPending: (task: AITask) => !access[task.id] || access[task.id].workspaceRead !== task.workspaceRead || access[task.id].expiresAt !== task.expiresAt,
     previewFailed: (id: string, error: unknown) => update(id, previewFailure(error)),
     missingRemote: (id: string) => setStatusIssues(value => ({ ...value, [id]: 'Execution details are unavailable. Retained proposals can still be reviewed.' })),

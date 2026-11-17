@@ -1,5 +1,5 @@
 import { objectX, objectY } from '../document/model'
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import type { FloatingDrawing, FloatingPatch, Theme } from '../document/model'
 import { useHistory } from '../document/history'
 import { drawingPoint, drawingStrokeHit, type DrawingPoint } from '../document/drawing'
@@ -15,7 +15,7 @@ interface Props {
   // Horizontal region for x (text column for Flow, page for Float); whether y is a signed offset from a Flow owner.
   maxWidth: number
   signedY: boolean
-  lockedBackground?: { src: string; width: number; height: number; hint?: string }
+  lockedBackground?: { src?: string; content?: ReactNode; width: number; height: number; title?: string; hint?: string }
   onChange: (patch: FloatingPatch) => void
   onClose: () => void
 }
@@ -312,7 +312,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
       if (popover && !popoverBox.current?.contains(event.target as Node) && !popoverTrigger.current?.contains(event.target as Node)) closePopover()
     }} onPointerDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()} onContextMenu={event => event.stopPropagation()}>
     <header className="drawing-editor-heading">
-      <h1 id={`${id}-title`}>{lockedBackground ? 'Markup' : 'Drawing'}</h1>
+      <h1 id={`${id}-title`}>{lockedBackground?.title ?? (lockedBackground ? 'Markup' : 'Drawing')}</h1>
       <span>{Math.round(shownSize.width)} × {Math.round(shownSize.height)}</span>
       <button className="drawing-done" title="Done (Escape)" onClick={() => close(true)}>Done</button>
     </header>
@@ -320,12 +320,15 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
       <div className={`drawing-editor-frame${crop ? ' is-cropping' : ''}`} style={{ width: shownSize.width * scale, height: shownSize.height * scale,
         // The area centers the frame; offset it so the edge opposite the dragged side stays put.
         translate: crop ? `${(crop.crop.right - crop.crop.left) * scale / 2}px ${(crop.crop.bottom - crop.crop.top) * scale / 2}px` : undefined }}>
-        <div ref={canvas} className={`drawing-editor-canvas is-${tool}`} tabIndex={0} role="group" aria-label={lockedBackground ? 'Markup canvas' : 'Drawing canvas'}
+        <div ref={canvas} className={`drawing-editor-canvas is-${tool}`} style={{ '--drawing-editor-scale': Number.isFinite(scale) && scale > 0 ? scale : 1 } as CSSProperties}
+          tabIndex={0} role="group" aria-label={lockedBackground ? 'Markup canvas' : 'Drawing canvas'}
           aria-describedby={`${id}-hint`}
           onPointerDown={startPointer} onPointerMove={movePointer} onPointerUp={endPointer}
           onPointerCancel={event => { if (gesture.current?.pointer === event.pointerId) cancelGesture() }}
           onLostPointerCapture={event => { if (gesture.current?.pointer === event.pointerId) cancelGesture() }}>
-          {lockedBackground && <img className="drawing-locked-background" src={lockedBackground.src} alt="" draggable={false} />}
+          {lockedBackground && <div className="drawing-locked-background" aria-hidden="true" inert>
+            {lockedBackground.content ? scale > 0 && lockedBackground.content : lockedBackground.src && <img src={lockedBackground.src} alt="" draggable={false} />}
+          </div>}
           {lockedBackground ? <MarkupView markup={{ width: shown.layout.width, height: shown.layout.height, strokes: shown.strokes, labels: shown.labels }} /> : <DrawingView drawing={shown} />}
         </div>
         {!lockedBackground && sides.map(side => <div key={side} className="drawing-crop-handle" data-side={side} data-active={crop?.side === side || undefined}

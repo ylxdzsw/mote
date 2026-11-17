@@ -236,6 +236,14 @@ function drawingContent(value, path) {
   }
 }
 
+export function validateObjectMarkup(value, path = 'markup') {
+  const markup = record(value, path, ['width', 'height', 'strokes', 'labels'])
+  number(markup.width, `${path}.width`, Number.MIN_VALUE)
+  number(markup.height, `${path}.height`, Number.MIN_VALUE)
+  drawingContent(markup, path)
+  return markup
+}
+
 function object(value, path, state, options) {
   record(value, path, ['id', 'kind', 'layout'], ['content', 'padding', 'decoration', 'style', 'headerRow', 'color', 'caption', 'markup', 'src', 'alt', 'strokes', 'labels', 'background', 'latex', 'source', 'language', 'html', 'screenshot'])
   identifier(value.id, `${path}.id`, state.ids)
@@ -289,12 +297,7 @@ function object(value, path, state, options) {
     if (value.background !== null && value.background !== 'gray6') fail(`${path}.background`, 'must be gray6 or null')
     drawingContent(value, path)
   }
-  if (present(value, 'markup')) {
-    const markup = record(value.markup, `${path}.markup`, ['width', 'height', 'strokes', 'labels'])
-    number(markup.width, `${path}.markup.width`, Number.MIN_VALUE)
-    number(markup.height, `${path}.markup.height`, Number.MIN_VALUE)
-    drawingContent(markup, `${path}.markup`)
-  }
+  if (present(value, 'markup')) validateObjectMarkup(value.markup, `${path}.markup`)
   if (present(value, 'alt')) text(value.alt, `${path}.alt`, 4096)
   if (present(value, 'caption')) {
     record(value.caption, `${path}.caption`, ['content'], ['width'])

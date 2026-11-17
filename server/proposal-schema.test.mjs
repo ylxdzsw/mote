@@ -49,7 +49,7 @@ test('all object kinds, text and V1/V2 segment proposals validate without any do
     assert.notEqual(result, raw)
     assert.deepEqual(raw, before)
   }
-  assert.equal(AGENT_PROTOCOL, 'mote-agent-v6')
+  assert.equal(AGENT_PROTOCOL, 'mote-agent-v7')
   assert.deepEqual(validateProposalDelivery({ segment: { ...segment(), content: [], anchorTops: {} }, summary: 'Delete section' }).segment.content, [])
 })
 

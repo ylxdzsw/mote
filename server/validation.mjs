@@ -1,4 +1,4 @@
-import { DocumentFormatError, DOCUMENT_VERSION, DOCUMENT_VERSIONS, validateDocument as nativeDocument, loadDocument as nativeLoad, validateObject, validateContent, validateComposition, publishDocument as nativePublish } from '../shared/document.mjs'
+import { DocumentFormatError, DOCUMENT_VERSION, DOCUMENT_VERSIONS, validateDocument as nativeDocument, loadDocument as nativeLoad, validateObject, validateObjectMarkup as nativeObjectMarkup, validateContent, validateComposition, publishDocument as nativePublish } from '../shared/document.mjs'
 
 export const PROD_ORIGIN = 'https://mote.ylxdzsw.com'
 export const PROPOSAL_SCHEMA_URL = `${PROD_ORIGIN}/skills/proposal-schema.json`
@@ -48,6 +48,7 @@ export function loadDocument(value) { return native(() => nativeLoad(value)) }
 export function publishDocument(value) { return native(() => nativePublish(nativeLoad(value))) }
 export { DOCUMENT_VERSIONS }
 export function validateNativeObject(value, options = {}) { return native(() => validateObject(value, options)) }
+export function validateNativeObjectMarkup(value, path = 'markup') { return native(() => nativeObjectMarkup(value, path)) }
 function composition(blocks, objects, options = {}) { return native(() => validateComposition(blocks, objects, options)) }
 function content(value, mode = 'main') { return native(() => validateContent(value, mode)) }
 

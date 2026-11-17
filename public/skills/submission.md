@@ -1,16 +1,22 @@
 # Mote agent submissions
 
-Submission is scoped to one current reservation. The task brief supplies either a local Unix socket/base URL or a public HTTPS task URL. GET the base URL for the canonical JSON task description and require its `protocol` to be `mote-agent-v6`. Retained legacy task records are recovery-only; stop and ask the owner for a fresh reservation rather than converting histories or trying a legacy endpoint. Task protocol v6 is distinct from native document versions V1–V8; candidates use the current native V8 grammar. Candidate content follows [native-format.md](native-format.md) and [authoring.md](authoring.md).
+Submission is scoped to one current reservation. The task brief supplies either a local Unix socket/base URL or a public HTTPS task URL. GET the base URL for the canonical JSON task description and require its `protocol` to be `mote-agent-v7`. Retained legacy task records are recovery-only; stop and ask the owner for a fresh reservation rather than converting histories or trying a legacy endpoint. Task protocol v7 is distinct from native document versions V1–V8; candidates use the current native V8 grammar. Candidate content follows [native-format.md](native-format.md) and [authoring.md](authoring.md).
 
 ## Resources and context
 
-The base URL's task description contains `request`, optional feedback, `.target`, segment `.geometry` measurements, permissions, and skill/helper/schema/resource links. There are no copied original objects or rendered snapshots. `manifest.json`, `target.json`, and `instructions.md` return 404. Read any useful proposal versions through the advertised URLs. Target and measurements guide authoring; they do not prove which document revision was read or bind delivery validation.
+The base URL's task description contains `request`, optional feedback, `.target`, segment `.geometry` measurements, optional latest saved reservation `.markup`, permissions, and skill/helper/schema/resource links. There are no copied original objects or rendered snapshots. `manifest.json`, `target.json`, and `instructions.md` return 404. Read any useful proposal versions through the advertised URLs. Target, markup, and measurements guide authoring; they do not prove which document revision was read or bind delivery validation.
 
 `document.json` is an optional read of the latest authorized cloud envelope `{document,revision,...metadata}` at access time, not a token-bound snapshot. It may change between reads and is not required for submission. It can include Notes as tentative, user-owned context; Notes are never an edit target. Built-in agents may read their own Private document. External access to any Private source is blocked. Public-share access is separate and excludes Notes. There are no historical agent reads: a `revision` query parameter on the current agent route is ignored. Optional workspace reads are controlled by the Reservation's `workspaceRead`; that property gates cross-document discovery/source reads only, not the task's own `document.json`.
 
 The workspace index returns current stored descriptions, which may be stale; reading it does not force fresh indexing. Use descriptions only as discovery hints. `workspace-document.json?id=DOCUMENT_ID` returns the latest authorized cloud document. Current Private/deletion policy applies at each request opening.
 
-## Current protocol: `mote-agent-v6`
+## Reservation spatial markup
+
+The task description may contain `.markup`, the latest cloud-saved annotation on this reservation. It is separate from candidate content and native image/HTML object markup. Its shape is `{x,y,width,height,strokes,labels}`: `x`/`y` are finite signed document-pixel offsets from the current reserved target origin; `width`/`height` are positive reference extents, not output constraints; and strokes/labels use native `ObjectMarkup` grammar and limits. It has no background image, snapshot, or proposal history.
+
+For object targets, the origin is the current object's body top-left. For text, it is page-left at the first reserved paragraph's top. For segments, it is page-left at the resolved range start, or the first slide boundary for a whole-slide selection. Text/segment frames normally use `x:0`; signed offsets may include owned content above the range. Resolve IDs/bookmarks and measure the current document rather than using the reservation-time `target.area` as a live origin. Keep mark sizes in document pixels rather than scaling them to fit changed geometry. GET the task base URL again to reread the latest saved markup; this does not start or restart execution. Reservation changes use the ordinary sync/CAS and lifecycle.
+
+## Current protocol: `mote-agent-v7`
 
 `GET versions.json` returns flat immutable records:
 
@@ -60,7 +66,7 @@ node submit.mjs "$BASE" output "Revised direction"
 
 These are alternative examples; the second adds an optional label. The CLI is `node submit.mjs BASE OUTPUT [LABEL]`. For external tasks, `BASE` is the supplied HTTPS URL. For built-in tasks, use the task-brief base and set `MOTED_AGENT_SOCKET` to the supplied socket. No revision, executor, or operation-ID arguments are needed.
 
-The helper reads the task description at the base URL and validates its v6 protocol/task identity and the returned task/version receipt. It does not expand object references or check freshness/applicability. Before sending, it durably creates a private `.mote-submit-<fingerprint>.uuid` sidecar in the output directory. The identity covers the base URL and exact serialized payload, including assets and label. Repeated calls, including concurrent invocations, reuse the same operation UUID for that prepared payload. Changed content, assets, label, or base URL gets a new identity. Keep sidecars with prepared output; never delete one to retry an uncertain submission. To intentionally submit otherwise identical content as a distinct version, change its optional label.
+The helper reads the task description at the base URL and validates its v7 protocol/task identity and the returned task/version receipt. It does not expand object references or check freshness/applicability. Before sending, it durably creates a private `.mote-submit-<fingerprint>.uuid` sidecar in the output directory. The identity covers the base URL and exact serialized payload, including assets and label. Repeated calls, including concurrent invocations, reuse the same operation UUID for that prepared payload. Changed content, assets, label, or base URL gets a new identity. Keep sidecars with prepared output; never delete one to retry an uncertain submission. To intentionally submit otherwise identical content as a distinct version, change its optional label.
 
 ## Owner review and local recovery
 

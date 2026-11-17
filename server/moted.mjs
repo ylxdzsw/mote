@@ -428,6 +428,7 @@ export class TaskManager {
       ...(task.meta.selectedVersion ? { selectedVersion: task.meta.selectedVersion } : {}),
       workspaceRead: reservation.workspaceRead,
       ...(reservation.expiresAt === undefined ? {} : { expiresAt: reservation.expiresAt }),
+      ...(reservation.markup === undefined ? {} : { markup: structuredClone(reservation.markup) }),
       documentMeta: this.store.privacyMeta(task.meta.documentId),
     }
     if (target.kind === 'segment') {

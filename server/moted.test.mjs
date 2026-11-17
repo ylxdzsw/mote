@@ -35,7 +35,7 @@ function document(kind = 'text') {
   if (kind === 'html') doc.objects.push({ id: 'object-1', kind: 'html', layout: { width: 200, height: 100, placement: { type: 'float', anchorId: 'block-1', x: 40, y: 10 } }, html: '<button>+</button>', screenshot: svg, alt: 'demo' })
   return doc
 }
-function request(id, doc = document(), extra = {}) { return { id, protocol: 'mote-agent-v6', operationId: crypto.randomUUID(), document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
+function request(id, doc = document(), extra = {}) { return { id, protocol: 'mote-agent-v7', operationId: crypto.randomUUID(), document: doc, model: 'fake', prompt: 'Improve the target', target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: true, area: { x: 48, y: 48, width: 200, height: 40 } }, ...extra } }
 function segmentDocument() {
   const doc = document('text')
   doc.content.content = [
@@ -248,6 +248,27 @@ test('segment targets use canonical points and exact block/object ownership', ()
   const empty = segmentTarget({ range: { start: { index: 2, offset: 0 }, end: { index: 2, offset: 0 } }, blockIds: [], objectIds: [] })
   assert.equal(checkedReservation(request(crypto.randomUUID(), doc, { target: empty })).target.kind, 'segment')
   assert.throws(() => checkedReservation(request(crypto.randomUUID(), doc, { target: { ...empty, objectIds: ['seg-widget'] } })), /objectIds does not match/)
+})
+
+test('reservation spatial markup reuses native ObjectMarkup validation with signed document offsets', () => {
+  const doc = document(), id = crypto.randomUUID()
+  const markup = {
+    x: -48, y: -160, width: 800, height: 1200,
+    strokes: [{ points: [[0, 0], [800, 1200]], color: 'gray1', width: 2 }],
+    labels: [{ x: 12, y: 20, text: 'Review note', color: 'primary', size: 16 }],
+  }
+  const reservation = { id, documentId: doc.id, target: request(id, doc).target, original: doc.content.content, workspaceRead: false, markup }
+  assert.deepEqual(validateReservations([reservation], doc)[0].markup, markup)
+  for (const mutate of [
+    value => { value.x = Infinity },
+    value => { value.width = 0 },
+    value => { value.height = NaN },
+    value => { value.strokes[0].color = 'custom' },
+    value => { value.extra = true },
+  ]) {
+    const invalid = structuredClone(reservation); mutate(invalid.markup)
+    assert.throws(() => validateReservations([invalid], doc), { status: 400 })
+  }
 })
 
 
