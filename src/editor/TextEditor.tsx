@@ -85,6 +85,8 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
       } },
     },
     onFocus: ({ editor }) => { history.boundary(); onActive(editor) },
+    // A retained gap selection must not hide carets/highlights in nested Flow editors.
+    onBlur: ({ editor }) => { editor.view.dom.classList.remove('ProseMirror-hideselection') },
     onSelectionUpdate: ({ editor, transaction }) => {
       if (syncing.current || transaction.getMeta('historyRestore')) return
       if (!transaction.docChanged && !editor.view.composing && transaction.getMeta('composition') === undefined) history.boundary()

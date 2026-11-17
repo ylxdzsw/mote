@@ -273,6 +273,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
         }
         property(caret, 'top', `${layoutPixel(top - localTop(editor!.view.dom))}px`)
         property(caret, 'margin-top', spacing)
+        property(caret, 'visibility', 'visible')
       }
       const projectedObjects = previewObjects(objects, override, anchors, column.left)
       const geometry = resolveGeometry(projectedObjects, sizes, tops, anchors, column)

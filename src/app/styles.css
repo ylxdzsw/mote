@@ -219,7 +219,9 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .panel-section .color-field { display: flex; align-items: center; justify-content: space-between; }
 .panel-section button { font-size: var(--ui-font-size); border-color: var(--border); margin-top: 8px; }
 .text-content, .text-content .tiptap { word-break: normal; line-break: strict; text-autospace: var(--text-autospace, normal); }
-.text-content .tiptap { outline: none; min-height: 24px; overflow-wrap: anywhere; }
+.text-content .tiptap { outline: none; min-height: 24px; overflow-wrap: anywhere; caret-color: transparent; }
+/* Native hit testing can briefly select a structural container before the editor normalizes it. */
+.text-content .tiptap:not(.ProseMirror-hideselection) p { caret-color: auto; }
 .text-content p { -webkit-hyphens: auto; hyphens: auto; margin: var(--text-spaceBefore) 0 var(--text-spaceAfter); line-height: var(--text-lineHeight); font-size: var(--text-size); color: var(--text-color); font-family: var(--text-family); font-weight: var(--text-weight); letter-spacing: var(--text-letterSpacing); }
 .text-content p:not([data-semantic='table']) { text-align: var(--prose-align, start); text-align-last: start; }
 .text-content p[data-semantic='body'] { text-indent: var(--body-first-line-indent, 0px); }
@@ -229,7 +231,7 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .is-editing:not(:has(.floating-note)) [data-writing-placeholder] .paragraph-content::before { content: 'Start writing…'; position: absolute; color: var(--ui-faint); pointer-events: none; }
 .sheet.can-continue-writing { cursor: text; }
 .stage:has(.sheet.can-continue-writing) { cursor: text; }
-.main-text > .text-content > .tiptap > .ProseMirror-gapcursor { left: 0; font-family: var(--body-family); font-size: var(--body-size); font-weight: var(--body-weight); line-height: var(--body-lineHeight); margin-left: var(--body-first-line-indent, 0px); }
+.main-text > .text-content > .tiptap > .ProseMirror-gapcursor { visibility: hidden; left: 0; font-family: var(--body-family); font-size: var(--body-size); font-weight: var(--body-weight); line-height: var(--body-lineHeight); margin-left: var(--body-first-line-indent, 0px); }
 .main-text > .text-content > .tiptap > .ProseMirror-gapcursor::after { top: 0; width: 0; height: 1lh; border-top: 0; border-left: 1px solid var(--body-color); }
 .main-paragraph[data-repel] { height: var(--text-height); }
 .main-paragraph[data-repel]::before { content: ''; float: right; width: 100%; height: var(--repel-height); shape-outside: var(--repel-shape); pointer-events: none; }
