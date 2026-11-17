@@ -42,7 +42,7 @@ import { AssistantPanel, type ReservationSelection } from '../ai/AssistantPanel'
 import type { Area, AITarget, AITask } from '../ai/types'
 import { containsTarget, overlaps, paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
-import type { SegmentRange } from '../document/segment'
+import { recordSpaceEdit, type SegmentRange } from '../document/segment'
 import { promoteSlideSelection } from '../document/slideClipboard'
 import { objectSlideIndex, slideRanges } from '../document/slides'
 import { uiThemeVariables } from '../theme/ui'
@@ -412,12 +412,19 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (!mainEditor || selectedIds.length) return null
     const segment = actions.current?.segmentSelection()
     if (selectedSegment.range && segment) return makeSegmentTarget(doc, segment.range, segment.area)
-    const range = activeEditor === mainEditor ? selection?.paragraphs : null
-    if (!range) return null
-    const ids = range.blockIds
-    const first = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids[0]}"]`))
-    const last = measuredArea(document.querySelector(`.workspace .main-text [data-id="${ids.at(-1)}"]`))
-    return { kind: 'text', ...range, insert: false, area: { ...first, height: last.y + last.height - first.y } }
+    if (activeEditor !== mainEditor) return null
+    const { $from, $to, empty } = mainEditor.state.selection
+    const blocks = doc.content.content!, start = $from.index(0)
+    const end = Math.min(blocks.length, Math.max(start + 1, empty ? start + 1 : $to.index(0) + ($to.depth && $to.parentOffset ? 1 : 0)))
+    if (start >= blocks.length) return null
+    const first = measuredArea(document.querySelector(`.workspace .main-text [data-id="${blocks[start].attrs!.id}"]`))
+    const last = measuredArea(document.querySelector(`.workspace .main-text [data-id="${blocks[end - 1].attrs!.id}"]`))
+    const area = { x: 0, y: first.y, width: doc.page.width - 2, height: last.y + last.height - first.y }
+    // Existing prose-only tasks keep their authority; only their navigation uses this path.
+    const paragraphs = selection?.paragraphs
+    if (paragraphs && assistant.tasks.some(task => task.target.kind === 'text' && paragraphs.blockIds.every(id => task.target.kind === 'text' && task.target.blockIds.includes(id))))
+      return { kind: 'text', ...paragraphs, insert: false, area }
+    return makeSegmentTarget(doc, { start: { index: start, offset: 0 }, end: { index: end, offset: 0 } }, area)
   }
   const target = selectionTarget()
   const overlappingTasks = target && doc ? assistant.tasks.filter(task => overlaps(task.target, target, doc))
@@ -428,9 +435,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     detail: overlappingTasks.length && !selectedTask ? 'Select one reserved area to view its task.'
       : selectedIds.length > 1 ? 'Select one object, or select a section using the gutter.'
       : selectedObject ? selectedObject.kind === 'table' ? selectedObject.caption ? 'Entire table and caption.' : 'Entire table.' : 'caption' in selectedObject && selectedObject.caption ? 'Includes its caption.' : undefined
-      : target?.kind === 'text' ? 'Reserves whole paragraphs, including any unselected text.'
       : target?.kind === 'segment' ? target.blockIds.length || target.objectIds.length ? 'Reserves this section and its owned objects.' : 'Creates a section at this insertion point.'
-      : activeEditor === mainEditor && mainEditor ? 'Select consecutive paragraphs, or use the gutter to include spaces and Flow objects.'
+      : activeEditor === mainEditor && mainEditor ? 'Select text or use the gutter to reserve a section and its owned objects.'
       : undefined,
     canReserve: !!target && !overlappingTasks.length,
   }
@@ -455,12 +461,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     if (!doc) return
     const next = { ...doc, objects: [...doc.objects, object] }
     focusRequest(assistant.reserve({ kind: 'object', objectId: object.id, isNew: true, area }, next))
-  }
-  function createAISegment(range: SegmentRange, area: Area) {
-    if (!doc) return
-    const task = assistant.reserve(makeSegmentTarget(doc, range, area))
-    focusRequest(task)
-    return task?.id
   }
   function locateTask(task: AITask, reveal = true) {
     setTool(null)
@@ -637,7 +637,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 reserved={!!selectedObjectTask}
                 newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew} /></>
               : tool ? <div className="context-inspector">
-                  <ContextHeading title={tool === 'slideBreak' ? 'Slide break' : tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'slideBreak' ? 'Click a boundary to start a new slide.' : tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag to reserve an AI object. Click the left gutter to reserve an AI section.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
+                  <ContextHeading title={tool === 'slideBreak' ? 'Slide break' : tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'slideBreak' ? 'Click a boundary to start a new slide.' : tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag on the page to reserve one AI object.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
                   <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
                 </div>
               : selectedSlides ? <div className="context-inspector">
@@ -657,7 +657,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} editingLayout minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
         onInteraction={followCanvasSelection} onCaptionSelection={setSelectedCaptionId}
         onSegmentSelection={(range, taskId) => setSelectedSegment({ range, taskId })}
-        lockedIds={assistant.lockedIds} onAICreate={createAIArea} onAISegmentCreate={createAISegment} onDeleteObjects={assistant.deleteObjects}
+        lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}
         aiReview={{ tasks: assistant.tasks, previewFailed: assistant.previewFailed, activeTaskId: assistantTaskId, editMarkup,
           selectText: () => { setSelectedIds([]); setActiveEditor(mainEditor) }, deleteTarget: assistant.deleteTarget }}
         aiWidgetIds={new Set(Object.keys(assistant.runs))}
@@ -666,7 +666,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         }}
         onActions={(value: CanvasActions) => { actions.current = value }} onFloatingChange={updateFloating}
         onMainReady={setMainEditor} onActive={setActiveEditor}
-        onMainChange={(content, merges, shift) => setDoc(current => current && replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()))}
+        onMainChange={(content, merges, shift) => setDoc(current => current && recordSpaceEdit(current,
+          replaceMainContent(current, content, merges, shift, actions.current?.segmentContext()), merges, shift))}
         onNoteChange={updateObject} onDropImages={(files, position) => void uploadImages(files, { documentId: doc.id, anchorId: position.anchorId }, position)}
         onContextMenu={handleCanvasContextMenu} onDrawingEdit={editDrawing} />
       {showInspector && <DocumentNotes key={`notes:${doc.id}`} value={doc.authoring?.notes ?? []}

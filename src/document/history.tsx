@@ -2,6 +2,8 @@ import { createContext, useContext, useRef, useState } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import type { MoteDocument } from './model'
 import type { Reservation } from '../ai/types'
+import { mapSegmentTarget } from '../ai/segments'
+import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 
 type SelectionJSON = ReturnType<Editor['state']['selection']['toJSON']>
 interface HistoryEditor { selection: () => SelectionJSON; composing: () => boolean }
@@ -12,7 +14,7 @@ type Update = MoteDocument | null | ((doc: MoteDocument | null) => MoteDocument 
 export function useDocumentHistory(initial: MoteDocument, initialReservations: Reservation[] = []) {
   const guard = useRef<(before: MoteDocument, after: MoteDocument) => boolean>(() => true)
   const guardState = useRef<(before: MoteDocument, beforeReservations: Reservation[], after: MoteDocument, afterReservations: Reservation[]) => boolean>(() => true)
-  const guardEditor = useRef<(id: string, before: JSONContent, after: JSONContent) => boolean>(() => true)
+  const guardEditor = useRef<(id: string, before: JSONContent, after: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) => boolean>(() => true)
   const lockedBlocks = useRef<Record<string, string>>({})
   const [{ doc, reservations }, render] = useState(() => ({ doc: initial,
     reservations: initialReservations.some(task => task.released) ? initialReservations.filter(task => !task.released) : initialReservations }))
@@ -32,6 +34,19 @@ export function useDocumentHistory(initial: MoteDocument, initialReservations: R
   }
   function commit(next: MoteDocument, nextReservations: Reservation[], explicit = false) {
     if (next === s.doc && nextReservations === s.reservations) return
+    if (next.content !== s.doc.content) {
+      let changed = false
+      const mapped: Reservation[] = []
+      for (const reservation of nextReservations) {
+        const previous = s.reservations.find(item => item.id === reservation.id)
+        const target = reservation.target.kind === 'segment' && previous?.target === reservation.target
+          ? mapSegmentTarget(s.doc, next, reservation.target) : reservation.target
+        if (!target) return
+        changed ||= target !== reservation.target
+        mapped.push(target === reservation.target ? reservation : { ...reservation, target })
+      }
+      if (changed) nextReservations = mapped
+    }
     if (!guardState.current(s.doc, s.reservations, next, nextReservations)) return
     // Explicit assistant edits have already checked their target scope. They may
     // replace reserved content; guardState still protects other reservations.

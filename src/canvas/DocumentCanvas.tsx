@@ -76,7 +76,6 @@ interface Props {
   initialScale?: number
   onDropImages?: (files: File[], position: ReturnType<typeof anchorPoint>) => void
   lockedIds?: Set<string>; onAICreate?: (object: FloatingObject, area: Area) => void
-  onAISegmentCreate?: (range: SegmentRange, area: Area) => string | undefined
   aiWidgetIds?: Set<string>
   aiReview?: AIReview
   onDeleteObjects?: (objects: FloatingObject[]) => boolean
@@ -94,7 +93,7 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'formula' && !object.latex.length)
   || (object.kind === 'code' && !object.source.length)
 
-export function DocumentCanvas({ doc, editable, editingLayout = editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, onAISegmentCreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, editingLayout = editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -136,11 +135,14 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
   const sourceContext = useRef<SegmentContext>({ anchors: [], geometry: {} })
   const [measuredSource, setMeasuredSource] = useState<{ doc: MoteDocument; context: SegmentContext; signature: string } | null>(null)
   const originalContext = measuredSource?.doc === doc ? measuredSource.context : sourceContext.current
-  const projected = useRef<{ doc: MoteDocument; editor: Editor | null; context: SegmentContext; tasks: { id: string; candidate: unknown }[]; value: ReturnType<typeof projectSegments> } | null>(null)
-  const candidates = editable && contextReady ? aiReview?.tasks.filter(task => task.target.kind === 'segment' && task.preview && selectedCandidateVersion(task)?.candidate.segment) ?? [] : []
+  const projected = useRef<{ doc: MoteDocument; editor: Editor | null; context: SegmentContext; tasks: { id: string; target: unknown; candidate: unknown }[]; value: ReturnType<typeof projectSegments> } | null>(null)
+  const projectionTasks = editable ? aiReview?.tasks.filter(task => task.target.kind === 'segment') ?? [] : []
+  const candidates = contextReady ? projectionTasks.filter(task => task.preview && selectedCandidateVersion(task)?.candidate.segment) : []
+  const previewCandidate = (task: (typeof projectionTasks)[number]) => contextReady && task.preview ? selectedCandidateVersion(task)?.candidate : undefined
   if (!projected.current || projected.current.doc !== doc || projected.current.editor !== mainEditor || projected.current.context !== originalContext
-    || projected.current.tasks.length !== candidates.length || candidates.some((task, i) => projected.current!.tasks[i].id !== task.id || projected.current!.tasks[i].candidate !== selectedCandidateVersion(task)?.candidate)) {
-    projected.current = { doc, editor: mainEditor, context: originalContext, tasks: candidates.map(task => ({ id: task.id, candidate: selectedCandidateVersion(task)?.candidate })), value: projectSegments(doc, candidates, mainEditor, originalContext) }
+    || projected.current.tasks.length !== projectionTasks.length || projectionTasks.some((task, i) => projected.current!.tasks[i].id !== task.id || projected.current!.tasks[i].target !== task.target || projected.current!.tasks[i].candidate !== previewCandidate(task))) {
+    projected.current = { doc, editor: mainEditor, context: originalContext, tasks: projectionTasks.map(task => ({ id: task.id, target: task.target, candidate: previewCandidate(task) })),
+      value: projectSegments(doc, projectionTasks.map(task => contextReady ? task : { ...task, preview: false }), mainEditor, originalContext) }
   }
   const projection = projected.current.value
   useLayoutEffect(() => {
@@ -157,6 +159,11 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, doc.page.margins.left, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
   useLayoutEffect(scrollFloor.reset, [doc.id, editingLayout, scale, scrollFloor.reset])
   const segments = useSegmentSelection({ doc, editable, editor: mainEditor, stage, sheet, scale, anchors, geometry, lockedIds,
+    reservedSegments: (aiReview?.tasks ?? []).flatMap(task => {
+      if (task.target.kind !== 'segment') return []
+      const range = resolveSegmentRange(doc, task.target)
+      return range ? [{ taskId: task.id, range, objectIds: task.target.objectIds }] : []
+    }), onSelectReservation: selectAISegment,
     selectedObjectIds: selectedIds, slidePositions: slides.map(slide => ({ index: slide.index, top: slide.top, bottom: slide.top + slide.height })),
     onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
   useLayoutEffect(() => { onSegmentSelection?.(segments.range, activeSegmentId) }, [segments.range, activeSegmentId])
@@ -183,6 +190,22 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     const owner = projection.owners.get(id)
     return aiReview?.tasks.find(task => task.target.kind === 'segment' && (task.id === owner || task.target.objectIds.includes(id)))
   }
+  function reservationAt(clientX: number, clientY: number, element = document.elementFromPoint(clientX, clientY)) {
+    if (!element || !sheet.current?.contains(element)) return
+    const objectId = element.closest<HTMLElement>('[data-note-id]')?.dataset.noteId
+    if (objectId) return segmentTask(objectId)?.id
+    if (element.closest('button, input, textarea, select, [data-segment-control]')) return
+    for (const border of sheet.current.querySelectorAll<HTMLElement>('[data-ai-segment-border]:not([hidden])')) {
+      const box = border.getBoundingClientRect()
+      if (clientX >= box.left && clientX < box.right && clientY > box.top && clientY < box.bottom) return border.dataset.aiSegmentBorder
+    }
+  }
+  const reservationPointer = useRef<{ x: number; y: number } | null>(null)
+  function reservationCursor() {
+    const pointer = reservationPointer.current
+    sheet.current?.toggleAttribute('data-reservation-hit', !!(editable && !tool && !imagePlacement.active && pointer && reservationAt(pointer.x, pointer.y)))
+  }
+  useLayoutEffect(reservationCursor)
   const segmentRanges = useMemo(() => {
     if (!mainEditor || !editable) return []
     const positions = [0]
@@ -406,8 +429,8 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
   function insertionTarget(event: Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey'>) {
     const hit = document.elementFromPoint(event.clientX, event.clientY)
     if (!hit || !stage.current?.contains(hit)) return null
-    if ((tool === 'ai' && hit.closest('[data-segment-control]')) || (tool !== 'ai' && !event.altKey && (sheet.current?.contains(hit) || hit.closest('[data-segment-control]')))) {
-      const boundary = segments.target(point(event).y, tool === 'ai' && event.altKey)
+    if (tool !== 'ai' && !event.altKey && (sheet.current?.contains(hit) || hit.closest('[data-segment-control]'))) {
+      const boundary = segments.target(point(event).y)
       return { position: { x: doc.page.margins.left, y: boundary.top }, boundary }
     }
     if (!sheet.current?.contains(hit)) return null
@@ -446,11 +469,6 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     }
   }, [editable, creationObject, scale, onToolChange])
   function insertAtBoundary(boundary: { point: SegmentPoint; top: number }) {
-    if (tool === 'ai') {
-      const id = onAISegmentCreate?.({ start: boundary.point, end: boundary.point }, { x: 0, y: boundary.top, width: pageWidth(), height: 0 })
-      if (id) { select([]); onActive(null); setActiveSegmentId(id); onToolChange(null) }
-      return
-    }
     const object = objectAt({ x: doc.page.margins.left, y: boundary.top }, true)
     if (!commitDocument(insertDocumentObjects(doc, [object], boundary.point.index))) return
     segments.clear(); select([object.id]); onActive(null); onToolChange(null)
@@ -480,6 +498,14 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       return
     }
     if (!tool && !imagePlacement.active && segments.begin(event)) return
+    if (!tool && !imagePlacement.active) {
+      const reservation = reservationAt(event.clientX, event.clientY, event.target as Element)
+      if (reservation) {
+        event.preventDefault(); event.stopPropagation()
+        stage.current!.focus({ preventScroll: true }); selectAISegment(reservation)
+        return
+      }
+    }
     if (tail.begin(event)) { segments.clear(); setActiveSegmentId(null); return }
     if (tool === 'paragraph' || tool === 'slideBreak') { paragraphs.insert(event); return }
     if (creationObject) {
@@ -543,7 +569,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     if (d.part === 'marquee') {
       const box = rectangle(d.start, p)
       setMarquee(box)
-      select([...new Set([...d.additive, ...d.objects.filter(object => d.geometry[object.id] && intersects(d.geometry[object.id], box)).map(object => object.id)])])
+      select([...new Set([...d.additive, ...d.objects.filter(object => !segmentTask(object.id) && d.geometry[object.id] && intersects(d.geometry[object.id], box)).map(object => object.id)])])
       return
     }
     const object = d.created ?? d.objects.find(object => object.id === d.id)!
@@ -887,7 +913,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     const element = event.target as Element
     if (element.closest('button, input, textarea, select, a[href], [data-floating-control], [data-caption-control]')) return
     const objectId = element.closest<HTMLElement>('[data-note-id]')?.dataset.noteId
-    const reservationId = element.closest<HTMLElement>('[data-ai-reservation]')?.dataset.aiReservation
+    const reservationId = reservationAt(event.clientX, event.clientY, element) ?? element.closest<HTMLElement>('[data-ai-reservation]')?.dataset.aiReservation
     const task = objectId ? segmentTask(objectId) ?? aiReview.tasks.find(task => task.target.kind === 'object' && task.target.objectId === objectId)
       : aiReview.tasks.find(task => task.id === reservationId)
     if (!task || !hasReservationMarkup(task) || task.preview && selectedCandidateVersion(task)) return
@@ -940,7 +966,13 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     style={{ '--page-background': pageColor(doc.theme), '--presentation-cursor': presenting.canAdvance ? 'pointer' : 'default' } as React.CSSProperties}>
     {presenting.entry}
     <div className={`stage${segments.marginHover ? ' has-segment-margin-hover' : ''}`} ref={stage} id={canvasId} tabIndex={-1} aria-label={presenting.active ? `Slide ${presenting.index! + 1} · Click or use arrow keys to navigate · Esc returns to reading` : 'Document canvas'} onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
-      onPointerMoveCapture={event => segments.hover(!tool && !imagePlacement.active ? event : null)} onPointerLeave={() => segments.hover(null)}
+      onKeyDown={event => {
+        if (editable && event.target === stage.current && activeSegmentId && !isComposingKey(event.nativeEvent) && ['Delete', 'Backspace'].includes(event.key)) {
+          event.preventDefault(); aiReview?.deleteTarget(activeSegmentId)
+        }
+      }}
+      onPointerMoveCapture={event => { reservationPointer.current = { x: event.clientX, y: event.clientY }; reservationCursor(); segments.hover(!tool && !imagePlacement.active ? event : null) }}
+      onPointerLeave={() => { reservationPointer.current = null; reservationCursor(); segments.hover(null) }}
       onPointerMove={move} onPointerUp={finish} onPointerCancel={cancel} onLostPointerCapture={cancel}>
       <div className="canvas-scroll-floor" ref={scrollFloor.container}>
       <div className="sheet-footprint" ref={footprint} style={{
@@ -949,7 +981,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
         height: presenting.active ? doc.page.slideHeight! * scale : `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
       <div className={`sheet ${editingLayout ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
-        ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined}
+        ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined} data-ai-placement={tool === 'ai' ? '' : undefined}
         onDoubleClickCapture={editReservationMarkup}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
@@ -977,7 +1009,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
           return renderObject(original)
         })}
 
-        {editable && canvasReview && <SegmentBorders tasks={canvasReview.tasks} previews={projection.previews}
+        {editable && canvasReview && <SegmentBorders doc={projection.document} ranges={projection.ranges} onSelect={selectAISegment} tasks={canvasReview.tasks} previews={projection.previews}
           owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       </div>
@@ -1013,7 +1045,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
     }} />}
     {(clipboardNotice || segments.notice) && <p className="segment-notice" role="status">{clipboardNotice || segments.notice}</p>}
     {imagePlacement.notice && <p className="segment-notice" role="status">{imagePlacement.notice}</p>}
-    {editable && creationObject && !clipboardNotice && !segments.notice && !imagePlacement.notice && <p className="segment-notice" role="status">{tool === 'ai' ? 'Click or drag to reserve an AI object · Gutter: reserve AI section · Esc cancels' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'}</p>}
+    {editable && creationObject && !clipboardNotice && !segments.notice && !imagePlacement.notice && <p className="segment-notice" role="status">{tool === 'ai' ? 'Click or drag on the page to reserve one AI object · Esc cancels' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
     {editable && tool === 'slideBreak' && <p className="segment-notice" role="status">Click a boundary to start a new slide. Escape cancels.</p>}
     {minimap && !presenting.active && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} nativeScroll={nativeScroll} />}

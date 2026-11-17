@@ -17,10 +17,14 @@ interface Props {
   doc: MoteDocument; editable: boolean; editor: Editor | null; scale: number
   stage: RefObject<HTMLDivElement | null>; sheet: RefObject<HTMLDivElement | null>
   selectedObjectIds?: readonly string[]
+  reservedSegments?: readonly { taskId: string; range: SegmentRange; objectIds: string[] }[]
+  onSelectReservation?: (id: string) => void
   slidePositions?: readonly { index: number; top: number; bottom: number }[]
   anchors: Anchor[]; geometry: Geometries; lockedIds: Set<string>; onStart: () => void
 }
-interface Block { top: number; bottom: number; height: number; space: boolean }
+interface Block { top: number; bottom: number; height: number; space: boolean; stops?: { offset: number; y: number }[] }
+interface Unit { taskId: string; range: SegmentRange; top: number; bottom: number }
+type Measurement = Block[] & { units: Unit[] }
 interface Paint { bands: Box[]; objects: (Box & { id: string })[]; top: number; bottom: number }
 interface Drag {
   pointerId: number; y: number; originY: number; originClientY: number; alt: boolean; moved: boolean
@@ -31,6 +35,9 @@ const compare = (a: SegmentPoint, b: SegmentPoint) => a.index - b.index || a.off
 const equal = (range: SegmentRange) => compare(range.start, range.end) === 0
 const ordered = (a: SegmentPoint, b: SegmentPoint): SegmentRange => compare(a, b) <= 0 ? { start: a, end: b } : { start: b, end: a }
 const edge = (index: number): SegmentPoint => ({ index, offset: 0 })
+const inside = (point: SegmentPoint, range: SegmentRange) => compare(point, range.start) > 0 && compare(point, range.end) < 0
+const overlaps = (a: SegmentRange, b: SegmentRange) => compare(a.start, b.end) < 0 && compare(a.end, b.start) > 0
+const boundaryTolerance = 3 // Screen pixels, independent of document zoom.
 const escapeHTML = (text: string) => text.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!)
 const marker = <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 3h5l9 7-9 7H3l7-7z" /></svg>
 
@@ -47,13 +54,23 @@ export function useSegmentSelection(props: Props) {
   const [notice, setNotice] = useState('')
   const [dropY, setDropY] = useState<number | null>(null)
   const [marginHover, setMarginHover] = useState(false)
+  const [reservationHover, setReservationHover] = useState(false)
   const marginPointer = useRef<{ clientX: number; clientY: number } | null>(null)
   const drag = useRef<Drag | null>(null)
   const clickedSlide = useRef<number | null>(null)
   const tick = useRef<() => void>(() => {})
   const content = useRef(props.doc.content)
 
-  function select(next: SegmentRange | null, whole = next ? promoteSlideSelection(live.current.doc, next) : null) {
+  function expand(next: SegmentRange) {
+    for (const { range } of live.current.reservedSegments ?? []) {
+      if (inside(next.start, range)) next = { ...next, start: range.start }
+      if (inside(next.end, range)) next = { ...next, end: range.end }
+    }
+    return next
+  }
+  function select(next: SegmentRange | null, whole?: SlideSelection | null) {
+    if (next) next = expand(next)
+    if (whole === undefined) whole = next ? promoteSlideSelection(live.current.doc, next) : null
     insertion.current = null
     selectedSlides.current = whole; setSlides(whole)
     const promoted = whole ? slideSelectionRange(live.current.doc, whole) : next
@@ -67,30 +84,96 @@ export function useSegmentSelection(props: Props) {
     const boxes = slideBoxes()
     return boxes.find(box => y < box.bottom)?.index ?? boxes.at(-1)!.index
   }
-  function measure(): Block[] {
-    const { editor, sheet, scale } = live.current
-    if (!editor || !sheet.current) return []
+  function measure(): Measurement {
+    const { editor, sheet, scale, doc, reservedSegments = [] } = live.current
+    const blocks = Object.assign([] as Block[], { units: [] as Unit[] })
+    if (!editor || !sheet.current) return blocks
     const rect = sheet.current.getBoundingClientRect(), border = sheet.current.clientTop
-    const candidates = new Map<string, HTMLElement | null>()
-    for (const element of sheet.current.querySelectorAll<HTMLElement>('[data-ai-block]')) {
-      const id = element.dataset.aiBlock!
-      if (!candidates.has(id)) candidates.set(id, element.closest<HTMLElement>('.main-paragraph'))
+    const bounds = (element: Element) => {
+      const box = element.getBoundingClientRect()
+      const top = layoutPixel((box.top - rect.top) / scale - border)
+      return { top, bottom: element.matches('.ai-segment-preview-handle, [data-ai-segment-border][data-ai-empty]') ? top : layoutPixel((box.bottom - rect.top) / scale - border) }
     }
-    const blocks: Block[] = []
+    const candidates = new Map<string, HTMLElement>()
+    for (const element of editor.view.dom.querySelectorAll<HTMLElement>('[data-ai-block]')) {
+      const id = element.dataset.aiBlock!
+      const block = element.closest<HTMLElement>('.main-paragraph, [data-spacer], [data-flow]')
+      if (block && !candidates.has(id)) candidates.set(id, block)
+    }
+    const elements: HTMLElement[] = []
     editor.state.doc.forEach((node, from) => {
       const element = editor.view.nodeDOM(from) as HTMLElement
+      elements.push(element)
       const candidate = candidates.get(node.attrs.id)
-      const box = (candidate ?? element).getBoundingClientRect()
-      const top = layoutPixel((box.top - rect.top) / scale - border), space = node.type.name === 'spacer'
-      let bottom = layoutPixel((box.bottom - rect.top) / scale - border)
-      // Extra candidate paragraphs belong to the final original reservation block.
-      for (let next = candidate?.nextElementSibling; next?.getAttribute('data-ai-block') === ''; next = next.nextElementSibling) {
-        const box = next.getBoundingClientRect()
-        bottom = layoutPixel((box.bottom - rect.top) / scale - border)
-      }
-      const height = space ? node.attrs.height : bottom - top
-      blocks.push({ top, bottom: top + height, height, space })
+      let { top, bottom } = bounds(candidate ?? element)
+      // Extra text-task paragraphs belong to the final original block.
+      for (let next = candidate?.nextElementSibling; next?.getAttribute('data-ai-block') === ''; next = next.nextElementSibling) bottom = bounds(next).bottom
+      const space = node.type.name === 'spacer'
+      blocks.push({ top, bottom, height: space ? node.attrs.height : bottom - top, space })
     })
+    const content = doc.content.content!
+    const position = (point: SegmentPoint) => segmentPosition(content, point)
+    for (const root of editor.view.dom.querySelectorAll<HTMLElement>('[data-ai-segment-preview]')) {
+      const children = [...root.children] as HTMLElement[]
+      if (!children.length) continue
+      const hidden: number[] = []
+      for (let next = root.nextElementSibling; next?.classList.contains('ai-original-hidden'); next = next.nextElementSibling) {
+        const index = elements.indexOf(next as HTMLElement)
+        if (index >= 0) hidden.push(index)
+      }
+      const first = hidden[0] ?? elements.findIndex(element => !!(root.compareDocumentPosition(element) & Node.DOCUMENT_POSITION_FOLLOWING))
+      const start = edge(first < 0 ? blocks.length : first), end = edge(hidden.length ? hidden.at(-1)! + 1 : start.index)
+      const top = bounds(children[0]).top, bottom = bounds(children.at(-1)!).bottom
+      const tasks = new Set(root.dataset.aiSegmentTasks?.split(' '))
+      const reservations = reservedSegments.filter(unit => tasks.has(unit.taskId) && compare(unit.range.start, end) <= 0 && compare(unit.range.end, start) >= 0)
+        .sort((a, b) => compare(a.range.start, b.range.start))
+      const knots = [{ position: position(start), y: top }, { position: position(end), y: bottom }]
+      for (const [index, unit] of reservations.entries()) {
+        const owned = children.filter(element => element.dataset.aiSegmentOwner === unit.taskId)
+        let unitTop = owned.length ? bounds(owned[0]).top : top
+        let unitBottom = owned.length ? bounds(owned.at(-1)!).bottom : unitTop
+        // Retained spacer fragments are outside the task. For a merged/empty
+        // replacement, recover its edges from those original spacer lengths.
+        if ((!owned.length || owned[0] === children[0]) && index === 0 && unit.range.start.index === start.index && unit.range.start.offset) unitTop = top + unit.range.start.offset
+        if ((!owned.length || owned.at(-1) === children.at(-1)) && index === reservations.length - 1 && unit.range.end.offset && unit.range.end.index === end.index - 1) {
+          unitBottom = bottom - (blocks[unit.range.end.index].height - unit.range.end.offset)
+        }
+        const next = reservations[index + 1]
+        if (!owned.length && next && next.range.start.index === unit.range.end.index && next.range.start.offset > unit.range.end.offset) {
+          const nextOwned = children.find(element => element.dataset.aiSegmentOwner === next.taskId)
+          if (nextOwned) unitBottom = bounds(nextOwned).top - (next.range.start.offset - unit.range.end.offset)
+        }
+        const band = sheet.current.querySelector<HTMLElement>(`[data-ai-segment-border="${unit.taskId}"]:not([hidden])`)
+        if (band) ({ top: unitTop, bottom: unitBottom } = bounds(band))
+        unitBottom = Math.max(unitTop, unitBottom)
+        blocks.units.push({ taskId: unit.taskId, range: unit.range, top: unitTop, bottom: unitBottom })
+        knots.push({ position: position(unit.range.start), y: unitTop }, { position: position(unit.range.end), y: unitBottom })
+        if (index === 0 && unit.range.start.index === start.index && unit.range.start.offset) {
+          knots.push({ position: position(unit.range.start), y: top + unit.range.start.offset })
+        }
+        if (index === reservations.length - 1 && unit.range.end.offset && unit.range.end.index === end.index - 1) {
+          knots.push({ position: position(unit.range.end), y: bottom - (blocks[unit.range.end.index].height - unit.range.end.offset) })
+        }
+      }
+      knots.sort((a, b) => a.position - b.position || a.y - b.y)
+      const at = (value: number, side: 'start' | 'end') => {
+        const exact = knots.filter(knot => knot.position === value)
+        if (exact.length) return (side === 'start' ? exact.at(-1)! : exact[0]).y
+        const before = knots.findLast(knot => knot.position < value)!, after = knots.find(knot => knot.position > value)!
+        return before.y + (after.y - before.y) * (value - before.position) / (after.position - before.position)
+      }
+      for (const index of hidden) {
+        const block = blocks[index], from = position(edge(index)), to = position(edge(index + 1))
+        block.top = at(from, 'start'); block.bottom = at(to, 'end')
+        if (block.space) block.stops = [{ offset: 0, y: block.top }, ...knots.filter(knot => knot.position > from && knot.position < to).map(knot => ({ offset: knot.position - from, y: knot.y })), { offset: block.height, y: block.bottom }]
+      }
+    }
+    for (const unit of reservedSegments) if (!blocks.units.some(measured => measured.taskId === unit.taskId)) {
+      const band = sheet.current.querySelector<HTMLElement>(`[data-ai-segment-border="${unit.taskId}"]:not([hidden])`)
+      blocks.units.push({ taskId: unit.taskId, range: unit.range, ...(band ? bounds(band) : {
+        top: blockBoundaryY(unit.range.start, 'start', blocks), bottom: blockBoundaryY(unit.range.end, equal(unit.range) ? 'start' : 'end', blocks),
+      }) })
+    }
     return blocks
   }
   function snapshotAnchors() {
@@ -103,9 +186,15 @@ export function useSegmentSelection(props: Props) {
   }
   function endpoint(y: number, alt: boolean, blocks = measure()): SegmentPoint {
     if (!blocks.length) return edge(0)
+    const boundary = reservationBoundary(y, blocks)
+    if (boundary) return boundary
+    const unit = blocks.units.find(unit => y > unit.top && y < unit.bottom)
+    if (unit) return y - unit.top < unit.bottom - y ? unit.range.start : unit.range.end
     for (const [index, block] of blocks.entries()) {
       if (alt && block.space && y > block.top && y < block.bottom) {
-        const offset = Math.min(block.height, Math.round((y - block.top) * 10) / 10)
+        const stops = block.stops ?? [{ offset: 0, y: block.top }, { offset: block.height, y: block.bottom }]
+        const before = stops.findLast(stop => stop.y <= y)!, after = stops.find(stop => stop.y > y)!
+        const offset = Math.min(block.height, Math.round((before.offset + (y - before.y) * (after.offset - before.offset) / (after.y - before.y)) * 10) / 10)
         return offset === block.height ? edge(index + 1) : { index, offset }
       }
     }
@@ -113,23 +202,54 @@ export function useSegmentSelection(props: Props) {
     let nearest = edge(0), distance = Math.abs(blocks[0].top - y)
     for (const [index, block] of blocks.entries()) {
       const startDistance = Math.abs(block.top - y)
-      if (startDistance < distance) { nearest = edge(index); distance = startDistance }
+      if (startDistance < distance && !blocks.units.some(unit => inside(edge(index), unit.range))) { nearest = edge(index); distance = startDistance }
       const endDistance = Math.abs(block.bottom - y)
-      if (endDistance < distance) { nearest = edge(index + 1); distance = endDistance }
+      if (endDistance < distance && !blocks.units.some(unit => inside(edge(index + 1), unit.range))) { nearest = edge(index + 1); distance = endDistance }
+    }
+    for (const unit of blocks.units) for (const side of ['start', 'end'] as const) {
+      const delta = Math.abs((side === 'start' ? unit.top : unit.bottom) - y)
+      if (delta < distance) { nearest = unit.range[side]; distance = delta }
     }
     return nearest
   }
-  function boundaryY(point: SegmentPoint, side: 'start' | 'end', blocks: Block[]) {
+  function reservationBoundary(y: number, blocks: Measurement) {
+    let point: SegmentPoint | undefined, distance = boundaryTolerance / live.current.scale
+    for (const unit of blocks.units) {
+      if (equal(unit.range) && unit.top === unit.bottom) continue
+      for (const side of ['start', 'end'] as const) {
+        const delta = Math.abs((side === 'start' ? unit.top : unit.bottom) - y)
+        if (delta <= distance) { point = unit.range[side]; distance = delta }
+      }
+    }
+    return point
+  }
+  function blockBoundaryY(point: SegmentPoint, side: 'start' | 'end', blocks: Block[]) {
     if (!blocks.length) return 0
-    if (point.offset) return blocks[point.index].top + point.offset
+    if (point.offset) {
+      const block = blocks[point.index]
+      if (!block.stops) return block.top + point.offset
+      const before = block.stops.findLast(stop => stop.offset <= point.offset)!, after = block.stops.find(stop => stop.offset > point.offset)
+      return after ? before.y + (point.offset - before.offset) * (after.y - before.y) / (after.offset - before.offset) : before.y
+    }
     return side === 'start' ? blocks[point.index]?.top ?? blocks.at(-1)!.bottom : blocks[point.index - 1]?.bottom ?? blocks[0].top
+  }
+  function boundaryY(point: SegmentPoint, side: 'start' | 'end', blocks: Measurement) {
+    const unit = blocks.units.find(unit => compare(point, unit.range[side]) === 0)
+    return unit ? side === 'start' ? unit.top : unit.bottom : blockBoundaryY(point, side, blocks)
+  }
+  function selectionObjects(current: SegmentRange, whole: SlideSelection | null) {
+    const ids = whole ? slideObjectIds(live.current.doc, whole) : segmentObjectIds(live.current.doc, current)
+    for (const unit of live.current.reservedSegments ?? []) if (overlaps(current, unit.range)) {
+      for (const id of unit.objectIds) ids.add(id)
+    }
+    return ids
   }
   function refresh() {
     const current = selected.current, { doc, geometry } = live.current
     const blocks = measure()
     if (!current || !blocks.length) return
     const whole = selectedSlides.current
-    const objects = [...(whole ? slideObjectIds(doc, whole) : segmentObjectIds(doc, current))].flatMap(id => {
+    const objects = [...selectionObjects(current, whole)].flatMap(id => {
       const box = geometry[id]
       if (!box) return []
       const bounds = extentBounds(box)
@@ -191,19 +311,25 @@ export function useSegmentSelection(props: Props) {
       const anchorIndex = d.anchor.index - (d.handle === 'start' && !d.anchor.offset ? 1 : 0)
       const fromSlide = slideAtIndex(doc, anchorIndex).index, toSlide = slideAtY(y)
       const whole = doc.page.slideHeight && fromSlide !== toSlide ? { first: Math.min(fromSlide, toSlide), last: Math.max(fromSlide, toSlide) } : undefined
-      select(ordered(d.anchor, point), whole)
+      select(ordered(d.anchor, selectionEndpoint(y, d.anchor, point, blocks)), whole)
     } else {
       if (!d.moved) return
       const down = y >= d.originY
-      const touched = blocks.findIndex(block => !block.space && y >= block.top && y < block.bottom)
+      const touched = reservationBoundary(y, blocks) ? -1 : blocks.findIndex(block => !block.space && y >= block.top && y < block.bottom)
       if (touched >= 0) point = edge(touched + (down ? 1 : 0))
       const anchor = d.originBlock >= 0 ? edge(d.originBlock + (down ? 0 : 1)) : endpoint(d.originY, d.alt, blocks)
       // The original page position stays fixed while the viewport auto-scrolls.
       d.anchor = anchor
       const fromSlide = slideAtY(d.originY), toSlide = slideAtY(y)
       const whole = live.current.doc.page.slideHeight && fromSlide !== toSlide ? { first: Math.min(fromSlide, toSlide), last: Math.max(fromSlide, toSlide) } : undefined
-      select(ordered(d.anchor, point), whole)
+      select(ordered(d.anchor, selectionEndpoint(y, d.anchor, point, blocks)), whole)
     }
+  }
+  function selectionEndpoint(y: number, anchor: SegmentPoint, point: SegmentPoint, blocks: Measurement) {
+    const boundary = reservationBoundary(y, blocks)
+    if (boundary) return boundary
+    const unit = blocks.units.find(unit => y > unit.top && y < unit.bottom)
+    return unit ? compare(anchor, unit.range.start) <= 0 ? unit.range.end : unit.range.start : point
   }
   function marginTarget(event: Pick<ReactPointerEvent, 'target' | 'clientX' | 'clientY'>) {
     const { editable, sheet, scale, doc } = live.current
@@ -215,7 +341,13 @@ export function useSegmentSelection(props: Props) {
   function refreshMarginHover() {
     const point = marginPointer.current
     const target = point && document.elementFromPoint(point.clientX, point.clientY)
-    setMarginHover(!!point && !!target && marginTarget({ ...point, target }))
+    const margin = !!point && !!target && marginTarget({ ...point, target })
+    const gutter = target?.closest('[data-segment-control="gutter"]')
+    const blocks = point && (margin || gutter) ? measure() : null
+    const y = blocks && point ? localY(point.clientY) : 0
+    const task = !!blocks && !reservationBoundary(y, blocks) && blocks.units.some(unit => y > unit.top && y < unit.bottom)
+    setReservationHover(task)
+    setMarginHover(margin && !task)
   }
   useLayoutEffect(refreshMarginHover)
   useLayoutEffect(() => {
@@ -239,11 +371,26 @@ export function useSegmentSelection(props: Props) {
     }
     const previousSlides = selectedSlides.current
     const previous = selected.current, control = target?.dataset.segmentControl
-    const moving = control === 'move', handle = control === 'start' || control === 'end' ? control : undefined
+    const handle = control === 'start' || control === 'end' ? control : undefined
+    const y = localY(event.clientY), blocks = measure(), boundary = reservationBoundary(y, blocks)
+    const inGutter = event.clientX < rect.left + (sheet.current!.clientLeft + doc.page.margins.left) * scale
+    const member = target?.dataset.segmentObject
+    const owned = member && live.current.reservedSegments?.find(unit => unit.objectIds.includes(member))
+    const unit = !handle && (!boundary || !inGutter) && (owned ?? blocks.units.find(unit => y > unit.top && y < unit.bottom)
+      ?? blocks.units.find(unit => equal(unit.range) && Math.abs(y - unit.top) * scale <= boundaryTolerance
+        && !blocks.some(block => Math.min(Math.abs(y - block.top), Math.abs(y - block.bottom)) * scale <= boundaryTolerance)))
+    if (unit) {
+      clear(); onStart()
+      stage.current!.focus({ preventScroll: true })
+      window.getSelection()?.removeAllRanges()
+      live.current.onSelectReservation?.(unit.taskId)
+      return true
+    }
+    const moving = control === 'move' && !(inGutter && boundary)
     if (moving && (!previous || equal(previous))) return true
     if (moving && reserved(previous!)) { setNotice('Accept or discard the selected AI task before moving this segment.'); return true }
-    const y = localY(event.clientY), blocks = measure(), anchor = endpoint(y, event.altKey, blocks)
-    const originBlock = blocks.findIndex(block => !block.space && y >= block.top && y < block.bottom)
+    const anchor = endpoint(y, event.altKey, blocks)
+    const originBlock = boundary ? -1 : blocks.findIndex(block => !block.space && y >= block.top && y < block.bottom)
     onStart()
     stage.current!.focus({ preventScroll: true })
     window.getSelection()?.removeAllRanges()
@@ -258,7 +405,7 @@ export function useSegmentSelection(props: Props) {
     if (!handle && !moving) {
       const slide = live.current.doc.page.slideHeight ? slideRanges(live.current.doc)[slideAtY(y)] : null
       const body = slide && live.current.doc.content.content!.slice(slide.start + (slide.id === null ? 0 : 1), slide.end)
-      if (slide && body?.every(block => block.type === 'paragraph' && !block.content?.length)) select(slideSelectionRange(live.current.doc, { first: slide.index, last: slide.index }))
+      if (!boundary && slide && body?.every(block => block.type === 'paragraph' && !block.content?.length)) select(slideSelectionRange(live.current.doc, { first: slide.index, last: slide.index }))
       else select(originBlock >= 0 ? { start: edge(originBlock), end: edge(originBlock + 1) } : { start: anchor, end: anchor })
     }
     tick.current()
@@ -270,7 +417,9 @@ export function useSegmentSelection(props: Props) {
   }
   function reserved(current: SegmentRange) {
     const { doc, history, lockedIds } = live.current
-    return (doc.content.content ?? []).slice(current.start.index, current.end.index + (current.end.offset ? 1 : 0)).some(node => history.lockedBlocks.current[node.attrs!.id])
+    return live.current.reservedSegments?.some(unit => overlaps(current, unit.range) || inside(current.start, unit.range)
+      || equal(unit.range) && compare(current.start, unit.range.start) <= 0 && compare(current.end, unit.range.end) >= 0)
+      || (doc.content.content ?? []).slice(current.start.index, current.end.index + (current.end.offset ? 1 : 0)).some(node => history.lockedBlocks.current[node.attrs!.id])
       || [...(selectedSlides.current && current === selected.current ? slideObjectIds(doc, selectedSlides.current) : segmentObjectIds(doc, current))].some(id => lockedIds.has(id))
   }
   function nextDocument(current: SegmentRange, payload: SegmentClipboard | null) {
@@ -523,7 +672,7 @@ export function useSegmentSelection(props: Props) {
 
   const styleBox = (box: Box) => ({ left: (box.x + 1) * props.scale, top: (box.y + 1) * props.scale, width: box.width * props.scale, height: box.height * props.scale })
   const overlay = props.editable && <div className={`segment-layer segment-selection${range ? ' has-segment' : ''}${slides ? ' has-slides' : ''}`}>
-    <div className="segment-gutter" data-segment-control="gutter" title={props.doc.page.slideHeight ? "Drag to select segments or slides · Double-click to select one slide" : "Drag to select a segment · Alt splits explicit spaces"} />
+    <div className="segment-gutter" data-segment-control="gutter" style={reservationHover ? { cursor: 'pointer' } : undefined} title={reservationHover ? "Select reserved segment" : props.doc.page.slideHeight ? "Drag to select segments or slides · Double-click to select one slide" : "Drag to select a segment · Alt splits explicit spaces"} />
     {range && <>
       {paint.bands.map((box, index) => <div className="segment-band" data-segment-control="move" title={slides ? "Drag to reorder slides" : "Drag to move segment · Alt splits spaces"} key={index} style={styleBox(box)} />)}
       {paint.objects.map(box => <div className="segment-object" data-segment-control="move" title={slides ? "Drag to reorder slides" : "Drag to move segment · Alt splits spaces"} data-segment-object={box.id} key={box.id} style={styleBox(box)} />)}
@@ -548,7 +697,15 @@ export function useSegmentSelection(props: Props) {
       const blocks = measure(), point = endpoint(y, alt, blocks)
       return { point, top: boundaryY(point, 'start', blocks) }
     },
-    selection: () => selected.current && { range: selected.current, slides: selectedSlides.current, label: selectionLabel, objectIds: [...(selectedSlides.current ? slideObjectIds(props.doc, selectedSlides.current) : segmentObjectIds(props.doc, selected.current))], area: { x: 0, y: paint.top, width: props.doc.page.width - 2, height: Math.max(0, paint.bottom - paint.top) } },
+    selection: () => {
+      const current = selected.current, whole = selectedSlides.current
+      if (!current) return null
+      const blocks = measure(), boxes = whole ? slideBoxes().filter(box => box.index >= whole.first && box.index <= whole.last) : []
+      const top = boxes[0]?.top ?? boundaryY(current.start, 'start', blocks)
+      const bottom = boxes.at(-1)?.bottom ?? (equal(current) ? top : boundaryY(current.end, 'end', blocks))
+      return { range: current, slides: whole, label: selectionLabel, objectIds: [...selectionObjects(current, whole)],
+        area: { x: 0, y: top, width: live.current.doc.page.width - 2, height: Math.max(0, bottom - top) } }
+    },
     context: () => ({ anchors: snapshotAnchors(), geometry: live.current.geometry }),
   }
 }

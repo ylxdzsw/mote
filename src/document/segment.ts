@@ -4,6 +4,7 @@ import type { FloatingObject, MoteDocument } from './model'
 import { supportsCaption } from './model'
 import { validateComposition } from '../../shared/document.mjs'
 import type { Geometries } from '../canvas/floatingGeometry'
+import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 
 export const SEGMENT_MIME = 'application/x-mote-segment+json'
 
@@ -15,6 +16,77 @@ export interface SegmentPoint {
 export interface SegmentRange {
   start: SegmentPoint
   end: SegmentPoint
+}
+
+// Ephemeral edit provenance, never document data. Structural operations supply
+// their splice rather than asking reservations to infer a split from geometry.
+export interface SegmentEdit {
+  before: JSONContent
+  mapRange: (range: SegmentRange) => SegmentRange | null
+  retainedBlockIds: Set<string>
+}
+const segmentEdits = new WeakMap<JSONContent, SegmentEdit>()
+export function segmentEdit(before: JSONContent, after: JSONContent) {
+  const edit = segmentEdits.get(after)
+  return edit?.before === before ? edit : undefined
+}
+export function carrySegmentEdit(source: MoteDocument, result: MoteDocument): MoteDocument {
+  const edit = segmentEdits.get(source.content)
+  if (edit) segmentEdits.set(result.content, edit)
+  return result
+}
+
+export function recordSegmentSplice(before: MoteDocument, after: MoteDocument, range: SegmentRange, insertedExtent: number,
+  retainedBlockIds = new Set((after.content.content ?? []).filter(node => (before.content.content ?? []).some(old => blockId(old) === blockId(node))).map(node => blockId(node)!))) {
+  const old = blocksOf(before), blocks = blocksOf(after)
+  const start = segmentPosition(old, range.start), end = segmentPosition(old, range.end)
+  const delta = insertedExtent - (end - start)
+  segmentEdits.set(after.content, { before: before.content, retainedBlockIds, mapRange: selected => {
+    const a = segmentPosition(old, selected.start), b = segmentPosition(old, selected.end)
+    if (a === b ? start < a && a < end : start === end ? a < start && start < b : a < end && start < b) return null
+    const map = (position: number, right: boolean) => position < start || position === start && (start !== end || !right) ? position : position + delta
+    return { start: segmentPointAt(blocks, map(a, true)), end: segmentPointAt(blocks, map(b, a === b)) }
+  } })
+  return after
+}
+
+// The editor already supplies exact merge aliases and the drag's insertion /
+// removal point. Call this before committing its new main content to history.
+export function recordSpaceEdit(before: MoteDocument, after: MoteDocument, merges: SpaceMerge[] = [], shift?: SpaceShift) {
+  const old = blocksOf(before), blocks = blocksOf(after)
+  if (shift?.delta) {
+    const anchor = shift.anchors.at(-1), index = old.findIndex(node => blockId(node) === anchor?.id)
+    if (index < 0 || !isSpacer(old[index])) return after
+    const origin = segmentPosition(old, { index, offset: 0 }), cut = origin + shift.from - anchor!.top
+    // Space dragging leaves anchors before the pointer fixed and shifts the
+    // trailing portion. A shrink must not consume that stationary prefix.
+    segmentEdits.set(after.content, { before: before.content, retainedBlockIds: new Set(blocks.map(node => blockId(node)!)), mapRange: range => {
+      const a = segmentPosition(old, range.start), b = segmentPosition(old, range.end)
+      if (a < cut && cut < b) return null
+      const map = (position: number, right: boolean) => position < cut || position === cut && !right ? position : position + shift.delta
+      const start = map(a, true), end = map(b, a === b)
+      if ((a >= cut && start < origin) || (b > cut && end < origin)) return null
+      return { start: segmentPointAt(blocks, start), end: segmentPointAt(blocks, end) }
+    } })
+    return after
+  }
+  if (!merges.length) return after
+  const map = (point: SegmentPoint, right: boolean): SegmentPoint | null => {
+    const previous = point.offset === 0 && (!right || point.index === old.length) && point.index > 0
+    const index = previous ? point.index - 1 : point.index, block = old[index]
+    if (!block) return null
+    const merge = merges.find(merge => merge.id === blockId(block)), id = merge?.anchorId ?? blockId(block)
+    const nextIndex = blocks.findIndex(node => blockId(node) === id)
+    if (nextIndex < 0) return null
+    const offset = (previous && isSpacer(block) ? blockHeight(block) : point.offset) + (merge?.offset ?? 0)
+    return previous && !isSpacer(block) ? { index: nextIndex + 1, offset: 0 } : canonicalPoint({ index: nextIndex, offset }, blocks)
+  }
+  segmentEdits.set(after.content, { before: before.content, retainedBlockIds: new Set(blocks.map(node => blockId(node)!)), mapRange: range => {
+    const empty = comparePoint(range.start, range.end) === 0
+    const start = map(range.start, true), end = empty ? start : map(range.end, false)
+    return start && end ? { start, end } : null
+  } })
+  return after
 }
 
 export interface SegmentClipboard {
@@ -454,7 +526,23 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
     return next
   })
   const insertion = at < start ? at : at - (end - start)
-  return { doc: { ...doc, content: { ...doc.content, content }, objects },
+  const result = { ...doc, content: { ...doc.content, content }, objects }
+  const map = (point: SegmentPoint, right: boolean): SegmentPoint => {
+    const previous = point.offset === 0 && (!right || point.index === blocks.length) && point.index > 0
+    const block = blocks[previous ? point.index - 1 : point.index]
+    const offset = previous && isSpacer(block) ? blockHeight(block) : point.offset
+    const candidates = pieces.filter(piece => piece.originalId === blockId(block))
+    const piece = candidates.findLast(piece => piece.offset < offset || piece.offset === offset && right) ?? candidates[0]
+    const mapped = applyAlias({ anchorId: blockId(piece.block)!, y: offset - piece.offset }, aliases)
+    const index = content.findIndex(block => blockId(block) === mapped.anchorId)
+    return previous && !isSpacer(block) ? { index: index + 1, offset: 0 } : canonicalPoint({ index, offset: mapped.y }, content)
+  }
+  segmentEdits.set(result.content, { before: doc.content, retainedBlockIds: new Set(content.map(node => blockId(node)!)), mapRange: selected => {
+    const a = segmentPosition(blocks, selected.start), b = segmentPosition(blocks, selected.end)
+    if ([start, end, at].some(cut => a < cut && cut < b)) return null
+    return { start: map(selected.start, true), end: map(selected.end, a === b) }
+  } })
+  return { doc: result,
     range: { start: segmentPointAt(content, insertion), end: segmentPointAt(content, insertion + end - start) } }
 }
 
@@ -549,7 +637,18 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   }
 
   const content = postBlocks.length ? { ...clone(doc.content), content: postBlocks } : { ...clone(doc.content), content: [{ type: 'paragraph', attrs: { id: freshId(used), semantic: 'body' }, content: [] }] }
-  return { ...doc, content, objects: retained }
+  const result = { ...doc, content, objects: retained }
+  const retainedBlockIds = new Set<string>()
+  for (const block of oldBlocks) {
+    const id = blockId(block)!, part = parts.get(id)
+    for (const retainedId of part ? [part.beforeId, part.afterId] : selected.blockIds.has(id) ? [] : [id]) {
+      if (retainedId) retainedBlockIds.add(aliases.get(retainedId)?.anchorId ?? retainedId)
+    }
+  }
+  const insertedExtent = segmentPosition(content.content!, { index: content.content!.length, offset: 0 })
+    - segmentPosition(oldBlocks, { index: oldBlocks.length, offset: 0 })
+    + segmentPosition(oldBlocks, canonical.end) - segmentPosition(oldBlocks, canonical.start)
+  return recordSegmentSplice(doc, result, canonical, insertedExtent, retainedBlockIds)
 }
 
 function nodeText(node: JSONContent): string {

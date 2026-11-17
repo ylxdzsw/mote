@@ -13,8 +13,8 @@ import { connectionSnapshot, retryConnection, useConnection } from '../cloud/con
 import { subscribeDocumentUpdates } from '../cloud/documentEvents'
 import { useAssistantState } from './useAssistantState'
 import type { Area, AITarget, AITask, AssistantCloud, RemoteTask, Reservation, ReservationMarkup } from './types'
-import { applySegmentCandidate, expandSegmentCandidate, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
-import { copySegment, type SegmentClipboard } from '../document/segment'
+import { applySegmentCandidate, expandSegmentCandidate, intervalTarget, makeSegmentTarget, resolveSegmentRange, type SegmentContext } from './segments'
+import { carrySegmentEdit, copySegment, type SegmentClipboard } from '../document/segment'
 
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
 
@@ -66,7 +66,7 @@ export function candidateDocument(doc: MoteDocument, task: AITask, candidate = s
       result = applySegmentCandidate(doc, target, expanded, context)
     }
     validateDocument(result)
-    return initializeDocument(structuredClone(result))
+    return carrySegmentEdit(result, initializeDocument(structuredClone(result)))
   })
 }
 
@@ -106,10 +106,11 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     // History may restore/release a reservation, but cannot edit a different
     // reservation that remains active on both sides of the transaction.
     const retained = beforeReservations.filter(task => !task.released && afterReservations.some(next => next.id === task.id && !next.released))
-    return warn(permits(compatibleTasks(retained.map(asTask), before), before, after))
+    return warn(permits(compatibleTasks(retained.map(asTask), before), before, after, afterReservations.map(asTask)))
   }
-  history.guardEditor.current = (id, before, after) => permitsEditor(activeTasks(), id, before, after)
-  history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' || task.target.kind === 'segment' ? task.target.blockIds.map(id => [id, task.id]) : []))
+  history.guardEditor.current = (id, before, after, merges, shift) => permitsEditor(activeTasks(), id, before, after, merges, shift)
+  history.lockedBlocks.current = Object.fromEntries(tasks.flatMap(task => task.target.kind === 'text' || task.target.kind === 'segment'
+    ? task.target.blockIds.filter(id => !intervalTarget(task.target) || history.doc.content.content?.find(block => block.attrs?.id === id)?.type !== 'spacer').map(id => [id, task.id]) : []))
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; preparing.current.clear() } }, [])
   useEffect(() => {
     const ids = history.referencedTaskIds()

@@ -235,6 +235,7 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .stage:has(.sheet[data-writing-hover]) { cursor: text; }
 .sheet.is-editing :where(.main-text > .text-content > .tiptap) { cursor: text; }
 .sheet.is-editing .main-text :is([data-ai-segment], [data-ai-preview], [data-ai-segment] *, [data-ai-preview] *) { cursor: pointer; }
+.sheet.is-editing[data-reservation-hit]:not(.has-creation-tool), .sheet.is-editing[data-reservation-hit]:not(.has-creation-tool) * { cursor: pointer; }
 .main-text > .text-content > .tiptap > .ProseMirror-gapcursor { visibility: hidden; left: 0; font-family: var(--body-family); font-size: var(--body-size); font-weight: var(--body-weight); line-height: var(--body-lineHeight); margin-left: var(--body-first-line-indent, 0px); }
 .main-text > .text-content > .tiptap > .ProseMirror-gapcursor::after { top: 0; width: 0; height: 1lh; border-top: 0; border-left: 1px solid var(--body-color); }
 .main-paragraph[data-repel] { height: var(--text-height); }

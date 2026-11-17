@@ -16,6 +16,7 @@
 /* Placement wins over ordinary object/text cues; Ctrl/⌘ links retain navigation. */
 .sheet.has-creation-tool, .sheet.has-creation-tool *, .sheet-footprint:has(> .sheet.has-creation-tool) .segment-gutter { cursor: var(--creation-cursor, crosshair) !important; }
 .sheet.has-creation-tool iframe { pointer-events: none; }
+.sheet-footprint:has(> .sheet[data-ai-placement]) .segment-gutter { cursor: default !important; }
 .object-insertion-preview { position: absolute; top: 0; left: 0; border: 1px solid transparent; transform-origin: top left; pointer-events: none; z-index: 2; }
 .reservation-markup-overlay { position: absolute; inset: 0; overflow: clip; pointer-events: none; z-index: 1; }
 .object-insertion-preview .floating-note { opacity: .6; outline: 1px dashed var(--ui-accent-border); outline-offset: 0; background-color: var(--ui-accent-tint); }

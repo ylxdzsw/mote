@@ -1,8 +1,8 @@
 import type { JSONContent } from '@tiptap/core'
 import { paragraph, patchObject, objectAnchorId, objectY, type MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
-import { parseSegment, replaceSegment, segmentObjectIds, type SegmentClipboard, type SegmentPoint, type SegmentRange, type Geometries } from '../document/segment'
-import type { AITarget, Area, SegmentBookmark, SegmentCandidate, SegmentTarget } from './types'
+import { carrySegmentEdit, segmentEdit, parseSegment, replaceSegment, segmentObjectIds, type SegmentClipboard, type SegmentPoint, type SegmentRange, type Geometries } from '../document/segment'
+import type { AITarget, Area, Reservation, SegmentBookmark, SegmentCandidate, SegmentTarget } from './types'
 
 export interface SegmentContext {
   anchors: { id: string; top: number; bottom?: number }[]
@@ -15,6 +15,31 @@ const spacer = (node: JSONContent) => node.type === 'spacer'
 const height = (node: JSONContent) => typeof node.attrs?.height === 'number' && Number.isFinite(node.attrs.height) ? node.attrs.height : 0
 const compare = (a: SegmentPoint, b: SegmentPoint) => a.index - b.index || a.offset - b.offset
 const edge = (index: number): SegmentPoint => ({ index, offset: 0 })
+
+export const intervalTarget = (target: AITarget): target is SegmentTarget & { version: 2 } => target.kind === 'segment' && target.version === 2
+
+export function mapSegmentTarget(before: MoteDocument, after: MoteDocument, target: SegmentTarget): SegmentTarget | null {
+  if (!intervalTarget(target)) return target
+  const edit = segmentEdit(before.content, after.content)
+  if (!edit) return target
+  const range = resolveSegmentRange(before, target), mapped = range && edit.mapRange(range)
+  if (!mapped) return null
+  const next = makeSegmentTarget(after, mapped, target.area)
+  // Ownership is identity, not whatever happens to occupy the new interval.
+  return { ...target, range: next.range, bookmarks: next.bookmarks, blockIds: next.blockIds }
+}
+
+export function mapReservations<T extends Reservation>(before: MoteDocument, after: MoteDocument, reservations: T[]): T[] | null {
+  let changed = false
+  const mapped: T[] = []
+  for (const reservation of reservations) {
+    const target = reservation.target.kind === 'segment' ? mapSegmentTarget(before, after, reservation.target) : reservation.target
+    if (!target) return null
+    changed ||= target !== reservation.target
+    mapped.push(target === reservation.target ? reservation : { ...reservation, target })
+  }
+  return changed ? mapped : reservations
+}
 
 function canonicalPoint(point: SegmentPoint, blocks: JSONContent[]): SegmentPoint | null {
   if (!Number.isInteger(point.index) || point.index < 0 || point.index > blocks.length) return null
@@ -93,7 +118,7 @@ export function makeSegmentTarget(doc: MoteDocument, range: SegmentRange, area: 
   const start = empty && canonical.start.index === blocks.length
     ? { blockId: null, offset: 0, after: true } : bookmarkAt(blocks, canonical.start, 'start')
   return {
-    kind: 'segment', range: canonical, blockIds: touchedBlocks(blocks, canonical),
+    kind: 'segment', version: 2, range: canonical, blockIds: touchedBlocks(blocks, canonical),
     objectIds: [...segmentObjectIds(doc, canonical)], area: { ...area },
     selectedText: selectedText(blocks, canonical),
     bookmarks: { start, end: empty ? { ...start } : bookmarkAt(blocks, canonical.end, 'end') },
@@ -150,7 +175,8 @@ export function applySegmentCandidate(doc: MoteDocument, target: SegmentTarget, 
   if ((candidate?.content.filter(block => block.type === 'slideBreak').length ?? 0) !== boundaries.length) {
     throw new Error('Preserve every reserved slide boundary in the candidate. Use a V2 segment for multiple slides.')
   }
-  let next = replaceSegment(doc, range, candidate, context.anchors, context.geometry)
+  const replaced = replaceSegment(doc, range, candidate, context.anchors, context.geometry)
+  let next = replaced
   if (boundaries.length) {
     const retained = new Set(blocksOf(doc).filter(block => block.type === 'slideBreak' && !boundaries.includes(block)).map(block => block.attrs!.id))
     const inserted = blocksOf(next).filter(block => block.type === 'slideBreak' && !retained.has(block.attrs!.id))
@@ -160,7 +186,7 @@ export function applySegmentCandidate(doc: MoteDocument, target: SegmentTarget, 
     objects: next.objects.map(object => object.layout.placement.type === 'float' && ids.has(objectAnchorId(object))
       ? patchObject(object, { anchorId: ids.get(objectAnchorId(object))! }) : object) }
   }
-  return initializeDocument(structuredClone(next))
+  return carrySegmentEdit(replaced, initializeDocument(structuredClone(next)))
 }
 
 export type { Geometries }

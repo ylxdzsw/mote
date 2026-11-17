@@ -7,6 +7,8 @@ export interface SegmentBookmark { blockId: string | null; offset: number; after
 interface SegmentBookmarks { start: SegmentBookmark; end: SegmentBookmark }
 export interface SegmentTarget {
   kind: 'segment'
+  // Omission is the original whole-spacer lock; V2 owns exact flow intervals.
+  version?: 2
   range: SegmentRange
   blockIds: string[]
   objectIds: string[]

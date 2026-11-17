@@ -2,13 +2,19 @@ import test, { after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
 import { Schema } from '@tiptap/pm/model'
+import { createElement, useState } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { MoteDocument, FloatingDrawing, FloatingHTMLWidget, FloatingObject } from '../src/document/model.ts'
 import type { AITask } from '../src/ai/types.ts'
 
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
 const { compatibleTasks, currentPlacement, inactiveTaskReason, overlaps, permits, permitsEditor, paragraphSelection, segmentReservationIntact } = await server.ssrLoadModule('/src/ai/reservations.ts')
-const { makeSegmentTarget, resolveSegmentRange, applySegmentCandidate, expandSegmentCandidate } = await server.ssrLoadModule('/src/ai/segments.ts')
+const { makeSegmentTarget, mapReservations, resolveSegmentRange, applySegmentCandidate, expandSegmentCandidate } = await server.ssrLoadModule('/src/ai/segments.ts')
+const { copySegment, replaceSegment, moveSegment, recordSpaceEdit } = await server.ssrLoadModule('/src/document/segment.ts')
+const { useDocumentHistory } = await server.ssrLoadModule('/src/document/history.tsx')
+const { projectSegments } = await server.ssrLoadModule('/src/ai/segmentProjection.ts')
+const { validateReservations } = await import('../server/reservation-validation.mjs')
 const { candidateVersions, selectedCandidateVersion, reconcileCandidateState } = await server.ssrLoadModule('/src/ai/candidates.ts')
 const { candidateDocument } = await server.ssrLoadModule('/src/ai/useAssistant.ts')
 const { patchFloating } = await server.ssrLoadModule('/src/canvas/patchFloating.ts')
@@ -419,4 +425,150 @@ test('refreshed segment content stays compatible while local locks compare befor
     { ...refreshed, objects: [{ ...drawing }] },
     { ...refreshed, content: { ...refreshed.content, content: [paragraph('a'), paragraph('expanded'), ...refreshed.content.content!.slice(1)] } },
   ]) assert.equal(segmentReservationIntact(task, changed), false)
+})
+
+const intervalDoc = { ...doc, content: { type: 'doc', content: [paragraph('a'), { type: 'spacer', attrs: { id: 'space', height: 100 } }, paragraph('b')] },
+  objects: [{ ...patchObject(object, { anchorId: 'space', y: 65 }), id: 'inside', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'inside-caption' }, content: [{ type: 'text', text: 'Inside caption' }] }] } } }, { ...patchObject(object, { anchorId: 'space', y: 95 }), id: 'outside' }] } as MoteDocument
+function intervalTask(from: number, to: number, source = intervalDoc) {
+  const target = makeSegmentTarget(source, { start: { index: 1, offset: from }, end: { index: 1, offset: to } }, { x: 0, y: from, width: 600, height: to - from })
+  return { ...segmentTask(target, source.content.content!.filter(block => target.blockIds.includes(block.attrs?.id)), source.objects.filter(object => target.objectIds.includes(object.id))),
+    id: crypto.randomUUID(), workspaceRead: false, original: copySegment(source, target.range, [], {}, true) } as AITask
+}
+const intervalCandidate = (text: string) => ({ summary: text, segment: { version: 1, type: 'segment', content: [paragraph(`candidate-${text}`, text)], objects: [], geometry: {}, anchorTops: {}, originTop: 0 } })
+
+test('independent slices in one spacer survive acceptance in either order without snapshot replacement', () => {
+  for (const reverse of [false, true]) {
+    const left = intervalTask(20, 40), right = intervalTask(60, 80)
+    assert.equal(overlaps(left.target, right.target, intervalDoc), false)
+    assert.equal(compatibleTasks([left, right], intervalDoc).length, 2)
+    let source = intervalDoc, tasks = reverse ? [right, left] : [left, right]
+    for (const label of reverse ? ['right', 'left'] : ['left', 'right']) {
+      const task = tasks[0], next = candidateDocument(source, task, intervalCandidate(label), { anchors: [], geometry: {} })
+      assert.equal(permits(tasks.slice(1), source, next), true)
+      const mapped = mapReservations(source, next, tasks.slice(1))
+      assert.ok(mapped)
+      if (mapped.length) {
+        assert.equal(mapped[0].id, tasks[1].id)
+        assert.equal(mapped[0].original, tasks[1].original)
+        assert.equal(segmentReservationIntact(mapped[0], next), true)
+        const changed = { ...next, objects: next.objects.map(object => object.id === 'inside' ? { ...object, html: 'mutated' } : object) }
+        if (label === 'left') assert.equal(permits(mapped, next, changed), false)
+      }
+      source = next; tasks = mapped
+    }
+    assert.deepEqual(source.content.content!.filter(block => block.type === 'paragraph').map(block => block.content?.[0]?.text), ['a', 'left', 'right', 'b'])
+    assert.equal(source.content.content!.filter(block => block.type === 'spacer').reduce((sum, block) => sum + block.attrs!.height, 0), 60)
+    assert.deepEqual(source.objects.map(object => object.id), ['outside'])
+    assert.equal((source.objects[0] as FloatingHTMLWidget).html, object.html)
+    assert.deepEqual((source.objects[0] as FloatingHTMLWidget).caption, object.caption)
+  }
+})
+
+test('interval points own nothing, conflict only strictly inside slices, and survive either endpoint replacement', () => {
+  const slice = intervalTask(20, 40)
+  for (const at of [20, 30, 40, 65]) {
+    const point = intervalTask(at, at)
+    assert.deepEqual(point.target.kind === 'segment' && point.target.objectIds, [])
+    assert.equal(overlaps(slice.target, point.target, intervalDoc), at === 30)
+    assert.equal(overlaps(point.target, slice.target, intervalDoc), at === 30)
+    const records = [slice, point].map(({ id, documentId, target, original, workspaceRead, segmentOriginalBlocks, segmentOriginalObjects }) =>
+      ({ id, documentId, target, original, workspaceRead, segmentOriginalBlocks, segmentOriginalObjects }))
+    if (at === 30) assert.throws(() => validateReservations(records, intervalDoc), /overlap/)
+    else {
+      assert.doesNotThrow(() => validateReservations(records, intervalDoc))
+      const next = candidateDocument(intervalDoc, slice, intervalCandidate('slice'), { anchors: [], geometry: {} })
+      assert.equal(permits([point], intervalDoc, next), true)
+      const [mapped] = mapReservations(intervalDoc, next, [point])
+      const range = resolveSegmentRange(next, mapped.target)
+      assert.deepEqual(range.start, range.end)
+    }
+  }
+  const legacy = { ...slice.target }; delete legacy.version
+  assert.equal(overlaps(legacy, intervalTask(60, 80).target, intervalDoc), true)
+  const endpoint = intervalTask(100, 100)
+  const equivalent = { ...endpoint, id: crypto.randomUUID(), target: { ...endpoint.target,
+    bookmarks: undefined, range: { start: { index: 1, offset: 100 }, end: { index: 2, offset: 0 } } } }
+  assert.throws(() => validateReservations([endpoint, equivalent].map(({ id, documentId, target, original, workspaceRead }) =>
+    ({ id, documentId, target, original, workspaceRead })), intervalDoc), /overlap/)
+})
+
+test('explicit outside splices and merges map slices and owned objects while rejecting edits through them', () => {
+  const task = intervalTask(60, 80)
+  const at = (offset: number) => ({ index: 1, offset })
+  for (const offset of [20, 60, 80, 90]) {
+    const next = replaceSegment(intervalDoc, { start: at(offset), end: at(offset) }, intervalCandidate('insert').segment, [], {})
+    assert.equal(permits([task], intervalDoc, next), true)
+    assert.ok(mapReservations(intervalDoc, next, [task]))
+  }
+  const middle = replaceSegment(intervalDoc, { start: at(70), end: at(70) }, intervalCandidate('insert').segment, [], {})
+  assert.equal(permits([task], intervalDoc, middle), false)
+  assert.equal(mapReservations(intervalDoc, middle, [task]), null)
+  const split = replaceSegment(intervalDoc, { start: at(20), end: at(20) }, intervalCandidate('split').segment, [], {})
+  const [mapped] = mapReservations(intervalDoc, split, [task])
+  const merged = replaceSegment(split, { start: { index: 2, offset: 0 }, end: { index: 3, offset: 0 } }, null, [], {})
+  assert.equal(permits([mapped], split, merged), true)
+  const [restored] = mapReservations(split, merged, [mapped])
+  assert.deepEqual(resolveSegmentRange(merged, restored.target), resolveSegmentRange(intervalDoc, task.target))
+  const moved = moveSegment(intervalDoc, { start: at(10), end: at(30) }, { index: 3, offset: 0 }, [], {}).doc
+  assert.equal(permits([task], intervalDoc, moved), true)
+  const grown = { ...intervalDoc, content: { ...intervalDoc.content, content: intervalDoc.content.content!.map(block => block.type === 'spacer' ? { ...block, attrs: { ...block.attrs, height: 120 } } : block) },
+    objects: intervalDoc.objects.map(object => patchObject(object, { y: object.layout.placement.type === 'float' ? object.layout.placement.y + 20 : 0 })) }
+  const shift = { anchors: [{ id: 'space', top: 100 }], from: 120, delta: 20 }
+  recordSpaceEdit(intervalDoc, grown, [], shift)
+  assert.equal(permits([task], intervalDoc, grown), true)
+  assert.equal(permitsEditor([task], 'main', intervalDoc.content, grown.content, [], shift), true)
+  assert.equal(permitsEditor([task], 'main', intervalDoc.content, grown.content, [], { ...shift, from: 170 }), false)
+  const shrunk = { ...intervalDoc.content, content: intervalDoc.content.content!.map(block => block.type === 'spacer' ? { ...block, attrs: { ...block.attrs, height: 80 } } : block) }
+  assert.equal(permitsEditor([intervalTask(0, 5)], 'main', intervalDoc.content, shrunk, [], { ...shift, from: 105, delta: -20 }), true)
+  assert.equal(permitsEditor([intervalTask(0, 10), intervalTask(25, 35)], 'main', intervalDoc.content, shrunk, [], { ...shift, from: 120, delta: -20 }), false)
+})
+
+test('acceptance maps surviving interval identities atomically with undo and redo', () => {
+  const left = intervalTask(20, 40), right = intervalTask(60, 80), initial = [left, right]
+  const accepted = candidateDocument(intervalDoc, left, intervalCandidate('left'), { anchors: [], geometry: {} })
+  let acceptedReservations: AITask[]
+  function Harness() {
+    const history = useDocumentHistory(intervalDoc, initial), [step, advance] = useState(0)
+    history.guardState.current = (before: MoteDocument, previous: AITask[], after: MoteDocument, next: AITask[]) =>
+      permits(previous.filter(task => next.some(item => item.id === task.id)), before, after, next)
+    if (step === 0) history.setState(accepted, [right])
+    if (step === 1) {
+      assert.equal(history.doc, accepted)
+      acceptedReservations = history.reservations
+      assert.equal(acceptedReservations.length, 1)
+      assert.equal(acceptedReservations[0].id, right.id)
+      assert.equal(acceptedReservations[0].original, right.original)
+      assert.notDeepEqual(acceptedReservations[0].target, right.target)
+      history.undo()
+    }
+    if (step === 2) {
+      assert.equal(history.doc, intervalDoc)
+      assert.equal(history.reservations, initial)
+      history.redo()
+    }
+    if (step === 3) {
+      assert.equal(history.doc, accepted)
+      assert.equal(history.reservations, acceptedReservations)
+    }
+    if (step < 3) advance(step + 1)
+    return null
+  }
+  renderToStaticMarkup(createElement(Harness))
+})
+
+test('same-spacer previews compose and leave retained space fragments unowned', () => {
+  const schema = new Schema({ nodes: { doc: { content: 'block+' }, paragraph: { group: 'block', content: 'text*', attrs: { id: { default: null }, semantic: { default: 'body' } } },
+    spacer: { group: 'block', attrs: { id: {}, height: {} } }, text: {} } })
+  const tasks = [intervalTask(20, 40), intervalTask(60, 80)].map((task, i) => ({ ...task, preview: true,
+    versions: [{ id: `V${i}`, candidate: intervalCandidate(i ? 'right' : 'left') }] }))
+  const result = projectSegments(intervalDoc, tasks, { schema }, { anchors: [], geometry: {} })
+  assert.deepEqual(result.failures, [])
+  assert.deepEqual(result.document.content.content.filter((block: { type: string }) => block.type === 'paragraph').map((block: { content: { text: string }[] }) => block.content[0].text), ['a', 'left', 'right', 'b'])
+  for (const preview of result.previews) {
+    for (const block of preview.content) {
+      if (block.type === 'spacer') assert.equal(preview.blockOwners[block.attrs.id] || '', '')
+      if (block.content?.[0]?.text === 'left') assert.equal(preview.blockOwners[block.attrs.id], tasks[0].id)
+      if (block.content?.[0]?.text === 'right') assert.equal(preview.blockOwners[block.attrs.id], tasks[1].id)
+    }
+  }
 })

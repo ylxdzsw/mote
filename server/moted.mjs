@@ -405,7 +405,7 @@ export class TaskManager {
       ? { kind: source.kind, objectId: source.objectId, isNew: source.isNew, area: area(source.area), ...(source.selection ? { selection: selection(source.selection) } : {}) }
       : source.kind === 'text'
         ? { kind: source.kind, blockIds: [...source.blockIds], selection: selection(source.selection), insert: source.insert, area: area(source.area) }
-        : { kind: source.kind, range: { start: point(source.range.start), end: point(source.range.end) }, blockIds: [...source.blockIds],
+        : { kind: source.kind, ...(source.version === undefined ? {} : { version: source.version }), range: { start: point(source.range.start), end: point(source.range.end) }, blockIds: [...source.blockIds],
           objectIds: [...source.objectIds], area: area(source.area), ...(source.bookmarks ? { bookmarks: {
             start: bookmark(source.bookmarks.start), end: bookmark(source.bookmarks.end),
           } } : {}) }

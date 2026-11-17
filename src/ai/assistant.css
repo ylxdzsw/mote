@@ -140,21 +140,21 @@
 .ai-segment-border { position: absolute; box-sizing: border-box; border: 1px solid var(--ui-accent-border); outline: none; pointer-events: none; z-index: var(--canvas-ui-layer); }
 .ai-segment-border.ai-reserved { border-style: dashed; }
 .ai-segment-border[data-active] { border-color: var(--ui-accent); }
+.ai-segment-border[data-ai-empty] { border-width: 1px 0 0; }
 .sheet:has(.ai-segment-preview:focus-visible, .ai-segment-preview :focus-visible, [data-ai-segment-candidate]:focus-visible) .ai-segment-border[data-active] { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .text-content .ai-segment-preview > .main-paragraph:is(p, pre) { margin-top: var(--text-spaceBefore); margin-bottom: var(--text-spaceAfter); }
 .text-content .ai-segment-preview[data-ai-first] > :first-child { margin-top: 0; }
 .text-content .ai-segment-preview[data-ai-last] > :last-child { margin-bottom: 0; }
 .text-content :is(.main-paragraph, [data-spacer], [data-flow]).ai-original-hidden { display: none; }
-.ai-segment-marker { position: relative; display: block; height: 0; z-index: var(--canvas-ui-layer); pointer-events: none; }
-.ai-segment-marker[data-ai-offset] { transform: translateY(var(--ai-segment-offset)); }
-.ai-segment-marker::before { content: ''; position: absolute; left: 0; right: 0; top: 0; border-top: 1px solid var(--ui-accent); pointer-events: none; }
-.ai-segment-marker:not([data-ai-empty])::before { display: none; }
+.ai-segment-marker { position: relative; display: block; height: 0; z-index: var(--canvas-ui-layer); pointer-events: none; transform: translateY(var(--ai-segment-offset, 0px)); }
 .ai-segment-handle { position: absolute; right: 100%; top: -11px; width: 24px; height: 22px; padding: 2px; border: 1px solid var(--ui-accent-border); border-radius: 4px; background: var(--ui-surface); color: var(--ui-accent); font: 11px/1 system-ui, sans-serif; cursor: pointer; pointer-events: auto; }
 .ai-segment-marker[data-ai-empty] .ai-segment-handle::before { content: '◆'; display: block; font-size: 10px; }
 .ai-segment-marker:not([data-ai-empty]) .ai-segment-handle { width: 4px; height: 4px; padding: 0; opacity: 0; border: 0; }
 .ai-segment-marker:not([data-ai-empty]) .ai-segment-handle:focus-visible { opacity: 1; width: 24px; height: 22px; padding: 2px; border: 1px solid var(--ui-accent-border); }
-.ai-segment-preview-handle { position: relative; z-index: var(--canvas-ui-layer); display: block; width: 24px; height: 22px; margin: 0; padding: 2px; border: 1px solid var(--ui-accent-border); border-radius: 4px; background: var(--ui-surface); color: var(--ui-accent); cursor: pointer; }
+.ai-segment-preview-anchor { display: block; height: 0; pointer-events: none; }
 .ai-segment-preview-handle::before { content: '◆'; font-size: 10px; }
+.ai-segment-border:has(.ai-segment-preview-handle:focus-visible) { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
 .reading-canvas .ai-reserved { background: none; outline: none; }
 .minimap-sheet .ai-reserved { background-image: none; outline: none !important; }
 .minimap-sheet .is-ai-reserved::after { display: none; }
+.reading-canvas :is(.ai-segment-borders, .ai-segment-marker, .ai-segment-preview-handle), .minimap-sheet :is(.ai-segment-borders, .ai-segment-marker, .ai-segment-preview-handle) { display: none; }

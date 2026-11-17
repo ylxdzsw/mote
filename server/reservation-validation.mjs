@@ -116,12 +116,13 @@ function target(value, document) {
     if (typeof object.insert !== 'boolean') throw new HttpError(400, 'target.insert must be boolean'); area(object.area, 'target.area'); return object
   }
   if (object.kind === 'segment') {
+    if (object.version !== undefined && object.version !== 2) throw new HttpError(400, 'unsupported segment target version')
     area(object.area, 'target.area')
     const scope = segmentScope(document, object)
     exactSegmentIds(object.blockIds, scope.blockIds, 'target.blockIds')
     exactSegmentIds(object.objectIds, scope.objectIds, 'target.objectIds')
     if (object.selectedText !== undefined) text(object.selectedText, 'target.selectedText')
-    return object
+    return { ...object, range: scope.range }
   }
   throw new HttpError(400, 'target.kind must be object, text, or segment')
 }
@@ -155,7 +156,8 @@ function overlaps(a, b, document) {
   const objects = value => value.kind === 'object' ? [value.objectId] : value.objectIds ?? []
   if (objects(a).some(id => objects(b).includes(id))) return true
   if (a.kind === 'object' || b.kind === 'object') return false
-  if (a.blockIds.some(id => b.blockIds.includes(id))) return true
+  const intervals = a.kind === 'segment' && a.version === 2 && b.kind === 'segment' && b.version === 2
+  if (!intervals && a.blockIds.some(id => b.blockIds.includes(id))) return true
   const range = value => {
     if (value.kind === 'segment') return value.range
     const index = document.content.content.findIndex(block => block.attrs.id === value.blockIds[0])
@@ -166,7 +168,7 @@ function overlaps(a, b, document) {
   if (le && re) return cmp(left.start, right.start) === 0
   if (le || re) {
     const point = le ? left.start : right.start, span = le ? right : left
-    return cmp(span.start, point) <= 0 && cmp(point, span.end) < 0
+    return (intervals ? cmp(span.start, point) < 0 : cmp(span.start, point) <= 0) && cmp(point, span.end) < 0
   }
   return cmp(left.start, right.end) < 0 && cmp(right.start, left.end) < 0
 }

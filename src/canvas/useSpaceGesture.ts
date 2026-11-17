@@ -29,6 +29,8 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       const rect = surface.getBoundingClientRect()
       if (hit.matches('.sheet, .main-text, [data-spacer]') && (x - rect.left) / scale - surface.clientLeft < leftMargin) return null
       const localY = (y - rect.top) / scale - surface.clientTop
+      if ([...surface.querySelectorAll<HTMLElement>('[data-ai-segment-border]:not([hidden])')].some(band =>
+        localY > Number(band.dataset.aiSegmentStart) && localY < Number(band.dataset.aiSegmentEnd))) return null
       const blocks: { from: number; space: boolean; slideBreak: boolean; top: number; bottom: number; line: number; height: number }[] = []
       editor!.state.doc.forEach((node, from) => {
         const element = editor!.view.nodeDOM(from) as HTMLElement

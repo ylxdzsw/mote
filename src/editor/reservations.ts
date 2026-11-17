@@ -7,6 +7,7 @@ import type { useDocumentHistory } from '../document/history'
 import type { AIReview } from '../ai/types'
 import { isComposingKey } from './composition'
 import { selectedCandidateVersion } from '../ai/candidates'
+import { spaceLayoutKey } from './spaces'
 
 const candidates = new WeakMap<object, number>()
 let nextCandidate = 0
@@ -18,29 +19,23 @@ function candidateKey(content: object) {
 type SegmentPreview = NonNullable<AIReview['segmentPreviews']>[number]
 type SegmentRange = NonNullable<AIReview['segmentRanges']>[number]
 
-function segmentAttributes(range: SegmentRange, node: ProseMirrorNode, position: number, active: boolean, empty = false) {
+function segmentAttributes(range: SegmentRange, active: boolean) {
   const attrs: Record<string, string> = {
     class: 'ai-segment-reserved',
     'data-ai-reservation': range.taskId,
     'data-ai-segment': range.taskId,
   }
   if (active) attrs['data-ai-active'] = 'true'
-  if (empty) attrs['data-ai-empty'] = ''
-  if (node.type.name === 'spacer') {
-    const height = Math.max(0, Number(node.attrs.height) || 0)
-    const start = position === range.from ? Math.max(0, Math.min(height, range.startOffset ?? (empty ? range.endOffset ?? 0 : 0))) : 0
-    const end = position + node.nodeSize === range.to
-      ? Math.max(start, Math.min(height, range.endOffset ?? height))
-      : height
-    attrs.style = `--ai-segment-start:${start}px;--ai-segment-end:${end}px;`
-  }
   return attrs
 }
 
 function segmentRangeForNode(ranges: SegmentRange[], position: number, node: ProseMirrorNode) {
-  return ranges.find(range => range.from < range.to
-    ? position >= range.from && position + node.nodeSize <= range.to
-    : node.type.name === 'spacer' && position === range.from && (range.startOffset !== undefined || range.endOffset !== undefined))
+  // A spacer can contain several independent reservations. Whole-node ownership
+  // would swallow its unreserved portions; exact canvas bands own those clicks.
+  return ranges.find(range => range.from < range.to && position >= range.from && position + node.nodeSize <= range.to
+    && (node.type.name !== 'spacer'
+      || (position !== range.from || !range.startOffset)
+        && (position + node.nodeSize !== range.to || range.endOffset === undefined || range.endOffset >= node.attrs.height)))
 }
 
 function candidateBlock(state: EditorState, serializer: DOMSerializer, json: JSONContent) {
@@ -99,11 +94,15 @@ function segmentPreviewWidget(state: EditorState, preview: SegmentPreview, revie
   root.setAttribute('role', 'button')
   root.setAttribute('aria-label', 'AI segment preview')
   root.setAttribute('aria-selected', String(active))
-  const select = (event: Event) => selectSegment(review, (event.target as Element).closest<HTMLElement>('[data-ai-segment-owner]')?.dataset.aiSegmentOwner ?? preview.taskId)
+  const owner = (event: Event) => (event.target as Element).closest<HTMLElement>('[data-ai-segment-owner]')?.dataset.aiSegmentOwner
+  const select = (event: Event) => {
+    const id = owner(event) ?? (event.target === root ? preview.taskId : undefined)
+    if (id) selectSegment(review, id)
+  }
   root.onpointerdown = event => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || !owner(event)) return
     event.preventDefault(); event.stopPropagation(); select(event)
-    const target = (event.target as Element).closest<HTMLElement>('[data-ai-block]') ?? root.querySelector<HTMLElement>('[data-ai-block]') ?? root
+    const target = (event.target as Element).closest<HTMLElement>('[data-ai-segment-owner]')!
     target.focus({ preventScroll: true })
   }
   root.onkeydown = deleteSegmentOnKey(review, () => {
@@ -114,17 +113,21 @@ function segmentPreviewWidget(state: EditorState, preview: SegmentPreview, revie
   const serializer = DOMSerializer.fromSchema(state.schema)
   for (const block of preview.content) {
     const element = candidateBlock(state, serializer, block)
-    element.dataset.aiSegmentOwner = preview.blockOwners[block.attrs!.id] ?? preview.taskId
+    const owner = preview.blockOwners[block.attrs!.id]
+    if (owner) element.dataset.aiSegmentOwner = owner
+    else {
+      element.classList.remove('ai-reserved', 'ai-candidate')
+      element.removeAttribute('tabindex')
+      element.removeAttribute('aria-label')
+    }
     root.append(element)
   }
   if (!root.children.length) {
-    const handle = document.createElement('button')
-    handle.type = 'button'
-    handle.className = 'ai-segment-preview-handle'
-    handle.dataset.aiSegmentOwner = preview.taskId
-    handle.setAttribute('aria-label', 'Select empty AI segment preview')
-    handle.onclick = event => { event.preventDefault(); selectSegment(review, preview.taskId) }
-    root.append(handle)
+    const anchor = document.createElement('span')
+    anchor.className = 'ai-segment-preview-anchor'
+    anchor.dataset.aiSegmentOwner = preview.taskId
+    anchor.setAttribute('aria-hidden', 'true')
+    root.append(anchor)
   }
   return root
 }
@@ -139,7 +142,7 @@ function segmentMarkerWidget(range: SegmentRange, review: RefObject<AIReview | u
   root.dataset.aiSegment = range.taskId
   if (empty) root.dataset.aiEmpty = ''
   const offset = range.startOffset ?? range.endOffset
-  if (empty && offset !== undefined) {
+  if (offset !== undefined) {
     root.dataset.aiOffset = String(offset)
     root.style.setProperty('--ai-segment-offset', `${offset}px`)
   }
@@ -167,7 +170,7 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
     addProseMirrorPlugins: () => [new Plugin({
       filterTransaction(transaction, state) {
         return !transaction.docChanged || transaction.getMeta('historyRestore')
-          || history.guardEditor.current(id, state.doc.toJSON(), transaction.doc.toJSON())
+          || history.guardEditor.current(id, state.doc.toJSON(), transaction.doc.toJSON(), transaction.getMeta(spaceLayoutKey)?.merges, transaction.getMeta('spaceShift'))
       },
       props: {
         handleDOMEvents: { pointerdown(view, event) {
@@ -213,22 +216,23 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
         const previews = current?.segmentPreviews ?? []
         const ranges = current?.segmentRanges ?? []
         const previewTasks = new Set(previews.flatMap(preview => preview.taskIds))
+        const originalRanges = ranges.filter(range => !previewTasks.has(range.taskId))
         const segmentTasks = new Set([...previewTasks, ...ranges.map(range => range.taskId)])
         const tasks = current?.tasks ?? []
         const decorations: Decoration[] = []
 
         state.doc.forEach((node, position) => {
           const preview = previews.find(candidate => previewCovers(candidate, position, node.nodeSize))
-          const segmentRange = segmentRangeForNode(ranges, position, node)
+          const segmentRange = segmentRangeForNode(originalRanges, position, node)
           if (preview) {
             decorations.push(Decoration.node(position, position + node.nodeSize, {
               class: 'ai-original-hidden', 'data-ai-reservation': preview.taskId, 'data-ai-segment': preview.taskId,
             }))
             return
           }
-          if (segmentRange && !previewTasks.has(segmentRange.taskId)) {
+          if (segmentRange) {
             decorations.push(Decoration.node(position, position + node.nodeSize,
-              segmentAttributes(segmentRange, node, position, current?.activeSegmentId === segmentRange.taskId, segmentRange.from === segmentRange.to)))
+              segmentAttributes(segmentRange, current?.activeSegmentId === segmentRange.taskId)))
             return
           }
           const task = tasks.find(task => !segmentTasks.has(task.id) && task.target.kind === 'text' && task.target.blockIds.includes(node.attrs.id))

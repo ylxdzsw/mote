@@ -5,7 +5,9 @@ import type { AITarget, AITask } from './types'
 import type { Node } from '@tiptap/pm/model'
 import type { SegmentClipboard, SegmentPoint, SegmentRange } from '../document/segment'
 import { patchFloating } from '../canvas/patchFloating.ts'
-import { resolveSegmentRange } from './segments'
+import { intervalTarget, mapSegmentTarget, resolveSegmentRange } from './segments'
+import { copySegment, recordSpaceEdit } from '../document/segment'
+import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 
 export function paragraphSelection(doc: Node, from: number, to: number) {
   const blockIds: string[] = []
@@ -41,7 +43,7 @@ function segmentTarget(target: AITarget) {
 }
 
 function segmentDocument(doc: Pick<MoteDocument, 'content' | 'objects'>): MoteDocument {
-  return doc as MoteDocument
+  return { ...doc, page: {} } as MoteDocument
 }
 
 const segmentCompare = (a: SegmentPoint, b: SegmentPoint) => a.index - b.index || a.offset - b.offset
@@ -96,9 +98,41 @@ function segmentOriginalBlocks(task: AITask): JSONContent[] {
 function segmentMainUnchanged(task: AITask, before: JSONContent, after: JSONContent): boolean {
   const target = segmentTarget(task.target)
   if (!target) return true
+  if (intervalTarget(target)) {
+    const previousDoc = segmentDocument({ content: before, objects: [] }), nextDoc = segmentDocument({ content: after, objects: [] })
+    const nextTarget = mapSegmentTarget(previousDoc, nextDoc, target)
+    if (!nextTarget) return false
+    const previous = segmentSlice(previousDoc, target), next = segmentSlice(nextDoc, nextTarget)
+    return previous !== null && next !== null && sameContent(previous, next)
+  }
   const previous = segmentBlocks({ content: before, objects: [] }, target)
   const next = segmentBlocks({ content: after, objects: [] }, target)
   return !!previous && !!next && sameContent(previous.blocks.map(canonicalEditorContent), next.blocks.map(canonicalEditorContent))
+}
+
+function segmentSlice(doc: MoteDocument, target: Extract<AITarget, { kind: 'segment' }>) {
+  const current = segmentBlocks(doc, target)
+  if (!current) return null
+  return copySegment(doc, current.range, [], {}, true).content.map(block => {
+    const canonical = canonicalEditorContent(block)
+    if (canonical.type !== 'spacer') return canonical
+    const { id: _id, ...attrs } = canonical.attrs ?? {}
+    return { ...canonical, attrs }
+  })
+}
+
+function segmentObjects(doc: MoteDocument, target: Extract<AITarget, { kind: 'segment' }>) {
+  const range = resolveSegmentRange(doc, target)!, blocks = doc.content.content ?? []
+  return target.objectIds.map(id => {
+    const object = doc.objects.find(object => object.id === id)
+    if (!object || object.layout.placement.type === 'flow') return object
+    const anchorId = objectAnchorId(object), index = blocks.findIndex(block => block.attrs?.id === anchorId)
+    const space = index >= 0 && blocks[index].type === 'spacer'
+    return { ...object, layout: { ...object.layout, placement: { ...object.layout.placement,
+      anchorId: space ? `space:${target.blockIds.indexOf(anchorId!)}` : anchorId,
+      y: space && index === range.start.index ? objectY(object) - range.start.offset : objectY(object),
+    } } }
+  })
 }
 
 // Compatibility is structural. A refreshed cloud document may contain new content
@@ -108,6 +142,18 @@ export function segmentReservationIntact(task: AITask, doc: MoteDocument): boole
   if (!target || doc.id !== task.documentId) return false
   const current = segmentBlocks(doc, target)
   if (!current) return false
+  if (intervalTarget(target)) {
+    const actualIds = [...segmentObjectIds(doc, current.range)]
+    if (!sameContent([...actualIds].sort(), [...target.objectIds].sort())) return false
+    const sources = task.segmentOriginalObjects ?? (task.original as SegmentClipboard).objects ?? []
+    const original = (task.original as SegmentClipboard).content
+    const blocks = copySegment(doc, current.range, [], {}, true).content
+    if (!original) return false
+    return blocks.length === original.length && blocks.every((block, i) => block.type === original[i].type
+      && (block.type === 'spacer' ? segmentBlockHeight(block) === segmentBlockHeight(original[i]) : block.attrs?.id === original[i].attrs?.id)
+      && (block.type !== 'flow' || block.attrs?.objectId === original[i].attrs?.objectId))
+      && target.objectIds.every(id => doc.objects.find(object => object.id === id)?.kind === sources.find(object => object.id === id)?.kind)
+  }
   const original = segmentOriginalBlocks(task)
   if (original.length !== current.blocks.length || current.blocks.some((block, index) => {
     const source = original[index]
@@ -160,6 +206,16 @@ export function overlaps(a: AITarget, b: AITarget, doc?: MoteDocument): boolean 
       return first < 0 ? null : { start: { index: first, offset: 0 }, end: { index: first + target.blockIds.length, offset: 0 } }
     }
     const left = rangeOf(a), right = rangeOf(b)
+    if (left && right && intervalTarget(a) && intervalTarget(b)) {
+      if (a.objectIds.some(id => b.objectIds.includes(id))) return true
+      const le = segmentCompare(left.start, left.end) === 0, re = segmentCompare(right.start, right.end) === 0
+      if (le && re) return segmentCompare(left.start, right.start) === 0
+      if (le || re) {
+        const point = le ? left.start : right.start, range = le ? right : left
+        return segmentCompare(range.start, point) < 0 && segmentCompare(point, range.end) < 0
+      }
+      return segmentCompare(left.start, right.end) < 0 && segmentCompare(right.start, left.end) < 0
+    }
     if (left && right && (segmentCompare(left.start, left.end) === 0 || segmentCompare(right.start, right.end) === 0)) {
       const leftEmpty = segmentCompare(left.start, left.end) === 0
       const rightEmpty = segmentCompare(right.start, right.end) === 0
@@ -197,10 +253,32 @@ export function containsTarget(owner: AITarget, selection: AITarget, doc: MoteDo
     && (selection.kind !== 'segment' || selection.objectIds.every(id => owner.kind === 'segment' && owner.objectIds.includes(id)))
 }
 
-export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocument) {
+function mappedTargets(tasks: AITask[], before: MoteDocument, after: MoteDocument, afterTasks?: AITask[]) {
+  const targets: AITarget[] = []
+  for (const task of tasks) {
+    const target = intervalTarget(task.target)
+      ? afterTasks?.find(next => next.id === task.id)?.target ?? mapSegmentTarget(before, after, task.target) : task.target
+    if (!target || targets.some(other => overlaps(other, target, after))) return null
+    targets.push(target)
+  }
+  return targets
+}
+
+export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocument, afterTasks?: AITask[]) {
   if (tasks.length && before.id !== after.id) return false
-  return tasks.every(task => {
+  const targets = mappedTargets(tasks, before, after, afterTasks)
+  if (!targets) return false
+  return tasks.every((task, index) => {
     const { target } = task
+    if (intervalTarget(target)) {
+      const mapped = targets[index]
+      if (!mapped || mapped.kind !== 'segment') return false
+      const nextTask = { ...task, target: mapped }
+      return segmentReservationIntact(task, before) && segmentReservationIntact(nextTask, after)
+        && sameContent(target.objectIds, mapped.objectIds)
+        && sameContent(segmentSlice(before, target), segmentSlice(after, mapped))
+        && sameContent(segmentObjects(before, target), segmentObjects(after, mapped))
+    }
     if (target.kind === 'text') {
       const previous = reservedText(before.content, target.blockIds)
       const next = reservedText(after.content, target.blockIds)
@@ -215,10 +293,12 @@ export function permits(tasks: AITask[], before: MoteDocument, after: MoteDocume
   })
 }
 
-export function permitsEditor(tasks: AITask[], historyId: string, before: JSONContent, after: JSONContent) {
+export function permitsEditor(tasks: AITask[], historyId: string, before: JSONContent, after: JSONContent, merges?: SpaceMerge[], shift?: SpaceShift) {
   if (historyId.includes(':caption:')) historyId = historyId.split(':caption:')[0]
   if (historyId !== 'main') return !tasks.some(task => (task.target.kind === 'object' && task.target.objectId === historyId)
     || (task.target.kind === 'segment' && task.target.objectIds.includes(historyId))) || sameContent(before, after)
+  if (merges?.length || shift) recordSpaceEdit(segmentDocument({ content: before, objects: [] }), segmentDocument({ content: after, objects: [] }), merges, shift)
+  if (!mappedTargets(tasks, segmentDocument({ content: before, objects: [] }), segmentDocument({ content: after, objects: [] }))) return false
   return tasks.every(task => {
     if (task.target.kind === 'text') return sameContent(reservedText(before, task.target.blockIds), reservedText(after, task.target.blockIds)) && reservedText(after, task.target.blockIds) !== null
     if (task.target.kind === 'segment') return segmentMainUnchanged(task, before, after)
