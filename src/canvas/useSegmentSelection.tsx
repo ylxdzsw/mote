@@ -48,6 +48,7 @@ export function useSegmentSelection(props: Props) {
   const [dropY, setDropY] = useState<number | null>(null)
   const [marginHover, setMarginHover] = useState(false)
   const drag = useRef<Drag | null>(null)
+  const clickedSlide = useRef<number | null>(null)
   const tick = useRef<() => void>(() => {})
   const content = useRef(props.doc.content)
 
@@ -152,7 +153,18 @@ export function useSegmentSelection(props: Props) {
     const stage = live.current.stage.current
     if (previous && stage?.hasPointerCapture(previous.pointerId)) stage.releasePointerCapture(previous.pointerId)
   }
-  function clear() { release(); select(null) }
+  function clear() { clickedSlide.current = null; release(); select(null) }
+  function doubleClick(event: MouseEvent) {
+    const index = clickedSlide.current
+    if (index === null || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    event.preventDefault(); event.stopPropagation()
+    const { doc, stage, onStart } = live.current
+    release(); onStart()
+    stage.current!.focus({ preventScroll: true })
+    window.getSelection()?.removeAllRanges()
+    const whole = { first: index, last: index }
+    select(slideSelectionRange(doc, whole), whole)
+  }
   function adjust() {
     const d = drag.current
     if (!d) return
@@ -201,10 +213,16 @@ export function useSegmentSelection(props: Props) {
   }
   useLayoutEffect(() => { setMarginHover(false) }, [props.editable, props.scale, props.doc.page.margins.left])
   function begin(event: ReactPointerEvent) {
-    const { editable, editor, stage, onStart } = live.current
+    clickedSlide.current = null
+    const { editable, editor, stage, sheet, scale, doc, onStart } = live.current
     const target = (event.target as Element).closest<HTMLElement>('[data-segment-control]')
     if (!editable || !editor || (!target && !marginTarget(event)) || event.button !== 0 || !event.isPrimary) return false
     event.preventDefault(); event.stopPropagation()
+    // The first click can put a selection band or handle under the second click.
+    const rect = sheet.current!.getBoundingClientRect()
+    if (doc.page.slideHeight && event.clientX >= rect.left - 24 && event.clientX < rect.left + (sheet.current!.clientLeft + doc.page.margins.left) * scale) {
+      clickedSlide.current = slideAtY(localY(event.clientY))
+    }
     const previousSlides = selectedSlides.current
     const previous = selected.current, control = target?.dataset.segmentControl
     const moving = control === 'move', handle = control === 'start' || control === 'end' ? control : undefined
@@ -399,8 +417,8 @@ export function useSegmentSelection(props: Props) {
     } catch (error) { setNotice(error instanceof Error ? error.message : 'The selection could not be deleted.') }
     return true
   }
-  const actions = useRef({ adjust, release, select, clear, copy, paste, refresh, drop, deleteSelection })
-  actions.current = { adjust, release, select, clear, copy, paste, refresh, drop, deleteSelection }
+  const actions = useRef({ adjust, release, select, clear, copy, paste, refresh, drop, deleteSelection, doubleClick })
+  actions.current = { adjust, release, select, clear, copy, paste, refresh, drop, deleteSelection, doubleClick }
   useLayoutEffect(() => {
     if (!props.editable || !props.editor) return
     let frame = 0
@@ -422,12 +440,14 @@ export function useSegmentSelection(props: Props) {
       if (!d || event.pointerId !== d.pointerId) return
       event.preventDefault()
       if (Math.abs(event.clientY - (d.moving ? d.originClientY : d.y)) >= (d.moving ? 4 : 1)) d.moved = true
+      if (d.moved) clickedSlide.current = null
       d.y = event.clientY; d.alt = event.altKey
       actions.current.adjust()
     }
     function finish(event: PointerEvent) { if (event.pointerId === drag.current?.pointerId) actions.current.drop() }
     function cancel(event?: Event) {
       if (event instanceof PointerEvent && event.pointerId !== drag.current?.pointerId) return
+      clickedSlide.current = null
       const d = drag.current
       actions.current.release()
       if (d) actions.current.select(d.previous, d.slides ?? null)
@@ -457,6 +477,8 @@ export function useSegmentSelection(props: Props) {
     window.addEventListener('pointerup', finish)
     window.addEventListener('pointercancel', cancel)
     const stage = live.current.stage.current!
+    const doubled = (event: MouseEvent) => actions.current.doubleClick(event)
+    stage.addEventListener('dblclick', doubled)
     stage.addEventListener('lostpointercapture', cancel)
     window.addEventListener('blur', cancel)
     window.addEventListener('pointerdown', outside, true)
@@ -473,6 +495,7 @@ export function useSegmentSelection(props: Props) {
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', cancel)
       stage.removeEventListener('lostpointercapture', cancel)
+      stage.removeEventListener('dblclick', doubled)
       window.removeEventListener('blur', cancel)
       window.removeEventListener('pointerdown', outside, true)
       window.removeEventListener('focusin', focus)
@@ -486,7 +509,7 @@ export function useSegmentSelection(props: Props) {
 
   const styleBox = (box: Box) => ({ left: (box.x + 1) * props.scale, top: (box.y + 1) * props.scale, width: box.width * props.scale, height: box.height * props.scale })
   const overlay = props.editable && <div className={`segment-layer segment-selection${range ? ' has-segment' : ''}${slides ? ' has-slides' : ''}`}>
-    <div className="segment-gutter" data-segment-control="gutter" title={props.doc.page.slideHeight ? "Drag to select segments or slides" : "Drag to select a segment · Alt splits explicit spaces"} />
+    <div className="segment-gutter" data-segment-control="gutter" title={props.doc.page.slideHeight ? "Drag to select segments or slides · Double-click to select one slide" : "Drag to select a segment · Alt splits explicit spaces"} />
     {range && <>
       {paint.bands.map((box, index) => <div className="segment-band" data-segment-control="move" title={slides ? "Drag to reorder slides" : "Drag to move segment · Alt splits spaces"} key={index} style={styleBox(box)} />)}
       {paint.objects.map(box => <div className="segment-object" data-segment-control="move" title={slides ? "Drag to reorder slides" : "Drag to move segment · Alt splits spaces"} data-segment-object={box.id} key={box.id} style={styleBox(box)} />)}

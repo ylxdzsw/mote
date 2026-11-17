@@ -2102,3 +2102,7 @@ Keep copied external instructions to the task link and reusable skill link, with
 ## 2026-11-16 — Noninteractive slide separators
 
 Make editing slide separators and their numbers passive, nonselectable guides rather than full-width paste targets or slide-selection buttons. Pointer events pass through to the canvas and gutter, so boundaries no longer intercept segment gestures. Whole-slide selection still comes from the existing gutter promotion rules; slide paste follows the current or last-selected slide. Keep Add slide as the explicit endpoint action, with no changes to saved boundaries, geometry, or reader/export rendering.
+
+## 2026-11-17 — Double-click gutter selects one slide
+
+Double-clicking the left selection gutter or empty left page margin in Slides selects the structural slide at that measured height, replacing any prior selection. Reuse whole-slide selection rather than selecting only its contents: clipboard, deletion, anchor-owned overflow, captions, and reservation protections keep their existing semantics. This makes sparse and empty slides easy to select without carefully dragging across their bounds. Native double-click timing leaves single-click selection immediate; selection overlays appearing after the first click do not swallow the second. The right gutter, authored objects and controls, creation tools, continuous layout, and reading remain unchanged, and slide separators stay passive.
