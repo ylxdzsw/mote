@@ -96,8 +96,8 @@ export function NewFileForm({ example, busy, onCreate, onCancel }: {
     </div>
     {slides && <label className="files-form-row">
       <span className="files-form-label">Slide height</span>
-      <input aria-label="Slide height" type="number" min={Number.MIN_VALUE} step="any" required value={slideHeight} disabled={busy}
-        onChange={event => { setSlideHeight(event.target.value); setModified(true) }} /><span>px</span>
+      <span className="number-field"><input aria-label="Slide height" type="number" min={Number.MIN_VALUE} step="any" required value={slideHeight} disabled={busy}
+        onChange={event => { setSlideHeight(event.target.value); setModified(true) }} /><span>px</span></span>
     </label>}
     <div className="files-form-row files-private-row">
       <span className="files-form-label" aria-hidden="true">Privacy</span>
