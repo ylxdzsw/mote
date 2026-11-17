@@ -2,7 +2,6 @@ import { useLayoutEffect, useRef, type PointerEvent, type RefObject } from 'reac
 import type { Editor } from '@tiptap/core'
 import { GapCursor } from '@tiptap/pm/gapcursor'
 import { TextSelection } from '@tiptap/pm/state'
-import { atDocumentTail } from '../editor/documentTail'
 import type { Theme } from '../document/model'
 import { slideAtPoint, type SlideGeometry } from './floatingGeometry'
 
@@ -31,15 +30,8 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
     if (!editor || !active) return
     const surface = sheet.current!
     function update() {
-      const focused = editor!.isFocused && atDocumentTail(editor!.state)
       const hovered = pointer.current && target(pointer.current)
       surface.classList.toggle('can-continue-writing', hovered !== null)
-      const end = focused ? editor!.state.selection.head : hovered
-      if (end === null) return
-      const last = editor!.state.doc.resolve(end).nodeBefore!
-      if (last.type.name === 'paragraph') return
-      const element = editor!.view.nodeDOM(end - last.nodeSize) as HTMLElement
-      surface.style.setProperty('--tail-slide-offset', element.style.getPropertyValue('--slide-offset') || '0px')
     }
     const move = (event: globalThis.PointerEvent) => { pointer.current = event; update() }
     const leave = () => { pointer.current = null; update() }
@@ -53,7 +45,6 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
     return () => {
       observer.disconnect()
       surface.classList.remove('can-continue-writing')
-      surface.style.removeProperty('--tail-slide-offset')
       surface.closest('.stage')?.removeEventListener('pointermove', move as EventListener)
       surface.closest('.stage')?.removeEventListener('pointerleave', leave)
       window.removeEventListener('scroll', update, true)

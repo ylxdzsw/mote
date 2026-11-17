@@ -253,6 +253,27 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
       }
       for (const element of observed) if (!elements.has(element)) { observer.unobserve(element); observed.delete(element) }
       for (const element of elements) if (!observed.has(element)) { observer.observe(element); observed.add(element) }
+      // A gap is a prospective Body paragraph. Use the same measured block edges
+      // on every slide, without inserting a paragraph or changing flow geometry.
+      const caret = editor!.view.dom.querySelector<HTMLElement>(':scope > .ProseMirror-gapcursor')
+      if (caret) {
+        const { $head } = editor!.state.selection
+        const before = $head.nodeBefore
+        const previous = before && before.type.name !== 'slideBreak'
+          ? editor!.view.nodeDOM($head.pos - before.nodeSize) as HTMLElement : null
+        const next = $head.nodeAfter ? editor!.view.nodeDOM($head.pos) as HTMLElement : null
+        const top = previous ? localTop(previous) + nativeSize(previous).height : next ? localTop(next) : localTop(editor!.view.dom)
+        let spacing = '0px'
+        if (previous?.hasAttribute('data-flow')) spacing = 'max(var(--body-spaceBefore), var(--flow-spaceAfter))'
+        else if (previous?.hasAttribute('data-spacer')) {
+          const index = blocks.findIndex(block => block.element === previous)
+          const prior = blocks[index - 1]
+          const margin = prior && prior.slideIndex === blocks[index].slideIndex ? getComputedStyle(prior.element).marginBottom : '0px'
+          spacing = `max(0px, calc(var(--body-spaceBefore) - ${margin}))`
+        }
+        property(caret, 'top', `${layoutPixel(top - localTop(editor!.view.dom))}px`)
+        property(caret, 'margin-top', spacing)
+      }
       const projectedObjects = previewObjects(objects, override, anchors, column.left)
       const geometry = resolveGeometry(projectedObjects, sizes, tops, anchors, column)
       // Clip against the owning slide, not the object's own box: captions, math,

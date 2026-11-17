@@ -31,7 +31,6 @@ export const DocumentTail = Extension.create({
   addProseMirrorPlugins() {
     return [new Plugin({
       props: {
-        attributes: state => ({ class: atDocumentTail(state) ? 'has-tail-caret' : '' }),
         decorations: state => {
           const first = state.doc.firstChild
           return this.editor.isEditable && state.doc.childCount === 1 && first?.type.name === 'paragraph' && first.attrs.semantic !== 'separator' && !first.content.size

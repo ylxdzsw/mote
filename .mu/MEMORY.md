@@ -2129,3 +2129,7 @@ No backgrounds are captured or stored. Annotation editing and optional agent-loc
 ## 2026-11-17 — Empty Separator caret and lighter preset
 
 Empty Separators keep a full-width centered editable text area instead of collapsing the label to zero width. Paint the continuous rule as its background so the browser can show the ordinary native caret at the center without placeholder characters, a synthetic caret, or editing-only geometry. Labeled Separators retain their equal flank rules. New-document themes explicitly seed Separator text color to Gray 4; existing saved overrides and omitted-color inheritance are untouched. This is a rendering fix and a creation preset, not a native format change.
+
+## 2026-11-17 — Consistent main-flow gap carets
+
+Render every main-document GapCursor as a vertical Body-colored writing position, not only document/slide tails. The inherited horizontal black dash made interior Flow/space boundaries inconsistent and nearly invisible in Dark mode; tail-only slide offsets could paint an interior caret on an earlier slide. Position the existing transient cursor from shared measured block edges, including caption footprints and spacer margin overlap, rather than maintaining a separate tail offset. Match Body font metrics and first-line indentation so typing starts where the caret indicates. Selection remains geometry- and content-neutral; tail keyboard semantics, native text carets, and reader/export content are unchanged.

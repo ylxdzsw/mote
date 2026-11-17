@@ -229,9 +229,8 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .is-editing:not(:has(.floating-note)) [data-writing-placeholder] .paragraph-content::before { content: 'Start writing…'; position: absolute; color: var(--ui-faint); pointer-events: none; }
 .sheet.can-continue-writing { cursor: text; }
 .stage:has(.sheet.can-continue-writing) { cursor: text; }
-.main-text .has-tail-caret > .ProseMirror-gapcursor { margin-top: var(--body-spaceBefore); font-size: var(--body-size); line-height: var(--body-lineHeight); }
-.main-text .has-tail-caret > [data-flow] + .ProseMirror-gapcursor { margin-top: max(var(--body-spaceBefore), var(--flow-spaceAfter)); }
-.main-text .has-tail-caret > .ProseMirror-gapcursor::after { top: 0; width: 0; height: 1lh; border-top: 0; border-left: 1px solid var(--body-color); }
+.main-text > .text-content > .tiptap > .ProseMirror-gapcursor { left: 0; font-family: var(--body-family); font-size: var(--body-size); font-weight: var(--body-weight); line-height: var(--body-lineHeight); margin-left: var(--body-first-line-indent, 0px); }
+.main-text > .text-content > .tiptap > .ProseMirror-gapcursor::after { top: 0; width: 0; height: 1lh; border-top: 0; border-left: 1px solid var(--body-color); }
 .main-paragraph[data-repel] { height: var(--text-height); }
 .main-paragraph[data-repel]::before { content: ''; float: right; width: 100%; height: var(--repel-height); shape-outside: var(--repel-shape); pointer-events: none; }
 .text-content p { --text-family: var(--body-family); --text-size: var(--body-size); --text-color: var(--body-color); --text-weight: var(--body-weight); --text-lineHeight: var(--body-lineHeight); --text-spaceBefore: var(--body-spaceBefore); --text-spaceAfter: var(--body-spaceAfter); --text-letterSpacing: var(--body-letterSpacing); }
