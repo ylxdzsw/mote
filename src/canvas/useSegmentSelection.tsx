@@ -47,6 +47,7 @@ export function useSegmentSelection(props: Props) {
   const [notice, setNotice] = useState('')
   const [dropY, setDropY] = useState<number | null>(null)
   const [marginHover, setMarginHover] = useState(false)
+  const marginPointer = useRef<{ clientX: number; clientY: number } | null>(null)
   const drag = useRef<Drag | null>(null)
   const clickedSlide = useRef<number | null>(null)
   const tick = useRef<() => void>(() => {})
@@ -204,14 +205,27 @@ export function useSegmentSelection(props: Props) {
       select(ordered(d.anchor, point), whole)
     }
   }
-  function marginTarget(event: ReactPointerEvent) {
+  function marginTarget(event: Pick<ReactPointerEvent, 'target' | 'clientX' | 'clientY'>) {
     const { editable, sheet, scale, doc } = live.current
     if (!editable || !sheet.current || !(event.target as Element).matches('.sheet, .main-text, [data-spacer], [data-slide-break]')) return false
     const rect = sheet.current.getBoundingClientRect()
     const x = (event.clientX - rect.left) / scale
     return x >= 0 && x < sheet.current.clientLeft + doc.page.margins.left && event.clientY >= rect.top && event.clientY < rect.bottom
   }
-  useLayoutEffect(() => { setMarginHover(false) }, [props.editable, props.scale, props.doc.page.margins.left])
+  function refreshMarginHover() {
+    const point = marginPointer.current
+    const target = point && document.elementFromPoint(point.clientX, point.clientY)
+    setMarginHover(!!point && !!target && marginTarget({ ...point, target }))
+  }
+  useLayoutEffect(refreshMarginHover)
+  useLayoutEffect(() => {
+    window.addEventListener('scroll', refreshMarginHover, true)
+    window.addEventListener('resize', refreshMarginHover)
+    return () => {
+      window.removeEventListener('scroll', refreshMarginHover, true)
+      window.removeEventListener('resize', refreshMarginHover)
+    }
+  }, [])
   function begin(event: ReactPointerEvent) {
     clickedSlide.current = null
     const { editable, editor, stage, sheet, scale, doc, onStart } = live.current
@@ -526,7 +540,10 @@ export function useSegmentSelection(props: Props) {
   const selectionLabel = slides ? slides.first === slides.last ? 'Slide' : `${slides.last - slides.first + 1} slides` : range ? 'Segment' : null
   return { begin, clear, overlay, notice, range, marginHover, slides, selectionLabel, slideCount: slides ? slides.last - slides.first + 1 : 0,
     deleteSelection,
-    hover: (event: ReactPointerEvent | null) => setMarginHover(!!event && marginTarget(event)),
+    hover: (event: ReactPointerEvent | null) => {
+      marginPointer.current = event && { clientX: event.clientX, clientY: event.clientY }
+      refreshMarginHover()
+    },
     target: (y: number, alt = false) => {
       const blocks = measure(), point = endpoint(y, alt, blocks)
       return { point, top: boundaryY(point, 'start', blocks) }

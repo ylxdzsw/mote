@@ -937,7 +937,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       }
     }}
     onDropCapture={interact}
-    style={{ '--page-background': pageColor(doc.theme) } as React.CSSProperties}>
+    style={{ '--page-background': pageColor(doc.theme), '--presentation-cursor': presenting.canAdvance ? 'pointer' : 'default' } as React.CSSProperties}>
     {presenting.entry}
     <div className={`stage${segments.marginHover ? ' has-segment-margin-hover' : ''}`} ref={stage} id={canvasId} tabIndex={-1} aria-label={presenting.active ? `Slide ${presenting.index! + 1} · Click or use arrow keys to navigate · Esc returns to reading` : 'Document canvas'} onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
       onPointerMoveCapture={event => segments.hover(!tool && !imagePlacement.active ? event : null)} onPointerLeave={() => segments.hover(null)}

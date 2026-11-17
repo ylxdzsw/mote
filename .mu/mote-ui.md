@@ -76,6 +76,8 @@ Routine successful actions should not create persistent page-wide banners. Let t
 
 ## Make the same design usable across inputs and sizes
 
+The pointer previews the current action, not just the underlying element type. Use an I-beam for a writing/text-selection surface, a hand for activation, movement/resize cursors for those gestures, and a crosshair for placement. Match the actual hit-test and interaction precedence, including selection-first objects, reservations, and modifier keys; refresh when that state changes even if the mouse does not move. Inert gutters and disabled controls must not borrow a neighboring action's cursor. Embedded editors and widgets keep their own usable pointers rather than inheriting an object's movement cue.
+
 Prefer browser defaults and conventional editor behavior over specialized shortcuts or a parallel keyboard-operated canvas. Pointer geometry handles need not be Tab stops or have keyboard movement/resizing equivalents. Rich text deliberately owns Tab/Shift+Tab: Body-to-List conversion and list indentation remain, while ineligible paragraph classes and captions keep focus without changing content. Table cell navigation and source-editor indentation retain their established behavior; ordinary UI controls keep native focus navigation.
 
 Keyboard focus, accessible names, selected/disabled states, and focus restoration are part of the component. Prefer native button, input, radio, and dialog behavior where it fits. Color and hover alone should not carry essential meaning. Tooltips complement visible state and accessible descriptions.

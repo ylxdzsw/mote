@@ -130,7 +130,7 @@ export function usePresentation(doc: MoteDocument, enabled: boolean, stage: RefO
     move(1)
   }
 
-  return { active, index, scale, reveal, click,
+  return { active, index, scale, canAdvance: active && index < count - 1, reveal, click,
     entry: available && !active && <button ref={entry} type="button" className={`present-button${entryVisible ? ' is-visible' : ''}`}
       title="Present slides · Click or use arrow keys to navigate · Esc returns to reading" onClick={enter}>Present</button>,
   }

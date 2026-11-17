@@ -75,7 +75,7 @@ export function FloatingObjectView({ note, geometry: box, editable, selected, co
       aria-label="Resize caption width" aria-valuemin={16} aria-valuenow={Math.round(caption.width ?? note.layout.width)}
       onPointerDown={event => begin('caption-width', event, true)} onFocus={() => onActive(null, true)} />}
   </div>
-  return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${candidatePreview ? ' ai-candidate' : ''}` : ''}`}
+  return <div className={`floating-note floating-${kind} ${supportsCaption(note) ? 'has-caption-support' : ''} ${selected && !captionSelected ? 'is-selected' : ''} ${contentActive && !captionSelected ? 'is-content-active' : ''} ${editable && locked ? `is-ai-reserved ai-reserved${candidatePreview ? ' ai-candidate' : ''}` : ''}`}
     data-note-id={note.id} data-anchor-id={objectAnchorId(note) ?? ''} data-placement={note.layout.placement.type} data-in-flow={inFlow ? '' : undefined} data-box-decoration={decoration?.kind}
     data-ai-segment-candidate={editable && aiTask?.target.kind === 'segment' && candidatePreview ? '' : undefined}
     data-ai-segment-owner={editable && aiTask?.target.kind === 'segment' ? aiTask.id : undefined}

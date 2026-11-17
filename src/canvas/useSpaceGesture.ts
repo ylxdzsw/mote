@@ -25,7 +25,7 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
     }
     function target(x: number, y: number): Target | null {
       const hit = document.elementFromPoint(x, y)
-      if (!editable || !hit || !surface.contains(hit) || hit.closest('.floating-note') || surface.classList.contains('has-creation-tool') || surface.hasAttribute('data-floating-preview')) return null
+      if (!editable || !hit || !surface.contains(hit) || hit.closest('.floating-note, [data-ai-segment], [data-ai-preview], .reservation-markup-overlay') || surface.classList.contains('has-creation-tool') || surface.hasAttribute('data-floating-preview')) return null
       const rect = surface.getBoundingClientRect()
       if (hit.matches('.sheet, .main-text, [data-spacer]') && (x - rect.left) / scale - surface.clientLeft < leftMargin) return null
       const localY = (y - rect.top) / scale - surface.clientTop
@@ -118,14 +118,15 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
     function blur() { alt = false; pointer = null; cancel() }
     function changed({ transaction }: { transaction: Transaction }) {
       if (transaction.docChanged && drag.current) cancel()
+      else hover()
     }
     findTarget.current = target
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', finish)
     window.addEventListener('pointercancel', cancel)
     surface.addEventListener('lostpointercapture', cancel)
-    window.addEventListener('keydown', key)
-    window.addEventListener('keyup', key)
+    window.addEventListener('keydown', key, true)
+    window.addEventListener('keyup', key, true)
     window.addEventListener('blur', blur)
     window.addEventListener('scroll', hover, true)
     editor.on('transaction', changed)
@@ -134,8 +135,8 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', cancel)
       surface.removeEventListener('lostpointercapture', cancel)
-      window.removeEventListener('keydown', key)
-      window.removeEventListener('keyup', key)
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('keyup', key, true)
       window.removeEventListener('blur', blur)
       window.removeEventListener('scroll', hover, true)
       editor.off('transaction', changed)

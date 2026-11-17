@@ -27,27 +27,41 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
   }
 
   useLayoutEffect(() => {
-    if (!editor || !active) return
+    if (!editor) return
     const surface = sheet.current!
     function update() {
       const hovered = pointer.current && target(pointer.current)
-      surface.classList.toggle('can-continue-writing', hovered !== null)
+      surface.toggleAttribute('data-writing-hover', hovered !== null)
+      surface.toggleAttribute('data-follow-links', editor!.isEditable && !!(pointer.current?.ctrlKey || pointer.current?.metaKey))
+      surface.toggleAttribute('data-select-object', editor!.isEditable && !!pointer.current?.shiftKey)
     }
     const move = (event: globalThis.PointerEvent) => { pointer.current = event; update() }
     const leave = () => { pointer.current = null; update() }
+    const key = (event: KeyboardEvent) => {
+      if (pointer.current) pointer.current = { clientX: pointer.current.clientX, clientY: pointer.current.clientY, altKey: event.altKey, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey }
+      update()
+    }
     const observer = new ResizeObserver(update)
     observer.observe(editor.view.dom)
     surface.closest('.stage')!.addEventListener('pointermove', move as EventListener)
     surface.closest('.stage')!.addEventListener('pointerleave', leave)
     window.addEventListener('scroll', update, true)
+    window.addEventListener('keydown', key, true)
+    window.addEventListener('keyup', key, true)
+    window.addEventListener('blur', leave)
     editor.on('transaction', update); editor.on('focus', update); editor.on('blur', update)
     update()
     return () => {
       observer.disconnect()
-      surface.classList.remove('can-continue-writing')
+      surface.removeAttribute('data-writing-hover')
+      surface.removeAttribute('data-follow-links')
+      surface.removeAttribute('data-select-object')
       surface.closest('.stage')?.removeEventListener('pointermove', move as EventListener)
       surface.closest('.stage')?.removeEventListener('pointerleave', leave)
       window.removeEventListener('scroll', update, true)
+      window.removeEventListener('keydown', key, true)
+      window.removeEventListener('keyup', key, true)
+      window.removeEventListener('blur', leave)
       editor.off('transaction', update); editor.off('focus', update); editor.off('blur', update)
     }
   }, [editor, active, scale, leftMargin, theme, sheet, slides])

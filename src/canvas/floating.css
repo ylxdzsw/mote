@@ -13,8 +13,8 @@
 .sheet.is-editing .floating-drawing.is-selected { outline: 1px solid var(--ui-accent-border); }
 .drawing-edit-button { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; place-items: center; width: 38px; height: 38px; padding: 0; margin: 0; border: 1px solid var(--ui-border); border-radius: 50%; color: var(--ui-ink); background: var(--ui-surface-raised); box-shadow: 0 2px 8px var(--ui-shadow); cursor: pointer; pointer-events: auto; }
 .sheet.show-floating-grid, .sheet.is-editing:has(.table-column-divider.is-dragging) { background-image: radial-gradient(circle, color-mix(in srgb, var(--ui-grid) 40%, transparent) .8px, transparent 1px); background-size: 16px 16px; background-position: -8px -8px; background-origin: padding-box; }
-/* While a creation tool is armed, every page target performs insertion. */
-.sheet.has-creation-tool, .sheet.has-creation-tool *, .sheet-footprint:has(> .sheet.has-creation-tool) .segment-gutter { cursor: crosshair !important; }
+/* Placement wins over ordinary object/text cues; Ctrl/⌘ links retain navigation. */
+.sheet.has-creation-tool, .sheet.has-creation-tool *, .sheet-footprint:has(> .sheet.has-creation-tool) .segment-gutter { cursor: var(--creation-cursor, crosshair) !important; }
 .sheet.has-creation-tool iframe { pointer-events: none; }
 .object-insertion-preview { position: absolute; top: 0; left: 0; border: 1px solid transparent; transform-origin: top left; pointer-events: none; z-index: 2; }
 .reservation-markup-overlay { position: absolute; inset: 0; overflow: clip; pointer-events: none; z-index: 1; }
@@ -28,6 +28,8 @@
 .is-editing .floating-note:not(.is-content-active) .code-view { pointer-events: none; }
 .is-editing .floating-note:not(.is-content-active) .table-column-controls { display: none; }
 .sheet.is-editing .floating-image img { cursor: move; }
+.is-editing .is-ai-reserved .text-content { cursor: move; }
+.sheet.is-editing [data-ai-segment-owner], .sheet.is-editing [data-ai-segment-owner] *, .sheet.is-editing[data-select-object] .floating-note, .sheet.is-editing[data-select-object] .floating-note * { cursor: pointer; }
 .floating-note.has-caption-support { padding: 0; background: transparent; border: 0; border-radius: 0; }
 .sheet.is-editing .floating-note.has-caption-support { outline: none; }
 .has-caption-support > .object-body { border: 1px solid transparent; border-radius: 3px; }

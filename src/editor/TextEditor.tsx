@@ -74,7 +74,7 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
         return false
       }, pointerdown: (_view, event) => {
         const space = (event.target as HTMLElement).closest('[data-spacer]')
-        if (!editable || event.button !== 0 || !space) return false
+        if (!editable || event.button !== 0 || !space || space.hasAttribute('data-ai-segment')) return false
         event.preventDefault()
         return true
       }, beforeinput: (view, event) => {
