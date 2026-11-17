@@ -1,13 +1,15 @@
-# Mote native format reference — V1–V7
+# Mote native format reference — V1–V8
 
-This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. Native V1–V7 are closed schemas. A document has `format:"mote"` and numeric `version:1`, `2`, `3`, `4`, `5`, `6`, or `7`; V2 adds Slides, V3 adds optional table color pairs, and V4 restricts saved theme font weights to Regular (400) or Bold (700). Native V5 adds optional permanent markup to images and HTML widgets. V6 adds optional document-level `theme.justifyText`; omission means false. V7 adds optional document-level `theme.firstLineIndent`; omission or false means no indent. Mote migrates older documents in memory at its load boundary. The breaking V3→V4 migration maps each explicit saved weight below 550 to 400 and each weight at least 550 to 700, preserving sparse inheritance, IDs, and unrelated data; it does not add Heading overrides. If active reservations exist on a breaking native migration, the owner chooses Upgrade (releasing current reservations through ordinary cloud document save) or Decline (read-only at the stored version). Release does not permanently revoke the stable task token. The non-breaking V4→V5, V5→V6, and V6→V7 migrations change only `version`. New documents use native V7. Native V1–V7 remain supported independently of task protocol `mote-agent-v6`. The current task protocol's optional `document.json` read returns latest cloud context, while the task base URL returns a consolidated JSON description with `.target`, permissions, segment measurements, and resource links, without copied original content. Proposal records do not contain a source revision, agent origin, or native document version. The public proposal schema's `documentFormatVersion:7` is advisory metadata. Unknown native versions and fields are unsupported. Preserve unsupported inputs and report the issue; agents do not convert, extend, or repair them. Retained legacy task artifacts are recovery-only; ask the owner for a current v6 reservation rather than converting histories.
+This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. Native V1–V8 are closed schemas. A document has `format:"mote"` and numeric `version:1` through `8`; V2 adds Slides, V3 adds optional table color pairs, and V4 restricts saved theme font weights to Regular (400) or Bold (700). Native V5 adds optional permanent markup to images and HTML widgets. V6 adds optional document-level `theme.justifyText`; omission means false. V7 adds optional document-level `theme.firstLineIndent`; omission or false means no indent. V8 adds semantic Separator paragraphs to main text and Text objects, with optional Separator rule thickness. V1–V7 reject the Separator semantic and `lineThickness`; table cells and owned captions never support Separator.
+
+Mote migrates older documents in memory at its load boundary. The breaking V3→V4 migration maps each explicit saved weight below 550 to 400 and each weight at least 550 to 700, preserving sparse inheritance, IDs, and unrelated data; it does not add Heading overrides. If active reservations exist on a breaking native migration, the owner chooses Upgrade (releasing current reservations through ordinary cloud document save) or Decline (read-only at the stored version). Release does not permanently revoke the stable task token. The non-breaking V4→V5, V5→V6, V6→V7, and V7→V8 migrations change only `version`. New documents use native V8. Native V1–V8 remain supported independently of task protocol `mote-agent-v6`; the current candidate grammar is V8 and the advisory proposal-schema hint is `documentFormatVersion:8`. The task protocol's optional `document.json` read returns latest cloud context, while the task base URL returns a consolidated JSON description with `.target`, permissions, segment measurements, and resource links, without copied original content. Proposal records do not contain a source revision, agent origin, or native document version. Unknown native versions and fields are unsupported. Preserve unsupported inputs and report the issue; agents do not convert, extend, or repair them. Retained legacy task artifacts are recovery-only; ask the owner for a current v6 reservation rather than converting histories.
 
 ## Document envelope and theme
 
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
   id: string
   language: 'en' | 'zh-Hans'
   page: { width: number; margins: Insets; slideHeight?: number } // slideHeight is V2+
@@ -20,7 +22,7 @@ type Insets = { top: number; right: number; bottom: number; left: number }
 type Length = { value: number; unit: 'px' | 'em' }
 type LineHeight = Length | { value: number; unit: 'ratio' }
 type Family = 'sans' | 'serif' | 'mono'
-type ParagraphClass = 'title' | 'heading' | 'subheading' | 'body' | 'caption' | 'list'
+type ParagraphClass = 'title' | 'heading' | 'subheading' | 'body' | 'caption' | 'list' | 'separator'
 type PaletteFamily = 'primary' | 'secondary' | 'red' | 'amber' | 'green' | 'pink' | 'blue' | 'violet'
 type PaletteRef = PaletteFamily | `${PaletteFamily}:soft` | 'gray1' | 'gray2' | 'gray3' | 'gray4' | 'gray5' | 'gray6'
 type PairColor = PaletteFamily | 'gray4'
@@ -37,7 +39,7 @@ type Theme = {
     family: Family; size: number; color: PaletteRef; weight: number
     lineHeight: LineHeight; spaceBefore: Length; spaceAfter: Length; letterSpacing: Length
   }
-  paragraphs: Partial<Record<ParagraphClass, Partial<TextStyle>>>
+  paragraphs: ParagraphStyles
   objects: {
     table?: Partial<TextStyle>
     code?: Partial<Pick<TextStyle, 'size' | 'weight' | 'lineHeight' | 'letterSpacing'>>
@@ -45,11 +47,27 @@ type Theme = {
   }
   flow: { spaceBefore?: Length; spaceAfter?: Length }
 }
+type ParagraphStyles =
+  Partial<Record<Exclude<ParagraphClass, 'separator'>, Partial<TextStyle>>> & {
+    separator?: Partial<TextStyle> & { lineThickness?: Length }
+  }
 ```
 
 Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2+. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Theme font weights are version-dependent: V1–V3 accept finite values from 1 through 1000; V4+ accepts exactly 400 or 700. This applies to `theme.defaults.weight` and every saved paragraph, table, or Code weight override. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
 
 `theme.defaults` is complete. Paragraph/object style overrides are sparse and inherit omitted properties from Defaults. V1–V5 reject `justifyText`; V6+ permits this optional document-level boolean, whose omission means false. It has no class, paragraph, or inline override. When true, browser-native `text-align: justify` applies to native prose paragraphs in main text and Text objects in Flow or Float placement, including headings, lists, and captions; final lines remain start-aligned. Table column alignment stays unchanged, and Code, formulas, and HTML widget contents are unaffected. Existing CSS `hyphens:auto` remains enabled, including when justified; automatic hyphenation depends on document language and browser dictionaries. There is no language detection, inserted soft hyphens, or stored text rewrite. `theme.objects` has only the shown table, code, and formula overrides. V1–V6 reject `firstLineIndent`; V7 permits this optional document-level boolean, whose omission or false value means no indent. It is independent of justification and has no class, paragraph, or inline override. When true, `text-indent: 2ic` applies only to semantic Body paragraphs in main text and Text objects in Flow or Float placement. Only the first formatted line is indented; wrapped and soft-break lines start normally. Headings, lists, captions, tables, Code, formulas, and HTML widget contents are unaffected. The behavior is language-independent and does not rewrite content whitespace. New-document Title, Heading, and Subheading presets each explicitly use weight 700; missing overrides in an existing theme remain inherited, with no implicit Subheading fallback. Flow Before omission means zero; Flow After omission follows resolved Body `spaceAfter`. Do not add a palette, page-background field, or custom theme key.
+
+V8 adds Separator as a semantic paragraph class only in main text and Text
+objects; it is not valid in table cells or owned captions and is not an object
+or layout choice. V1–V7 reject `separator` and `lineThickness`. V8 permits
+`lineThickness` only in `theme.paragraphs.separator`, alongside the ordinary
+sparse text-style overrides. It is a positive finite `{value,unit}` length in
+`px` or `em`; omission, even when the style is absent, resolves to `1px` rather
+than an `em` default. An empty Separator renders as a full-width horizontal
+rule. Rich-text label content centers between equal flank rules; wrapped labels
+remain centered and the flanks shorten. The Separator class's resolved text color determines the rule color,
+independently of any inline color mark on the label. Separator is excluded from
+document-wide justification and first-line indent.
 
 The fixed palette is 22 slots: Strong/Soft pairs for Primary, Secondary, Red, Amber, Green, Pink, Blue, and Violet (`primary`, `secondary`, etc., with `:soft` for Soft), plus `gray1` through `gray6`. Grays have no Soft form. Primary/Secondary follow saved hues; every slot adapts to Light/Dark mode. `PairColor` used by text-box borders is one of the eight families or `gray4` (which pairs with Gray 5).
 
@@ -105,7 +123,7 @@ type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // SlideBreak on
 type MainParagraph = {
   type: 'paragraph'
   attrs:
-    | { id: string; semantic: Exclude<ParagraphClass, 'list'> }
+    | { id: string; semantic: Exclude<ParagraphClass, 'list'> } // separator is V8+
     | { id: string; semantic: 'list'; listLevel: number }
   content?: Inline[]
 }
@@ -120,7 +138,14 @@ type Mark =
   | { type: 'link'; attrs: { href: string } }
 ```
 
-`content` is a nonempty `doc`. Main paragraphs, explicit spaces, and Flow atoms are its only top-level kinds. A paragraph has one stable `id` and semantic class. `listLevel` is a nonnegative integer required for `list` and forbidden for every other class. Spacer height is a finite nonnegative document-pixel number. Paragraph text may be empty; its `content` may be omitted or empty. Every `text` node has a nonempty string and every hard break is `{type:"hardBreak"}`. Newlines in text are not a substitute for hard breaks. Do not trim or normalize text.
+`content` is a nonempty `doc`. Main paragraphs, explicit spaces, and Flow atoms are its only top-level kinds. A paragraph has one stable `id` and semantic class. V8 permits `separator` as a semantic in main text and Text-object content; V1–V7 reject it. `listLevel` is a nonnegative integer required for `list` and forbidden for every other class. Spacer height is a finite nonnegative document-pixel number. Paragraph text may be empty; its `content` may be omitted or empty. Every `text` node has a nonempty string and every hard break is `{type:"hardBreak"}`. Newlines in text are not a substitute for hard breaks. Do not trim or normalize text.
+
+A Separator is a paragraph, not an object or layout choice. An empty one renders
+as a full-width horizontal rule. Rich-text label content centers between equal
+flank rules; a wrapped label remains centered and the flanks shorten. Shift+Enter
+inserts an ordinary soft break, while Enter starts a following Body paragraph.
+Converting to Body retains its text. The Separator class's resolved text color
+determines the rules' color independently of any inline color mark on the label.
 
 The exact mark attributes are shown above: `bold` has no `attrs`; the other marks have exactly the stated `attrs`. Marks compose, but one mark type may occur only once per inline node. The fixed-palette example below is valid; arbitrary colors, font/size marks, independent underline marks, unknown marks, and relative links are not.
 
@@ -144,7 +169,7 @@ IDs match `[A-Za-z0-9_-]{1,128}`; `__proto__`, `constructor`, and `prototype` ar
 
 ## Tables
 
-Text-object `content` is a nonempty `doc` with paragraphs only. Table-object `content` is a `doc` with exactly one table, no other blocks. A table has one or more rows; every row has the same positive number of cells. Rows/cells have no `attrs`. Each cell contains exactly one paragraph; that paragraph has only `attrs:{id}` and optional inline content from the shared mark grammar. There are no merged cells, spans, nested tables, semantic attrs on cell paragraphs, or extra nodes.
+Text-object `content` is a nonempty `doc` with paragraphs only, using the same semantic paragraph grammar as main text, including Separator in V8. Table-object `content` is a `doc` with exactly one table, no other blocks. A table has one or more rows; every row has the same positive number of cells. Rows/cells have no `attrs`. Each cell contains exactly one paragraph; that paragraph has only `attrs:{id}` and optional inline content from the shared mark grammar. There are no merged cells, spans, nested tables, semantic attrs on cell paragraphs, or extra nodes.
 
 ```ts
 type TextDoc = { type: 'doc'; content: [MainParagraph, ...MainParagraph[]] }
@@ -200,7 +225,7 @@ Saved object placement and body geometry are inside `layout`; V5 `markup.width`/
 | `html` | `html`, `screenshot`, `alt` | `caption`, `markup` (V5+) |
 
 - **Text:** `content` is a nonempty rich `TextDoc`. Optional `padding` is a nonnegative `Length`; omission means zero unless decorated, when presentation uses `0.75em`. Optional `decoration` is exactly `{kind:'left'|'box',color:PairColor}`. Omit it rather than storing null. Do not add `background` or `borderColor`.
-- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3+, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Native V1/V2 documents reject `color`; current `mote-agent-v6` proposals use native V7 grammar rather than a source-document-version-pinned candidate schema. A header row's bold appearance is weight 600 in V1–V3 and 700 in V4+.
+- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3+, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Native V1/V2 documents reject `color`; current `mote-agent-v6` proposals use native V8 grammar rather than a source-document-version-pinned candidate schema. A header row's bold appearance is weight 600 in V1–V3 and 700 in V4+.
 - **Image:** `src` is embedded image data, never a path or remote URL; `alt` is accessible descriptive text. Image dimensions derive from intrinsic ratio and layout width.
 - **Drawing:** positive layout height; `strokes` is an array of `{points:[[x,y],...],color,width}`. Each stroke has at least one finite point relative to the drawing top-left, a fixed-palette color, and positive document-pixel width. `labels` is an array of `{x,y,text,color,size}` with finite top-left-relative positions, fixed-palette color, and positive pixel font size. `background` is exactly `"gray6"` or `null`. Resizing scales point/label positions but preserves stroke widths and label sizes.
 - **Formula:** `latex` is the source string rendered by KaTeX; there is no saved height. Candidate LaTeX has no `$`/`$$` delimiters.
@@ -246,11 +271,11 @@ valid reference viewport with `strokes:[]` and `labels:[]`; bare `{}` or `null`
 is invalid. An empty markup has no visible content. A complete segment candidate
 owns its composition and must retain any desired markup on its objects. Native
 V1–V4 documents reject `markup`; current `mote-agent-v6` proposals use native
-V7 grammar rather than a source-document-version-pinned candidate schema.
+V8 grammar rather than a source-document-version-pinned candidate schema.
 
 ## Complete candidate examples
 
-These are current `mote-agent-v6` candidate result values, not complete cloud documents; candidate payloads use native V7 grammar. They are not pinned to a source document revision or native version. The task's reserved target determines which example shape applies. Preserve the target's ID/kind/layout rules from `authoring.md`. A result has exactly one of `content`, `object`, or `segment`, plus required `summary` and optional `sources` (each source is `{title:string,url:absolute HTTPS URL}`). An individual HTML object result may also have root `screenshotPath`; a segment result may have root `screenshotPaths` keyed by HTML object ID. These path fields are delivery metadata, not native object fields, and the submission's `assets` must contain the actual PNG bytes. Do not include `authoring`.
+These are current `mote-agent-v6` candidate result values, not complete cloud documents; candidate payloads use native V8 grammar. They are not pinned to a source document revision or native version. The task's reserved target determines which example shape applies. Preserve the target's ID/kind/layout rules from `authoring.md`. A result has exactly one of `content`, `object`, or `segment`, plus required `summary` and optional `sources` (each source is `{title:string,url:absolute HTTPS URL}`). An individual HTML object result may also have root `screenshotPath`; a segment result may have root `screenshotPaths` keyed by HTML object ID. These path fields are delivery metadata, not native object fields, and the submission's `assets` must contain the actual PNG bytes. Do not include `authoring`.
 
 ### Main-text candidate
 
@@ -393,4 +418,4 @@ The segment `content` array may be empty only for an intentional empty replaceme
 
 ## Validation and practical limits
 
-Native document and proposal validation are separate. Native documents use strict V1–V7 closed schemas; `mote-agent-v6` proposal delivery uses the current native V7 candidate grammar without a document/target/session input. Unknown fields are rejected; do not normalize input through an editor schema before validating it. There is no arbitrary extension bag, custom colors, custom nodes/marks, or agent-side legacy conversion. Retained legacy task snapshots and histories are recovery-only and are not converted; current v6 task proposals carry no document revision, native document version, or agent origin. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and per-Drawing/per-markup caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).
+Native document and proposal validation are separate. Native documents use strict V1–V8 closed schemas; `mote-agent-v6` proposal delivery uses the current native V8 candidate grammar without a document/target/session input. Unknown fields are rejected; do not normalize input through an editor schema before validating it. There is no arbitrary extension bag, custom colors, custom nodes/marks, or agent-side legacy conversion. Retained legacy task snapshots and histories are recovery-only and are not converted; current v6 task proposals carry no document revision, native document version, or agent origin. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and per-Drawing/per-markup caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).

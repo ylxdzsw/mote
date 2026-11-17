@@ -1,4 +1,4 @@
-import { Extension, Node, mergeAttributes, type Editor } from '@tiptap/core'
+import { Extension, Node, mergeAttributes, type Editor, type NodeViewRenderer } from '@tiptap/core'
 import Document from '@tiptap/extension-document'
 import HardBreak from '@tiptap/extension-hard-break'
 import Paragraph from '@tiptap/extension-paragraph'
@@ -33,7 +33,10 @@ const SemanticParagraph = Paragraph.extend({
     }
   },
   parseHTML: () => [{ tag: 'p' }],
-  renderHTML: ({ HTMLAttributes }) => ['p', HTMLAttributes, 0],
+  renderHTML: ({ node, HTMLAttributes }) => node.attrs.semantic === 'separator'
+    ? ['p', { ...HTMLAttributes, ...(node.content.size === 0 && { 'data-separator-empty': '' }) }, ['span', { class: 'paragraph-content' }, 0]]
+    : ['p', HTMLAttributes, 0],
+  addNodeView() { return paragraphView(false) },
 })
 
 const CaptionParagraph = Paragraph.extend({
@@ -41,38 +44,41 @@ const CaptionParagraph = Paragraph.extend({
 })
 
 const MainParagraph = SemanticParagraph.extend({
-  addNodeView() {
-    return ({ node }) => {
-      const dom = document.createElement('p')
-      dom.className = 'main-paragraph'
-      const contentDOM = document.createElement('span')
-      contentDOM.className = 'paragraph-content'
-      dom.append(contentDOM)
-      const attributes = (value: typeof node) => {
-        dom.dataset.id = value.attrs.id
-        dom.dataset.semantic = value.attrs.semantic
-        if (value.attrs.semantic === 'list') {
-          dom.dataset.listLevel = value.attrs.listLevel
-          dom.style.setProperty('--list-level', value.attrs.listLevel)
-        } else {
-          delete dom.dataset.listLevel
-          dom.style.removeProperty('--list-level')
-        }
-      }
-      attributes(node)
-      return {
-        dom, contentDOM,
-        update(next) {
-          if (next.type !== node.type) return false
-          attributes(next)
-          return true
-        },
-        // Exclusion geometry belongs to the view, not to editable document content.
-        ignoreMutation: mutation => mutation.type !== 'selection' && mutation.target === dom,
+  addNodeView() { return paragraphView(true) },
+})
+
+function paragraphView(main: boolean): NodeViewRenderer {
+  return ({ node }) => {
+    const dom = document.createElement('p')
+    if (main) dom.className = 'main-paragraph'
+    const contentDOM = document.createElement('span')
+    contentDOM.className = 'paragraph-content'
+    dom.append(contentDOM)
+    const attributes = (value: typeof node) => {
+      dom.dataset.id = value.attrs.id
+      dom.dataset.semantic = value.attrs.semantic
+      dom.toggleAttribute('data-separator-empty', value.attrs.semantic === 'separator' && value.content.size === 0)
+      if (value.attrs.semantic === 'list') {
+        dom.dataset.listLevel = value.attrs.listLevel
+        dom.style.setProperty('--list-level', value.attrs.listLevel)
+      } else {
+        delete dom.dataset.listLevel
+        dom.style.removeProperty('--list-level')
       }
     }
-  },
-})
+    attributes(node)
+    return {
+      dom, contentDOM,
+      update(next) {
+        if (next.type !== node.type) return false
+        attributes(next)
+        return true
+      },
+      // Exclusion geometry belongs to the view, not to editable document content.
+      ignoreMutation: mutation => mutation.type !== 'selection' && mutation.target === dom,
+    }
+  }
+}
 
 export const Spacer = Node.create({
   name: 'spacer',

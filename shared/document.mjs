@@ -1,14 +1,16 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
 
-export const DOCUMENT_VERSION = 7
-export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6, 7]
+export const DOCUMENT_VERSION = 8
+export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
 const SIDES = ['top', 'right', 'bottom', 'left']
 const CLASSES = ['title', 'heading', 'subheading', 'body', 'caption', 'list']
+const CLASSES_V8 = [...CLASSES, 'separator']
 const STYLE = ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']
+const SEPARATOR_STYLE = [...STYLE, 'lineThickness']
 const KINDS = ['text', 'table', 'image', 'drawing', 'formula', 'code', 'html']
 
 export class DocumentFormatError extends Error {
@@ -77,6 +79,7 @@ function style(value, path, fields = STYLE, defaults = false, version = DOCUMENT
       if (version >= 4) choice(value[key], [400, 700], field)
       else if (number(value[key], field, 1) > 1000) fail(field, 'must not exceed 1000')
     } else if (key === 'size' && defaults) number(value[key], field, Number.MIN_VALUE)
+    else if (key === 'lineThickness') length(value[key], field, Number.MIN_VALUE)
     else length(value[key], field, key === 'letterSpacing' ? -Infinity : ['size', 'lineHeight'].includes(key) ? Number.MIN_VALUE : 0, key === 'lineHeight')
   }
 }
@@ -91,8 +94,9 @@ function theme(value, version) {
   if (present(value, 'justifyText')) boolean(value.justifyText, 'theme.justifyText')
   if (present(value, 'firstLineIndent')) boolean(value.firstLineIndent, 'theme.firstLineIndent')
   style(value.defaults, 'theme.defaults', STYLE, true, version)
-  record(value.paragraphs, 'theme.paragraphs', [], CLASSES)
-  for (const name of CLASSES) if (present(value.paragraphs, name)) style(value.paragraphs[name], `theme.paragraphs.${name}`, STYLE, false, version)
+  const paragraphClasses = version >= 8 ? CLASSES_V8 : CLASSES
+  record(value.paragraphs, 'theme.paragraphs', [], paragraphClasses)
+  for (const name of paragraphClasses) if (present(value.paragraphs, name)) style(value.paragraphs[name], `theme.paragraphs.${name}`, name === 'separator' ? SEPARATOR_STYLE : STYLE, false, version)
   record(value.objects, 'theme.objects', [], ['table', 'code', 'formula'])
   if (present(value.objects, 'table')) style(value.objects.table, 'theme.objects.table', STYLE, false, version)
   if (present(value.objects, 'code')) style(value.objects.code, 'theme.objects.code', ['size', 'weight', 'lineHeight', 'letterSpacing'], false, version)
@@ -170,7 +174,7 @@ function rich(node, path, mode, allowed, state, depth = 0, allowEmpty = false) {
     record(node.attrs, `${path}.attrs`, semantic ? ['id', 'semantic'] : ['id'], semantic && node.attrs?.semantic === 'list' ? ['listLevel'] : [])
     identifier(node.attrs.id, `${path}.attrs.id`, state.ids)
     if (semantic) {
-      choice(node.attrs.semantic, CLASSES, `${path}.attrs.semantic`)
+      choice(node.attrs.semantic, state.version >= 8 ? CLASSES_V8 : CLASSES, `${path}.attrs.semantic`)
       if (node.attrs.semantic === 'list') {
         if (!Number.isSafeInteger(number(node.attrs.listLevel, `${path}.attrs.listLevel`, 0))) fail(`${path}.attrs.listLevel`, 'must be a nonnegative integer')
       }
@@ -206,7 +210,7 @@ function rich(node, path, mode, allowed, state, depth = 0, allowEmpty = false) {
 
 export function validateContent(value, mode = 'main', options = {}) {
   choice(mode, Object.keys(docChildren), 'content mode')
-  rich(value, 'content', mode, ['doc'], { count: 0, ids: new Set(), slides: options.slides })
+  rich(value, 'content', mode, ['doc'], { count: 0, ids: new Set(), slides: options.slides, version: options.version ?? DOCUMENT_VERSION })
   return value
 }
 
@@ -301,17 +305,18 @@ function object(value, path, state, options) {
 }
 
 export function validateObject(value, options = {}) {
-  return object(value, 'object', { count: 0, ids: new Set() }, options)
+  return object(value, 'object', { count: 0, ids: new Set(), version: options.version ?? DOCUMENT_VERSION }, options)
 }
 
 export function validateComposition(blocks, objects, options = {}) {
   array(blocks, 'content', MAX_NODES, options.allowEmpty ? 0 : 1)
   array(objects, 'objects')
-  const state = { count: 0, ids: new Set(), slides: options.slides }
+  const version = options.version ?? DOCUMENT_VERSION
+  const state = { count: 0, ids: new Set(), slides: options.slides, version }
   rich({ type: 'doc', content: blocks }, 'content', 'main', ['doc'], state, 0, options.allowEmpty)
   objects.forEach((value, index) => {
     if (options.allowObjectIdShorthand && typeof value === 'string') identifier(value, `objects[${index}]`, state.ids)
-    else object(value, `objects[${index}]`, state, { version: options.version, allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) })
+    else object(value, `objects[${index}]`, state, { version, allowMissingScreenshot: options.allowMissingScreenshotIds?.has(value?.id) })
   })
   const byId = new Map(objects.map(value => [typeof value === 'string' ? value : value.id, value]))
   const blockIds = new Set(blocks.map(block => block.attrs.id))
@@ -336,7 +341,7 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V7 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V8 documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
@@ -385,6 +390,7 @@ const MIGRATIONS = [
   { from: 4, breaking: false, migrate: document => ({ ...document, version: 5 }) },
   { from: 5, breaking: false, migrate: document => ({ ...document, version: 6 }) },
   { from: 6, breaking: false, migrate: document => ({ ...document, version: 7 }) },
+  { from: 7, breaking: false, migrate: document => ({ ...document, version: 8 }) },
 ]
 
 export function migrationBreaking(version) {

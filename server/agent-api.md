@@ -2,13 +2,13 @@
 
 This is the private-client and operator contract. Current agent work uses the reusable, public, unversioned skills under [`public/skills`](../public/skills/) and their shared authoring, native-format, preview, and submission references. New tasks do not copy or pin a guide, skill version, or digest. Public skills/helpers/schema files contain no task data and remain accessible independently of task access; static responses retain `Cache-Control: no-store`.
 
-The current task transport is `mote-agent-v6`. Native documents remain V1–V7; native version numbers are unrelated to task-protocol versions. The current task stores a document-owned reservation and separate task artifacts/proposals. Credentials authorize the active task reservation, not an executor, generation, document revision, or proposal origin. Optional own-document reads return latest cloud context; proposals may be authored from stale or no document context. Retained legacy task records are recovery-only and are not converted.
+The current task transport is `mote-agent-v6`. Native documents remain V1–V8; native version numbers are unrelated to task-protocol versions. Current candidate grammar is native V8. The current task stores a document-owned reservation and separate task artifacts/proposals. Credentials authorize the active task reservation, not an executor, generation, document revision, or proposal origin. Optional own-document reads return latest cloud context; proposals may be authored from stale or no document context. Retained legacy task records are recovery-only and are not converted.
 
 See [FORMAT.md](../FORMAT.md) for the normative native schema.
 
 ## Native Flow and Float contract
 
-Cloud documents use the V1, V2, V3, V4, V5, V6, or V7 `MoteDocument` directly in storage and on the wire.
+Cloud documents use the V1, V2, V3, V4, V5, V6, V7, or V8 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
 each object's `layout`. There is no V0 runtime adapter or extension bag;
 older supported versions migrate only through `loadDocument`. V1 keeps its existing strict continuous-page schema. V2
@@ -79,9 +79,9 @@ Internal Notes are `authoring.notes`, an ordered array of plain-text strings. Au
 
 ## Native permanent markup (V5+)
 
-Native V5 adds optional `markup:{width,height,strokes,labels}` only to image and HTML objects. The exact closed grammar, viewport bounds, fixed palette, and limits remain the V5 feature rules and are unchanged in V6 and V7; markup has no separate ID, layout, or background. Native V1–V4 documents reject markup and migrate only at the ordinary document load boundary.
+Native V5 adds optional `markup:{width,height,strokes,labels}` only to image and HTML objects. The exact closed grammar, viewport bounds, fixed palette, and limits remain the V5 feature rules and are unchanged in V6–V8; markup has no separate ID, layout, or background. Native V1–V4 documents reject markup and migrate only at the ordinary document load boundary.
 
-Current `mote-agent-v6` proposal delivery uses the current native V7 candidate grammar. For an individual-object candidate, omitting `markup` preserves the current same-kind object's markup at application; a complete supplied markup replaces it. Valid positive viewport dimensions with empty `strokes` and `labels` explicitly clear it; `null` and `{}` are invalid. Complete segment proposals carry any markup they intend to retain. Owner Preview/Accept applies these rules against the actual current document; no task-specific pinned markup schema or backend snapshot normalization is used. See [FORMAT.md](../FORMAT.md) for the exact native grammar.
+Current `mote-agent-v6` proposal delivery uses the current native V8 candidate grammar. For an individual-object candidate, omitting `markup` preserves the current same-kind object's markup at application; a complete supplied markup replaces it. Valid positive viewport dimensions with empty `strokes` and `labels` explicitly clear it; `null` and `{}` are invalid. Complete segment proposals carry any markup they intend to retain. Owner Preview/Accept applies these rules against the actual current document; no task-specific pinned markup schema or backend snapshot normalization is used. See [FORMAT.md](../FORMAT.md) for the exact native grammar.
 
 ## Native fixed palette contract
 
@@ -113,6 +113,17 @@ lines start normally. Headings, lists, captions, tables, Code, formulas, and
 HTML widget contents are unaffected. This is language-independent and does not
 rewrite content whitespace.
 
+Native V8 permits the `separator` paragraph semantic only in main text and
+Text-object content; V1–V7 reject it. It is not valid in table cells or owned
+captions and is not an object or layout choice. `theme.paragraphs.separator`
+uses ordinary sparse text-style fields plus optional positive
+`lineThickness:{value,unit:'px'|'em'}`; only this style accepts the field, and
+omission resolves to `1px`. An empty Separator renders as a full-width rule;
+rich-text labels center between equal flank rules, with wrapped labels remaining
+centered and short flanks. Rule color follows the class text color, independently
+of inline label color. Separator is unaffected by document-wide justification
+and first-line indent.
+
 The fixed color references are `primary`, `secondary`, `red`, `amber`,
 `green`, `pink`, `blue`, and `violet`, each also supporting `:soft`, plus
 single-tone `gray1` through `gray6`. Every slot adapts to mode; Primary and
@@ -141,7 +152,7 @@ and 700 for V4+. See [FORMAT.md](../FORMAT.md) for the full migration contract.
 
 ## Private task API (`mote-agent-v6`)
 
-Native document formats remain V1–V7; native versioning is independent of task protocol `mote-agent-v6`. No protocol adapter, task-history conversion, or automatic continuation of retired protocols is required. Retained legacy task records are recovery-only.
+Native document formats remain V1–V8; native versioning is independent of task protocol `mote-agent-v6`. No protocol adapter, task-history conversion, or automatic continuation of retired protocols is required. Retained legacy task records are recovery-only.
 
 ### Cloud editing state and task artifacts
 
@@ -168,12 +179,12 @@ The former `GET /api/documents/:id/assistant` returns stored task records only a
 
 External resources use only `/a/<22-character-base64url-token>` (128 random bits), without workspace cookie or Origin. Built-in agents use the same scoped resources through the supplied task-local Unix socket. Public `/api/agent/` remains retired; its built-in task-local socket path is not a public endpoint. The socket exposes only the scoped agent handler, not the private workspace API. All responses are no-store; capability responses also use no-referrer/noindex behavior and token-bearing URLs must not enter logs.
 
-- `GET` of the task base URL returns the canonical JSON description: `protocol:'mote-agent-v6'`, `taskId`, request/feedback, exact `.target`, segment `.geometry` measurements, permissions/expiry/document metadata, skill/helpers/schema locations, resource URLs and selected-version context. It excludes copied originals and snapshots. `manifest.json`, `target.json`, and `instructions.md` return 404. The task token is separate from task ID. Native `documentFormatVersion:7` in the proposal schema is advisory metadata, not request data or proof of a read.
+- `GET` of the task base URL returns the canonical JSON description: `protocol:'mote-agent-v6'`, `taskId`, request/feedback, exact `.target`, segment `.geometry` measurements, permissions/expiry/document metadata, skill/helpers/schema locations, resource URLs and selected-version context. It excludes copied originals and snapshots. `manifest.json`, `target.json`, and `instructions.md` return 404. The task token is separate from task ID. Native `documentFormatVersion:8` in the proposal schema is advisory metadata, not request data or proof of a read.
 - `GET document.json` is optional and returns the latest authorized cloud document at access time, with its ordinary revision metadata. It is not pinned to a task, and there are no historical agent reads. The own document is independent of `workspaceRead`; permitted Notes are tentative context, never a write target.
 - `GET versions.json` and `GET versions/V1.json` return the flat append-only `{id:'V1',label?,candidate}` sequence. Versions have no `origin`, agent, parent, lineage, source document revision/version, or per-version revision. Concurrent built-in and external submissions append to the same sequence.
 - `POST submit` accepts `{operationId,candidate,assets?,label?}`. It accepts no document revision, executor, execution generation, source/origin, or target validation field. The receipt is exactly `{taskId,versionId,status:'ready'}`. An identical operation retry returns its receipt; reusing an operation ID with different input is a conflict. Submission is not application and never edits the document.
 
-Delivery validation is stateless: it checks unresolved proposal grammar, explicit native V7 payloads, decidable cross-references, and uploaded assets without a document, reservation target, source version, agent origin, or session. A segment's `objects` array may contain bare safe object IDs alongside complete objects. IDs are stored unchanged; screenshot mappings may reference only explicit HTML objects. Owner Preview/Accept requires each ID to be owned by the reservation and present in the working document, replaces it with an exact deep copy, and runs complete candidate validation/application. No merging, coordinate correction, automatic retention, fallback, or special ID handling occurs. Duplicate IDs/broken references fail normal validation after expansion. Native documents and clipboard payloads remain strict complete compositions. It does not validate reservation applicability or imply that the agent read a document. The public `/skills/proposal-schema.json` is the current schema reference; its `documentFormat:'mote'` and `documentFormatVersion:7` are advisory hints and are neither echoed nor submission proof. Invalid schema responses include `schemaUrl` and `path` where available. Owner Preview/Accept validates a cached proposal against the actual current native document and reservation scope. The final ordinary document save performs native document validation and revision CAS. Candidate schema validation, owner applicability, and cloud persistence are separate checks.
+Delivery validation is stateless: it checks unresolved proposal grammar, explicit native V8 payloads, decidable cross-references, and uploaded assets without a document, reservation target, source version, agent origin, or session. A segment's `objects` array may contain bare safe object IDs alongside complete objects. IDs are stored unchanged; screenshot mappings may reference only explicit HTML objects. Owner Preview/Accept requires each ID to be owned by the reservation and present in the working document, replaces it with an exact deep copy, and runs complete candidate validation/application. No merging, coordinate correction, automatic retention, fallback, or special ID handling occurs. Duplicate IDs/broken references fail normal validation after expansion. Native documents and clipboard payloads remain strict complete compositions. It does not validate reservation applicability or imply that the agent read a document. The public `/skills/proposal-schema.json` is the current schema reference; its `documentFormat:'mote'` and `documentFormatVersion:8` are advisory hints and are neither echoed nor submission proof. Invalid schema responses include `schemaUrl` and `path` where available. Owner Preview/Accept validates a cached proposal against the actual current native document and reservation scope. The final ordinary document save performs native document validation and revision CAS. Candidate schema validation, owner applicability, and cloud persistence are separate checks.
 
 HTML `screenshotPath`/`screenshotPaths` name files in the supplied assets map. Assets are actual PNG data URLs; the server does not read local paths or fetch URLs. Embedded images carry their own data. Widget source is never executed during submission. `BASE OUTPUT [LABEL]` is the portable helper interface. The helper owns durable operation IDs for the base URL and exact prepared candidate/assets/label, using private sidecar files in the output directory; it sends no executor or source-revision metadata. Keep sidecars with prepared work and repeat the same command after an uncertain response. When submitting JSON directly, retain one operation ID and identical body/assets for every retry.
 

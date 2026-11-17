@@ -52,10 +52,12 @@ function candidateBlock(state: EditorState, serializer: DOMSerializer, json: JSO
   element.classList.add('ai-reserved', 'ai-candidate')
   if (node.type.name === 'paragraph') {
     element.classList.add('main-paragraph')
-    const content = document.createElement('span')
-    content.className = 'paragraph-content'
-    content.append(...element.childNodes)
-    element.append(content)
+    if (!element.querySelector(':scope > .paragraph-content')) {
+      const content = document.createElement('span')
+      content.className = 'paragraph-content'
+      content.append(...element.childNodes)
+      element.append(content)
+    }
   } else if (node.type.name === 'spacer') {
     element.dataset.spacer = ''
   } else if (node.type.name === 'flow') {
@@ -264,10 +266,12 @@ export function reservationExtension(history: ReturnType<typeof useDocumentHisto
               element.className = 'main-paragraph ai-reserved ai-candidate'
               element.tabIndex = 0
               element.setAttribute('aria-label', 'AI paragraph preview')
-              const content = document.createElement('span')
-              content.append(...element.childNodes)
-              element.append(content)
-              content.className = 'paragraph-content'
+              if (!element.querySelector(':scope > .paragraph-content')) {
+                const content = document.createElement('span')
+                content.append(...element.childNodes)
+                element.append(content)
+                content.className = 'paragraph-content'
+              }
               root.append(element)
             }
             // Removed anchors follow the final replacement paragraph, as on acceptance.

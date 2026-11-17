@@ -21,7 +21,7 @@ function setOverrides(theme: Theme, name: ThemeBlockClass, style: object): Theme
     : { ...theme, paragraphs: { ...theme.paragraphs, [name as BlockClass]: style } }
 }
 
-export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 7): CSSProperties {
+export function themeVariables(theme: Theme, language: DocumentLanguage, version: MoteDocument['version'] = 8): CSSProperties {
   const entries = paletteEntries(theme)
   const colors = new Map<string, string>()
   const neutralSoft = entries.find(entry => entry.id === 'gray5')!.strong
@@ -32,6 +32,7 @@ export function themeVariables(theme: Theme, language: DocumentLanguage, version
     '--text-autospace': theme.autospace === false ? 'no-autospace' : 'normal',
     '--prose-align': theme.justifyText ? 'justify' : 'start',
     '--body-first-line-indent': theme.firstLineIndent ? '2ic' : '0px',
+    '--separator-lineThickness': `${pixels(theme.paragraphs.separator?.lineThickness ?? px(1), theme.defaults.size)}px`,
     '--flow-spaceBefore': `${pixels(theme.flow?.spaceBefore ?? 0, theme.defaults.size)}px`,
     '--flow-spaceAfter': `${pixels(theme.flow?.spaceAfter ?? body.spaceAfter, theme.defaults.size)}px`,
   }
@@ -103,6 +104,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
   const resolved = isFlow
     ? { ...theme.defaults, spaceBefore: px(0), spaceAfter: bodyStyle.spaceAfter, ...styles }
     : { ...theme.defaults, ...styles }
+  const lineThickness = theme.paragraphs.separator?.lineThickness ?? px(1)
   const values = styles as Record<string, string | number | boolean | LineHeight | undefined>
 
   function update(property: string, value?: string | number | boolean | LineHeight) {
@@ -119,8 +121,8 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
   }
   function field(property: string, label: string, control: ReactNode) {
     const inherited = !defaults && values[property] === undefined
-    const source = isFlow ? property === 'spaceBefore' ? 'default (0px)' : 'Body' : 'Defaults'
-    const resetTarget = isFlow && property === 'spaceBefore' ? 'default' : 'inherited'
+    const source = property === 'lineThickness' ? 'default (1px)' : isFlow ? property === 'spaceBefore' ? 'default (0px)' : 'Body' : 'Defaults'
+    const resetTarget = property === 'lineThickness' || isFlow && property === 'spaceBefore' ? 'default' : 'inherited'
     return <div className="style-field" key={property}>
       <div className="field-heading"><span>{label}</span>{!defaults && (inherited
         ? <span className="inherit-indicator" role="img" aria-label={`${label} inherited from ${source}`} title={`Inherited from ${source}`}><PanelIcon name="inherit" /></span>
@@ -132,8 +134,8 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
     return field(property, label, <NumberField label={label} value={resolved[property] as number} min={min} max={max} step={step} unit={unit}
       onChange={value => update(property, value)} />)
   }
-  function length(property: 'size' | 'lineHeight' | 'letterSpacing' | 'spaceBefore' | 'spaceAfter', label: string, min: number, max: number, step = 1) {
-    const value = resolved[property]
+  function length(property: 'size' | 'lineHeight' | 'letterSpacing' | 'spaceBefore' | 'spaceAfter' | 'lineThickness', label: string, min: number, max: number, step = 1) {
+    const value = property === 'lineThickness' ? lineThickness : resolved[property]
     const base = theme.defaults.size
     const fontSize = pixels(resolved.size, base)
     const unit = typeof value === 'number' ? 'px' : value.unit === 'ratio' ? '×' : value.unit
@@ -182,6 +184,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
           onChange={() => { history.boundary(); update('weight', weight) }} /><span>{label}</span></label>)}
       </div>)}
       {!isFlow && !isCode && paletteField('color', 'Text color')}
+      {selected === 'separator' && length('lineThickness', 'Line thickness', .1, 64, .1)}
       {defaults && <>
         <label className="link-margins"><input type="checkbox" checked={theme.autospace !== false} onChange={event => {
           history.boundary(); onChange({ ...theme, autospace: event.target.checked })
@@ -204,6 +207,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
           : selected === 'code' ? <CodeView note={{ id: 'sample', kind: 'code', layout: { width: 300, placement: { type: 'float', anchorId: null, x: 0, y: 0 } }, language: 'javascript', source: 'const thought = {\n  room: "思考空间"\n}' }} editable={false} staticOnly />
           : isFlow ? <><p>Text before</p><div title="Flow object" style={{ marginBlockStart: 'var(--flow-spaceBefore)', marginBlockEnd: 'var(--flow-spaceAfter)', border: '1px solid var(--ui-border)', borderRadius: 4, padding: 8, color: 'var(--ui-muted)' }}>Flow object</div><p>Text after</p></>
           : selected === 'list' ? <><p data-semantic="list" data-list-level="0">A thought to keep</p><p data-semantic="list" data-list-level="1" style={{ '--list-level': 1 } as CSSProperties}><span lang="zh-Hans">用Mote记录想法</span></p></>
+          : selected === 'separator' ? <><p data-semantic="separator"><span className="paragraph-content">A little pause</span></p><p data-semantic="separator" data-separator-empty=""><span className="paragraph-content" /></p></>
           : <p data-semantic={isBlock ? selected : 'body'}>A little room to think.<br /><span lang="zh-Hans">用Mote记录想法，留下思考空间。</span></p>}
       </div>
       {!defaults && <button className="reset-class-overrides" disabled={!Object.keys(styles).length} onClick={() => {
@@ -217,6 +221,7 @@ export function ThemePanel({ theme, language, selected, onSelect, onChange }: {
       <details className="settings-help"><summary>Typography details</summary>
         <p>1em = Defaults font size ({theme.defaults.size}px). × line height follows the local font size.</p>
         {!defaults && <p className="inherit-help"><PanelIcon name="inherit" /> marks an inherited value. <PanelIcon name="reset" /> resets an override to inherit again.</p>}
+        {selected === 'separator' && <p>Lines use this class’s text color. Inline colors change only the centered label. Line thickness defaults to 1px; Enter continues with Body.</p>}
         {(defaults || isParagraphBlock || isFlow) && <p>Adjacent paragraph and Flow spacing collapses to the larger value. Space before the first block and after the last is ignored at page and slide edges. Object margins and explicit spaces remain unchanged.</p>}
         {(defaults || isParagraphBlock) && <p>{resolved.family === 'sans' ? language === 'en' ? 'Prefers Latin fonts for English, with Microsoft YaHei, PingFang SC, and Noto Sans SC for Chinese.' : 'Prefers Microsoft YaHei, then PingFang SC and Noto Sans SC.' : resolved.family === 'serif' ? 'Georgia for English; Songti SC, SimSun, or Noto Serif SC for Chinese.' : 'System monospace with Simplified Chinese fallbacks. Mixed-script cell widths can vary.'} Uses installed fonts.</p>}
         {defaults && <p>Mixed-script spacing adds a small gap between Chinese and English letters or numbers where supported. It does not change your text; Code stays literal.</p>}

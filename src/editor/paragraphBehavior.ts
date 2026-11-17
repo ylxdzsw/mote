@@ -64,11 +64,13 @@ export const ParagraphBehavior = Extension.create({
     const current = () => editor.state.selection.$from.parent.attrs.semantic
     return {
       Enter: () => {
-        if (current() !== 'list') return false
+        if (current() !== 'list' && current() !== 'separator') return false
         return editor.commands.command(({ tr }) => {
           tr.deleteSelection()
           const { $from } = tr.selection
-          tr.split($from.pos, 1, [{ type: $from.parent.type, attrs: { ...$from.parent.attrs, id: crypto.randomUUID() } }])
+          tr.split($from.pos, 1, [{ type: $from.parent.type, attrs: { ...$from.parent.attrs, id: crypto.randomUUID(),
+            ...($from.parent.attrs.semantic === 'separator' && { semantic: 'body' }),
+          } }])
           tr.setSelection(TextSelection.create(tr.doc, $from.pos + 2)).setMeta('historyBoundary', true).scrollIntoView()
           return true
         })

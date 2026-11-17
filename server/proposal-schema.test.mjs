@@ -159,6 +159,7 @@ test('published schema identifies the current native grammar and all references 
   assert.equal(schema.$id, PROPOSAL_SCHEMA_URL)
   assert.equal(schema.documentFormat, 'mote')
   assert.equal(schema.documentFormatVersion, DOCUMENT_VERSION)
+  assert.ok(schema.$defs.paragraphAttrs.oneOf.some(value => value.properties.semantic.enum?.includes('separator')))
   assert.equal(schema.additionalProperties, false)
   assert.equal('documentFormatVersion' in schema.properties, false)
   for (const object of objects()) assert.ok(schema.$defs[`${object.kind}Object`])

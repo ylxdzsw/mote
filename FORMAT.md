@@ -1,14 +1,15 @@
-# Mote document formats V1–V7
+# Mote document formats V1–V8
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, `5`, `6`, or
-`7`.
+exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, `5`, `6`, `7`,
+or `8`.
 V1 is the original continuous-page format. V2 adds Slides; V3 adds optional
 table color pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
 V5 adds optional permanent image/HTML markup without changing unmarked objects.
 V6 adds optional document-level `theme.justifyText`; omission means false.
 V7 adds optional document-level `theme.firstLineIndent`; omission or false
-means no first-line indent.
+means no first-line indent. V8 adds the semantic Separator paragraph class
+and its optional theme rule thickness.
 Unknown versions and unknown fields are rejected; there is no extension bag or
 implicit compatibility mode.
 
@@ -45,6 +46,7 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | V4 → V5 | No | Sets `version: 5`; omitted image/HTML markup retains the original rendering |
 | V5 → V6 | No | Sets `version: 6`; omitted `theme.justifyText` retains start alignment |
 | V6 → V7 | No | Sets `version: 7`; omitted `theme.firstLineIndent` retains no first-line indent |
+| V7 → V8 | No | Sets `version: 8`; older documents have no Separator paragraphs or Separator rule-thickness override |
 
 For V3 → V4, the explicit weights are `theme.defaults.weight`, any
 `theme.paragraphs.*.weight`, and `theme.objects.table.weight` or
@@ -74,10 +76,11 @@ Preview/Accept checks applicability to the actual document. Task transport
 Segment proposal object-ID shorthand is expanded before native validation; it
 is never part of a native document or export.
 
-V1–V6 load as V7; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5,
-V5 → V6, and V6 → V7 are non-breaking; V3 → V4 is breaking. New documents,
-saves of opened documents, exports, and new task inputs use the current
-version.
+V1–V7 load as V8; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5,
+V5 → V6, V6 → V7, and V7 → V8 are non-breaking; V3 → V4 is breaking. New
+documents, saves of opened documents, exports, and new task inputs use the
+current version. Current `mote-agent-v6` candidates use native V8 grammar;
+the task transport version remains independent of native document versions.
 `validateDocument` still accepts every supported version, so pinned task
 snapshots and stored revisions stay readable as they are.
 
@@ -88,7 +91,7 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
   id: string
   language: 'en' | 'zh-Hans'
   page: {
@@ -190,7 +193,7 @@ type Theme = {
     spaceAfter: Length
     letterSpacing: Length
   }
-  paragraphs: Partial<Record<ParagraphClass, Partial<TextStyle>>>
+  paragraphs: ParagraphStyles
   objects: {
     table?: Partial<TextStyle>
     code?: Partial<Pick<TextStyle, 'size' | 'weight' | 'lineHeight' | 'letterSpacing'>>
@@ -209,7 +212,11 @@ type TextStyle = {
   spaceAfter: Length
   letterSpacing: Length
 }
-type ParagraphClass = 'title' | 'heading' | 'subheading' | 'body' | 'caption' | 'list'
+type ParagraphClass = 'title' | 'heading' | 'subheading' | 'body' | 'caption' | 'list' | 'separator'
+type ParagraphStyles =
+  Partial<Record<Exclude<ParagraphClass, 'separator'>, Partial<TextStyle>>> & {
+    separator?: Partial<TextStyle> & { lineThickness?: Length }
+  }
 ```
 
 Theme objects have closed keys. V1–V5 reject `justifyText`; V6+ permits this
@@ -222,6 +229,7 @@ unchanged; Code, formulas, and HTML widget contents are unaffected. Existing
 CSS `hyphens: auto` remains enabled, including when prose is justified;
 automatic hyphenation depends on the document language and browser dictionaries.
 There is no language detection, inserted soft hyphens, or stored text rewrite.
+Separator paragraphs are not justified.
 
 V1–V6 reject `firstLineIndent`; V7 permits this optional document-level
 boolean, whose omission or false value means no indent. It is independent of
@@ -231,6 +239,15 @@ Text objects in either Flow or Float placement. Only the first formatted line
 is indented; wrapped and soft-break lines start normally. Headings, lists,
 captions, tables, Code, formulas, and HTML widget contents are unaffected.
 The behavior is language-independent and does not rewrite content whitespace.
+Separator paragraphs are unaffected.
+
+V1–V7 reject the `separator` paragraph semantic and `lineThickness`. V8 permits
+`lineThickness` only in `theme.paragraphs.separator`, alongside its ordinary
+sparse text-style overrides. It is a positive finite `{value,unit}` length
+using `px` or `em`; omission, including an omitted Separator style, resolves
+to `1px` rather than an `em` default. Other paragraph-style entries reject
+this field. The Separator style's resolved text color controls its flank rules;
+an inline color mark on the label does not recolor them.
 
 `defaults` is complete; paragraph and object style overrides are sparse. A
 missing style or style property inherits from the saved defaults. There is no
@@ -287,7 +304,7 @@ type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // last case: V2
 type MainParagraph = {
   type: 'paragraph'
   attrs:
-    | { id: string; semantic: Exclude<ParagraphClass, 'list'> }
+    | { id: string; semantic: Exclude<ParagraphClass, 'list'> } // separator is V8+
     | { id: string; semantic: 'list'; listLevel: number }
   content?: Inline[]
 }
@@ -312,13 +329,23 @@ type Mark =
 ]
 ```
 
-The shapes above are shown as separate nodes. A main paragraph has a stable
+The shapes above are shown as separate nodes. V8 adds `separator` to the
+semantic classes for main-text and Text-object paragraphs; V1–V7 reject it.
+Table-cell paragraphs and owned-caption paragraphs cannot use semantic classes
+and never support Separator. A main paragraph has a stable
 `id`, one semantic class, and an optional nonnegative integer `listLevel` only
 when its semantic is `list`. Every list paragraph has a `listLevel`; other
 classes must not. Paragraph text can be empty, and its `content` may be
 omitted or empty. Main paragraphs use only inline text and hard breaks.
 `text` nodes contain nonempty strings; `{type:'hardBreak'}` represents a line
 break. No generic trimming or newline normalization is performed.
+
+A Separator is a semantic paragraph in main text or a Text object, not an
+object or layout choice. An empty Separator renders as a full-width horizontal
+rule. With inline content, the label is centered between equally sized flank
+rules; a wrapped label remains centered and the flanks shorten. The rule color
+comes from the Separator class text color, independently of any inline label
+color.
 
 Every inline mark array is optional and may be empty. The closed mark grammar
 is:
@@ -340,7 +367,8 @@ underlined. There is no independent underline mark. No arbitrary inline fonts,
 sizes, colors, or unknown node/mark fields are allowed.
 
 Text-object content is a nonempty doc containing paragraphs only; it has the
-same semantic paragraph grammar as main text. Table content is a doc with
+same semantic paragraph grammar as main text, including Separator in V8.
+Table content is a doc with
 exactly one table. Each row has the same number of cells, each cell contains
 exactly one paragraph, and rows/cells have no attributes. Cell paragraph attrs
 contain only an ID. There are no spans, merged cells, or additional table
@@ -538,7 +566,7 @@ as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
 per image; PNG signatures are checked. Each Drawing or object markup allows at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain a V1, V2, V3, V4, V5, V6, or V7 document and embedded
+Native `.mote` files contain a V1, V2, V3, V4, V5, V6, V7, or V8 document and embedded
 assets; native saves preserve `authoring`. Public projection validates the
 document and returns a clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
@@ -551,14 +579,14 @@ They use `version:1`, `type:'segment'|'objects'`, and `objects` (never
 Transient `geometry`, `anchorTops`, and `originTop` may accompany these
 payloads for placement/coordinate translation. They are not fields of
 `MoteDocument` or object `layout`. Main block/object/caption records inside
-these envelopes use the current native shapes above; AI candidates must use
-their task’s pinned native version. The transfer version is separate from the
-native document version.
+these envelopes use the current native shapes above; current `mote-agent-v6`
+candidates use native V8 grammar. The transfer version is separate from the
+native document and task-transport versions.
 
 Slide-aware segment transfers use `version:2` with the same envelope fields,
 permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
 whole-slide clipboard uses its distinct `type:"slides"` envelope with
-`documentVersion:2|3|4|5|6|7` declaring its native object schema. AI V2 segments
+`documentVersion:2|3|4|5|6|7|8` declaring its native object schema. AI V2 segments
 require a Slides document and retain internal boundaries in the reserved range.
 The leading boundary may be omitted; application preserves the original boundary
 IDs and remaps marker-anchored Floats. Empty candidates clear content without

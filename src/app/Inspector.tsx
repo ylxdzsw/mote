@@ -20,6 +20,7 @@ function TIcon({ name }: { name: TIconName }) {
   const bodyPath = <path d="M13 19V5H9a4 4 0 0 0 0 8h4M17 5v14M10 5h9" />
   const paths: Record<TIconName, React.ReactNode> = {
     body: bodyPath,
+    separator: <path d="M3 12h18" />,
     heading: <path d="M6 5v14M18 5v14M6 12h12" />,
     subheading: <path d="M4 7v10M12 7v10M4 12h8M16 12h4M16 16h4" />,
     title: <path d="M4 8V4h16v4M12 4v13M8 17h8M5 21h14" />,
@@ -172,6 +173,7 @@ export function TextInspector({ semantic, listLevel, onTheme }: {
     <InspectorStyles semantic={semantic} onTheme={onTheme} />
     <InspectorHelp key={semantic}>
       {semantic === 'body' && <p>Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
+      {semantic === 'separator' && <p>Type an optional centered label. Enter continues with Body. Lines use the class text color; inline colors affect only the label.</p>}
       {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
       <p>Reserve a passage in Assistant to revise it with AI. Styles apply to every paragraph of their class.</p>
       <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>

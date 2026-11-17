@@ -3,7 +3,7 @@
   "$id": "https://mote.ylxdzsw.com/skills/proposal-schema.json",
   "title": "Mote current-schema proposal (mote-agent-v6)",
   "documentFormat": "mote",
-  "documentFormatVersion": 7,
+  "documentFormatVersion": 8,
   "description": "Schema for result.json / the candidate field of a proposal submission. documentFormat and documentFormatVersion here are advisory schema metadata, not candidate fields. Exactly one of object, content or segment is delivered. Segment objects may be native payloads or bare safe IDs for existing objects; the stateless server validates explicit payloads and decidable references without resolving IDs against a document or reservation. Browser Accept expands IDs and checks reservation compatibility. Optional screenshot transport keys are resolved to embedded PNG bytes and removed before storing the candidate.",
   "type": "object",
   "properties": {
@@ -529,7 +529,8 @@
                 "heading",
                 "subheading",
                 "body",
-                "caption"
+                "caption",
+                "separator"
               ]
             }
           },

@@ -4,7 +4,7 @@ import { objectPagePosition, placementAtPoint, reconcileFlowContent, type FlowGe
 import { defaultHue, defaultSecondaryHue } from '../theme/colors'
 import { createExampleDocument, type ExampleOptions } from './examples'
 
-export const blockClasses = ['title', 'heading', 'subheading', 'body', 'caption', 'list'] as const
+export const blockClasses = ['title', 'heading', 'subheading', 'body', 'caption', 'list', 'separator'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'formula', 'code'] as const
 export type BlockClass = typeof blockClasses[number]
 export type ThemeBlockClass = typeof themeBlockClasses[number]
@@ -35,7 +35,7 @@ export interface Theme {
   firstLineIndent?: boolean
   flow: { spaceBefore?: ThemeLength; spaceAfter?: ThemeLength }
   defaults: Omit<BlockStyle, 'size'> & { size: number }
-  paragraphs: Partial<Record<BlockClass, Partial<BlockStyle>>>
+  paragraphs: Partial<Record<BlockClass, Partial<BlockStyle>>> & { separator?: Partial<BlockStyle> & { lineThickness?: ThemeLength } }
   objects: { table?: Partial<BlockStyle>; code?: Partial<Pick<BlockStyle, 'size' | 'weight' | 'lineHeight' | 'letterSpacing'>>; formula?: Partial<Pick<BlockStyle, 'size' | 'color'>> }
 }
 export const defaultTheme: Theme = {
@@ -149,7 +149,7 @@ export type DocumentLanguage = 'en' | 'zh-Hans'
 
 export interface MoteDocument {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
   id: string
   language: DocumentLanguage
   page: { width: number; margins: Margins; slideHeight?: number }
@@ -196,7 +196,7 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
 }
 
 export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 7, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+  return { format: 'mote', version: 8, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }

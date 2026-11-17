@@ -2110,3 +2110,10 @@ Double-clicking the left selection gutter or empty left page margin in Slides se
 ## 2026-11-17 — Slide-local Alt-space targets
 
 Treat slide breaks as flow boundaries rather than ordinary neighboring blocks in Alt-space hit testing. Each slide’s final insertion cue belongs at its last block’s bottom, with the same nearby target as the document end; unused slide height is not authored inter-block spacing. A trailing explicit space uses its own bottom hit allowance instead of the separator’s nonexistent text line, keeping it resizable on interior slides as well as the last. Plain tail clicks retain their existing distinction: unused area continues writing, while clicks inside authored spaces retain marquee selection. Saved geometry, native format, and reader/export rendering are unchanged.
+
+
+## 2026-11-17 — Semantic Separator paragraphs in native V8
+
+Make Separator a paragraph class rather than a new object or layout mode. This keeps it within ordinary rich-text editing and the paragraph-class chooser: it is valid in main text and Text objects, but not table cells or owned captions. Empty content renders as a full-width horizontal rule; optional rich-text content becomes a centered label between equal flank rules, with wrapped labels staying centered and the flanks shortening. Shift+Enter remains an ordinary soft break, Enter starts Body, and converting to Body retains text. Rule color follows the Separator class text color independently of inline label color.
+
+`theme.paragraphs.separator` uses ordinary sparse paragraph styling with its one class-specific optional `lineThickness`, a positive px/em length whose omission resolves to 1px. No other paragraph class accepts that field, and document-wide justification and first-line indent do not apply. Native V8 adds this semantic and theme field while V7→V8 only changes the version; V1–V7 remain strict and reject them. Current candidate grammar advances to V8 without changing task transport `mote-agent-v6`.
