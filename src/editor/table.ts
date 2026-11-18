@@ -185,6 +185,10 @@ const Table = Node.create({
   },
   addKeyboardShortcuts() {
     return {
+      'Mod-a': () => {
+        const { $head } = this.editor.state.selection
+        return $head.parent.isTextblock && this.editor.commands.setTextSelection({ from: $head.start(), to: $head.end() })
+      },
       Enter: () => this.editor.commands.setHardBreak(),
       'Shift-Enter': () => this.editor.commands.setHardBreak(),
       'Mod-Enter': () => this.editor.commands.setHardBreak(),

@@ -275,14 +275,17 @@ export function useSegmentSelection(props: Props) {
     if (previous && stage?.hasPointerCapture(previous.pointerId)) stage.releasePointerCapture(previous.pointerId)
   }
   function clear() { clickedSlide.current = null; release(); select(null) }
+  function startSelection() {
+    live.current.onStart()
+    live.current.stage.current!.focus({ preventScroll: true })
+    window.getSelection()?.removeAllRanges()
+  }
   function doubleClick(event: MouseEvent) {
     const index = clickedSlide.current
     if (index === null || event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     event.preventDefault(); event.stopPropagation()
-    const { doc, stage, onStart } = live.current
-    release(); onStart()
-    stage.current!.focus({ preventScroll: true })
-    window.getSelection()?.removeAllRanges()
+    const { doc } = live.current
+    release(); startSelection()
     const whole = { first: index, last: index }
     select(slideSelectionRange(doc, whole), whole)
   }
@@ -360,7 +363,7 @@ export function useSegmentSelection(props: Props) {
   }, [])
   function begin(event: ReactPointerEvent) {
     clickedSlide.current = null
-    const { editable, editor, stage, sheet, scale, doc, onStart } = live.current
+    const { editable, editor, stage, sheet, scale, doc } = live.current
     const target = (event.target as Element).closest<HTMLElement>('[data-segment-control]')
     if (!editable || !editor || (!target && !marginTarget(event)) || event.button !== 0 || !event.isPrimary) return false
     event.preventDefault(); event.stopPropagation()
@@ -380,9 +383,7 @@ export function useSegmentSelection(props: Props) {
       ?? blocks.units.find(unit => equal(unit.range) && Math.abs(y - unit.top) * scale <= boundaryTolerance
         && !blocks.some(block => Math.min(Math.abs(y - block.top), Math.abs(y - block.bottom)) * scale <= boundaryTolerance)))
     if (unit) {
-      clear(); onStart()
-      stage.current!.focus({ preventScroll: true })
-      window.getSelection()?.removeAllRanges()
+      clear(); startSelection()
       live.current.onSelectReservation?.(unit.taskId)
       return true
     }
@@ -391,9 +392,7 @@ export function useSegmentSelection(props: Props) {
     if (moving && reserved(previous!)) { setNotice('Accept or discard the selected AI task before moving this segment.'); return true }
     const anchor = endpoint(y, event.altKey, blocks)
     const originBlock = boundary ? -1 : blocks.findIndex(block => !block.space && y >= block.top && y < block.bottom)
-    onStart()
-    stage.current!.focus({ preventScroll: true })
-    window.getSelection()?.removeAllRanges()
+    startSelection()
     drag.current = { pointerId: event.pointerId, y: event.clientY, originY: y, originClientY: event.clientY, alt: event.altKey, moved: false, moving,
       anchor: handle && previous ? previous[handle === 'start' ? 'end' : 'start'] : anchor, originBlock, handle,
       slides: previousSlides, handleOffset: handle && previous ? (previousSlides
@@ -617,6 +616,15 @@ export function useSegmentSelection(props: Props) {
     }
     function key(event: KeyboardEvent) {
       if (isComposingKey(event)) return
+      if (event.type === 'keydown' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a') {
+        const target = document.activeElement
+        const canvas = target === document.body ? !document.querySelector('dialog[open]') : ownedFocus()
+        if (!canvas || target instanceof HTMLElement && target.isContentEditable && target !== live.current.editor?.view.dom) return
+        event.preventDefault(); event.stopImmediatePropagation()
+        actions.current.clear(); startSelection()
+        actions.current.select({ start: edge(0), end: edge(live.current.doc.content.content!.length) })
+        return
+      }
       if (event.type === 'keydown' && selected.current && ownedFocus() && ['Delete', 'Backspace'].includes(event.key)) {
         event.preventDefault(); event.stopImmediatePropagation(); actions.current.deleteSelection(); return
       }

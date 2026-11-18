@@ -2168,3 +2168,7 @@ Treat reserved segments as selection units, not collections of selectable member
 ## 2026-11-17 — Minimum usable Float wrapping width
 
 Treat left-side text intervals narrower than 15% of the main text column as fully excluded, rather than squeezing prose into slivers. Measure the available interval after the existing composition footprint, signed margins, and 8px clearance; use the main column rather than the object, indented paragraph, or viewport as the percentage base. Text above remains in place and resumes at the first usable vertical band below, including gaps between multiple Floats, never on their right. Keep this a fixed shared-renderer rule without settings, stored spacers, object movement, or native-format fields. The intentional threshold jump during dragging favors readable flow over progressively narrower lines; font-relative refinements remain out of scope.
+
+## 2026-11-18 — Select All follows editing focus
+
+On the canvas, Select All uses the existing gutter selection so copying a document keeps its composition. In Slides it selects the entire deck rather than guessing a slide from the caret or viewport. Inside an object’s text editor, Select All stays local even on a repeated press: preparing to replace text must not silently turn into a document-wide action.
