@@ -46,14 +46,16 @@ function previewObjects(objects: FloatingObject[], preview: FloatingPreviews, an
 
 // One left-hand text interval per vertical band. Disconnected obstacles join only
 // along the column's right edge, so text regains its full width between them.
-function exclusion(obstacles: Obstacle[], top: number, left: number, width: number) {
+function exclusion(obstacles: Obstacle[], top: number, left: number, width: number, minTextWidth: number) {
   const boxes = obstacles.filter(box => box.bottom > top && box.left < left + width && box.right > left)
   if (!boxes.length) return null
   const stops = [...new Set([0, ...boxes.flatMap(box => [Math.max(0, box.top - top), box.bottom - top])])].sort((a, b) => a - b)
   const points = [`${width}px 0px`]
   for (let index = 0; index < stops.length - 1; index++) {
     const start = stops[index], end = stops[index + 1]
-    const edge = Math.max(0, Math.min(width, ...boxes.filter(box => box.top < top + end && box.bottom > top + start).map(box => box.left - left)))
+    const available = Math.max(0, Math.min(width, ...boxes.filter(box => box.top < top + end && box.bottom > top + start).map(box => box.left - left)))
+    // Skip narrow strips beside Floats, but retain unobstructed bands even in indented paragraphs.
+    const edge = available < width && available < minTextWidth ? 0 : available
     points.push(`${edge}px ${start}px`, `${edge}px ${end}px`)
   }
   const height = stops.at(-1)!
@@ -223,7 +225,7 @@ export function useFloatingLayout(doc: MoteDocument, editor: Editor | null, shee
           if (!paragraph) continue
           const content = element.firstElementChild as HTMLElement
           elements.add(content)
-          const shape = exclusion([...obstacles.values()], top, localLeft(element), nativeSize(element).width)
+          const shape = exclusion([...obstacles.values()], top, localLeft(element), nativeSize(element).width, column.width * .15)
           if (shape) {
             // Contain each proxy float, but derive paragraph height from its native
             // in-flow content rather than the (possibly much taller) proxy itself.
