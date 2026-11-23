@@ -53,6 +53,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const input = useRef<HTMLInputElement>(null)
   const importTrigger = useRef<HTMLButtonElement>(null)
   const newTrigger = useRef<HTMLButtonElement>(null)
+  const searchNewTrigger = useRef<HTMLButtonElement>(null)
   const search = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const archiveToggle = useRef<HTMLButtonElement>(null)
@@ -72,10 +73,11 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [selectedId, setSelectedId] = useState(currentId ?? '')
   const [action, setAction] = useState<'rename' | 'delete' | 'import' | null>(null)
-  const [newFile, setNewFile] = useState<boolean | null>(null)
+  const [newFile, setNewFile] = useState<{ example: boolean; initialName?: string } | null>(null)
   const [name, setName] = useState('')
   const [shareTarget, setShareTarget] = useState<DocumentMeta>()
-  const query = filter.trim().toLocaleLowerCase()
+  const searchedName = filter.trim()
+  const query = searchedName.toLocaleLowerCase()
   const matching = documents.filter(item => item.name.toLocaleLowerCase().includes(query))
     .sort((a, b) => (sort === 'modified' ? b.updatedAt - a.updatedAt : 0) || a.name.localeCompare(b.name))
   const ordinary = matching.filter(item => !item.archived), archived = matching.filter(item => item.archived)
@@ -118,7 +120,8 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   function cancelNewFile() {
     if (mutating || !creating) return
     setNewFile(null)
-    requestAnimationFrame(() => newTrigger.current?.focus())
+    const trigger = newFile.initialName ? searchNewTrigger : newTrigger
+    requestAnimationFrame(() => trigger.current?.focus())
   }
 
   useEffect(() => {
@@ -137,6 +140,9 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     if (next >= 0 && !busy && !action) { event.preventDefault(); focusFile(visible[next].id) }
     else if (event.key === 'ArrowDown' && !visible.length && archived.length && !busy && !action) {
       event.preventDefault(); archiveToggle.current?.focus()
+    }
+    else if (event.key === 'ArrowDown' && searchNewTrigger.current) {
+      event.preventDefault(); searchNewTrigger.current.focus()
     }
   }
 
@@ -198,8 +204,8 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     if (!locked.current && active.current) onOpen(id)
   }
 
-  function newDocument(example = false) {
-    setNewFile(example)
+  function newDocument(example = false, initialName?: string) {
+    setNewFile({ example, initialName })
   }
 
   function importFile(file: File) {
@@ -273,7 +279,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       </div>
     </header>
     <div className="files-search" hidden={creating}>
-      <input ref={search} autoFocus type="search" aria-label="Search documents" placeholder="Search documents…" value={filter} disabled={!!action || mutating}
+      <input ref={search} autoFocus type="search" maxLength={1024} aria-label="Search documents" placeholder="Search documents…" value={filter} disabled={!!action || mutating}
         onKeyDown={navigateFiles} onChange={event => setFilter(event.target.value)} />
       <div className="files-list-heading">
         <span>{ordinary.length} {ordinary.length === 1 ? 'document' : 'documents'}</span>
@@ -283,7 +289,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       </div>
     </div>
     <div className="files-new-view" hidden={!creating}>
-      {creating && <NewFileForm example={newFile === true} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
+      {creating && <NewFileForm {...newFile} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
     </div>
     <div ref={list} className="files-scroll" hidden={creating}>
       <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or Mote-exported HTML" onChange={event => {
@@ -291,9 +297,13 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       }} />
       {!action && renderFiles(ordinary, 'Documents')}
       {!action && !ordinary.length && <div className="cloud-empty">
-        <p>{busy ? 'Loading documents…' : query ? archived.length ? 'Matches are in Archived.' : 'No matching documents.'
-          : listFailed ? 'Files could not be loaded.' : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
-        {!busy && !listFailed && !archived.length && <span>{query ? 'Try a different name.' : 'Create a document or import one to get started.'}</span>}
+        <p>{busy ? 'Loading documents…' : listFailed ? 'Files could not be loaded.' : query ? archived.length ? 'Matches are in Archived.' : 'No matching documents.'
+          : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
+        {!busy && !listFailed && !archived.length && (searchedName
+          ? <button ref={searchNewTrigger} type="button" className="cloud-button" onClick={() => newDocument(false, searchedName)}>
+            <PanelIcon name="plus" /><span title={searchedName}>New file “{searchedName}”…</span>
+          </button>
+          : <span>Create a document or import one to get started.</span>)}
       </div>}
       {!action && listFailed && <button type="button" className="cloud-button files-retry" disabled={!!busy} onClick={retryList}>Retry loading files</button>}
       {!action && <div className="files-secondary">

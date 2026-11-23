@@ -55,6 +55,8 @@
 .files-new .cloud-button:focus-visible { outline-color: var(--ui-on-accent); outline-offset: -3px; }
 .cloud-files .cloud-empty { padding: 32px 16px; text-align: center; color: var(--ui-muted); }
 .cloud-files .cloud-empty p { margin: 0 0 5px; color: var(--ui-ink); font-size: 13px; }
+.cloud-empty .cloud-button { max-width: 100%; }
+.cloud-empty .cloud-button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cloud-files .cloud-confirm { margin: 4px 0; padding: 10px 4px; border: 0; border-top: 1px solid var(--ui-border); }
 .cloud-files .cloud-confirm h2 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
 .cloud-files .cloud-confirm .cloud-hint { margin-bottom: 10px; }

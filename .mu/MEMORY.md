@@ -2172,3 +2172,7 @@ Treat left-side text intervals narrower than 15% of the main text column as full
 ## 2026-11-18 — Select All follows editing focus
 
 On the canvas, Select All uses the existing gutter selection so copying a document keeps its composition. In Slides it selects the entire deck rather than guessing a slide from the caret or viewport. Inside an object’s text editor, Select All stays local even on a repeated press: preparing to replace text must not silently turn into a document-wide action.
+
+## 2026-11-23 — Create from an unmatched file search
+
+Reuse the searched name, not a separate quick-create path: the New file form keeps language, layout, and privacy choices available before creation. An archived match remains a navigation opportunity, and an unavailable file list is not evidence of a miss.

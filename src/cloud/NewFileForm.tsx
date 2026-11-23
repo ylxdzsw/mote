@@ -29,18 +29,19 @@ function rememberPreferences(preferences: Preferences) {
   try { localStorage.setItem(preferenceKey, JSON.stringify(preferences)) } catch { /* Preferences are optional. */ }
 }
 
-export function NewFileForm({ example, busy, onCreate, onCancel }: {
+export function NewFileForm({ example, initialName, busy, onCreate, onCancel }: {
   example: boolean
+  initialName?: string
   busy: boolean
   onCreate: (options: NewFileOptions) => Promise<void>
   onCancel: () => void
 }) {
   const [preferences] = useState(readPreferences)
-  const [name, setName] = useState(example ? 'Example' : '')
+  const [name, setName] = useState(initialName ?? (example ? 'Example' : ''))
   const [mode, setMode] = useState<Preferences['mode']>(preferences.mode)
   const [language, setLanguage] = useState<Preferences['language']>(preferences.language)
   const [isPrivate, setPrivate] = useState(false)
-  const [modified, setModified] = useState(false)
+  const [modified, setModified] = useState(!!initialName)
   const [slides, setSlides] = useState(false)
   const [slideHeight, setSlideHeight] = useState('540')
   const appearanceName = useId()
