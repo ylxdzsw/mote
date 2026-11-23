@@ -615,7 +615,7 @@ export function useSegmentSelection(props: Props) {
       if (d) actions.current.select(d.previous, d.slides ?? null)
     }
     function key(event: KeyboardEvent) {
-      if (isComposingKey(event)) return
+      if (isComposingKey(event) || (event.target as Element).closest?.('#document-theme')) return
       if (event.type === 'keydown' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'a') {
         const target = document.activeElement
         const canvas = target === document.body ? !document.querySelector('dialog[open]') : ownedFocus()
@@ -632,13 +632,14 @@ export function useSegmentSelection(props: Props) {
       if (event.key === 'Alt' && d) { d.alt = event.altKey; actions.current.adjust() }
       if (event.type === 'keydown' && event.key === 'Escape' && (d || selected.current || insertion.current)) { event.preventDefault(); if (d) cancel(); else actions.current.clear() }
     }
+    const keepsSelection = '.side-panel, [aria-controls="document-theme"], #document-theme'
     function outside(event: PointerEvent) {
-      if ((event.target as Element).closest('.side-panel')) return
+      if ((event.target as Element).closest(keepsSelection)) return
       if (!live.current.stage.current!.contains(event.target as Node)) actions.current.clear()
     }
     function focus(event: FocusEvent) {
       const target = event.target as HTMLElement
-      if (target !== live.current.stage.current && !target.closest('[data-segment-control], .side-panel')) actions.current.clear()
+      if (target !== live.current.stage.current && !target.closest(`[data-segment-control], ${keepsSelection}`)) actions.current.clear()
     }
     const copied = (event: ClipboardEvent) => actions.current.copy(event)
     const pasted = (event: ClipboardEvent) => actions.current.paste(event)

@@ -4,7 +4,7 @@ import type React from 'react'
 import { createPortal } from 'react-dom'
 import { useEditorState } from '@tiptap/react'
 import type { Editor } from '@tiptap/core'
-import { NodeSelection } from '@tiptap/pm/state'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 import type { Command } from '@tiptap/pm/state'
 import { isInTable, selectedRect } from '@tiptap/pm/tables'
 import { DocumentCanvas, type CanvasActions, type CreationTool } from '../canvas/DocumentCanvas'
@@ -62,7 +62,7 @@ function DraftSession({ copy, onFiles, onOpen }: CloudEditorProps) {
   return <DraftApp key={state.epoch} initial={state.record.document} copy={copy} onFiles={onFiles} onOpen={onOpen} />
 }
 
-function PopupDialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
+function PopupDialog({ id, open, onClose, title, children }: { id?: string; open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     if (open) ref.current?.showModal()
@@ -75,7 +75,7 @@ function PopupDialog({ open, onClose, title, children }: { open: boolean; onClos
     dialog.addEventListener('close', handler)
     return () => dialog.removeEventListener('close', handler)
   }, [onClose])
-  return <dialog ref={ref} className="settings-dialog" aria-label={title} onClick={e => { if (e.target === ref.current) onClose() }}>
+  return <dialog ref={ref} id={id} className="settings-dialog" aria-label={title} onClick={e => { if (e.target === ref.current) onClose() }}>
     <div className="settings-dialog-inner">
       <div className="settings-dialog-header">
         <h2>{title}</h2>
@@ -172,11 +172,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   }, [editable])
 
   useEffect(() => {
-    if (!settingsDialog) return
+    if (!settingsOpen) return
     actions.current?.clearSelection()
     assistant.followSelection()
     setActiveEditor(null)
-  }, [settingsDialog])
+  }, [settingsOpen])
 
   function followCanvasSelection() {
     if (!editable) return
@@ -385,6 +385,12 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setSettingsDialog('theme')
   }
 
+  function openHeaderTheme() {
+    if (tool || !activeEditor?.isEditable || !(activeEditor.state.selection instanceof TextSelection)) return openThemeClass(themeClass)
+    const { $head } = activeEditor.state.selection
+    openThemeClass(isCaptionEditor(activeEditor) ? 'caption' : activeEditor.schema.nodes.table ? 'table' : $head.parent.attrs.semantic)
+  }
+
   function runWidget(id: string) {
     history.boundary()
     setWidgetRuns(current => ({ ...current, [id]: (current[id] ?? 0) + 1 }))
@@ -548,8 +554,8 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         {showInspector && <>
           <button className="header-icon-btn" aria-label="Share" title="Share or export" disabled={!editable} aria-haspopup="dialog" aria-expanded={shareOpen}
             onClick={() => setShareOpen(true)}><PanelIcon name="share" /></button>
-          <button className="header-icon-btn" aria-label="Theme" title="Theme" disabled={!editable} aria-haspopup="dialog" aria-expanded={themeOpen}
-            onClick={() => { history.boundary(); setSettingsDialog('theme') }}><PanelIcon name="palette" /></button>
+          <button className="header-icon-btn" aria-label="Theme" title="Theme" disabled={!editable} aria-haspopup="dialog" aria-controls="document-theme" aria-expanded={themeOpen}
+            onMouseDown={event => event.preventDefault()} onClick={openHeaderTheme}><PanelIcon name="palette" /></button>
           <button className="header-icon-btn" aria-label="Settings" title="Settings" disabled={!editable} aria-haspopup="dialog" aria-expanded={settingsOpen}
             onClick={() => { history.boundary(); setSettingsDialog('settings') }}><PanelIcon name="settings" /></button>
         </>}
@@ -567,7 +573,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     {imageError && <div className="image-error" role="alert">{imageError}<button aria-label="Dismiss image error" onClick={() => setImageError('')}>x</button></div>}
     {editable && assistant.notice && <div className="image-error" role="alert">{assistant.notice}{!assistant.cloudWarning && <button aria-label="Dismiss AI notice" onClick={() => assistant.setNotice('')}>x</button>}</div>}
 
-    <PopupDialog open={editable && themeOpen} onClose={() => { history.boundary(); setSettingsDialog(null) }} title="Document Theme">
+    <PopupDialog id="document-theme" open={editable && themeOpen} onClose={() => { history.boundary(); setSettingsDialog(null) }} title="Document Theme">
       <div className="document-settings-body">
         <div className="document-theme"><ThemePanel theme={doc.theme} language={doc.language ?? 'en'} selected={themeClass} onSelect={setThemeClass}
           onChange={theme => setDoc({ ...doc, theme })} /></div>

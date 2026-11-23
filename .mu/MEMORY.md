@@ -2180,3 +2180,7 @@ Reuse the searched name, not a separate quick-create path: the New file form kee
 ## 2026-11-23 — Files is the workspace entrance
 
 Without a document there is nothing useful to dismiss Files to. Keep the chooser modal at the root, but preserve cancellation inside it and dismissal when opened over a document. Leave the surface blank during document loads instead of flashing a branded page; show a message when opening needs a decision or fails.
+
+## 2026-11-23 — Open Theme at the writing position
+
+Use the active end of a text selection as a one-time navigation hint, not a live binding: a writer can start at the relevant class and then browse other document styles without losing their place. Non-text selections have no implied paragraph class, and explicit style and palette shortcuts keep their named destinations.
