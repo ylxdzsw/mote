@@ -39,7 +39,7 @@ function SharedPage({ token }: { token: string }) {
       error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1–V8 document.` : 'This shared document could not be opened.') })
     return () => { active = false }
   }, [token])
-  if (!loaded) return <main className="loading"><h1>Mote</h1><p role={error ? 'alert' : 'status'}>{error || 'Opening shared document…'}</p></main>
+  if (!loaded) return error ? <main className="loading"><h1>Can’t open shared document</h1><p role="alert">{error}</p></main> : null
   return <ReaderPage initial={loaded.document} />
 }
 
@@ -66,8 +66,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const id = /^\/d\/([\da-f-]+)\/?$/.exec(path)?.[1] ?? ''
   const mobile = useMedia('(max-width: 767px)')
   const [copy, setCopy] = useState<WorkingCopy>()
-  const [filesOpen, setFilesOpen] = useState(!id)
-  const [loading, setLoading] = useState(!!id)
+  const [filesOpen, setFilesOpen] = useState(false)
   const [error, setError] = useState('')
   const [unopened, setUnopened] = useState<WorkingRecord>()
   const [upgrade, setUpgrade] = useState<{ record: WorkingRecord; tasks: Reservation[]; busy?: boolean; error?: string }>()
@@ -115,9 +114,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
 
   useEffect(() => {
     let active = true
-    setError(''); setUnopened(undefined); setUpgrade(undefined); setReadOnly(undefined); setCopy(undefined); setLoading(!!id)
+    setError(''); setUnopened(undefined); setUpgrade(undefined); setReadOnly(undefined); setCopy(undefined); setFilesOpen(false)
     const choice = upgradeChoice; setUpgradeChoice(undefined)
-    if (!id) { setFilesOpen(true); return }
+    if (!id) return
     async function open() {
       try {
         const session = await workingSession(), key = `${session}:${id}`
@@ -154,10 +153,10 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
           // A breaking upgrade of a document with unresolved AI tasks waits for the owner.
           if (stored.version < DOCUMENT_VERSION && migrationBreaking(stored.version) && choice !== 'upgrade') {
             const document = initializeDocument(stored, true)
-            if (choice === 'decline') { setReadOnly({ record: local!, document }); setLoading(false); return }
+            if (choice === 'decline') { setReadOnly({ record: local!, document }); return }
             const tasks = local!.reservations.filter(task => !task.released)
             if (!active) return
-            if (tasks.length) { setUpgrade({ record: local!, tasks }); setLoading(false); return }
+            if (tasks.length) { setUpgrade({ record: local!, tasks }); return }
           }
           local!.document = initializeDocument(stored)
           // Loading never writes to the cloud; the next ordinary save persists the upgrade.
@@ -170,13 +169,13 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         await saveWorkingCopy(local!)
         if (!active) return
         const opened = new WorkingCopy(local!)
-        setCopy(opened); setFilesOpen(false); setLoading(false)
+        setCopy(opened)
         document.title = `${local!.meta.name} · Mote`
         if (networkError) setNotice('Showing the local working copy. Cloud access is currently unavailable.')
       } catch (error) {
         if (!active) return
         if (error instanceof CloudError && error.status === 401) { location.assign(loginURL()); return }
-        setError(error instanceof Error ? error.message : 'The document could not be opened.'); setLoading(false)
+        setError(error instanceof Error ? error.message : 'The document could not be opened.')
       }
     }
     void open()
@@ -268,15 +267,15 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
       <button disabled={upgrade.busy} onClick={() => { setUpgradeChoice('decline'); setRetry(value => value + 1) }}>Open read-only</button>
       <button disabled={upgrade.busy} onClick={() => void downloadRecovery(upgrade.record)}>Download recovery</button>
     </main>
-    : copy ? renderDocument(copy, () => { setFilesOpen(true); void refreshRecovery() }, next => void navigate(next)) : <main className="loading cloud-home"><h1>Mote</h1>
-      <p>{loading ? 'Opening document…' : error || 'Your private document workspace.'}</p>
-      {!!error && <button onClick={() => setRetry(value => value + 1)}>Retry</button>}
+    : copy ? renderDocument(copy, () => { setFilesOpen(true); void refreshRecovery() }, next => void navigate(next)) : error ? <main className="loading cloud-home"><h1>Can’t open document</h1>
+      <p role="alert">{error}</p>
+      <button onClick={() => setRetry(value => value + 1)}>Retry</button>
       {unopened && <button onClick={() => void downloadRecovery(unopened)}>Download recovery</button>}
-      {(!mobile || !id) && <button onClick={() => setFilesOpen(true)}>Files</button>}
-    </main>}
+      {!mobile && <button onClick={() => setFilesOpen(true)}>Files</button>}
+    </main> : null}
     <WorkspaceOverlays copy={copy}>
     {notice && <div className="cloud-notice" role="status">{notice}<button onClick={() => setNotice('')} aria-label="Dismiss notice">×</button></div>}
-    <FilesWindow open={filesOpen && (!mobile || !id)} onClose={() => setFilesOpen(false)} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument} onImport={importDocument}
+    <FilesWindow open={!id || (filesOpen && !mobile)} onClose={id ? () => setFilesOpen(false) : undefined} currentId={id} copy={copy} onOpen={next => void navigate(next)} onNew={newDocument} onImport={importDocument}
       onRecoveryOpen={() => void refreshRecovery()} recoveryCount={recoveries.length}
       pending={Object.fromEntries(recoveries.map(row => [row.meta.id, 'Changes on this device']))}
       recovery={<div className="files-recovery">

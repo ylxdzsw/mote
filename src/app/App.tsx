@@ -486,7 +486,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     })
   }
 
-  if (!doc) return <main className="loading"><h1>Mote</h1><p>Opening document…</p></main>
+  if (!doc) return null
   const status = cloud.local === 'error' || connection.offline || cloud.error || cloud.conflict || cloud.deleted ? 'error' : cloud.syncing || cloud.record.dirty ? 'saving' : 'saved'
   const statusText = cloud.local === 'error' ? 'Local save failed'
     : connection.checking ? 'Reconnecting…' : connection.offline ? showLocalSaving ? 'Offline · saving locally…' : cloud.record.dirty ? 'Offline · changes pending' : 'Offline · saved locally'

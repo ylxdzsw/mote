@@ -12,7 +12,7 @@ import './files.css'
 
 interface Props {
   open: boolean
-  onClose: () => void
+  onClose?: () => void
   onOpen: (id: string) => void
   currentId?: string
   copy?: WorkingCopy
@@ -114,7 +114,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     if (mutating) return
     if (creating) cancelNewFile()
     else if (action) finishAction()
-    else onClose()
+    else onClose?.()
   }
 
   function cancelNewFile() {
@@ -275,7 +275,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
             </FilesMenu>
           </div>
         </>}
-        <button type="button" className="cloud-button cloud-close" aria-label={creating ? 'Cancel new file' : 'Close files'} disabled={mutating} onClick={creating ? cancelNewFile : onClose}><PanelIcon name="close" /></button>
+        {(creating || onClose) && <button type="button" className="cloud-button cloud-close" aria-label={creating ? 'Cancel new file' : 'Close files'} disabled={mutating} onClick={creating ? cancelNewFile : onClose}><PanelIcon name="close" /></button>}
       </div>
     </header>
     <div className="files-search" hidden={creating}>

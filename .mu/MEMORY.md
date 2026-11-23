@@ -2176,3 +2176,7 @@ On the canvas, Select All uses the existing gutter selection so copying a docume
 ## 2026-11-23 — Create from an unmatched file search
 
 Reuse the searched name, not a separate quick-create path: the New file form keeps language, layout, and privacy choices available before creation. An archived match remains a navigation opportunity, and an unavailable file list is not evidence of a miss.
+
+## 2026-11-23 — Files is the workspace entrance
+
+Without a document there is nothing useful to dismiss Files to. Keep the chooser modal at the root, but preserve cancellation inside it and dismissal when opened over a document. Leave the surface blank during document loads instead of flashing a branded page; show a message when opening needs a decision or fails.
