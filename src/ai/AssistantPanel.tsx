@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, type CSSProperties } from 'react'
 import type { useAssistant } from './useAssistant'
 import type { AITask } from './types'
 import { candidateVersionName, candidateVersions, selectedCandidateVersion } from './candidates'
-import { ContextHeading } from '../app/Inspector'
+import { ContextHeading, InspectorHelp } from '../app/Inspector'
 import { PanelIcon } from '../app/PanelIcon'
 import { kindName } from '../app/FloatingInspector'
 import { MarkupView } from '../canvas/DrawingView'
@@ -31,15 +31,16 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
       {selection.detail && <p>{selection.detail}</p>}
     </div>}
     {assistant.tasks.map(task => <TaskView key={task.id} task={task} active={activeId === task.id} assistant={assistant} onLocate={() => onLocate(task)} onAnnotate={() => onAnnotate(task)} />)}
-    <footer className="ai-footer">
-      {(activeId || selection?.canReserve) && <details className="ai-info"><summary>Help & privacy</summary>
-        <p>Reservations, task permissions, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
-        <p>Built-in and external agents can work together. These tabs only change the controls shown; switching tabs does not stop work or change access. Proposals share one version list and never edit your document automatically.</p>
-        <p>The task link can read the latest saved document and, when allowed, non-Private workspace sources. Each request checks current access. Private blocks the public endpoint; the internal built-in socket still works. Downloaded content cannot be recalled.</p>
-        <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task and cached proposals; it never restarts generation.</p>
-      </details>}
-    </footer>
   </div>
+}
+
+export function AssistantHelp() {
+  return <InspectorHelp title="Assistant & privacy">
+    <p>Reservations, task permissions, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
+    <p>Built-in and external agents can work together. These tabs only change the controls shown; switching tabs does not stop work or change access. Proposals share one version list and never edit your document automatically.</p>
+    <p>The task link can read the latest saved document and, when allowed, non-Private workspace sources. Each request checks current access. Private blocks the public endpoint; the internal built-in socket still works. Downloaded content cannot be recalled.</p>
+    <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task and cached proposals; it never restarts generation.</p>
+  </InspectorHelp>
 }
 
 function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AITask; active: boolean; assistant: Assistant; onLocate: () => void; onAnnotate: () => void }) {

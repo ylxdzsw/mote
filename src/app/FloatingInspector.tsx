@@ -68,13 +68,6 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
         </InspectorField>
       </InspectorGroup>
       {!reserved && <InspectorStyles semantic="caption" onTheme={onTheme} />}
-      <InspectorHelp>
-        {reserved ? <p>Caption content stays reserved for the active AI task. Its width remains user-controlled.</p> : <>
-        <p>Click once to select the caption, then click inside it to edit. Drag the caption box or its borders to move its owner; the right border resizes the caption while keeping it centered.</p>
-        <p>Width follows the owner unless overridden; wider captions stay centered within the page.</p>
-        <p>Delete removes the caption. Captions cannot be detached from their owners.</p>
-        </>}
-      </InspectorHelp>
     </div>
   }
   return <div className="context-inspector floating-inspector">
@@ -156,16 +149,6 @@ export function FloatingInspector({ object, count, theme, defaultFontSize, onCha
       {count === 1 && <ObjectMargins object={object} onChange={margins => onChange({ margins })} />}
     </InspectorGroup>
     {!reserved && count === 1 && <InspectorStyles semantic={text ? textStyle ?? 'body' : object.kind === 'table' ? 'table' : object.kind === 'code' ? 'code' : katex ? 'formula' : undefined} onTheme={onTheme} />}
-    <InspectorHelp key={count > 1 ? 'group' : object.kind}>
-      {reserved ? <p>Content and size stay reserved for the active AI task. Placement and margins remain user-controlled.</p> : <FloatingHelp object={object} count={count} />}
-      {!reserved && count === 1 && <p>{object.layout.placement.type === 'flow'
-        ? 'Drag sideways to position; snap to the center. Drag up or down to move between document blocks.'
-        : 'Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.'}</p>}
-      {!reserved && <>
-        <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Captions stay with their objects. While editing text, these shortcuts act on text instead.</p>
-        <p>Delete/Backspace removes a focused object. Undo restores it.</p>
-      </>}
-    </InspectorHelp>
   </div>
 }
 
@@ -235,6 +218,26 @@ function HTMLWidgetControls({ value, onChange, screenshotStatus, screenshotOffli
     {editorOpen && createPortal(<WidgetEditor widget={value} onChange={html => onChange({ html })} onRun={onRun}
       onClose={() => setEditorId(null)} onHistoryEnd={onHistoryEnd} />, document.querySelector('.app')!)}
   </>
+}
+
+export function ObjectEditingHelp({ object, count, captionSelected, reserved }: Pick<Props, 'object' | 'count' | 'captionSelected' | 'reserved'>) {
+  if (captionSelected && supportsCaption(object) && object.caption) return <InspectorHelp key="caption" title="Editing & shortcuts">
+    {reserved ? <p>Caption content stays reserved for the active AI task. Its width remains user-controlled.</p> : <>
+      <p>Click once to select the caption, then click inside it to edit. Drag the caption box or its borders to move its owner; the right border resizes the caption while keeping it centered.</p>
+      <p>Width follows the owner unless overridden; wider captions stay centered within the page.</p>
+      <p>Delete removes the caption. Captions cannot be detached from their owners.</p>
+    </>}
+  </InspectorHelp>
+  return <InspectorHelp key={count > 1 ? 'group' : object.kind} title="Editing & shortcuts">
+    {reserved ? <p>Content and size stay reserved for the active AI task. Placement and margins remain user-controlled.</p> : <FloatingHelp object={object} count={count} />}
+    {!reserved && count === 1 && <p>{object.layout.placement.type === 'flow'
+      ? 'Drag sideways to position; snap to the center. Drag up or down to move between document blocks.'
+      : 'Position freely on the grid. Main text stays to its left. Moving onto a Flow object anchors it there.'}</p>}
+    {!reserved && <>
+      <p>With the object focused, Ctrl/⌘C copies, X cuts, and V pastes. Captions stay with their objects. While editing text, these shortcuts act on text instead.</p>
+      <p>Delete/Backspace removes a focused object. Undo restores it.</p>
+    </>}
+  </InspectorHelp>
 }
 
 function FloatingHelp({ object, count }: { object: FloatingObject; count: number }) {

@@ -2188,3 +2188,7 @@ Use the active end of a text selection as a one-time navigation hint, not a live
 ## 2026-11-23 — Slides in Files
 
 Pair “Slides” with the modified date so decks are easy to spot without competing with filenames or privacy labels. Continuous layout is the default and needs no label.
+
+## 2026-11-23 — Keep reference material below actions
+
+Group selection shortcuts and Assistant privacy guidance at the end of the right panel so neither interrupts the path from properties to Reserve or task review. Independent disclosures need no shared visible heading.

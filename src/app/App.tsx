@@ -23,7 +23,7 @@ import { GlobalSettings, useViewSettings } from './GlobalSettings'
 import { DocumentSettings } from './DocumentSettings'
 import { HistoryContext, useDocumentHistory } from '../document/history'
 import { useRecentColors } from './useRecentColors'
-import { FloatingInspector } from './FloatingInspector'
+import { FloatingInspector, ObjectEditingHelp } from './FloatingInspector'
 import { DrawingEditor } from './DrawingEditor'
 import { ReservationMarkupEditor } from '../ai/ReservationMarkupEditor'
 import { patchFloating } from '../canvas/patchFloating'
@@ -34,11 +34,11 @@ import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
 import { isCaptionEditor } from '../editor/extensions'
-import { ContextHeading, InspectorHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
+import { ContextHeading, InspectorHelp, ParagraphHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
 import { selectedCandidateVersion } from '../ai/candidates'
-import { AssistantPanel, type ReservationSelection } from '../ai/AssistantPanel'
+import { AssistantHelp, AssistantPanel, type ReservationSelection } from '../ai/AssistantPanel'
 import type { Area, AITarget, AITask } from '../ai/types'
 import { containsTarget, overlaps, paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
@@ -525,6 +525,14 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
 
   if (mobile) return <ReaderPage initial={doc} notice={syncNotice} />
 
+  const captionSelected = selectedIds.length === 1 && selectedCaptionId === selectedObject?.id
+  const sectionSelected = selectedSegment.range && target?.kind === 'segment'
+  const semantic = selection?.semantic ?? 'body'
+  const editingHelp = !showProperties ? null : selectedObject
+    ? <ObjectEditingHelp key={selectedObject.id} object={selectedObject} count={selectedIds.length} captionSelected={captionSelected} reserved={!!selectedObjectTask} />
+    : tool ? null : selectedSlides ? <InspectorHelp title="Editing & shortcuts"><p>Copy or cut these slides, then paste after another slide or at a slide border. Delete removes the selected slides.</p></InspectorHelp>
+    : !sectionSelected && activeEditor ? <ParagraphHelp key={semantic} semantic={semantic} /> : null
+
   return <HistoryContext value={history}><div className="app" data-mode={doc.theme.appearance.mode} style={uiStyle}>
     <header className="app-header cloud-header">
       <button className="document-switch" onClick={onFiles} aria-label={`Switch document: ${cloud.record.meta.name}`} title={`${cloud.record.meta.name} · Switch document`}>
@@ -629,7 +637,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 const slide = slideRanges(doc)[selectedSlideOwner]
                 const top = slide.id ? context?.anchors.find(anchor => anchor.id === slide.id)?.top ?? 0 : 0
                 return box && (box.y < top || box.y + box.height > top + doc.page.slideHeight!) ? ' · Extends beyond slide' : ''
-              })()}</p>}<FloatingInspector object={selectedObject} captionSelected={selectedIds.length === 1 && selectedCaptionId === selectedObject.id}
+              })()}</p>}<FloatingInspector object={selectedObject} captionSelected={captionSelected}
                 captionMaxWidth={doc.page.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
                 onCaption={() => actions.current?.caption()}
                 textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
@@ -650,13 +658,16 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                   <ContextHeading title={selectedSlides.first === selectedSlides.last ? 'Slide' : `${selectedSlides.last - selectedSlides.first + 1} slides`}
                     subtitle={selectedSlides.first === selectedSlides.last ? `Slide ${selectedSlides.first + 1}` : `Slides ${selectedSlides.first + 1}–${selectedSlides.last + 1}`} />
                   {selectedSlides.first === selectedSlides.last && selectedSlides.first > 0 && <button onClick={() => actions.current?.joinSlide(selectedSlides.first)}>Join with previous slide</button>}
-                  <InspectorHelp><p>Copy or cut these slides, then paste after another slide or at a slide border. Delete removes the selected slides.</p></InspectorHelp>
                 </div>
-              : target?.kind === 'segment' ? <div className="context-inspector"><ContextHeading title={target.blockIds.length || target.objectIds.length ? 'Document section' : 'New section'} /></div>
-              : activeEditor ? <TextInspector semantic={selection?.semantic ?? 'body'} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
+              : sectionSelected ? <div className="context-inspector"><ContextHeading title={target.blockIds.length || target.objectIds.length ? 'Document section' : 'New section'} /></div>
+              : activeEditor ? <TextInspector semantic={semantic} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
               : <div className="context-inspector"><p className="hint">Select text or an object.</p></div>}
             </div>}
             <AssistantPanel assistant={assistant} activeId={assistantTaskId} selection={tool ? null : reservationSelection} onReserve={reserveSelection} onLocate={locateTask} onAnnotate={editMarkup} theme={doc.theme} />
+            <div className="panel-help" role="group" aria-label="Help">
+              {editingHelp}
+              {(assistantTaskId || (!tool && reservationSelection.canReserve)) && <AssistantHelp />}
+            </div>
           </div>
         </div>
       </aside>}

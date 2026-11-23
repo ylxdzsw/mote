@@ -102,8 +102,6 @@
 .ai-compose-actions .ai-quiet { margin-left: auto; }
 .ai-panel textarea { display: block; box-sizing: border-box; width: 100%; height: 84px; resize: vertical; min-height: 84px; max-height: 180px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); padding: 8px; color: inherit; background: var(--ui-surface); font: var(--ui-font-size)/1.5 var(--ui-font-family, system-ui, sans-serif); }
 .ai-privacy { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: var(--ui-muted); }
-.ai-footer { flex: none; padding: 8px 12px; border-top: 1px solid var(--panel-line); font-size: 11px; color: var(--ui-muted); }
-.ai-footer:empty { display: none; }
 .ai-panel summary { cursor: pointer; }
 .ai-panel summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: 2px; }
 .ai-info p { margin-bottom: 0; }

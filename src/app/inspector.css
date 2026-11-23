@@ -66,9 +66,13 @@
 .context-inspector .check-label input { margin: 0; }
 .context-inspector .delete-action { justify-content: center; color: var(--ui-danger-action); border-color: transparent; }
 .context-inspector .delete-action:hover:not(:disabled) { background: var(--ui-danger-surface); border-color: var(--ui-danger-border); }
-.inspector-help, .context-inspector > .inspector-details { border-top: 1px solid var(--panel-line); padding-top: 8px; color: var(--ui-muted); }
+.panel-help { padding: 6px var(--ui-panel-padding); border-top: 1px solid var(--panel-line); color: var(--ui-muted); }
+.panel-help:empty { display: none; }
+.inspector-help summary { min-height: var(--ui-control-height); line-height: calc(var(--ui-control-height) - 10px); }
+.inspector-help > div { padding-bottom: 8px; }
+.context-inspector > .inspector-details { border-top: 1px solid var(--panel-line); padding-top: 8px; color: var(--ui-muted); }
 .inspector-help summary, .inspector-details summary { cursor: pointer; padding-block: 5px; font-size: 11px; }
-.inspector-help summary:focus-visible, .inspector-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+.inspector-help summary:focus-visible, .inspector-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-radius: 3px; }
 .inspector-help > div, .inspector-details > div { display: grid; gap: 8px; padding-top: 6px; }
 
 .text-tools { position: relative; z-index: 3; flex: none; padding: 8px 12px; border-bottom: 1px solid var(--panel-line); background: var(--ui-surface); }

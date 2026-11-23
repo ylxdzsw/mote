@@ -153,8 +153,8 @@ export function InspectorRow({ children }: { children: ReactNode }) {
   return <div className="inspector-row">{children}</div>
 }
 
-export function InspectorHelp({ children }: { children: ReactNode }) {
-  return <details className="inspector-help"><summary>Help &amp; shortcuts</summary><div>{children}</div></details>
+export function InspectorHelp({ title, children }: { title: string; children: ReactNode }) {
+  return <details className="inspector-help"><summary>{title}</summary><div>{children}</div></details>
 }
 
 export function ContextHeading({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
@@ -171,17 +171,20 @@ export function TextInspector({ semantic, listLevel, onTheme }: {
   return <div className="context-inspector">
     <ContextHeading title={semantic === 'list' ? 'List item' : `${classLabel(semantic)} paragraph`} subtitle={semantic === 'list' ? `Level ${listLevel + 1}` : undefined} />
     <InspectorStyles semantic={semantic} onTheme={onTheme} />
-    <InspectorHelp key={semantic}>
-      {semantic === 'body' && <p>Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
-      {semantic === 'separator' && <p>Type an optional centered label. Enter continues with Body. Lines use the class text color; inline colors affect only the label.</p>}
-      {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
-      <p>Reserve a passage in Assistant to revise it with AI. Styles apply to every paragraph of their class.</p>
-      <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>
-      <p>Ctrl/⌘A selects the whole document, including every slide. When editing text inside an object, it selects just the text box, cell, or caption text.</p>
-      <p>Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection.</p>
-      <p>Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag other empty areas to select objects.</p>
-    </InspectorHelp>
   </div>
+}
+
+export function ParagraphHelp({ semantic }: { semantic: string }) {
+  return <InspectorHelp title="Editing & shortcuts">
+    {semantic === 'body' && <p>Tab turns a Body paragraph into a list. Shift+Tab returns a top-level item to Body.</p>}
+    {semantic === 'separator' && <p>Type an optional centered label. Enter continues with Body. Lines use the class text color; inline colors affect only the label.</p>}
+    {semantic === 'list' && <p>Each item is independent. Enter creates an item at the same level; Shift+Enter adds a line within it. Backspace at the start outdents, or returns a top-level item to Body.</p>}
+    <p>Reserve a passage in Assistant to revise it with AI. Styles apply to every paragraph of their class.</p>
+    <p>With no text selected, Ctrl/⌘C copies the paragraph and Ctrl/⌘X cuts it. Whole paragraphs paste below; Ctrl/⌘Shift+V pastes plain text at the caret.</p>
+    <p>Ctrl/⌘A selects the whole document, including every slide. When editing text inside an object, it selects just the text box, cell, or caption text.</p>
+    <p>Drag the strip just left of the page to select a segment, then drag its highlight to move it, or copy or cut it. Adjust its boundary handles; hold Alt to split an inserted space. Escape clears the selection.</p>
+    <p>Hold Alt and drag between paragraphs to add room. Drag inside a gap or its first text line below to resize it; pull up to close it. Drag other empty areas to select objects.</p>
+  </InspectorHelp>
 }
 
 export interface TableInspectorSelection {
