@@ -235,7 +235,7 @@ test('archive metadata is independent, durable, retry-safe, and leaves content, 
   assert.deepEqual(value.store.shares(original.id), share)
   assert.equal((await value.call('GET', `/api/shared/${share.share.token}`)).status, 200)
   assert.equal(value.store.assertExternal(original.id).archived, true)
-  assert.deepEqual((await value.call('GET', 'documents')).body.documents, [enabled.body])
+  assert.deepEqual((await value.call('GET', 'documents')).body.documents, [{ ...enabled.body, slides: false }])
   const stale = await value.call('PUT', base, save(original, 'Stale archive view', { archived: false, archiveRevision: 0 }))
   assert.equal(stale.status, 200); assert.equal(stale.body.archived, true); assert.equal(stale.body.archiveRevision, 1)
   const copy = await create(value, { ...native, id: randomUUID() })

@@ -2184,3 +2184,7 @@ Without a document there is nothing useful to dismiss Files to. Keep the chooser
 ## 2026-11-23 — Open Theme at the writing position
 
 Use the active end of a text selection as a one-time navigation hint, not a live binding: a writer can start at the relevant class and then browse other document styles without losing their place. Non-text selections have no implied paragraph class, and explicit style and palette shortcuts keep their named destinations.
+
+## 2026-11-23 — Slides in Files
+
+Pair “Slides” with the modified date so decks are easy to spot without competing with filenames or privacy labels. Continuous layout is the default and needs no label.

@@ -43,7 +43,7 @@
 .files-current, .cloud-private-badge { display: inline-flex; align-items: center; gap: 3px; color: var(--ui-muted); font-size: 10px; white-space: nowrap; }
 .files-current { color: var(--ui-accent); }
 .cloud-private-badge .panel-icon { width: 11px; height: 11px; }
-.cloud-file-choice time { color: var(--ui-muted); font-size: var(--ui-label-size); white-space: nowrap; }
+.files-row-meta { color: var(--ui-muted); font-size: var(--ui-label-size); white-space: nowrap; }
 .cloud-files .cloud-file-choice .cloud-pending { grid-column: 1 / -1; margin: 0; }
 .files-list .files-menu > button { width: 28px; padding: 0; color: var(--ui-muted); }
 .files-menu-panel { position: fixed; z-index: 2; min-width: 160px; max-width: calc(100vw - 16px); padding: 3px; border: 1px solid var(--ui-border); border-radius: 4px; background: var(--ui-surface); box-shadow: 0 6px 24px var(--ui-shadow-strong); }

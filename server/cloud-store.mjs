@@ -372,7 +372,12 @@ export class CloudStore {
   indexRunDirectories() {
     return this.db.prepare('SELECT runId,status,workerUnit,workerPid FROM document_indexes WHERE runId IS NOT NULL').all()
   }
-  list() { return { documents: this.db.prepare(`SELECT ${META_COLUMNS} FROM documents WHERE deletedAt IS NULL ORDER BY updatedAt DESC,id`).all().map(metadata) } }
+  list() {
+    const rows = this.db.prepare(`SELECT ${META_COLUMNS},
+      (SELECT json_extract(body, '$.value.page.slideHeight') FROM revisions WHERE documentId=d.id AND revision=d.revision) AS slideHeight
+      FROM documents d WHERE deletedAt IS NULL ORDER BY updatedAt DESC,id`).all()
+    return { documents: rows.map(row => ({ ...metadata(row), slides: row.slideHeight > 0 })) }
+  }
   get(id) { return this.envelope(this.row(id)) }
   privacyMeta(id) { return metadata(this.row(id)) }
   assertExternal(id) {
