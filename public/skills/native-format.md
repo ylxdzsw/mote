@@ -1,18 +1,18 @@
-# Mote native format reference — V1–V8
+# Mote native format reference — V1–V9
 
-This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. Native V1–V8 are closed schemas. A document has `format:"mote"` and numeric `version:1` through `8`; V2 adds Slides, V3 adds optional table color pairs, and V4 restricts saved theme font weights to Regular (400) or Bold (700). Native V5 adds optional permanent markup to images and HTML widgets. V6 adds optional document-level `theme.justifyText`; omission means false. V7 adds optional document-level `theme.firstLineIndent`; omission or false means no indent. V8 adds semantic Separator paragraphs to main text and Text objects, with optional Separator rule thickness. V1–V7 reject the Separator semantic and `lineThickness`; table cells and owned captions never support Separator.
+This public reference is a focused authoring specification for agents; it does not require a repository checkout and contains no task data. Native V1–V9 are closed schemas. A document has `format:"mote"` and numeric `version:1` through `9`; V2 introduced the retired Slides layout, V3 adds optional table color pairs, and V4 restricts saved theme font weights to Regular (400) or Bold (700). Native V5 adds optional permanent markup to images and HTML widgets. V6 adds optional document-level `theme.justifyText`; omission means false. V7 adds optional document-level `theme.firstLineIndent`; omission or false means no indent. V8 adds semantic Separator paragraphs to main text and Text objects, with optional Separator rule thickness. V1–V7 reject the Separator semantic and `lineThickness`; table cells and owned captions never support Separator.
 
-Mote migrates older documents in memory at its load boundary. The breaking V3→V4 migration maps each explicit saved weight below 550 to 400 and each weight at least 550 to 700, preserving sparse inheritance, IDs, and unrelated data; it does not add Heading overrides. If active reservations exist on a breaking native migration, the owner chooses Upgrade (releasing current reservations through ordinary cloud document save) or Decline (read-only at the stored version). Release does not permanently revoke the stable task token. The non-breaking V4→V5, V5→V6, V6→V7, and V7→V8 migrations change only `version`. New documents use native V8. Native V1–V8 remain supported independently of task protocol `mote-agent-v7`; the current candidate grammar is V8 and the advisory proposal-schema hint is `documentFormatVersion:8`. The task protocol's optional `document.json` read returns latest cloud context, while the task base URL returns a consolidated JSON description with `.target`, optional latest reservation `.markup`, permissions, segment measurements, and resource links, without copied original content. Proposal records do not contain a source revision, agent origin, or native document version. Unknown native versions and fields are unsupported. Preserve unsupported inputs and report the issue; agents do not convert, extend, or repair them. Retained legacy task artifacts are recovery-only; ask the owner for a current v7 reservation rather than converting histories.
+Mote migrates older documents in memory at its load boundary. The breaking V3→V4 migration maps each explicit saved weight below 550 to 400 and each weight at least 550 to 700, preserving sparse inheritance, IDs, and unrelated data; it does not add Heading overrides. If active reservations exist on a breaking native migration, the owner chooses Upgrade (releasing current reservations through ordinary cloud document save) or Decline (a read-only preview; the stored version and reservations remain untouched). Release does not permanently revoke the stable task token. The non-breaking V4→V5, V5→V6, V6→V7, and V7→V8 migrations change only `version`. V8→V9 is breaking: it converts legacy decks to continuous pages, converts Box marks to `{type:"box"}`, and fills omitted typography switches with false. New documents use native V9. Native V1–V9 remain supported independently of task protocol `mote-agent-v7`; the current candidate grammar is V9 and the advisory proposal-schema hint is `documentFormatVersion:9`. The task protocol's optional `document.json` read returns latest cloud context, while the task base URL returns a consolidated JSON description with `.target`, optional latest reservation `.markup`, permissions, segment measurements, and resource links, without copied original content. Proposal records do not contain a source revision, agent origin, or native document version. Unknown native versions and fields are unsupported. Preserve unsupported inputs and report the issue; agents do not convert, extend, or repair them. Retained legacy task artifacts are recovery-only; ask the owner for a current v7 reservation rather than converting histories.
 
 ## Document envelope and theme
 
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+  version: 9
   id: string
   language: 'en' | 'zh-Hans'
-  page: { width: number; margins: Insets; slideHeight?: number } // slideHeight is V2+
+  page: { width: number; margins: Insets }
   theme: Theme
   content: MainDoc
   objects: Object[]
@@ -33,8 +33,8 @@ type TextStyle = {
 type Theme = {
   appearance: { mode: 'light' | 'dark'; primaryHue: number; secondaryHue: number }
   autospace: boolean
-  justifyText?: boolean // V6+; omission means false
-  firstLineIndent?: boolean // V7+; omission or false means no indent
+  justifyText: boolean
+  firstLineIndent: boolean
   defaults: {
     family: Family; size: number; color: PaletteRef; weight: number
     lineHeight: LineHeight; spaceBefore: Length; spaceAfter: Length; letterSpacing: Length
@@ -53,9 +53,9 @@ type ParagraphStyles =
   }
 ```
 
-Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. `page.slideHeight`, when present, is a positive finite document-pixel number and is valid only in V2+. V1 is the unchanged continuous-page format; V2 without `slideHeight` is continuous too. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Theme font weights are version-dependent: V1–V3 accept finite values from 1 through 1000; V4+ accepts exactly 400 or 700. This applies to `theme.defaults.weight` and every saved paragraph, table, or Code weight override. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
+Page width is positive document pixels; all four page margins are nonnegative pixels. The standard new page is 960px wide with 32px left/right and 48px top/bottom margins. V9 is continuous; there is no saved height. Appearance hues are finite degrees in `[0,360)`. If `authoring` is present it requires `notes`; `aiModel` is optional. `defaults.size` is positive pixels. Theme override `size` uses `Length`. Every length is a finite `{value,unit}` object, never a number or unit string. `em` resolves against `defaults.size`; a ratio line-height multiplies resolved font size. Theme font weights are version-dependent: V1–V3 accept finite values from 1 through 1000; V4+ accepts exactly 400 or 700. This applies to `theme.defaults.weight` and every saved paragraph, table, or Code weight override. Sizes and line-height are positive; text padding and Before/After spacing are nonnegative; letter spacing may be signed. `em`/`px` units are not interchangeable with plain geometry numbers.
 
-`theme.defaults` is complete. Paragraph/object style overrides are sparse and inherit omitted properties from Defaults. V1–V5 reject `justifyText`; V6+ permits this optional document-level boolean, whose omission means false. It has no class, paragraph, or inline override. When true, browser-native `text-align: justify` applies to native prose paragraphs in main text and Text objects in Flow or Float placement, including headings, lists, and captions; final lines remain start-aligned. Table column alignment stays unchanged, and Code, formulas, and HTML widget contents are unaffected. Existing CSS `hyphens:auto` remains enabled, including when justified; automatic hyphenation depends on document language and browser dictionaries. There is no language detection, inserted soft hyphens, or stored text rewrite. `theme.objects` has only the shown table, code, and formula overrides. V1–V6 reject `firstLineIndent`; V7 permits this optional document-level boolean, whose omission or false value means no indent. It is independent of justification and has no class, paragraph, or inline override. When true, `text-indent: 2ic` applies only to semantic Body paragraphs in main text and Text objects in Flow or Float placement. Only the first formatted line is indented; wrapped and soft-break lines start normally. Headings, lists, captions, tables, Code, formulas, and HTML widget contents are unaffected. The behavior is language-independent and does not rewrite content whitespace. New-document Title, Heading, and Subheading presets each explicitly use weight 700; missing overrides in an existing theme remain inherited, with no implicit Subheading fallback. Flow Before omission means zero; Flow After omission follows resolved Body `spaceAfter`. Do not add a palette, page-background field, or custom theme key.
+`theme.defaults` is complete. Paragraph/object style overrides are sparse and inherit omitted properties from Defaults. V1–V5 reject `justifyText`; V6–V8 permit omission (false); V9 requires a boolean. It has no class, paragraph, or inline override. When true, browser-native `text-align: justify` applies to native prose paragraphs in main text and Text objects in Flow or Float placement, including headings, lists, and captions; final lines remain start-aligned. Table column alignment stays unchanged, and Code, formulas, and HTML widget contents are unaffected. Existing CSS `hyphens:auto` remains enabled, including when justified; automatic hyphenation depends on document language and browser dictionaries. There is no language detection, inserted soft hyphens, or stored text rewrite. `theme.objects` has only the shown table, code, and formula overrides. V1–V6 reject `firstLineIndent`; V7–V8 permit omission (false); V9 requires a boolean. It is independent of justification and has no class, paragraph, or inline override. When true, `text-indent: 2ic` applies only to semantic Body paragraphs in main text and Text objects in Flow or Float placement. Only the first formatted line is indented; wrapped and soft-break lines start normally. Headings, lists, captions, tables, Code, formulas, and HTML widget contents are unaffected. The behavior is language-independent and does not rewrite content whitespace. New-document Title, Heading, and Subheading presets each explicitly use weight 700; missing overrides in an existing theme remain inherited, with no implicit Subheading fallback. Flow Before omission means zero; Flow After omission follows resolved Body `spaceAfter`. Do not add a palette, page-background field, or custom theme key.
 
 V8 adds Separator as a semantic paragraph class only in main text and Text
 objects; it is not valid in table cells or owned captions and is not an object
@@ -75,53 +75,11 @@ The fixed palette is 22 slots: Strong/Soft pairs for Primary, Secondary, Red, Am
 
 `authoring.notes` are internal user scratchpads. They can appear in authorized input as tentative context, but they are not automatic instructions or published content. Never edit Notes or include `authoring` in a candidate. Public shares and HTML exports omit `authoring`; native `.mote` files retain it.
 
-## Slides (V2+ only)
-
-Slides are active only when V2+ `page.slideHeight` is present; its default when
-the user enables Slides is 540px, but any positive finite height is valid.
-V1 rejects both `slideHeight` and slide-break atoms. V2 without `slideHeight`
-is a continuous document and rejects slide-break atoms too.
-
-The first slide is implicit. Later slides start at top-level
-`{type:'slideBreak',attrs:{id:string}}` atoms in the same flat `content`
-array. The marker belongs to the slide it starts; there is no nested slide
-container or separate object-ownership field. A document cannot start/end
-with a marker or have adjacent markers. Every slide has at least one content
-block; represent an empty slide with an empty paragraph. Marker IDs are
-globally unique, like other main block IDs. Markers cannot be nested in
-objects, captions, or tables.
-
-Enabling Slides explicitly upgrades V1 to V2. Mote makes a best-effort initial
-partition at main-text Title/Heading paragraphs (not Subheading or text inside
-objects), then packs whole blocks to the requested height. It may estimate
-unmeasured block heights; a single oversized block stays intact. This is a
-lossy, undoable layout conversion, not a round-trip promise. It runs only when
-enabling; changing the saved height never repartitions existing boundaries.
-Disabling removes `slideHeight` and the markers, concatenates the blocks, and
-retains its version (V2 or newer).
-
-Each slide lays out Flow, margins, text repulsion, and anchors independently.
-During editing, a slide expands to fit its main flow and Flow captions but not
-the height of direct Floats. Those Floats remain visible and may overlap or
-cover following slides; an editing ruler shows the saved-height crop line when
-content expands past it. Reading, standalone HTML, and PNG crop each slide to
-its saved height and show no slide-editing controls or slide navigator. PNG is
-one long image. Standalone HTML embeds the native document, including content
-that overflows the saved slide height.
-
-Floats belong to the slide of their anchor. `anchorId:null` means the first
-slide top. A marker ID anchors a Float to that slide's top using page-space x
-and nonnegative y. Paragraph, spacer, and Flow anchors belong to their
-containing slide; a Flow-anchored Float retains signed x/y offsets from the
-Flow owner's measured top-left. Owned captions stay with their objects.
-Preserve slide boundaries and owned Floats/captions within the exact reserved
-scope; do not change unrelated slide structure or `slideHeight`.
-
 ## Main content, rich text, IDs
 
 ```ts
 type MainDoc = { type: 'doc'; content: [MainBlock, ...MainBlock[]] }
-type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // SlideBreak only in V2+ with page.slideHeight
+type MainBlock = MainParagraph | Spacer | FlowAtom
 type MainParagraph = {
   type: 'paragraph'
   attrs:
@@ -131,12 +89,11 @@ type MainParagraph = {
 }
 type Spacer = { type: 'spacer'; attrs: { id: string; height: number } }
 type FlowAtom = { type: 'flow'; attrs: { id: string; objectId: string } }
-type SlideBreak = { type: 'slideBreak'; attrs: { id: string } }
 type Inline = { type: 'text'; text: string; marks?: Mark[] } | { type: 'hardBreak'; marks?: Mark[] }
 type Mark =
   | { type: 'bold' }
   | { type: 'color'; attrs: { color: PaletteRef } }
-  | { type: 'decoration'; attrs: { decoration: 'box' } }
+  | { type: 'box' }
   | { type: 'link'; attrs: { href: string } }
 ```
 
@@ -149,7 +106,7 @@ inserts an ordinary soft break, while Enter starts a following Body paragraph.
 Converting to Body retains its text. The Separator class's resolved text color
 determines the rules' color independently of any inline color mark on the label.
 
-The exact mark attributes are shown above: `bold` has no `attrs`; the other marks have exactly the stated `attrs`. Marks compose, but one mark type may occur only once per inline node. The fixed-palette example below is valid; arbitrary colors, font/size marks, independent underline marks, unknown marks, and relative links are not.
+The exact mark attributes are shown above: `bold` and `box` have no `attrs`; the other marks have exactly the stated `attrs`. Marks compose, but one mark type may occur only once per inline node. The fixed-palette example below is valid; arbitrary colors, font/size marks, independent underline marks, unknown marks, and relative links are not.
 
 ```json
 {
@@ -158,7 +115,7 @@ The exact mark attributes are shown above: `bold` has no `attrs`; the other mark
   "content": [
     {"type":"text","text":"Bold","marks":[{"type":"bold"}]},
     {"type":"text","text":" color","marks":[{"type":"color","attrs":{"color":"secondary:soft"}}]},
-    {"type":"text","text":" box","marks":[{"type":"decoration","attrs":{"decoration":"box"}}]},
+    {"type":"text","text":" box","marks":[{"type":"box"}]},
     {"type":"text","text":" link","marks":[{"type":"link","attrs":{"href":"https://example.com/"}}]},
     {"type":"hardBreak"}
   ]
@@ -167,7 +124,7 @@ The exact mark attributes are shown above: `bold` has no `attrs`; the other mark
 
 A link is a credential-free absolute HTTP(S) URL with a host and no control characters; `mailto:`, `tel:`, and relative paths are unsupported. Links inherit text color and render underlined. Links are valid in main text, text objects, table cells, and captions, not in Code or Drawing.
 
-IDs match `[A-Za-z0-9_-]{1,128}`; `__proto__`, `constructor`, and `prototype` are forbidden. All main block IDs (including V2 slide markers), object IDs, and rich-text/caption paragraph IDs are globally unique across the full document/composition. A Flow atom ID is a main-block ID and differs from its `objectId`. Create fresh IDs for new nodes; preserve the target paragraph/object ID when revising an existing target.
+IDs match `[A-Za-z0-9_-]{1,128}`; `__proto__`, `constructor`, and `prototype` are forbidden. All main block IDs, object IDs, and rich-text/caption paragraph IDs are globally unique across the full document/composition. A Flow atom ID is a main-block ID and differs from its `objectId`. Create fresh IDs for new nodes; preserve the target paragraph/object ID when revising an existing target.
 
 ## Tables
 
@@ -214,7 +171,7 @@ Saved object placement and body geometry are inside `layout`; V5 `markup.width`/
 
 - **Flow:** every Flow object has exactly one top-level Flow atom with its own distinct block ID. The atom supplies block position. Its object placement is `{type:'flow',x:number|'center'}` with no anchor or saved `y`. Numeric x is relative to the text-column left; `"center"` centers in that column. The object occupies real normal flow at its natural rendered height.
 - **Style spacing:** adjacent paragraphs and Flow blocks use the maximum of the preceding After and following Before. At the document edges, style spacing also collapses with the top/bottom page margin to their maximum. Object margins extend the body-and-caption layout footprint and stay additive, never collapsed. Explicit space blocks add their height to the surrounding collapsed style gap. Omitted Flow Before is zero; omitted Flow After follows Body.
-- **Float:** `anchorId` is `null` (document/first-slide top), a main paragraph, spacer, Flow atom, or (in V2 Slides) slide-break ID. For null/slide-top/ordinary paragraph/spacer anchors, x is page-space and y is a nonnegative anchor-relative offset. When anchored to a Flow atom, both x and y are signed offsets from the Flow owner's measured top-left. Floats may overlap one another and Flow objects. Main text uses only the interval left of an intersecting Float; it does not wrap around to its right.
+- **Float:** `anchorId` is `null` (document top), a main paragraph, spacer, or Flow atom. For null/ordinary paragraph/spacer anchors, x is page-space and y is a nonnegative anchor-relative offset. When anchored to a Flow atom, both x and y are signed offsets from the Flow owner's measured top-left. Floats may overlap one another and Flow objects. Main text uses only the interval left of an intersecting Float; it does not wrap around to its right.
 
 | Kind | Required fields (besides `id`, `kind`, `layout`) | Optional fields |
 | --- | --- | --- |
@@ -227,7 +184,7 @@ Saved object placement and body geometry are inside `layout`; V5 `markup.width`/
 | `html` | `html`, `screenshot`, `alt` | `caption`, `markup` (V5+) |
 
 - **Text:** `content` is a nonempty rich `TextDoc`. Optional `padding` is a nonnegative `Length`; omission means zero unless decorated, when presentation uses `0.75em`. Optional `decoration` is exactly `{kind:'left'|'box',color:PairColor}`. Omit it rather than storing null. Do not add `background` or `borderColor`.
-- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3+, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Native V1/V2 documents reject `color`; current `mote-agent-v7` proposals use native V8 grammar rather than a source-document-version-pinned candidate schema. A header row's bold appearance is weight 600 in V1–V3 and 700 in V4+.
+- **Table:** `content` follows the exact grammar above; optional caption belongs to its owner. In V3+, optional `color:PairColor` selects the same nine pairs as text decorations. Simple uses Soft for the header; Business uses Strong for its header band/border and Soft for stripes. Academic ignores color but retains it. Omission keeps Gray 4/Gray 5 for Simple and Secondary for Business. Native V1/V2 documents reject `color`; current `mote-agent-v7` proposals use native V9 grammar rather than a source-document-version-pinned candidate schema. A header row's bold appearance is weight 600 in V1–V3 and 700 in V4+.
 - **Image:** `src` is embedded image data, never a path or remote URL; `alt` is accessible descriptive text. Image dimensions derive from intrinsic ratio and layout width.
 - **Drawing:** positive layout height; `strokes` is an array of `{points:[[x,y],...],color,width}`. Each stroke has at least one finite point relative to the drawing top-left, a fixed-palette color, and positive document-pixel width. `labels` is an array of `{x,y,text,color,size}` with finite top-left-relative positions, fixed-palette color, and positive pixel font size. `background` is exactly `"gray6"` or `null`. Resizing scales point/label positions but preserves stroke widths and label sizes.
 - **Formula:** `latex` is the source string rendered by KaTeX; there is no saved height. Candidate LaTeX has no `$`/`$$` delimiters.
@@ -272,11 +229,11 @@ For an individual-object candidate, omit `markup` so Mote preserves the
 current same-kind object's value. A complete segment object copied from the
 document must carry any existing markup it intends to retain. Native V1–V4
 documents reject object `markup`; current `mote-agent-v7` proposals use native
-V8 grammar rather than a source-document-version-pinned candidate schema.
+V9 grammar rather than a source-document-version-pinned candidate schema.
 
 ## Complete candidate examples
 
-These are current `mote-agent-v7` candidate result values, not complete cloud documents; candidate payloads use native V8 grammar. They are not pinned to a source document revision or native version. The task's reserved target determines which example shape applies. Preserve the target's ID/kind/layout rules from `authoring.md`. A result has exactly one of `content`, `object`, or `segment`, plus required `summary` and optional `sources` (each source is `{title:string,url:absolute HTTPS URL}`). An individual HTML object result may also have root `screenshotPath`; a segment result may have root `screenshotPaths` keyed by HTML object ID. These path fields are delivery metadata, not native object fields, and the submission's `assets` must contain the actual PNG bytes. Do not include `authoring`.
+These are current `mote-agent-v7` candidate result values, not complete cloud documents; candidate payloads use native V9 grammar. They are not pinned to a source document revision or native version. The task's reserved target determines which example shape applies. Preserve the target's ID/kind/layout rules from `authoring.md`. A result has exactly one of `content`, `object`, or `segment`, plus required `summary` and optional `sources` (each source is `{title:string,url:absolute HTTPS URL}`). An individual HTML object result may also have root `screenshotPath`; a segment result may have root `screenshotPaths` keyed by HTML object ID. These path fields are delivery metadata, not native object fields, and the submission's `assets` must contain the actual PNG bytes. Do not include `authoring`.
 
 ### Main-text candidate
 
@@ -347,7 +304,7 @@ This is also a complete native object result. In an existing-object revision, `t
     "layout": {"width":280,"placement":{"type":"float","anchorId":"p-1","x":648,"y":16}},
     "content": {"type":"doc","content":[
       {"type":"paragraph","attrs":{"id":"box-p-1","semantic":"body"},"content":[
-        {"type":"text","text":"A useful note","marks":[{"type":"bold"},{"type":"decoration","attrs":{"decoration":"box"}}]}
+        {"type":"text","text":"A useful note","marks":[{"type":"bold"},{"type":"box"}]}
       ]}
     ]},
     "padding":{"value":0.75,"unit":"em"},
@@ -381,7 +338,7 @@ An individual HTML object result keeps screenshot path metadata at the candidate
 
 In agent protocol v7 only, `segment.objects` may contain bare safe object-ID strings alongside complete objects. A string reuses an object owned by the reservation; it is not a native document field or an asset URL. The server stores it unchanged. The owner's browser expands it to an exact deep copy from the working document before normal full validation/application. No implicit Flow blocks, coordinate correction, field merging, or snapshot fallback occurs. Changed/new objects remain complete native objects; strings cannot have screenshot upload mappings. All main blocks and transfer fields are still supplied. Use `helpers/extract.mjs` to start from a document and task description; see the copy-edit-submit workflow in `authoring.md`.
 
-A segment candidate is a complete native composition in a transfer-only envelope. Version 1 contains ordinary main blocks and owned objects; version 2 additionally permits native `slideBreak` atoms and is accepted only for a Slides document. The example below uses version 1. For a target spanning slides, return version 2 and retain every internal boundary in order. The target's leading marker may be omitted; Mote restores it automatically. Keep marker-anchored Floats anchored to their marker, not a placeholder paragraph. Mote preserves the original boundary IDs and remaps their Float anchors at application. An empty candidate clears content while retaining the slides. Do not change slide height or unrelated slide structure. This is not the separate whole-slide clipboard payload. `geometry`, `anchorTops`, and `originTop` are required transfer data, not saved document fields or `layout` fields. `geometry` maps object IDs to measured page-space body boxes `{x,y,width,height}` with exactly those four fields; `x` and `y` are measured absolute page coordinates, not Float anchor offsets. `anchorTops` maps top-level block IDs to their measured absolute document y; a partial spacer's value is the top of its selected slice. `originTop` is the absolute document y of the canonical start point. Use the same coordinate system for all three.
+A segment candidate is a complete native composition in a transfer-only envelope. Use `version:1`. `geometry`, `anchorTops`, and `originTop` are required transfer data, not saved document fields or `layout` fields. `geometry` maps object IDs to measured page-space body boxes `{x,y,width,height}` with exactly those four fields; `x` and `y` are measured absolute page coordinates, not Float anchor offsets. `anchorTops` maps top-level block IDs to their measured absolute document y; a partial spacer's value is the top of its selected slice. `originTop` is the absolute document y of the canonical start point. Use the same coordinate system for all three.
 
 When the composition is inserted/replaced, absolute vertical measurements are translated by `insertionTop + (sourceY - originTop)`. For a Float whose `layout.placement.anchorId` names a block inside the payload, its saved `layout.placement.y` remains relative to that anchor; do not replace that offset with geometry's absolute y. A Flow object's position is its Flow atom; Float annotations anchored to it use signed x/y offsets from the Flow object's top-left. Keep every anchor inside `content`, and keep `geometry` IDs inside `objects` and `anchorTops` IDs inside top-level `content`.
 
@@ -419,4 +376,4 @@ The segment `content` array may be empty only for an intentional empty replaceme
 
 ## Validation and practical limits
 
-Native document and proposal validation are separate. Native documents use strict V1–V8 closed schemas; `mote-agent-v7` proposal delivery uses the current native V8 candidate grammar without a document/target/session input. Unknown fields are rejected; do not normalize input through an editor schema before validating it. There is no arbitrary extension bag, custom colors, custom nodes/marks, or agent-side legacy conversion. Retained legacy task snapshots and histories are recovery-only and are not converted; current v7 task proposals carry no document revision, native document version, or agent origin. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and per-Drawing/per-markup caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).
+Native document and proposal validation are separate. Native documents use strict V1–V9 closed schemas; `mote-agent-v7` proposal delivery uses the current native V9 candidate grammar without a document/target/session input. Unknown fields are rejected; do not normalize input through an editor schema before validating it. There is no arbitrary extension bag, custom colors, custom nodes/marks, or agent-side legacy conversion. Retained legacy task snapshots and histories are recovery-only and are not converted; current v7 task proposals carry no document revision, native document version, or agent origin. Common bounds include 100,000 document nodes, depth 100, 8 Mi characters per string (except `alt` up to 4096 characters and `authoring.aiModel` up to 256), 10 MiB decoded per image, and per-Drawing/per-markup caps of 10,000 strokes, 100,000 points total, 1,000 labels, and 4,096 characters per label. Candidate HTTP/body limits and screenshot totals are described in [submission.md](submission.md).

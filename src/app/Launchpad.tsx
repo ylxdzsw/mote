@@ -16,8 +16,10 @@ function usePopupPosition(ref: RefObject<HTMLDivElement | null>, point: Launchpa
   return { position: 'fixed', zIndex: 120, ...position }
 }
 
+export type LaunchpadTool = Extract<CreationTool, string> | 'image'
+
 interface TileEntry {
-  kind: Exclude<CreationTool, object> | 'image'
+  kind: LaunchpadTool
   label: string
   icon: ReactElement
 }
@@ -39,19 +41,17 @@ const TILES: TileEntry[] = [
   { kind: 'code',      label: 'Code',       icon: <Icon path="m7 7-5 5 5 5M17 7l5 5-5 5M14 4l-4 16" /> },
   { kind: 'formula',     label: 'Formula',     icon: <Icon path="M5 5h14M5 19h14M7 5v14M17 5v14m-7-10 4 3-4 3" /> },
   { kind: 'html',      label: 'HTML widget', icon: <Icon path="m8 6-5 6 5 6M16 6l5 6-5 6M14 3l-4 18" /> },
-  { kind: 'slideBreak', label: 'Slide break', icon: <Icon path="M3 3h18v6M3 9V3M3 15v6h18v-6M2 12h4m3 0h6m3 0h4" /> },
 ]
 
 interface Props {
   point: LaunchpadPoint | null
   /** Header Add button: anchor under the button rather than at a fixed corner. */
   anchor?: LaunchpadPoint | null
-  onChoose: (kind: string) => void
+  onChoose: (kind: LaunchpadTool) => void
   onClose: () => void
-  slides?: boolean
 }
 
-export function Launchpad({ point, anchor, onChoose, onClose, slides = false }: Props) {
+export function Launchpad({ point, anchor, onChoose, onClose }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const origin = point ?? anchor ?? null
   const open = !!origin
@@ -92,9 +92,9 @@ export function Launchpad({ point, anchor, onChoose, onClose, slides = false }: 
       <button aria-label="Close" className="launchpad-close" onClick={onClose}>×</button>
     </div>
     <div className="launchpad-grid">
-      {TILES.filter(tile => tile.kind !== 'slideBreak' || slides).map(tile =>
-        <button key={String(tile.kind)} className="launchpad-tile"
-            onClick={() => onChoose(String(tile.kind))}>
+      {TILES.map(tile =>
+        <button key={tile.kind} className="launchpad-tile"
+            onClick={() => onChoose(tile.kind)}>
             {tile.icon}<span>{tile.label}</span>
           </button>)}
     </div>

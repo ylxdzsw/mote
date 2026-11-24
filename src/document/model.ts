@@ -3,6 +3,7 @@ import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 import { objectPagePosition, placementAtPoint, reconcileFlowContent, type FlowGeometryOptions } from './flow'
 import { defaultHue, defaultSecondaryHue } from '../theme/colors'
 import { createExampleDocument, type ExampleOptions } from './examples'
+import { DOCUMENT_VERSION } from '../../shared/document.mjs'
 
 export const blockClasses = ['title', 'heading', 'subheading', 'body', 'caption', 'list', 'separator'] as const
 export const themeBlockClasses = [...blockClasses, 'table', 'formula', 'code'] as const
@@ -38,7 +39,8 @@ export interface Theme {
   paragraphs: Partial<Record<BlockClass, Partial<BlockStyle>>> & { separator?: Partial<BlockStyle> & { lineThickness?: ThemeLength } }
   objects: { table?: Partial<BlockStyle>; code?: Partial<Pick<BlockStyle, 'size' | 'weight' | 'lineHeight' | 'letterSpacing'>>; formula?: Partial<Pick<BlockStyle, 'size' | 'color'>> }
 }
-export const defaultTheme: Theme = {
+type CurrentTheme = Theme & Required<Pick<Theme, 'justifyText' | 'firstLineIndent'>>
+export const defaultTheme: CurrentTheme = {
   appearance: { mode: 'light', primaryHue: defaultHue, secondaryHue: defaultSecondaryHue }, autospace: true,
   flow: { spaceBefore: em(1.5), spaceAfter: em(1.5) },
   defaults: { family: 'sans', size: 16, color: 'gray2', weight: 400, lineHeight: em(1.5), spaceBefore: em(1), spaceAfter: em(1), letterSpacing: px(0) },
@@ -51,6 +53,7 @@ export const defaultTheme: Theme = {
     separator: { color: 'gray4' },
   },
   objects: { table: { size: em(1) }, formula: {}, code: { size: em(.875), lineHeight: em(1.375) } },
+  justifyText: false, firstLineIndent: false,
 }
 export type Margins = { top: number; right: number; bottom: number; left: number }
 export type ObjectPlacement = { type: 'flow'; x: number | 'center' } | { type: 'float'; anchorId: string | null; x: number; y: number }
@@ -148,13 +151,14 @@ export function captionContent(text = ''): JSONContent {
 
 export type DocumentLanguage = 'en' | 'zh-Hans'
 
-export interface MoteDocument {
+type NativeVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+export interface MoteDocument<V extends NativeVersion = NativeVersion> {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+  version: V
   id: string
   language: DocumentLanguage
-  page: { width: number; margins: Margins; slideHeight?: number }
-  theme: Theme
+  page: { width: number; margins: Margins; slideHeight?: V extends 1 | 9 ? never : number }
+  theme: V extends 9 ? CurrentTheme : Theme
   content: JSONContent
   objects: FloatingObject[]
   authoring?: { notes: string[]; aiModel?: string }
@@ -196,8 +200,8 @@ export function tableContent(rows = [['', ''], ['', '']]): JSONContent {
   })) }] }
 }
 
-export function createBlankDocument(): MoteDocument {
-  return { format: 'mote', version: 8, id: crypto.randomUUID(), language: 'en', page: { width: 960,
+export function createBlankDocument(): MoteDocument<9> {
+  return { format: 'mote', version: DOCUMENT_VERSION, id: crypto.randomUUID(), language: 'en', page: { width: 960,
     margins: { top: 48, right: 32, bottom: 48, left: 32 } }, theme: structuredClone(defaultTheme),
     content: { type: 'doc', content: [paragraph('')] }, objects: [] }
 }
@@ -214,7 +218,7 @@ export function isPristineBlankDocument(document: MoteDocument, defaults = { mod
     && JSON.stringify(document.theme) === JSON.stringify({ ...defaultTheme, appearance: { ...defaultTheme.appearance, mode: defaults.mode } })
 }
 
-export function createDocument(options: ExampleOptions = {}): MoteDocument {
+export function createDocument(options: ExampleOptions = {}): MoteDocument<9> {
   return createExampleDocument(options)
 }
 

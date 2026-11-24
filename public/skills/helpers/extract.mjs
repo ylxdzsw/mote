@@ -68,7 +68,7 @@ export function extractCandidate(task, envelope) {
   })
   const { geometry, anchorTops, originTop } = task.geometry
   return { summary, segment: {
-    version: document.page.slideHeight === undefined ? 1 : 2, type: 'segment', content, objects: copiedObjects,
+    version: 1, type: 'segment', content, objects: copiedObjects,
     geometry: structuredClone(geometry), anchorTops: structuredClone(anchorTops), originTop,
   } }
 }

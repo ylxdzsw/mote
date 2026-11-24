@@ -4,7 +4,7 @@ import { Plugin, TextSelection, type EditorState } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 export const atDocumentTail = (state: EditorState) => state.selection instanceof GapCursor
-  && (state.selection.head === state.doc.content.size || state.selection.$head.nodeAfter?.type.name === 'slideBreak')
+  && state.selection.head === state.doc.content.size
 
 export const DocumentTail = Extension.create({
   name: 'documentTail',

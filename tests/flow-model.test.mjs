@@ -26,6 +26,8 @@ const figure = { id: 'figure', kind: 'image', layout: { width: 200, placement: {
   src: 'data:image/png;base64,iVBORw0KGgo=', alt: 'Figure', caption: { content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'caption-text' }, content: [{ type: 'text', text: 'Figure caption' }] }] }, width: 230 } }
 const annotation = { id: 'annotation', kind: 'code', layout: { width: 40, placement: { type: 'float', anchorId: 'flow-block', x: -20, y: -10 } }, source: 'x', language: 'text' }
 const legacyTheme = structuredClone(defaultTheme)
+delete legacyTheme.justifyText
+delete legacyTheme.firstLineIndent
 delete legacyTheme.paragraphs.separator
 const doc = () => ({ format: 'mote', version: 1, language: 'en', id: 'document', page: { width: 800, margins: { top: 20, left: 40, right: 40, bottom: 20 } }, theme: structuredClone(legacyTheme),
   content: { type: 'doc', content: [p('before'), flowBlock('figure', 'flow-block'), p('after')] }, objects: structuredClone([figure, annotation]) })
@@ -388,14 +390,14 @@ test('segment and paragraph clipboards retain target slots without transferring 
   }
 })
 
-test('all four examples have native objects, owned captions, and the chosen language and layout', () => {
-  for (const language of ['en', 'zh-Hans']) for (const slideHeight of [undefined, 540]) {
-    const example = createDocument({ language, slideHeight })
+test('both examples have native objects, owned captions, and the chosen language', () => {
+  for (const language of ['en', 'zh-Hans']) {
+    const example = createDocument({ language })
     const objects = example.objects
     assert.equal(example.language, language)
-    assert.equal(example.version, 8)
-    assert.equal(example.page.slideHeight, slideHeight)
-    assert.equal(example.content.content.filter(block => block.type === 'slideBreak').length, slideHeight ? 9 : 0)
+    assert.equal(example.version, 9)
+    assert.equal(example.page.slideHeight, undefined)
+    assert.equal(example.content.content.filter(block => block.type === 'slideBreak').length, 0)
     assert.deepEqual([...new Set(objects.map(object => object.kind))].sort(), ['code', 'drawing', 'formula', 'html', 'image', 'table', 'text'])
     assert.equal(objects.filter(object => object.kind === 'image').every(object => !!object.caption), true)
     assert.equal(objects.filter(object => object.kind === 'table').every(object => !!object.caption), true)
@@ -429,7 +431,7 @@ test('V1 loading validates without rewriting input; unknown versions and fields 
   const source = createDocument(), before = JSON.stringify(source)
   assert.equal(initializeDocument(source), source)
   assert.equal(JSON.stringify(source), before)
-  for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 9 }, { ...source, extra: true }]) {
+  for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 10 }, { ...source, extra: true }]) {
     const raw = JSON.stringify(invalid)
     assert.throws(() => initializeDocument(invalid))
     assert.equal(JSON.stringify(invalid), raw)

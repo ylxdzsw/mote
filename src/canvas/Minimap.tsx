@@ -23,22 +23,10 @@ interface Bookmark {
   button: HTMLButtonElement
   y: number
   scrollY: number
-  endY: number | null
+  endY: number
 }
 
 function landmarks(source: HTMLElement) {
-  if (source.hasAttribute('data-slides')) {
-    const slides = [{ target: source, paragraphs: [] as HTMLElement[] }]
-    for (const block of source.querySelectorAll<HTMLElement>('.main-text :is(.main-paragraph, [data-slide-break]):not(.ai-original-hidden)')) {
-      if (block.hasAttribute('data-slide-break')) slides.push({ target: block, paragraphs: [] })
-      else slides.at(-1)!.paragraphs.push(block)
-    }
-    return slides.map(({ target, paragraphs }, index) => {
-      const first = (semantic: string) => paragraphs.find(paragraph => paragraph.dataset.semantic === semantic && paragraph.textContent?.trim())
-      const label = first('title') ?? first('heading')
-      return { target, endTarget: null, text: label?.textContent?.trim() || `Slide ${index + 1}`, semantic: 'slide' }
-    })
-  }
   const blocks = [...source.querySelectorAll<HTMLElement>('.main-text :is(.main-paragraph, [data-flow], [data-spacer], [data-space-preview])')]
     .filter(block => !block.closest('.ai-original-hidden'))
   const paragraphs = blocks.filter(block => block.classList.contains('main-paragraph'))
@@ -75,7 +63,6 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
     let frame = 0
     let dirty = true
     let scrollHeight = 0
-    let documentBottom = 0
     let bookmarks: Bookmark[] = []
 
     function paint() {
@@ -105,7 +92,6 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
         const size = nativeSize(source)
         const zoom = rect.width / size.width
         const pageTop = (rect.top - viewportTop() + viewport.scrollTop) / zoom
-        documentBottom = pageTop * zoom + rect.height
         const width = source.classList.contains('is-reading') ? size.width : Math.max(size.width, source.scrollWidth)
         const x = (rail.clientWidth - 12) / width
         const height = viewport.scrollHeight / zoom
@@ -122,7 +108,6 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
         }
         miniature.style.transform = `translate(6px, ${pageTop * y}px) scale(${x}, ${y})`
 
-        navigation.setAttribute('aria-label', source.hasAttribute('data-slides') ? 'Slide bookmarks' : 'Title and heading bookmarks')
         const existing = new Map(bookmarks.map(bookmark => [bookmark.target, bookmark.button]))
         bookmarks = landmarks(source).map(({ target, endTarget, semantic, text }) => {
           let button = existing.get(target)
@@ -133,7 +118,7 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
             button.onpointerdown = event => event.preventDefault()
             button.onclick = () => {
               const zoom = source.getBoundingClientRect().width / nativeSize(source).width
-              const before = source.hasAttribute('data-slides') ? 0 : parseFloat(getComputedStyle(target).marginTop)
+              const before = parseFloat(getComputedStyle(target).marginTop)
               viewport.scrollTop = Math.ceil(viewport.scrollTop + target.getBoundingClientRect().top - viewportTop() - before * zoom)
             }
           }
@@ -143,8 +128,8 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
           button.setAttribute('aria-label', `Go to ${semantic}: ${text}`)
           const scrollY = target.getBoundingClientRect().top - rect.top + pageTop * zoom
           // Content boxes exclude outer theme margins; Flow includes its caption,
-          // and authored spacers remain content. Slides keep their full bounds.
-          const endY = endTarget ? endTarget.getBoundingClientRect().bottom - rect.top + pageTop * zoom : null
+          // and authored spacers remain content.
+          const endY = endTarget.getBoundingClientRect().bottom - rect.top + pageTop * zoom
           return { target, button, y: scrollY / zoom * y, scrollY, endY }
         }).sort((a, b) => a.y - b.y)
         for (const [target, button] of existing) {
@@ -169,10 +154,9 @@ export function Minimap({ stage, sheet, canvasId, sizing, nativeScroll = false }
       rail.dataset.scrollable = String(maximum > 0)
 
       const offset = progress * overflow
-      const visible = bookmarks.filter(({ button, y, scrollY, endY }, index) => {
+      const visible = bookmarks.filter(({ button, y, scrollY, endY }) => {
         button.hidden = y < offset || y > offset + rail.clientHeight
-        const end = endY ?? bookmarks[index + 1]?.scrollY ?? documentBottom
-        const inView = Math.min(end, viewport.scrollTop + viewport.clientHeight) > Math.max(scrollY, viewport.scrollTop)
+        const inView = Math.min(endY, viewport.scrollTop + viewport.clientHeight) > Math.max(scrollY, viewport.scrollTop)
         button.toggleAttribute('data-in-view', inView)
         if (inView) button.setAttribute('aria-description', 'In view')
         else button.removeAttribute('aria-description')

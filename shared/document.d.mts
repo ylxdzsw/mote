@@ -1,7 +1,7 @@
 import type { JSONContent } from '@tiptap/core'
 import type { FloatingObject, MoteDocument, ObjectMarkup } from '../src/document/model'
 
-export const DOCUMENT_VERSION: 8
+export const DOCUMENT_VERSION: 9
 export const DOCUMENT_VERSIONS: readonly number[]
 export class DocumentFormatError extends Error {
   path: string
@@ -9,7 +9,7 @@ export class DocumentFormatError extends Error {
   constructor(message: string, path?: string, code?: string)
 }
 export function validateDocument(value: unknown): MoteDocument
-export function loadDocument(value: unknown): MoteDocument
+export function loadDocument(value: unknown): MoteDocument<9>
 export function migrationBreaking(version: number): boolean
 export function publishDocument(value: MoteDocument): MoteDocument
 export function validateObject(value: unknown, options?: { allowMissingScreenshot?: boolean; version?: number }): FloatingObject

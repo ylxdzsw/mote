@@ -2196,3 +2196,9 @@ Group selection shortcuts and Assistant privacy guidance at the end of the right
 ## 2026-11-23 — Distinguish text structure from authored vertical space
 
 Make formatting marks and spacer brackets independent browser-local editing guides: inspecting a composition need not put dots between its words. Paint text marks at native character ranges rather than inserting characters or wrapping spaces in spans, which can change shaping and rounding near a line boundary. A gutter bracket identifies an authored spacer without shading objects placed over it. Neither guide belongs to the document or its readers.
+
+## 2026-11-24 — One continuous document layout
+
+Retire Slides rather than maintaining a second authoring and presentation model. Native V9 preserves editable content, not legacy deck framing: reuse the deterministic estimate-only Slides-Off conversion so browser, server and import agree. The only intended visual loss is the former slide layout. Box is a presence-only inline mark; the three document typography switches are explicit because omission conveys no inheritance there.
+
+Treat public sharing separately from schema compatibility. A migration that materially changes what an owner published can permanently revoke existing links to affected stored documents before the new reader serves them. V9 revokes deck links (cropped overflow may become visible); continuous links survive. Re-sharing a converted deck is a fresh owner action with a new URL.

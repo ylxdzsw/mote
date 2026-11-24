@@ -178,12 +178,6 @@ input[type='color'] { width: 36px; height: 29px; border: 1px solid var(--ui-bord
 .reading-canvas .stage { padding-inline: 0; }
 .reading-canvas .sheet-footprint { overflow-x: clip; }
 .reading-canvas .sheet-footprint > .sheet { left: calc((100% - var(--scaled-page-width)) * var(--crop-left)); }
-.present-button { position: absolute; z-index: 3; top: 12px; right: 16px; min-height: 32px; padding: 0 12px; background: var(--ui-surface); color: var(--ui-muted); border: 1px solid var(--ui-border); opacity: 0; pointer-events: none; transition: opacity .2s; }
-.present-button:is(.is-visible, :focus-visible, :hover) { opacity: 1; pointer-events: auto; }
-.reading-canvas.is-presenting .stage { display: flex; align-items: center; justify-content: center; padding: 0; overflow: clip; touch-action: manipulation; }
-.reading-canvas.is-presenting :is(.stage, .text-content, .code-header) { cursor: var(--presentation-cursor); }
-.is-presenting .canvas-scroll-floor { width: 100%; }
-.reading-canvas.is-presenting .sheet-footprint { overflow: clip; }
 /* Readers use the page viewport; capture surfaces and the editor retain their own shell. */
 html:has(.reader-page), body:has(.reader-page), #root:has(.reader-page) { height: auto; overflow: visible; overscroll-behavior: auto; }
 html:has(.reader-page) { scrollbar-gutter: stable; }
@@ -195,12 +189,8 @@ html:has(.reader-page) { scrollbar-gutter: stable; }
 .native-scroll .sheet-footprint { overflow: clip; }
 .native-scroll .object-caption { touch-action: auto; }
 .native-scroll > .minimap-pane { position: fixed; left: 0; top: 0; height: 100dvh; }
-.native-scroll > .present-button { position: fixed; }
-html:has(.native-scroll.is-presenting) { overflow: hidden; }
-.native-scroll.is-presenting { position: fixed; inset: 0; z-index: 20; padding: 0; }
-.native-scroll.is-presenting .stage { height: 100dvh; padding: 0; overflow: clip; }
 @media print {
-  .reader-page .minimap-pane, .reader-page .present-button, .reader-page [data-code-copy], .reader-page > :not(.workspace) { display: none !important; }
+  .reader-page .minimap-pane, .reader-page [data-code-copy], .reader-page > :not(.workspace) { display: none !important; }
   .app.reader-page, .reader-page .workspace, .native-scroll, .native-scroll .stage { position: static !important; display: block !important; height: auto !important; min-height: 0; padding: 0 !important; overflow: visible !important; }
   html:has(.reader-page) { overflow: visible !important; scrollbar-gutter: auto; }
   .native-scroll .sheet-footprint { width: max-content !important; height: auto !important; overflow: visible; margin: 0; }

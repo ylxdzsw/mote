@@ -12,25 +12,32 @@ const { currentPlacement } = await server.ssrLoadModule('/src/ai/reservations.ts
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
 
 function legacyDocument(document, version) {
-  const value = structuredClone(document)
+  const value = JSON.parse(JSON.stringify(document, (key, item) => item?.type === 'box' ? { type: 'decoration', attrs: { decoration: 'box' } } : item))
   value.version = version
-  delete value.theme.paragraphs.separator
+  delete value.theme.justifyText
+  delete value.theme.firstLineIndent
+  if (version < 8) delete value.theme.paragraphs.separator
   return value
 }
 
-test('loading migrates V1 to V8 without mutating input or changing current weights', () => {
-  const v1 = legacyDocument(createDocument(), 1), before = structuredClone(v1)
+function withoutSeparator(document) {
+  delete document.theme.paragraphs.separator
+  return document
+}
+
+test('loading migrates V1 to V9 without mutating input or changing current weights', () => {
+  const current = withoutSeparator(createDocument()), v1 = legacyDocument(current, 1), before = structuredClone(v1)
   assert.equal(migrationBreaking(1), true)
   const loaded = loadDocument(v1)
   assert.deepEqual(v1, before)
-  assert.deepEqual(loaded, { ...before, version: 8 })
+  assert.deepEqual(loaded, current)
   validateDocument(v1)
 })
 
 test('V3 table color pairs round-trip while V2 migrates without recoloring', async () => {
-  const v2 = legacyDocument(createDocument(), 2), before = structuredClone(v2)
+  const current = withoutSeparator(createDocument()), v2 = legacyDocument(current, 2), before = structuredClone(v2)
   const document = loadDocument(v2), table = document.objects.find(object => object.kind === 'table')
-  assert.deepEqual(document, { ...before, version: 8 })
+  assert.deepEqual(document, current)
   assert.equal(migrationBreaking(2), true)
   assert.deepEqual(v2, before)
   for (const color of ['primary', 'secondary', 'red', 'amber', 'green', 'blue', 'violet', 'pink', 'gray4']) {
@@ -49,7 +56,6 @@ test('V4 restricts typography to regular/bold and migrates sparse legacy weights
   assert.equal(document.version, DOCUMENT_VERSION)
   for (const name of ['title', 'heading', 'subheading']) assert.equal(document.theme.paragraphs[name].weight, 700)
   assert.equal(migrationBreaking(3), true)
-  assert.equal(migrationBreaking(4), false)
   const legacy = legacyDocument(document, 3)
   legacy.theme.defaults.weight = 500
   legacy.theme.paragraphs.title.weight = 600
@@ -62,7 +68,8 @@ test('V4 restricts typography to regular/bold and migrates sparse legacy weights
   for (const version of [1, 2, 3]) validateServerDocument({ ...legacy, version })
   assert.throws(() => validateServerDocument({ ...legacy, version: 4 }))
   const loaded = loadDocument(legacy), expected = structuredClone(before)
-  expected.version = 8
+  expected.version = 9
+  Object.assign(expected.theme, { justifyText: false, firstLineIndent: false })
   expected.theme.defaults.weight = 400
   expected.theme.paragraphs.title.weight = 700
   expected.theme.paragraphs.body.weight = 400
@@ -76,11 +83,9 @@ test('V4 restricts typography to regular/bold and migrates sparse legacy weights
 })
 
 test('V5 markup is closed, owner-bound, preserved by patches and candidates, and non-breaking', async () => {
-  const legacy = legacyDocument(createDocument(), 4), before = structuredClone(legacy)
+  const current = withoutSeparator(createDocument()), legacy = legacyDocument(current, 4), before = structuredClone(legacy)
   const document = loadDocument(legacy)
-  assert.equal(migrationBreaking(4), false)
-  assert.equal(migrationBreaking(5), false)
-  assert.deepEqual(document, { ...before, version: 8 })
+  assert.deepEqual(document, current)
   assert.deepEqual(legacy, before)
   const markup = { width: 300, height: 150,
     strokes: [{ points: [[0, 0], [300, 150]], color: 'red', width: 2 }],
@@ -115,7 +120,7 @@ test('V5 markup is closed, owner-bound, preserved by patches and candidates, and
   }
 })
 
-test('V1 has one strict browser/server contract and initialization never strips input', () => {
+test('native documents have one strict browser/server contract and initialization never strips input', () => {
   const document = createDocument(), before = structuredClone(document)
   assert.equal(loadDocument(document), document)
   initializeDocument(document)
@@ -147,10 +152,10 @@ test('V1 has one strict browser/server contract and initialization never strips 
   }
 })
 
-test('V6 Justify is optional, boolean, version-gated, and survives native Slides round-trip', async () => {
+test('Justify is version-gated, boolean, and survives native round-trip', async () => {
   const blank = createBlankDocument()
   assert.equal(blank.version, DOCUMENT_VERSION)
-  assert.equal('justifyText' in blank.theme, false)
+  assert.equal(blank.theme.justifyText, false)
   validateDocument(blank)
 
   for (const version of [1, 2, 3, 4, 5]) {
@@ -164,32 +169,30 @@ test('V6 Justify is optional, boolean, version-gated, and survives native Slides
   }
 
   const legacy = legacyDocument(blank, 5), before = structuredClone(legacy)
-  assert.equal(migrationBreaking(5), false)
-  assert.deepEqual(loadDocument(legacy), { ...before, version: 8 })
+  assert.deepEqual(loadDocument(legacy), withoutSeparator(blank))
   assert.deepEqual(legacy, before)
 
-  const slides = createDocument({ slideHeight: 540 })
-  slides.theme.justifyText = true
-  validateServerDocument(slides)
-  assert.deepEqual(await decodeMote(new File([await encodeMote(slides)], 'justify-slides.mote')), slides)
+  const current = createDocument()
+  current.theme.justifyText = true
+  validateServerDocument(current)
+  assert.deepEqual(await decodeMote(new File([await encodeMote(current)], 'justify.mote')), current)
 })
 
 test('V7 first-line indent is optional, boolean, version-gated, and preserved on load and native export', async () => {
   const blank = createBlankDocument()
   assert.equal(blank.version, DOCUMENT_VERSION)
-  assert.equal('firstLineIndent' in blank.theme, false)
+  assert.equal(blank.theme.firstLineIndent, false)
   for (const version of [1, 2, 3, 4, 5, 6]) {
     const old = legacyDocument(blank, version), before = structuredClone(old)
-    assert.deepEqual(loadDocument(old), { ...before, version: DOCUMENT_VERSION })
+    assert.deepEqual(loadDocument(old), withoutSeparator(structuredClone(blank)))
     assert.deepEqual(old, before)
     assert.throws(() => validateDocument({ ...old, theme: { ...old.theme, firstLineIndent: false } }))
   }
-  assert.equal(migrationBreaking(6), false)
   for (const firstLineIndent of [null, 0, 2, 'true']) {
     assert.throws(() => validateServerDocument({ ...blank, theme: { ...blank.theme, firstLineIndent } }))
   }
-  for (const firstLineIndent of [false, true]) for (const slideHeight of [undefined, 540]) {
-    const document = createDocument({ language: 'zh-Hans', slideHeight })
+  for (const firstLineIndent of [false, true]) {
+    const document = createDocument({ language: 'zh-Hans' })
     document.theme.firstLineIndent = firstLineIndent
     document.theme.justifyText = true
     validateServerDocument(document)
@@ -206,7 +209,7 @@ test('V8 separator is version-gated, main/text-only, and has a positive theme li
   validateContent(content, 'main')
   validateContent(content, 'text')
   validateContent({ type: 'doc', content: [paragraph('empty-separator', 'separator')] }, 'main')
-  for (const version of DOCUMENT_VERSIONS.slice(0, -1)) {
+  for (const version of DOCUMENT_VERSIONS.filter(version => version < 8)) {
     assert.throws(() => validateContent(content, 'main', { version }))
     assert.throws(() => validateContent(content, 'text', { version }))
   }
@@ -216,7 +219,7 @@ test('V8 separator is version-gated, main/text-only, and has a positive theme li
   ] }] }] }, 'table'))
 
   const document = createDocument()
-  assert.equal(document.version, 8)
+  assert.equal(document.version, DOCUMENT_VERSION)
   const mainParagraph = document.content.content.find(block => block.type === 'paragraph')
   mainParagraph.attrs.semantic = 'separator'
   mainParagraph.content = structuredClone(separator.content)
@@ -241,7 +244,7 @@ test('V8 separator is version-gated, main/text-only, and has a positive theme li
     { ...document.theme, paragraphs: { ...document.theme.paragraphs, body: { lineThickness: { value: 1, unit: 'px' } } } },
   ]) assert.throws(() => validateServerDocument({ ...document, theme }))
 
-  for (const version of DOCUMENT_VERSIONS.slice(0, -1)) {
+  for (const version of DOCUMENT_VERSIONS.filter(version => version < 8)) {
     const oldMain = legacyDocument(createBlankDocument(), version)
     oldMain.content.content[0].attrs.semantic = 'separator'
     assert.throws(() => validateServerDocument(oldMain))
@@ -253,8 +256,7 @@ test('V8 separator is version-gated, main/text-only, and has a positive theme li
 
   const oldNested = legacyDocument(createBlankDocument(), 7)
   const beforeMigration = structuredClone(oldNested)
-  assert.equal(migrationBreaking(7), false)
-  assert.deepEqual(loadDocument(oldNested), { ...beforeMigration, version: 8 })
+  assert.deepEqual(loadDocument(oldNested), { ...beforeMigration, version: 9, theme: { ...beforeMigration.theme, justifyText: false, firstLineIndent: false } })
   assert.deepEqual(oldNested, beforeMigration)
   const anchorId = oldNested.content.content[0].attrs.id
   const nested = { type: 'doc', content: [paragraph('nested-separator', 'separator')] }
@@ -270,15 +272,78 @@ test('V8 separator is version-gated, main/text-only, and has a positive theme li
   assert.deepEqual(validateProposalCandidate({ segment, summary: 'Separator segment' }).segment, segment)
 })
 
+test('V9 closes retired layout and mark shapes and requires both typography switches', () => {
+  const doc = createBlankDocument(), legacy = legacyDocument(doc, 8)
+  for (const version of DOCUMENT_VERSIONS) assert.equal(migrationBreaking(version), version < 9)
+  for (const key of ['justifyText', 'firstLineIndent']) {
+    const theme = { ...doc.theme }; delete theme[key]
+    assert.throws(() => validateDocument({ ...doc, theme }), new RegExp(key))
+  }
+  const marked = marks => ({ ...doc.content, content: [{ ...doc.content.content[0], content: [{ type: 'hardBreak', marks }] }] })
+  for (const mark of [{ type: 'decoration', attrs: { decoration: 'box' } }, { type: 'box', attrs: {} }]) {
+    assert.throws(() => loadDocument({ ...doc, content: marked([mark]) }), DocumentFormatError)
+  }
+  assert.throws(() => validateDocument({ ...doc, content: marked([{ type: 'box' }, { type: 'box' }]) }), /duplicate/)
+  assert.throws(() => loadDocument({ ...legacy, content: marked([{ type: 'box' }]) }), DocumentFormatError)
+  assert.throws(() => validateDocument({ ...doc, page: { ...doc.page, slideHeight: 540 } }), /slideHeight/)
+  const content = { ...doc.content, content: [...doc.content.content, { type: 'slideBreak', attrs: { id: 'break' } }] }
+  assert.throws(() => validateDocument({ ...doc, content }), DocumentFormatError)
+  assert.throws(() => validateContent(content, 'main', { slides: true, version: 9 }), DocumentFormatError)
+  for (const justifyText of [false, true]) for (const firstLineIndent of [false, true]) {
+    const theme = { ...legacy.theme, justifyText, firstLineIndent }
+    assert.deepEqual(loadDocument({ ...legacy, theme }).theme, theme)
+  }
+})
+
+test('a legacy deck flattens deterministically; only marker anchors move and all rich-text contexts convert', async () => {
+  const old = legacyDocument(createBlankDocument(), 8), box = { type: 'decoration', attrs: { decoration: 'box' } }
+  const px = value => ({ value, unit: 'px' }), marker = id => ({ type: 'slideBreak', attrs: { id } })
+  const paragraph = (id, semantic) => ({ type: 'paragraph', attrs: { id, ...(semantic && { semantic }) },
+    content: [{ type: 'text', text: 'x', marks: [{ type: 'bold' }, box] }] })
+  const rich = (...content) => ({ type: 'doc', content })
+  const note = (id, anchorId, x, y) => ({ id, kind: 'text', content: rich(paragraph(`${id}-p`, 'body')),
+    layout: { width: 80, placement: { type: 'float', anchorId, x, y } }, decoration: { kind: 'box', color: 'red' } })
+  old.page.slideHeight = 200
+  old.page.margins.top = 20
+  Object.assign(old.theme.defaults, { size: 10, lineHeight: { value: 1.2, unit: 'ratio' }, spaceBefore: px(2), spaceAfter: px(6) })
+  old.theme.paragraphs.caption = { lineHeight: px(10), spaceAfter: px(3) }
+  old.theme.flow = { spaceBefore: px(12), spaceAfter: px(7) }
+  old.theme.justifyText = true
+  const first = paragraph('first', 'body'); first.content.push({ type: 'hardBreak', marks: [box] })
+  old.content = rich(first, { type: 'spacer', attrs: { id: 'space', height: 30 } },
+    { type: 'flow', attrs: { id: 'table-block', objectId: 'table' } }, marker('mid'), paragraph('middle', 'body'), marker('last'), paragraph('end', 'body'))
+  old.objects = [{ id: 'table', kind: 'table', layout: { width: 250, placement: { type: 'flow', x: 'center' },
+    margins: { top: 4, right: 0, bottom: -1, left: 0 } }, caption: { width: 120, content: rich(paragraph('caption')) },
+    content: rich({ type: 'table', content: ['one', 'two'].map(id => ({ type: 'tableRow', content: [
+      { type: 'tableCell', content: [paragraph(id)] },
+    ] })) }) }, note('mid-note', 'mid', 45, 9), note('last-note', 'last', 26, 3),
+  note('flow-note', 'table-block', -2, -8), note('space-note', 'space', 42, 2), note('page-note', null, 0, 4)]
+  old.authoring = { notes: ['Keep this'] }
+  const before = structuredClone(old)
+  assert.equal(validateDocument(old), old)
+  const got = loadDocument(old)
+  const expected = JSON.parse(JSON.stringify(before, (key, item) => item?.type === 'decoration' ? { type: 'box' } : item))
+  expected.version = 9; expected.theme.firstLineIndent = false
+  delete expected.page.slideHeight
+  expected.content.content = expected.content.content.filter(block => block.type !== 'slideBreak')
+  // First paragraph ends at 44, space at 80, table + caption/margins at 160.
+  // The next paragraph starts at 167, then the last starts at 185. Slide-local top was 20.
+  Object.assign(expected.objects[1].layout.placement, { anchorId: null, y: 156 })
+  Object.assign(expected.objects[2].layout.placement, { anchorId: null, y: 168 })
+  assert.deepEqual(got, expected)
+  assert.deepEqual(await decodeMote(new File([await encodeMote(old)], 'legacy-deck.mote')), expected)
+  assert.deepEqual(old, before)
+})
+
 test('unsupported versions are rejected without conversion or mutation', () => {
-  for (const version of ['V0', 0, 9, 'V1', undefined]) {
+  for (const version of ['V0', 0, 10, 'V1', undefined]) {
     const value = { ...createBlankDocument(), version }, before = structuredClone(value)
     assert.throws(() => loadDocument(value), error => error instanceof DocumentFormatError && error.code === 'unsupported' && /has not been changed/.test(error.message))
     assert.deepEqual(value, before)
   }
 })
 
-test('native V8 round-trips every example kind and publication omits all authoring data', async () => {
+test('native V9 round-trips every example kind and publication omits all authoring data', async () => {
   const document = createDocument()
   document.authoring = { notes: ['Unpublished plan', ''], aiModel: 'private-provider/model' }
   const file = new File([await encodeMote(document)], 'document.mote')

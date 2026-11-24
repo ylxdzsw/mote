@@ -31,25 +31,24 @@ export function useSpaceGesture(editor: Editor | null, sheet: RefObject<HTMLDivE
       const localY = (y - rect.top) / scale - surface.clientTop
       if ([...surface.querySelectorAll<HTMLElement>('[data-ai-segment-border]:not([hidden])')].some(band =>
         localY > Number(band.dataset.aiSegmentStart) && localY < Number(band.dataset.aiSegmentEnd))) return null
-      const blocks: { from: number; space: boolean; slideBreak: boolean; top: number; bottom: number; line: number; height: number }[] = []
+      const blocks: { from: number; space: boolean; top: number; bottom: number; line: number; height: number }[] = []
       editor!.state.doc.forEach((node, from) => {
         const element = editor!.view.nodeDOM(from) as HTMLElement
         const box = element.getBoundingClientRect()
-        blocks.push({ from, space: node.type.name === 'spacer', slideBreak: node.type.name === 'slideBreak', top: (box.top - rect.top) / scale - surface.clientTop,
+        blocks.push({ from, space: node.type.name === 'spacer', top: (box.top - rect.top) / scale - surface.clientTop,
           bottom: (box.bottom - rect.top) / scale - surface.clientTop, line: parseFloat(getComputedStyle(element).lineHeight), height: node.attrs.height ?? 0 })
       })
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i], next = blocks[i + 1]
         if (!block.space) continue
-        const bottom = next && !next.space && !next.slideBreak ? Math.min(next.bottom, next.top + next.line) : block.bottom + 8
+        const bottom = next && !next.space ? Math.min(next.bottom, next.top + next.line) : block.bottom + 8
         if (localY >= block.top - 8 && localY <= bottom) return { from: block.from, existing: true, height: block.height, top: block.top }
       }
       let closest: { target: Target; distance: number } | null = null
       for (let i = 0; i < blocks.length; i++) {
         const block = blocks[i], next = blocks[i + 1]
-        if (block.space || block.slideBreak || next?.space) continue
-        // A slide break ends this flow; its unused tail is not an inter-block gap.
-        const end = next && !next.slideBreak ? next.top : block.bottom
+        if (block.space || next?.space) continue
+        const end = next?.top ?? block.bottom
         const top = (block.bottom + end) / 2
         if (localY < block.bottom - 8 || localY > end + 8) continue
         const distance = Math.abs(localY - top)

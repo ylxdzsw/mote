@@ -12,14 +12,12 @@ export interface DocumentMeta {
   privacyRevision: number
   archived: boolean
   archiveRevision: number
-  slides?: boolean
 }
 
 export function normalizeDocumentMeta(meta: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {
   return { id: meta.id!, name: meta.name!, revision: meta.revision!, createdAt: meta.createdAt!, updatedAt: meta.updatedAt!,
     private: meta.private ?? false, privacyRevision: meta.privacyRevision ?? 0,
-    archived: meta.archived ?? false, archiveRevision: meta.archiveRevision ?? 0,
-    ...(meta.slides !== undefined && { slides: meta.slides }) }
+    archived: meta.archived ?? false, archiveRevision: meta.archiveRevision ?? 0 }
 }
 
 export function mergeDocumentMeta(current: DocumentMeta, incoming: DocumentMeta | Partial<DocumentMeta>): DocumentMeta {

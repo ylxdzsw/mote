@@ -113,7 +113,7 @@ function segmentMainUnchanged(task: AITask, before: JSONContent, after: JSONCont
 function segmentSlice(doc: MoteDocument, target: Extract<AITarget, { kind: 'segment' }>) {
   const current = segmentBlocks(doc, target)
   if (!current) return null
-  return copySegment(doc, current.range, [], {}, true).content.map(block => {
+  return copySegment(doc, current.range, [], {}).content.map(block => {
     const canonical = canonicalEditorContent(block)
     if (canonical.type !== 'spacer') return canonical
     const { id: _id, ...attrs } = canonical.attrs ?? {}
@@ -147,7 +147,7 @@ export function segmentReservationIntact(task: AITask, doc: MoteDocument): boole
     if (!sameContent([...actualIds].sort(), [...target.objectIds].sort())) return false
     const sources = task.segmentOriginalObjects ?? (task.original as SegmentClipboard).objects ?? []
     const original = (task.original as SegmentClipboard).content
-    const blocks = copySegment(doc, current.range, [], {}, true).content
+    const blocks = copySegment(doc, current.range, [], {}).content
     if (!original) return false
     return blocks.length === original.length && blocks.every((block, i) => block.type === original[i].type
       && (block.type === 'spacer' ? segmentBlockHeight(block) === segmentBlockHeight(original[i]) : block.attrs?.id === original[i].attrs?.id)

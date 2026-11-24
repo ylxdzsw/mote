@@ -246,7 +246,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
             {item.id === currentId && <span className="files-current">Current</span>}
             {item.private && <span className="cloud-private-badge"><PanelIcon name="lock" />Private</span>}
           </span>
-          <span className="files-row-meta">{item.slides && 'Slides · '}<time dateTime={new Date(item.updatedAt).toISOString()} aria-label={`Modified ${new Date(item.updatedAt).toLocaleString()}`}>{date(item.updatedAt)}</time></span>
+          <span className="files-row-meta"><time dateTime={new Date(item.updatedAt).toISOString()} aria-label={`Modified ${new Date(item.updatedAt).toLocaleString()}`}>{date(item.updatedAt)}</time></span>
           {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
         </button>
         <FilesMenu label={`Actions for ${item.name}`} disabled={!!busy}>

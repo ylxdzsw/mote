@@ -82,10 +82,10 @@ function segmentScreenshotPathMap(value, payload) {
 
 function validateSegmentPayload(value, options = {}) {
   const payload = closed(value, 'candidate.segment', ['version', 'type', 'content', 'objects', 'geometry', 'anchorTops', 'originTop'])
-  if (![1, 2].includes(payload.version) || payload.type !== 'segment') throw new HttpError(400, 'candidate.segment must be V1 or V2')
+  if (payload.version !== 1 || payload.type !== 'segment') throw new HttpError(400, 'candidate.segment must be V1')
   if (!Array.isArray(payload.objects) || payload.objects.length > MAX_NODES) throw new HttpError(400, 'candidate.segment.objects must be an array')
   const paths = segmentScreenshotPathMap(options.screenshotPaths, payload)
-  composition(payload.content, payload.objects, { version: DOCUMENT_VERSION, allowEmpty: true, slides: payload.version === 2, allowMissingScreenshotIds: new Set(paths.keys()), allowObjectIdShorthand: true })
+  composition(payload.content, payload.objects, { version: DOCUMENT_VERSION, allowEmpty: true, allowMissingScreenshotIds: new Set(paths.keys()), allowObjectIdShorthand: true })
   const topIds = new Set(payload.content.map(node => node.attrs.id))
   validateSegmentGeometry(payload.geometry, new Set(payload.objects.map(object => typeof object === 'string' ? object : object.id)))
   const anchorTops = record(payload.anchorTops, 'candidate.segment.anchorTops')

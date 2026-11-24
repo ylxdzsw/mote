@@ -3,7 +3,7 @@
   "$id": "https://mote.ylxdzsw.com/skills/proposal-schema.json",
   "title": "Mote current-schema proposal (mote-agent-v7)",
   "documentFormat": "mote",
-  "documentFormatVersion": 8,
+  "documentFormatVersion": 9,
   "description": "Schema for result.json / the candidate field of a proposal submission. documentFormat and documentFormatVersion here are advisory schema metadata, not candidate fields. Exactly one of object, content or segment is delivered. Segment objects may be native payloads or bare safe IDs for existing objects; the stateless server validates explicit payloads and decidable references without resolving IDs against a document or reservation. Browser Accept expands IDs and checks reservation compatibility. Optional screenshot transport keys are resolved to embedded PNG bytes and removed before storing the candidate.",
   "type": "object",
   "properties": {
@@ -361,24 +361,11 @@
           "type": "object",
           "properties": {
             "type": {
-              "const": "decoration"
-            },
-            "attrs": {
-              "type": "object",
-              "properties": {
-                "decoration": {
-                  "const": "box"
-                }
-              },
-              "required": [
-                "decoration"
-              ],
-              "additionalProperties": false
+              "const": "box"
             }
           },
           "required": [
-            "type",
-            "attrs"
+            "type"
           ],
           "additionalProperties": false
         },
@@ -449,7 +436,7 @@
           "contains": {
             "properties": {
               "type": {
-                "const": "decoration"
+                "const": "box"
               }
             },
             "required": [
@@ -852,31 +839,6 @@
       ],
       "additionalProperties": false
     },
-    "slideBreak": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "const": "slideBreak"
-        },
-        "attrs": {
-          "type": "object",
-          "properties": {
-            "id": {
-              "$ref": "#/$defs/id"
-            }
-          },
-          "required": [
-            "id"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "required": [
-        "type",
-        "attrs"
-      ],
-      "additionalProperties": false
-    },
     "block": {
       "oneOf": [
         {
@@ -887,16 +849,6 @@
         },
         {
           "$ref": "#/$defs/flow"
-        }
-      ]
-    },
-    "slideBlock": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/block"
-        },
-        {
-          "$ref": "#/$defs/slideBreak"
         }
       ]
     },
@@ -1417,15 +1369,12 @@
           "const": "segment"
         },
         "version": {
-          "enum": [
-            1,
-            2
-          ]
+          "const": 1
         },
         "content": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/slideBlock"
+            "$ref": "#/$defs/block"
           },
           "minItems": 0,
           "maxItems": 100000
@@ -1470,30 +1419,7 @@
         "originTop"
       ],
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "version": {
-                "const": 1
-              }
-            }
-          },
-          "then": {
-            "properties": {
-              "content": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/$defs/block"
-                },
-                "minItems": 0,
-                "maxItems": 100000
-              }
-            }
-          }
-        }
-      ],
-      "description": "Composition with native objects or bare safe IDs for existing objects. IDs are unique across blocks, explicit objects, shorthand object IDs, captions and nested paragraphs. Every explicit Flow object has exactly one Flow block. Float anchors on explicit objects reference a top-level block or null; negative y is allowed only on a Flow anchor. Geometry keys reference a listed object ID; anchorTops keys reference top-level blocks. Shorthand existence and composition after browser expansion are checked against the current document. V2 permits slideBreak atoms without consulting a document."
+      "description": "Composition with native objects or bare safe IDs for existing objects. IDs are unique across blocks, explicit objects, shorthand object IDs, captions and nested paragraphs. Every explicit Flow object has exactly one Flow block. Float anchors on explicit objects reference a top-level block or null; negative y is allowed only on a Flow anchor. Geometry keys reference a listed object ID; anchorTops keys reference top-level blocks. Shorthand existence and composition after browser expansion are checked against the current document."
     },
     "assetPath": {
       "type": "string",

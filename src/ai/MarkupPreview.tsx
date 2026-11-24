@@ -71,7 +71,7 @@ function Preview({ doc, target, markup }: { doc: MoteDocument; target: AITarget;
 
   return <div ref={reader} className="app local-markup-preview" style={uiThemeVariables(doc.theme, doc.language ?? 'en')}>
     <main className="workspace reader">
-      <ReadDocument initial={doc} staticWidgets expandSlides nativeScroll onActions={onActions} />
+      <ReadDocument initial={doc} staticWidgets nativeScroll onActions={onActions} />
     </main>
     {markup && placement && createPortal(marks, placement.sheet)}
   </div>

@@ -40,7 +40,6 @@ function objectSurface(sheet: HTMLElement, objectId: string) {
   const outer = object.getBoundingClientRect()
   const bounds = object.classList.contains('has-caption-support') ? body.getBoundingClientRect() : outer
   const copy = sheet.cloneNode(false) as HTMLElement
-  copy.removeAttribute('data-slides')
   copy.style.cssText += `;width:${bounds.width}px;height:${bounds.height}px;min-height:0;padding:0;border:0`
   // Keep inherited theme and selector context, without page geometry or siblings.
   const ancestors: HTMLElement[] = []
@@ -48,11 +47,11 @@ function objectSurface(sheet: HTMLElement, objectId: string) {
   let mount = copy
   for (const ancestor of ancestors) {
     const context = ancestor.cloneNode(false) as HTMLElement
-    context.style.cssText += ';display:contents;transform:none;clip-path:none'
+    context.style.cssText += ';display:contents;transform:none'
     mount.append(context); mount = context
   }
   const isolated = object.cloneNode(false) as HTMLElement
-  isolated.style.cssText += `;position:absolute;left:${outer.left - bounds.left}px;top:${outer.top - bounds.top}px;width:${outer.width}px;margin:0;transform:none;clip-path:none`
+  isolated.style.cssText += `;position:absolute;left:${outer.left - bounds.left}px;top:${outer.top - bounds.top}px;width:${outer.width}px;margin:0;transform:none`
   isolated.append(body.cloneNode(true)); mount.append(isolated)
   return { source: body, copy, width: bounds.width, height: bounds.height }
 }

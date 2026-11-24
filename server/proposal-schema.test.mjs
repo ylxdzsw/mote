@@ -37,11 +37,11 @@ function invalid(candidate, assets) {
   })
 }
 
-test('all object kinds, text and V1/V2 segment proposals validate without any document context', () => {
+test('all object kinds, text and V1 segment proposals validate without any document context', () => {
   const forbidden = new Proxy({}, { get() { throw new Error('Document context was accessed') } })
   const slides = segment(2)
-  slides.content.push({ type: 'slideBreak', attrs: { id: 'slide' } }, paragraph('second'))
-  for (const payload of [...objects().map(object => ({ object })), { content: [paragraph()] }, { segment: segment() }, { segment: slides }]) {
+  invalid({ segment: slides, summary: 'Retired Slides transfer' })
+  for (const payload of [...objects().map(object => ({ object })), { content: [paragraph()] }, { segment: segment() }]) {
     const raw = { ...payload, summary: 'Current-schema proposal', sources: [{ title: 'Source', url: 'https://example.com/' }] }
     const before = structuredClone(raw)
     const result = validateProposalDelivery(raw, {}, forbidden, forbidden)

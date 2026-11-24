@@ -199,7 +199,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     } else {
       const { blockIds, objectIds } = target
       const context = segmentContext?.() ?? { anchors: [], geometry: {} }
-      original = copySegment(snapshot, target.range, context.anchors, context.geometry, true)
+      original = copySegment(snapshot, target.range, context.anchors, context.geometry)
       segmentOriginalBlocks = structuredClone(snapshot.content.content!.filter(node => blockIds.includes(node.attrs?.id)))
       segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => objectIds.includes(object.id)))
     }

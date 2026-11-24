@@ -5,7 +5,6 @@ import type { Editor, JSONContent } from '@tiptap/core'
 import { captionContent, supportsCaption, isText, paragraph, tableContent, type FloatingImage, type FloatingObject, type FloatingPatch, type MoteDocument } from '../document/model'
 import { useHistory } from '../document/history'
 import { convertObjectPlacement, insertDocumentObjects, reconcileObjectDeletions } from '../document/flow'
-import { insertSlideBreak, joinSlide } from '../document/slides'
 import { copyFloating, floatingClipboardJSON, floatingCopyIds, floatingText, importFloating, parseFloating, FLOATING_MIME } from '../document/floatingClipboard'
 import { copyParagraphs, PARAGRAPH_MIME } from '../document/paragraphClipboard'
 import { TextEditor } from '../editor/TextEditor'
@@ -16,9 +15,7 @@ import { pageColor } from '../../shared/palette.mjs'
 import { validLinkHref } from '../../shared/links.mjs'
 import { useDocumentZoom } from './useDocumentZoom'
 import { useReaderFit } from './useReaderFit'
-import { usePresentation } from './usePresentation'
 import { Minimap } from './Minimap'
-import { SlideRulers } from './SlideRulers'
 import { useSpaceGesture } from './useSpaceGesture'
 import { useScrollFloor } from './useScrollFloor'
 import { useParagraphInsertion } from './useParagraphInsertion'
@@ -47,7 +44,7 @@ import { selectedCandidateVersion } from '../ai/candidates'
 import { currentPlacement } from '../ai/reservations'
 import type { AIReview } from '../ai/types'
 
-export type CreationTool = 'paragraph' | 'slideBreak' | 'text' | 'code' | 'drawing' | 'ai' | 'table' | 'formula' | 'html' | { image: FloatingImage; ratio: number } | null
+export type CreationTool = 'paragraph' | 'text' | 'code' | 'drawing' | 'ai' | 'table' | 'formula' | 'html' | { image: FloatingImage; ratio: number } | null
 export interface CanvasActions {
   clearSelection: () => void
   remove: () => void; duplicate: () => void; caption: (id?: string) => void
@@ -56,7 +53,6 @@ export interface CanvasActions {
   placement: (placement: 'flow' | 'float') => void
   segmentSelection: () => { range: SegmentRange; area: Area } | null
   segmentContext: () => SegmentContext | undefined; locateSegment: (id: string, reveal?: boolean) => void
-  joinSlide: (index: number) => void
 }
 const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
@@ -72,8 +68,6 @@ interface Props {
   onFloatingChange: (objects: FloatingObject[]) => void; onActions: (actions: CanvasActions) => void
   onActive: (editor: Editor | null) => void; onMainReady: (editor: Editor) => void
   widgetRuns?: Record<string, number>; staticWidgets?: boolean
-  expandSlides?: boolean
-  presentation?: boolean
   nativeScroll?: boolean
   initialScale?: number
   onDropImages?: (files: File[], position: ReturnType<typeof anchorPoint>) => void
@@ -95,7 +89,7 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'formula' && !object.latex.length)
   || (object.kind === 'code' && !object.source.length)
 
-export function DocumentCanvas({ doc, editable, editingLayout = editable, formattingMarks = false, verticalSpacers = false, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, editingLayout = editable, formattingMarks = false, verticalSpacers = false, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -103,17 +97,16 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
   const scrollFloor = useScrollFloor(stage, footprint, editingLayout)
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null)
   const [mainEditor, setMainEditor] = useState<Editor | null>(null)
-  const presenting = usePresentation(doc, presentation, stage, sheet, nativeScroll)
-  const { scale: canvasScale, automatic, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editingLayout, initialScale, nativeScroll || presenting.active)
+  const { scale: canvasScale, automatic, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editingLayout, initialScale, nativeScroll)
   const readerScale = useReaderFit(stage, doc.page.width, nativeScroll)
-  const scale = presenting.active ? presenting.scale : nativeScroll ? readerScale : canvasScale
+  const scale = nativeScroll ? readerScale : canvasScale
   useFormattingMarks(sheet, editable && formattingMarks, scale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [insertionHint, setInsertionHint] = useState<{ position: Point; boundary?: { point: SegmentPoint; top: number } } | null>(null)
   const insertionPointer = useRef<Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey'> | null>(null)
   const creationObject = useMemo<FloatingObject | null>(() => {
-    if (!tool || tool === 'paragraph' || tool === 'slideBreak') return null
+    if (!tool || tool === 'paragraph') return null
     if (typeof tool === 'object') return tool.image
     const base = { id: crypto.randomUUID(), layout: { width: 340, placement: { type: 'float' as const, anchorId: null, x: 0, y: 0 } } }
     return tool === 'ai' ? aiPlaceholder(base)
@@ -156,7 +149,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
     const candidate = task ? selectedCandidateVersion(task)?.candidate : undefined
     return task && task.preview && candidate?.object ? currentPlacement(candidate.object, object) : object
   }), ...inserting, ...(creating ? [creating] : [])] }), [projection.document, creating, inserting, editable, aiReview?.tasks])
-  const { geometry, anchors, minHeight, sideInsets, flowMounts, slides, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews, editingLayout || expandSlides)
+  const { geometry, anchors, minHeight, sideInsets, flowMounts, reflow, attach } = useFloatingLayout(layoutDoc, mainEditor, sheet, previews)
   const sideSpace = sideInsets.left + sideInsets.right
   const active = !!creating || !!marquee || Object.keys(previews).length > 0
   const spaces = useSpaceGesture(mainEditor, sheet, editable, scale, doc.page.margins.left, reflow, () => { select([]); onActive(mainEditor) }, scrollFloor)
@@ -167,14 +160,11 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
       const range = resolveSegmentRange(doc, task.target)
       return range ? [{ taskId: task.id, range, objectIds: task.target.objectIds }] : []
     }), onSelectReservation: selectAISegment,
-    selectedObjectIds: selectedIds, slidePositions: slides.map(slide => ({ index: slide.index, top: slide.top, bottom: slide.top + slide.height })),
     onStart: () => { cancel(); select([]); onActive(null); onToolChange(null) } })
   useLayoutEffect(() => { onSegmentSelection?.(segments.range, activeSegmentId) }, [segments.range, activeSegmentId])
-  const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && (tool === 'paragraph' || tool === 'slideBreak'), scale, segments.target,
-    () => { onToolChange(null); onActive(mainEditor) }, tool === 'slideBreak' ? index => {
-      if (commitDocument(insertSlideBreak(doc, index))) { segments.clear(); onToolChange(null) }
-    } : undefined)
-  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.page.margins.left, doc.theme, slides, () => { select([]); onActive(mainEditor) })
+  const paragraphs = useParagraphInsertion(mainEditor, sheet, editable && tool === 'paragraph', scale, segments.target,
+    () => { onToolChange(null); onActive(mainEditor) })
+  const tail = useDocumentTail(mainEditor, sheet, editable && !tool && !active, scale, doc.page.margins.left, doc.theme, () => { select([]); onActive(mainEditor) })
   const imagePlacement = useImagePlacement({ doc, editable, scale, tool, stage,
     onStart: () => { cancel(); segments.clear(); setActiveSegmentId(null); select([]); onActive(null); onToolChange(null) },
     onReady: (image, ratio) => onToolChange({ image, ratio }),
@@ -264,7 +254,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
       const box = measured.geometry[object.id]
       const position = insertionPosition(box, occupied, pageWidth())
       occupied.push({ ...box, ...position })
-      return patchObject(object, anchorPoint(position, measured.anchors, measured.slides))
+      return patchObject(object, anchorPoint(position, measured.anchors))
     })
     history.boundary(); onFloatingChange([...doc.objects, ...placed]); setInserting([])
     select(placed.map(object => object.id)); onActive(null); onToolChange(null); focusObject(placed[0].id, placed[0].kind === 'text' || placed[0].kind === 'code')
@@ -315,21 +305,6 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
     if (!history.guard.current(doc, next)) { setClipboardNotice('Accept or discard the affected AI task before changing these objects.'); return false }
     history.boundary(); history.setDoc(next); history.boundary()
     return true
-  }
-  function appendSlide() {
-    if (!mainEditor) return
-    const next = insertSlideBreak(doc, doc.content.content!.length)
-    if (!commitDocument(next)) return
-    cancel(); segments.clear(); setActiveSegmentId(null); select([]); onToolChange(null)
-    const id = next.content.content!.at(-1)!.attrs!.id
-    requestAnimationFrame(() => {
-      if (mainEditor.isDestroyed || mainEditor.state.doc.lastChild?.attrs.id !== id) return
-      mainEditor.commands.setTextSelection(mainEditor.state.doc.content.size - 1)
-      mainEditor.view.focus(); onActive(mainEditor)
-      const viewport = stage.current!, last = reflow().slides.at(-1)!
-      viewport.scrollTop += sheet.current!.getBoundingClientRect().top + last.top * scale
-        - viewport.getBoundingClientRect().top - viewport.clientTop - Math.min(120, viewport.clientHeight * .15)
-    })
   }
   function insertObjects(objects: FloatingObject[]) {
     if (!editable) return
@@ -441,7 +416,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
   }
   function objectAt(position: Point, flow = false): FloatingObject {
     const width = Math.min(creationObject!.layout.width, flow ? pageWidth() - doc.page.margins.left - doc.page.margins.right : pageWidth() - position.x - .5)
-    return patchObject(creationObject!, { placement: 'float', ...anchorPoint(position, anchors, slides), width,
+    return patchObject(creationObject!, { placement: 'float', ...anchorPoint(position, anchors), width,
       ...(flow && { placement: 'flow', centered: true, anchorId: null, x: 0, y: 0 }) })
   }
   const refreshInsertion = useRef(() => {})
@@ -495,7 +470,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
   }
   function blankDown(event: PointerEvent) {
     if (!editable || event.button !== 0) return
-    if ((event.target as Element).closest('[data-slide-control], .reservation-markup-overlay')) return
+    if ((event.target as Element).closest('.reservation-markup-overlay')) return
     if ((event.ctrlKey || event.metaKey) && (event.target as Element).closest('.text-content a[href]')) {
       event.stopPropagation()
       return
@@ -510,7 +485,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
       }
     }
     if (tail.begin(event)) { segments.clear(); setActiveSegmentId(null); return }
-    if (tool === 'paragraph' || tool === 'slideBreak') { paragraphs.insert(event); return }
+    if (tool === 'paragraph') { paragraphs.insert(event); return }
     if (creationObject) {
       event.preventDefault(); event.stopPropagation()
       const target = insertionTarget(event)
@@ -857,7 +832,6 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
       if (selection?.anchorNode && stage.current?.contains(selection.anchorNode)) selection.removeAllRanges()
     },
     segmentSelection: segments.selection,
-    joinSlide: index => { if (commitDocument(joinSlide(doc, index))) { segments.clear(); select([]); onActive(null) } },
     segmentContext: () => candidates.length ? measuredSource?.doc === doc ? measuredSource.context : undefined : segments.context(),
     locateSegment: (id, reveal = true) => {
       selectAISegment(id)
@@ -953,8 +927,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
     <PanelIcon name="chevron" />
   </div>
 
-  return <div className={`canvas-pane ${minimap && !presenting.active ? 'has-minimap' : ''} ${editingLayout ? '' : 'reading-canvas'}${nativeScroll ? ' native-scroll' : ''}${presenting.active ? ' is-presenting' : ''}`}
-    onPointerMove={presenting.reveal} onPointerDown={presenting.reveal} onClick={presenting.click}
+  return <div className={`canvas-pane ${minimap ? 'has-minimap' : ''} ${editingLayout ? '' : 'reading-canvas'}${nativeScroll ? ' native-scroll' : ''}`}
     onPointerDownCapture={interact} onFocusCapture={interact} onKeyDownCapture={interact}
     onClickCapture={event => {
       const link = (event.target as Element).closest<HTMLAnchorElement>('.text-content a[href]')
@@ -966,9 +939,8 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
       }
     }}
     onDropCapture={interact}
-    style={{ '--page-background': pageColor(doc.theme), '--presentation-cursor': presenting.canAdvance ? 'pointer' : 'default' } as React.CSSProperties}>
-    {presenting.entry}
-    <div className={`stage${segments.marginHover ? ' has-segment-margin-hover' : ''}`} ref={stage} id={canvasId} tabIndex={-1} aria-label={presenting.active ? `Slide ${presenting.index! + 1} · Click or use arrow keys to navigate · Esc returns to reading` : 'Document canvas'} onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
+    style={{ '--page-background': pageColor(doc.theme) } as React.CSSProperties}>
+    <div className={`stage${segments.marginHover ? ' has-segment-margin-hover' : ''}`} ref={stage} id={canvasId} tabIndex={-1} aria-label="Document canvas" onContextMenu={handleContextMenu} onPointerDownCapture={blankDown}
       onKeyDown={event => {
         if (editable && event.target === stage.current && activeSegmentId && !isComposingKey(event.nativeEvent) && ['Delete', 'Backspace'].includes(event.key)) {
           event.preventDefault(); aiReview?.deleteTarget(activeSegmentId)
@@ -981,7 +953,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
       <div className="sheet-footprint" ref={footprint} style={{
         width: editingLayout || nativeScroll ? doc.page.width * scale : `clamp(${(doc.page.width - sideSpace) * scale}px, 100%, ${doc.page.width * scale}px)`,
         '--scaled-page-width': `${doc.page.width * scale}px`, '--crop-left': !nativeScroll && sideSpace ? sideInsets.left / sideSpace : 0,
-        height: presenting.active ? doc.page.slideHeight! * scale : `calc(var(--page-height, 0px) * ${scale})`,
+        height: `calc(var(--page-height, 0px) * ${scale})`,
       } as React.CSSProperties}>
       <div className={`sheet ${editingLayout ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined} data-ai-placement={tool === 'ai' ? '' : undefined}
@@ -991,9 +963,9 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
         onDropCapture={event => {
           if (!event.dataTransfer.types.includes('Files')) return
           event.preventDefault(); event.stopPropagation()
-          if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors, slides))
+          if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors))
         }}
-        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en', doc.version), '--canvas-ui-layer': layoutDoc.objects.length + 1, '--margin-top': `${doc.page.margins.top}px`, '--margin-right': `${doc.page.margins.right}px`, '--margin-bottom': `${doc.page.margins.bottom}px`, '--margin-left': `${doc.page.margins.left}px`, width: doc.page.width, transform: `scale(${scale})${presenting.active ? ` translateY(${-presenting.index! * doc.page.slideHeight!}px)` : ''}`, minHeight } as React.CSSProperties}>
+        style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en', doc.version), '--canvas-ui-layer': layoutDoc.objects.length + 1, '--margin-top': `${doc.page.margins.top}px`, '--margin-right': `${doc.page.margins.right}px`, '--margin-bottom': `${doc.page.margins.bottom}px`, '--margin-left': `${doc.page.margins.left}px`, width: doc.page.width, transform: `scale(${scale})`, minHeight } as React.CSSProperties}>
         <ShowFormattingMarks value={editable && formattingMarks}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
@@ -1033,14 +1005,12 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
         })()}
       </div>}
       {segments.overlay}
-      {editable && <SlideRulers slides={slides} width={doc.page.width} scale={scale}
-        onAppend={appendSlide} />}
       {editable && creationObject && insertionHint?.boundary && !creating && <div className="segment-layer creation-guides" aria-hidden="true"><div className="segment-drop" style={{ top: (insertionHint.boundary.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>{tool === 'ai' ? 'Reserve AI section' : 'Insert Flow'}</span></div></div>}
       {flowDrop && <div className="segment-layer flow-drag-guides" aria-hidden="true">
         {flowDrop.top !== undefined && <div className="segment-drop" style={{ top: (flowDrop.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Move Flow here</span></div>}
         {flowDrop.centered && <div className="flow-center-guide" style={{ left: (doc.page.margins.left + (pageWidth() - doc.page.margins.left - doc.page.margins.right) / 2 + 1) * scale }} />}
       </div>}
-      {paragraphs.hint && <div className="segment-layer" aria-hidden="true"><div className="segment-drop" style={{ top: (paragraphs.hint.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>{tool === 'slideBreak' ? 'Insert slide break' : 'Insert paragraph'}</span></div></div>}
+      {paragraphs.hint && <div className="segment-layer" aria-hidden="true"><div className="segment-drop" style={{ top: (paragraphs.hint.top + (sheet.current?.clientTop ?? 0)) * scale }}><span>Insert paragraph</span></div></div>}
       </div>
       </div>
     </div>
@@ -1052,8 +1022,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
     {imagePlacement.notice && <p className="segment-notice" role="status">{imagePlacement.notice}</p>}
     {editable && creationObject && !clipboardNotice && !segments.notice && !imagePlacement.notice && <p className="segment-notice" role="status">{tool === 'ai' ? 'Click or drag on the page to reserve one AI object · Esc cancels' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'}</p>}
     {editable && tool === 'paragraph' && <p className="segment-notice" role="status">Click a boundary to insert a paragraph. Escape cancels.</p>}
-    {editable && tool === 'slideBreak' && <p className="segment-notice" role="status">Click a boundary to start a new slide. Escape cancels.</p>}
-    {minimap && !presenting.active && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} nativeScroll={nativeScroll} />}
+    {minimap && <Minimap stage={stage} sheet={sheet} canvasId={canvasId} sizing={minimapSize} nativeScroll={nativeScroll} />}
     {editable && zoomHost && createPortal(zoomControl, zoomHost)}
   </div>
 }

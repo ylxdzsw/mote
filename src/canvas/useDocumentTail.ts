@@ -3,24 +3,20 @@ import type { Editor } from '@tiptap/core'
 import { GapCursor } from '@tiptap/pm/gapcursor'
 import { TextSelection } from '@tiptap/pm/state'
 import type { Theme } from '../document/model'
-import { slideAtPoint, type SlideGeometry } from './floatingGeometry'
 
 type TailPointer = Pick<globalThis.PointerEvent, 'clientX' | 'clientY' | 'altKey' | 'shiftKey' | 'ctrlKey' | 'metaKey'>
 
-export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, leftMargin: number, theme: Theme, slides: SlideGeometry[], onActivate: () => void) {
+export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivElement | null>, active: boolean, scale: number, leftMargin: number, theme: Theme, onActivate: () => void) {
   const pointer = useRef<TailPointer | null>(null)
   const focusedBlank = useRef(false)
 
   function target(event: TailPointer) {
     if (!active || !editor || !sheet.current || event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return null
     const hit = document.elementFromPoint(event.clientX, event.clientY)
-    if (!hit || hit.closest('.stage') !== sheet.current.closest('.stage') || hit.closest('.floating-note, [data-ai-preview], [data-slide-control]')) return null
+    if (!hit || hit.closest('.stage') !== sheet.current.closest('.stage') || hit.closest('.floating-note, [data-ai-preview]')) return null
     const surface = sheet.current.getBoundingClientRect()
     if (event.clientY < surface.bottom && event.clientX < surface.left + (sheet.current.clientLeft + leftMargin) * scale) return null
-    const slide = slideAtPoint(slides, (event.clientY - surface.top) / scale - sheet.current.clientTop)
-    const next = slide && slides[slide.index + 1]
-    let end = editor.state.doc.content.size
-    if (next) editor.state.doc.forEach((node, pos) => { if (node.attrs.id === next.id) end = pos })
+    const end = editor.state.doc.content.size
     const last = editor.state.doc.resolve(end).nodeBefore!
     const element = editor.view.nodeDOM(end - last.nodeSize) as HTMLElement
     return event.clientX >= surface.left && event.clientX <= surface.right && event.clientY >= element.getBoundingClientRect().bottom ? end : null
@@ -64,7 +60,7 @@ export function useDocumentTail(editor: Editor | null, sheet: RefObject<HTMLDivE
       window.removeEventListener('blur', leave)
       editor.off('transaction', update); editor.off('focus', update); editor.off('blur', update)
     }
-  }, [editor, active, scale, leftMargin, theme, sheet, slides])
+  }, [editor, active, scale, leftMargin, theme, sheet])
 
   useLayoutEffect(() => {
     if (!editor || !active || focusedBlank.current) return

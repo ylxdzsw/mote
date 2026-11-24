@@ -49,32 +49,11 @@ const InlineColor = Mark.create({
   renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
 })
 
-const InlineDecoration = Mark.create({
-  name: 'decoration',
+const InlineBox = Mark.create({
+  name: 'box',
   priority: 109,
-  addAttributes() {
-    return {
-      decoration: {
-        default: null,
-        validate: (value: unknown) => {
-          if (value !== 'box') throw new Error('Inline decoration is unsupported')
-        },
-        parseHTML: element => {
-          const decoration = element.getAttribute('data-inline-decoration')
-          if (decoration === null) return null
-          return decoration === 'box' ? decoration : false
-        },
-        renderHTML: attributes => ({ 'data-inline-decoration': attributes.decoration }),
-      },
-    }
-  },
-  parseHTML: () => [
-    { tag: 'span[data-inline-decoration]', getAttrs: element => {
-      const decoration = element.getAttribute('data-inline-decoration')
-      return decoration === 'box' ? {} : false
-    } },
-  ],
-  renderHTML: ({ HTMLAttributes }) => ['span', HTMLAttributes, 0],
+  parseHTML: () => [{ tag: 'span[data-inline-decoration="box"]' }],
+  renderHTML: () => ['span', { 'data-inline-decoration': 'box' }, 0],
 })
 
 const InlineBold = Mark.create({
@@ -98,7 +77,7 @@ const InlineBold = Mark.create({
   renderHTML: () => ['strong', 0],
 })
 
-export const inlineMarks = [InlineColor, InlineDecoration, InlineBold, InlineLink]
+export const inlineMarks = [InlineColor, InlineBox, InlineBold, InlineLink]
 
 export function selectedParagraphsAreBold(editor: Editor | null): boolean {
   if (!editor || editor.state.selection instanceof NodeSelection) return false
@@ -115,12 +94,10 @@ export function selectedParagraphsAreBold(editor: Editor | null): boolean {
   return found && allBold
 }
 
-type InlineDecorationValue = 'box'
-
 interface InlineSelection {
   bold: boolean | 'mixed'
   color: string | null | 'mixed'
-  decoration: InlineDecorationValue | null | 'mixed'
+  box: boolean | 'mixed'
 }
 
 function oneValue<T>(values: T[]): T | 'mixed' {
@@ -148,11 +125,11 @@ function marksValues(editor: Editor, type: string, attr?: string) {
 }
 
 export function selectedInlineMarks(editor: Editor | null): InlineSelection {
-  if (!editor || editor.state.selection instanceof NodeSelection) return { bold: false, color: null, decoration: null }
+  if (!editor || editor.state.selection instanceof NodeSelection) return { bold: false, color: null, box: false }
   const color = oneValue(marksValues(editor, 'color', 'color') as (string | null)[])
   return {
     bold: oneValue(marksValues(editor, 'bold') as boolean[]),
     color: color === 'mixed' ? 'mixed' : color,
-    decoration: oneValue(marksValues(editor, 'decoration', 'decoration') as (InlineDecorationValue | null)[]),
+    box: oneValue(marksValues(editor, 'box') as boolean[]),
   }
 }

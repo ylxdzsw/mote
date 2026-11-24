@@ -149,7 +149,7 @@ function ShareDialog({ onClose, documentId, name, privateDocument: listedPrivate
     const change = { baseRevision: sharing.revision, operationId: crypto.randomUUID(), action }
     void run(action === 'enable' && copy ? 'Saving current document…' : 'Updating sharing…', async () => {
       if (action === 'enable' && copy) {
-        const saved = await copy.sync()
+        const saved = await copy.save()
         if (!saved?.revision) throw new Error('The current document could not be saved to the cloud. Sharing was not enabled. Resolve the sync issue, then try again.')
       }
       if (active.current) await sendChange(change)

@@ -90,7 +90,7 @@ export function recordSpaceEdit(before: MoteDocument, after: MoteDocument, merge
 }
 
 export interface SegmentClipboard {
-  version: 1 | 2
+  version: 1
   type: 'segment'
   content: JSONContent[]
   objects: FloatingObject[]
@@ -275,7 +275,7 @@ function transformCopiedObject(object: FloatingObject, blocks: JSONContent[], se
   return result.layout.placement.type === 'flow' ? result : patchObject(result, shiftAnchor(objectAnchorId(result), objectY(result)))
 }
 
-export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: readonly { id: string; top: number }[], geometry: Geometries, preserveSlides = false): SegmentClipboard {
+export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: readonly { id: string; top: number }[], geometry: Geometries): SegmentClipboard {
   const canonical = canonicalRange(doc, range)
   const blocks = blocksOf(doc)
   const selected = selectedSegment(blocks, canonical)
@@ -284,11 +284,7 @@ export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: rea
   const anchorTops: Record<string, number> = {}
   for (let index = 0; index < blocks.length; index++) {
     if (!selected.indices.has(index)) continue
-    const source = blocks[index]
-    // Ordinary text/segment clipboard is continuous even when copied across
-    // slides. Whole-slide clipboard owns structural breaks separately.
-    const block = source.type === 'slideBreak' && !preserveSlides
-      ? { type: 'paragraph', attrs: { id: source.attrs!.id, semantic: 'body' }, content: [] } : clone(source)
+    const block = clone(blocks[index])
     const id = blockId(block)
     const slice = spacerSliceFor(block, selected)
     if (slice && id) {
@@ -301,7 +297,7 @@ export function copySegment(doc: MoteDocument, range: SegmentRange, anchors: rea
   const objects = doc.objects.filter(object => selectedIds.has(object.id)).map(object => transformCopiedObject(object, blocks, selected))
   const selectedGeometry: Geometries = {}
   for (const object of objects) if (geometry[object.id]) selectedGeometry[object.id] = clone(geometry[object.id])
-  return { version: preserveSlides && doc.page.slideHeight !== undefined ? 2 : 1, type: 'segment', content, objects, geometry: selectedGeometry, anchorTops, originTop }
+  return { version: 1, type: 'segment', content, objects, geometry: selectedGeometry, anchorTops, originTop }
 }
 
 export function freshNode(node: JSONContent, used: Set<string>, top = false): JSONContent {
@@ -342,18 +338,6 @@ function normalizeSpacers(blocks: JSONContent[]) {
     result.push(block)
   }
   return { blocks: result, aliases }
-}
-
-function fillEmptySlides(doc: MoteDocument, blocks: JSONContent[], used: Set<string>) {
-  if (!doc.page.slideHeight) return blocks
-  const result: JSONContent[] = []
-  const blank = () => ({ type: 'paragraph', attrs: { id: freshId(used), semantic: 'body' }, content: [] })
-  for (const block of blocks) {
-    if (block.type === 'slideBreak' && (!result.length || result.at(-1)!.type === 'slideBreak')) result.push(blank())
-    result.push(block)
-  }
-  if (!result.length || result.at(-1)!.type === 'slideBreak') result.push(blank())
-  return result
 }
 
 function applyAlias<T extends AnchorMapping>(point: T, aliases: Map<string, SpacerAlias>): T {
@@ -423,14 +407,14 @@ function validatePayloadMappings(payload: SegmentClipboard) {
 function validateClipboard(value: unknown): asserts value is SegmentClipboard {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid Mote segment')
   const payload = value as Partial<SegmentClipboard>
-  if (![1, 2].includes(payload.version ?? 0) || payload.type !== 'segment') throw new Error('Unsupported Mote segment version')
+  if (payload.version !== 1 || payload.type !== 'segment') throw new Error('Unsupported Mote segment version')
   if (Object.keys(payload).some(key => !['version', 'type', 'content', 'objects', 'geometry', 'anchorTops', 'originTop'].includes(key)) || !Array.isArray(payload.content) || !Array.isArray(payload.objects)) throw new Error('Invalid Mote segment contents')
   if (typeof payload.originTop !== 'number' || !Number.isFinite(payload.originTop) || !payload.anchorTops || typeof payload.anchorTops !== 'object' || Array.isArray(payload.anchorTops)) throw new Error('Invalid Mote segment anchors')
   for (const value of Object.values(payload.anchorTops as Record<string, unknown>)) if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error('Invalid Mote segment anchor top')
   validateGeometry(payload.geometry)
   validatePayloadMappings(payload as SegmentClipboard)
   try {
-    validateComposition(payload.content, payload.objects, { allowEmpty: true, slides: payload.version === 2 })
+    validateComposition(payload.content, payload.objects, { allowEmpty: true })
   } catch (error) {
     throw new Error(`Invalid Mote segment: ${error instanceof Error ? error.message : 'document content'}`)
   }
@@ -500,8 +484,7 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
   const insertionTop = topAtPoint(target, blocks, anchors) - removedHeight
   const prefixAnchors = prefix.filter(piece => piece.block.type !== 'flow').map(piece => ({ id: blockId(piece.block)!,
     top: anchorTop(piece.originalId, anchors) + piece.offset - (piece.from >= end ? removedHeight : 0) }))
-  const { blocks: normalizedContent, aliases } = normalizeSpacers(ordered.map(piece => piece.block))
-  const content = fillEmptySlides(doc, normalizedContent, used)
+  const { blocks: content, aliases } = normalizeSpacers(ordered.map(piece => piece.block))
   const mapRetained = (point: AnchorMapping) => {
     const piece = pieces.findLast(piece => piece.originalId === point.anchorId && piece.offset <= point.y)
     return piece ? applyAlias({ anchorId: blockId(piece.block)!, y: point.y - piece.offset }, aliases) : point
@@ -549,7 +532,6 @@ export function moveSegment(doc: MoteDocument, range: SegmentRange, destination:
 export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: SegmentClipboard | null, anchors: readonly { id: string; top: number }[], geometry: Geometries): MoteDocument {
   const canonical = canonicalRange(doc, range)
   if (payload) validateClipboard(payload)
-  if (payload?.content.some(block => block.type === 'slideBreak') && doc.page.slideHeight === undefined) throw new Error('Slide boundaries require a Slides document.')
   const oldBlocks = blocksOf(doc)
   const selected = selectedSegment(oldBlocks, canonical)
   const selectedIds = selectedObjectSet(doc, canonical)
@@ -604,7 +586,7 @@ export function replaceSegment(doc: MoteDocument, range: SegmentRange, payload: 
   // copied.
   const normalized = normalizeSpacers(preBlocks)
   const aliases = normalized.aliases
-  const postBlocks = fillEmptySlides(doc, normalized.blocks, used)
+  const postBlocks = normalized.blocks
   const resultAnchors = postBlocks.filter(block => block.type !== 'flow').flatMap(block => {
     const id = blockId(block)
     if (!id) return []

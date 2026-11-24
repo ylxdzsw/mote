@@ -13,7 +13,7 @@ export function ReaderPage({ initial, notice }: { initial: MoteDocument; notice?
   return <div className="app reader-page" style={style}>
     {notice}
     <main className="workspace reader">
-      <ReadDocument key={initial.id} initial={published} minimap={!smallScreen} presentation nativeScroll />
+      <ReadDocument key={initial.id} initial={published} minimap={!smallScreen} nativeScroll />
     </main>
   </div>
 }

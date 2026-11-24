@@ -1,6 +1,7 @@
 import type { Reservation } from '../ai/types'
 import { isPristineBlankDocument, type MoteDocument } from '../document/model'
 import { validateDocument } from '../document/validate'
+import { migrationBreaking } from '../../shared/document.mjs'
 import { initializeDocument } from '../document/initialize'
 import { CloudError, cloudRequest, mergeDocumentMeta, mergeDocumentFlags, normalizeDocumentMeta, type CloudDocument, type DocumentMeta, type SharingState } from './api'
 import { createCopyRecord, loadWorkingCopy, saveWorkingCopy, type WorkingRecord } from './workingCopies'
@@ -118,6 +119,7 @@ export class WorkingCopy {
       ...(error instanceof CloudError && (error.status === 410 || error.status === 404) ? { deleted: true } : {}),
     })
   }
+  save = () => this.sync(!!this.state.record.migratedFrom)
   sync = async (retainDraft = false): Promise<CloudDocument | null> => {
     this.cancelEarlySync()
     if (this.flight) return this.flight
@@ -210,6 +212,7 @@ export class WorkingCopy {
     if (generation !== this.generation) throw new Error('The working copy changed while preserving local input. Retry with the current document.')
     const { document: saved, reservations = [], ...incomingMeta } = result
     const meta = mergeDocumentMeta(this.state.record.meta, incomingMeta)
+    if (migrationBreaking(saved.version) && reservations.some(task => !task.released)) throw new Error('Reopen this document to review its format upgrade and active reservations. Your working copy has not been changed.')
     const document = initializeDocument(saved)
     this.generation++
     const { migratedFrom: _migratedFrom, ...record } = this.state.record

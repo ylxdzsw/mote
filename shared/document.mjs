@@ -1,8 +1,9 @@
 import { boxColorIds, validPaletteReference } from './palette.mjs'
 import { validLinkHref } from './links.mjs'
+import { migrateV8ToV9 } from './document-v9.mjs'
 
-export const DOCUMENT_VERSION = 8
-export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8]
+export const DOCUMENT_VERSION = 9
+export const DOCUMENT_VERSIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 const MAX_STRING = 8 * 1024 * 1024
 const MAX_IMAGE = 10 * 1024 * 1024
 const MAX_NODES = 100000
@@ -12,6 +13,7 @@ const CLASSES_V8 = [...CLASSES, 'separator']
 const STYLE = ['family', 'size', 'color', 'weight', 'lineHeight', 'spaceBefore', 'spaceAfter', 'letterSpacing']
 const SEPARATOR_STYLE = [...STYLE, 'lineThickness']
 const KINDS = ['text', 'table', 'image', 'drawing', 'formula', 'code', 'html']
+const supportsSlides = version => version >= 2 && version <= 8
 
 export class DocumentFormatError extends Error {
   constructor(message, path = '', code = 'invalid') {
@@ -84,9 +86,9 @@ function style(value, path, fields = STYLE, defaults = false, version = DOCUMENT
   }
 }
 function theme(value, version) {
-  record(value, 'theme', ['appearance', 'autospace', 'defaults', 'paragraphs', 'objects', 'flow'], [
-    ...(version >= 6 ? ['justifyText'] : []), ...(version >= 7 ? ['firstLineIndent'] : []),
-  ])
+  const fields = ['appearance', 'autospace', 'defaults', 'paragraphs', 'objects', 'flow']
+  const switches = [...(version >= 6 ? ['justifyText'] : []), ...(version >= 7 ? ['firstLineIndent'] : [])]
+  record(value, 'theme', version >= 9 ? [...fields, ...switches] : fields, version >= 9 ? [] : switches)
   const appearance = record(value.appearance, 'theme.appearance', ['mode', 'primaryHue', 'secondaryHue'])
   choice(appearance.mode, ['light', 'dark'], 'theme.appearance.mode')
   for (const key of ['primaryHue', 'secondaryHue']) if (number(appearance[key], `theme.appearance.${key}`, 0) >= 360) fail(`theme.appearance.${key}`, 'must be less than 360')
@@ -126,15 +128,15 @@ function image(value, path) {
   }
 }
 
-function marks(value, path) {
+function marks(value, path, version) {
   const types = new Set()
   for (const [index, mark] of array(value, path, 4).entries()) {
     const p = `${path}[${index}]`
     record(mark, p, ['type'], ['attrs'])
-    choice(mark.type, ['bold', 'color', 'decoration', 'link'], `${p}.type`)
+    choice(mark.type, ['bold', 'color', version >= 9 ? 'box' : 'decoration', 'link'], `${p}.type`)
     if (types.has(mark.type)) fail(p, 'duplicate mark type')
     types.add(mark.type)
-    if (mark.type === 'bold') { record(mark, p, ['type']); continue }
+    if (mark.type === 'bold' || mark.type === 'box') { record(mark, p, ['type']); continue }
     const key = mark.type === 'link' ? 'href' : mark.type
     record(mark.attrs, `${p}.attrs`, [key])
     if (key === 'color') color(mark.attrs.color, `${p}.attrs.color`)
@@ -195,8 +197,8 @@ function rich(node, path, mode, allowed, state, depth = 0, allowEmpty = false) {
       }
     }
   }
-  if (present(node, 'marks')) marks(node.marks, `${path}.marks`)
-  const childTypes = type === 'doc' ? mode === 'main' && state.slides ? [...docChildren.main, 'slideBreak'] : docChildren[mode] : children[type] ?? []
+  if (present(node, 'marks')) marks(node.marks, `${path}.marks`, state.version)
+  const childTypes = type === 'doc' ? mode === 'main' && state.slides && supportsSlides(state.version) ? [...docChildren.main, 'slideBreak'] : docChildren[mode] : children[type] ?? []
   const list = present(node, 'content') ? array(node.content, `${path}.content`) : []
   if (['doc', 'table', 'tableRow', 'tableCell'].includes(type) && !list.length && !(type === 'doc' && allowEmpty)) fail(path, 'requires child content')
   if ((type === 'tableCell' || type === 'doc' && ['table', 'caption'].includes(mode)) && list.length !== 1) fail(path, 'requires exactly one child')
@@ -344,12 +346,12 @@ export function validateComposition(blocks, objects, options = {}) {
 
 export function validateDocument(value) {
   record(value, 'document')
-  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V8 documents. The saved document has not been changed.`, 'version', 'unsupported')
+  if (!DOCUMENT_VERSIONS.includes(value.version)) throw new DocumentFormatError(`Unsupported Mote document version ${JSON.stringify(value.version) ?? '(missing)'}. This client opens V1–V${DOCUMENT_VERSION} documents. The saved document has not been changed.`, 'version', 'unsupported')
   record(value, 'document', ['format', 'version', 'id', 'language', 'page', 'theme', 'content', 'objects'], ['authoring'])
   choice(value.format, ['mote'], 'format')
   identifier(value.id, 'id')
   choice(value.language, ['en', 'zh-Hans'], 'language')
-  record(value.page, 'page', ['width', 'margins'], value.version >= 2 ? ['slideHeight'] : [])
+  record(value.page, 'page', ['width', 'margins'], supportsSlides(value.version) ? ['slideHeight'] : [])
   number(value.page.width, 'page.width', Number.MIN_VALUE)
   if (present(value.page, 'slideHeight')) number(value.page.slideHeight, 'page.slideHeight', Number.MIN_VALUE)
   insets(value.page.margins, 'page.margins', 0)
@@ -376,7 +378,7 @@ export function validateDocument(value) {
   return value
 }
 
-// Ordered, pure, ID-preserving steps; step `from` upgrades to `from + 1`. A step
+// Ordered, pure steps preserve all surviving IDs; `from` upgrades to `from + 1`. A step
 // is non-breaking only when every valid old document and candidate stays valid
 // with the same meaning. V0 deliberately has no step.
 const MIGRATIONS = [
@@ -394,6 +396,7 @@ const MIGRATIONS = [
   { from: 5, breaking: false, migrate: document => ({ ...document, version: 6 }) },
   { from: 6, breaking: false, migrate: document => ({ ...document, version: 7 }) },
   { from: 7, breaking: false, migrate: document => ({ ...document, version: 8 }) },
+  { from: 8, breaking: true, migrate: migrateV8ToV9 },
 ]
 
 export function migrationBreaking(version) {
@@ -401,16 +404,14 @@ export function migrationBreaking(version) {
 }
 
 // Validates at the stored version, then upgrades in memory to DOCUMENT_VERSION.
-// Breaking steps run their migrate function; non-breaking steps only bump version.
 // The input is never mutated; current documents are returned as is.
 export function loadDocument(value) {
   let document = validateDocument(value)
+  if (document.version === DOCUMENT_VERSION) return document
   for (const step of MIGRATIONS) {
-    if (step.from < document.version) continue
-    if (step.breaking) document = step.migrate(document)
+    if (step.from === document.version) document = step.migrate(document)
   }
-  if (document.version !== DOCUMENT_VERSION) document = { ...document, version: DOCUMENT_VERSION }
-  return document
+  return validateDocument(document)
 }
 
 // Publishing keeps the given version; callers load first when they need the current one.

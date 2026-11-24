@@ -2,17 +2,17 @@
 
 This is the private-client and operator contract. Current agent work uses the reusable, public, unversioned skills under [`public/skills`](../public/skills/) and their shared authoring, native-format, preview, and submission references. New tasks do not copy or pin a guide, skill version, or digest. Public skills/helpers/schema files contain no task data and remain accessible independently of task access; static responses retain `Cache-Control: no-store`.
 
-The current task transport is `mote-agent-v7`. Native documents remain V1–V8; native version numbers are unrelated to task-protocol versions. Current candidate grammar is native V8. The current task stores a document-owned reservation and separate server task artifacts/proposals. Credentials authorize the active task reservation, not an executor, generation, document revision, or proposal origin. Optional own-document reads return latest cloud context; proposals may be authored from stale or no document context. Existing legacy task records and artifacts remain untouched; the current client does not import them into active task state or show a recovery archive. General Files local recovery downloads remain. No format or task-protocol version change accompanies reservation removal.
+The current task transport is `mote-agent-v7`. Native documents remain V1–V9; native version numbers are unrelated to task-protocol versions. Current candidate grammar is native V9. The current task stores a document-owned reservation and separate server task artifacts/proposals. Credentials authorize the active task reservation, not an executor, generation, document revision, or proposal origin. Optional own-document reads return latest cloud context; proposals may be authored from stale or no document context. Existing legacy task records and artifacts remain untouched; the current client does not import them into active task state or show a recovery archive. General Files local recovery downloads remain. No format or task-protocol version change accompanies reservation removal.
 
 See [FORMAT.md](../FORMAT.md) for the normative native schema.
 
 ## Native Flow and Float contract
 
-Cloud documents use the V1, V2, V3, V4, V5, V6, V7, or V8 `MoteDocument` directly in storage and on the wire.
+Cloud documents use the V1, V2, V3, V4, V5, V6, V7, V8, or V9 `MoteDocument` directly in storage and on the wire.
 Native objects live in ordered `document.objects`; saved geometry is nested in
 each object's `layout`. There is no V0 runtime adapter or extension bag;
 older supported versions migrate only through `loadDocument`. V1 keeps its existing strict continuous-page schema. V2
-adds Slides without changing the meaning of other fields. Unknown fields and
+introduced Slides, which V9 flattens to continuous content. Unknown fields and
 unsupported versions are rejected.
 
 Every Flow object has exactly one top-level main-content Flow atom
@@ -37,30 +37,6 @@ zero. Margins affect layout footprint, not object dimensions. Clipboard and
 conversion operations retain them. See FORMAT.md for theme lengths and exact
 object fields.
 
-## Native Slides contract
-
-V1 rejects both `page.slideHeight` and `slideBreak` atoms. In V2, Slides are
-active only when `page.slideHeight` is present and positive; V2 without it is
-continuous. The first slide is implicit. Each later slide begins with a
-top-level `{type:'slideBreak',attrs:{id}}` in the same flat `content` array.
-Markers are not nested in objects, captions, or tables, and each slide has
-content (an empty slide uses an empty paragraph). A marker-relative Float
-belongs to the slide it starts and uses page-space x and nonnegative y. Floats
-anchored to ordinary blocks remain in that block's slide; Flow-anchored Floats
-retain their signed offsets from the Flow owner.
-
-Enabling Slides upgrades V1 to V2 explicitly. Automatic Title/Heading breaks
-and whole-block height packing are best-effort and happen only on enable;
-height edits do not repartition. Disabling removes the active slide height and
-breaks, leaves the document V2, and is not a round-trip guarantee. Layout and
-anchors are best-effort across the toggle, so use document Undo to restore the
-prior arrangement. Each slide lays out Flow, margins, repulsion, and anchors
-independently. Editing expands for main flow and Flow captions but not direct
-Float height. Floats may overlap or cover later slides and remain visible;
-reading and exports clip each slide to its saved height. PNG is one long image,
-and standalone HTML embeds the native document, including its overflowing
-content. Reading/export output has no slide-editing controls or slide navigator.
-
 Captions belong only to image, HTML, and table owners. Their exact shape is
 `{content:JSONContent,width?:number}` with a doc containing one paragraph whose
 attrs contain only `id`. Caption paragraphs use the shared inline marks and
@@ -69,25 +45,23 @@ width in document pixels remains fixed on owner resize. Captions have no
 separate object ID, layout, x/y, or placement. A caption is part of its owner's
 reservation and composition.
 
-Segment proposal payloads use the current closed composition grammar. The transfer envelope is `{version:1|2,type:'segment',content,objects,geometry,anchorTops,originTop}`; geometry/anchor measurements are transfer-only, not native document data. Version 1 carries ordinary blocks; version 2 additionally carries native slide-break atoms. Main-text proposals contain complete paragraphs only. Keep Flow blocks, owned objects/captions, anchors, and layout coherent; a Flow owns its object, caption, and Flow-anchored Floats. The target rectangle is visual context, not a maximum output size.
+Segment proposal payloads use the current closed composition grammar. The transfer envelope is `{version:1,type:'segment',content,objects,geometry,anchorTops,originTop}`; geometry/anchor measurements are transfer-only, not native document data. Main-text proposals contain complete paragraphs only. Keep Flow blocks, owned objects/captions, anchors, and layout coherent; a Flow owns its object, caption, and Flow-anchored Floats. The target rectangle is visual context, not a maximum output size.
 
-New reservations use Object or Segment targets; existing prose-only targets retain their previous scope. New segment targets include `version:2` for exact interval ownership, including disjoint slices of one spacer and zero-length interior insertion points. Omitted target version retains the previous whole-spacer lock. This target-scope version is independent of native V8, the V1/V2 segment candidate envelope, and `mote-agent-v7`. Explicit structural edit mappings rebase surviving targets in the same document/reservation history change. No task conversion or native migration occurs.
+New reservations use Object or Segment targets; existing prose-only targets retain their previous scope. New segment targets include `version:2` for exact interval ownership, including disjoint slices of one spacer and zero-length interior insertion points. Omitted target version retains the previous whole-spacer lock. This target-scope version is independent of native V9, the V1 segment candidate envelope, and `mote-agent-v7`. Explicit structural edit mappings rebase surviving targets in the same document/reservation history change. No task conversion or native migration occurs.
 
-The task base URL returns one JSON description, including `.target` scope and segment `.geometry` transfer measurements without original content. Bookmarks identify boundaries against later document context; the portable extraction helper handles partial spacers and Slides. Separate manifest/target/instructions resources are retired. Delivery checks unresolved grammar without a document/target/session; the owner expands references and checks current-document compatibility in Preview/Accept.
-
-For Slides-aware segments, preserve internal `slideBreak` atoms in order; the leading marker may be omitted and is restored by Mote. Application preserves original boundary IDs and remaps marker-anchored Floats. An empty result clears content while retaining slide structure. Do not change `slideHeight` or unrelated slides.
+The task base URL returns one JSON description, including `.target` scope and segment `.geometry` transfer measurements without original content. Bookmarks identify boundaries against later document context; the portable extraction helper handles partial spacers. Separate manifest/target/instructions resources are retired. Delivery checks unresolved grammar without a document/target/session; the owner expands references and checks current-document compatibility in Preview/Accept.
 
 Internal Notes are `authoring.notes`, an ordered array of plain-text strings. Authorized v7 reads of the optional latest `document.json` and permitted workspace reads may include them as tentative user context, but candidates cannot target or edit them. Public shares and HTML exports omit the entire `authoring` object; native `.mote` exports retain it. Built-in agents may read their own Private document; public external task access to a Private document is blocked for all methods.
 
 ## Native permanent markup (V5+)
 
-Native V5 adds optional `markup:{width,height,strokes,labels}` only to image and HTML objects. The exact closed grammar, viewport bounds, fixed palette, and limits remain the V5 feature rules and are unchanged in V6–V8; markup has no separate ID, layout, or background. Native V1–V4 documents reject markup and migrate only at the ordinary document load boundary.
+Native V5 adds optional `markup:{width,height,strokes,labels}` only to image and HTML objects. The exact closed grammar, viewport bounds, fixed palette, and limits remain the V5 feature rules and are unchanged in V6–V9; markup has no separate ID, layout, or background. Native V1–V4 documents reject markup and migrate only at the ordinary document load boundary.
 
-Native image/HTML markup remains valid V5+ owner content and is preserved by native validation and migration. Current agents do not author, replace, or clear this permanent object markup. For an individual-object candidate, omit `markup` so Mote retains the current same-kind object's value; a complete segment object copied from the document must carry any existing value it intends to retain. Native markup remains part of the V8 object grammar; see [FORMAT.md](../FORMAT.md).
+Native image/HTML markup remains valid V5+ owner content and is preserved by native validation and migration. Current agents do not author, replace, or clear this permanent object markup. For an individual-object candidate, omit `markup` so Mote retains the current same-kind object's value; a complete segment object copied from the document must carry any existing value it intends to retain. Native markup remains part of the V9 object grammar; see [FORMAT.md](../FORMAT.md).
 
 ## Reservation spatial markup
 
-The optional Reservation property is `markup:{x,y,width,height,strokes,labels}`. `x` and `y` are finite signed document-pixel offsets from the current reserved target origin: the object's body top-left for an object target; page-left at the current first paragraph top for text; page-left at the resolved range start for segments (at the first slide boundary for a whole-slide selection). `width` and `height` are positive finite reference extents, not limits on the proposed output. `strokes` and `labels` use the same closed grammar, fixed palette, and limits as native `ObjectMarkup`; the wrapper has no background image or other fields.
+The optional Reservation property is `markup:{x,y,width,height,strokes,labels}`. `x` and `y` are finite signed document-pixel offsets from the current reserved target origin: the object's body top-left for an object target; page-left at the current first paragraph top for text; page-left at the resolved range start for segments. `width` and `height` are positive finite reference extents, not limits on the proposed output. `strokes` and `labels` use the same closed grammar, fixed palette, and limits as native `ObjectMarkup`; the wrapper has no background image or other fields.
 
 `GET` of the task base URL includes the latest cloud-saved reservation `.markup` when present. It is a transparent reservation annotation, distinct from native object markup and from candidate content. Text/segment surfaces normally start at page-left (`x:0`); signed offsets can include owned content above the range. Resolve current IDs/bookmarks and measure the current document rather than treating the reservation-time `target.area` as a live origin. Marks keep their document-pixel sizes; they are not scaled to fit changed target geometry. A later base-URL read returns the latest saved markup. Reading it does not start or restart execution. It follows ordinary reservation sync/CAS and lifecycle; there is no separate markup snapshot, background image, or proposal/version history.
 
@@ -139,7 +113,7 @@ Secondary follow the theme hues. The page background follows the mode. Drawing
 `background` is `"gray6"` or `null`. Text-box `decoration.color` is a pair:
 a family ID or `gray4` (Gray 4 / Gray 5).
 
-Inline rich text accepts only `bold`, fixed-palette `color`, Box `decoration`,
+Inline rich text accepts only `bold`, fixed-palette `color`, `box`,
 and safe absolute HTTP(S) `link` marks. Link hrefs have no credentials or
 control characters and cannot be relative, `mailto:`, or `tel:`. Marks have
 exact attributes and cannot be duplicated. `theme.palette`, arbitrary raw
@@ -160,7 +134,7 @@ and 700 for V4+. See [FORMAT.md](../FORMAT.md) for the full migration contract.
 
 ## Private task API (`mote-agent-v7`)
 
-Native document formats remain V1–V8; native versioning is independent of task protocol `mote-agent-v7`. No protocol adapter, task-history conversion, or automatic continuation of retired protocols is required. Legacy task records remain stored and untouched, but the current client does not import them into active Assistant state or expose a recovery archive; general Files local recovery downloads remain separate.
+Native document formats remain V1–V9; native versioning is independent of task protocol `mote-agent-v7`. No protocol adapter, task-history conversion, or automatic continuation of retired protocols is required. Legacy task records remain stored and untouched, but the current client does not import them into active Assistant state or expose a recovery archive; general Files local recovery downloads remain separate.
 
 ### Cloud editing state and task artifacts
 
@@ -189,12 +163,12 @@ The former `GET /api/documents/:id/assistant` returns stored task records read-o
 
 External resources use only `/a/<22-character-base64url-token>` (128 random bits), without workspace cookie or Origin. Built-in agents use the same scoped resources through the supplied task-local Unix socket. Public `/api/agent/` remains retired; its built-in task-local socket path is not a public endpoint. The socket exposes only the scoped agent handler, not the private workspace API. All responses are no-store; capability responses also use no-referrer/noindex behavior and token-bearing URLs must not enter logs.
 
-- `GET` of the task base URL returns the canonical JSON description: `protocol:'mote-agent-v7'`, `taskId`, request/feedback, exact `.target`, segment `.geometry` measurements, optional latest saved reservation `.markup`, permissions/expiry/document metadata, skill/helpers/schema locations, resource URLs and selected-version context. It excludes copied originals and snapshots. Re-reading this URL returns the current saved markup but does not start or restart execution. `manifest.json`, `target.json`, and `instructions.md` return 404. The task token is separate from task ID. Native `documentFormatVersion:8` in the proposal schema is advisory metadata, not request data or proof of a read.
+- `GET` of the task base URL returns the canonical JSON description: `protocol:'mote-agent-v7'`, `taskId`, request/feedback, exact `.target`, segment `.geometry` measurements, optional latest saved reservation `.markup`, permissions/expiry/document metadata, skill/helpers/schema locations, resource URLs and selected-version context. It excludes copied originals and snapshots. Re-reading this URL returns the current saved markup but does not start or restart execution. `manifest.json`, `target.json`, and `instructions.md` return 404. The task token is separate from task ID. Native `documentFormatVersion:9` in the proposal schema is advisory metadata, not request data or proof of a read.
 - `GET document.json` is optional and returns the latest authorized cloud document at access time, with its ordinary revision metadata. It is not pinned to a task, and there are no historical agent reads. The own document is independent of `workspaceRead`; permitted Notes are tentative context, never a write target.
 - `GET versions.json` and `GET versions/V1.json` return the flat append-only `{id:'V1',label?,candidate}` sequence. Versions have no `origin`, agent, parent, lineage, source document revision/version, or per-version revision. Concurrent built-in and external submissions append to the same sequence.
 - `POST submit` accepts `{operationId,candidate,assets?,label?}`. It accepts no document revision, executor, execution generation, source/origin, or target validation field. The receipt is exactly `{taskId,versionId,status:'ready'}`. An identical operation retry returns its receipt; reusing an operation ID with different input is a conflict. Submission is not application and never edits the document.
 
-Delivery validation is stateless: it checks unresolved proposal grammar, explicit native V8 payloads, decidable cross-references, and uploaded assets without a document, reservation target, source version, agent origin, or session. A segment's `objects` array may contain bare safe object IDs alongside complete objects. IDs are stored unchanged; screenshot mappings may reference only explicit HTML objects. Owner Preview/Accept requires each ID to be owned by the reservation and present in the working document, replaces it with an exact deep copy, and runs complete candidate validation/application. No merging, coordinate correction, automatic retention, fallback, or special ID handling occurs. Duplicate IDs/broken references fail normal validation after expansion. Native documents and clipboard payloads remain strict complete compositions. It does not validate reservation applicability or imply that the agent read a document. The public `/skills/proposal-schema.json` is the current schema reference; its `documentFormat:'mote'` and `documentFormatVersion:8` are advisory hints and are neither echoed nor submission proof. Invalid schema responses include `schemaUrl` and `path` where available. Owner Preview/Accept validates a cached proposal against the actual current native document and reservation scope. The final ordinary document save performs native document validation and revision CAS. Candidate schema validation, owner applicability, and cloud persistence are separate checks.
+Delivery validation is stateless: it checks unresolved proposal grammar, explicit native V9 payloads, decidable cross-references, and uploaded assets without a document, reservation target, source version, agent origin, or session. A segment's `objects` array may contain bare safe object IDs alongside complete objects. IDs are stored unchanged; screenshot mappings may reference only explicit HTML objects. Owner Preview/Accept requires each ID to be owned by the reservation and present in the working document, replaces it with an exact deep copy, and runs complete candidate validation/application. No merging, coordinate correction, automatic retention, fallback, or special ID handling occurs. Duplicate IDs/broken references fail normal validation after expansion. Native documents and clipboard payloads remain strict complete compositions. It does not validate reservation applicability or imply that the agent read a document. The public `/skills/proposal-schema.json` is the current schema reference; its `documentFormat:'mote'` and `documentFormatVersion:9` are advisory hints and are neither echoed nor submission proof. Invalid schema responses include `schemaUrl` and `path` where available. Owner Preview/Accept validates a cached proposal against the actual current native document and reservation scope. The final ordinary document save performs native document validation and revision CAS. Candidate schema validation, owner applicability, and cloud persistence are separate checks.
 
 HTML `screenshotPath`/`screenshotPaths` name files in the supplied assets map. Assets are actual PNG data URLs; the server does not read local paths or fetch URLs. Embedded images carry their own data. Widget source is never executed during submission. `BASE OUTPUT [LABEL]` is the portable helper interface. The helper owns durable operation IDs for the base URL and exact prepared candidate/assets/label, using private sidecar files in the output directory; it sends no executor or source-revision metadata. Keep sidecars with prepared work and repeat the same command after an uncertain response. When submitting JSON directly, retain one operation ID and identical body/assets for every retry.
 

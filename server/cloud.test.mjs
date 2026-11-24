@@ -15,7 +15,7 @@ const origin = 'http://localhost:5173'
 const image = 'data:image/png;base64,iVBORw0KGgo='
 function document(id = randomUUID(), value = 'Hello') {
   return { id, format: 'mote', version: DOCUMENT_VERSION, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
-    theme: { appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true, defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } }, paragraphs: {}, objects: {}, flow: {} },
+    theme: { appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true, justifyText: false, firstLineIndent: false, defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } }, paragraphs: {}, objects: {}, flow: {} },
     content: { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'block-1', semantic: 'body' }, content: [{ type: 'text', text: value }] }] },
     objects: [{ id: 'image-1', kind: 'image', src: image, alt: 'test', layout: { width: 100, placement: { type: 'float', anchorId: 'block-1', x: 0, y: 0 } } }],
   }
@@ -235,7 +235,7 @@ test('archive metadata is independent, durable, retry-safe, and leaves content, 
   assert.deepEqual(value.store.shares(original.id), share)
   assert.equal((await value.call('GET', `/api/shared/${share.share.token}`)).status, 200)
   assert.equal(value.store.assertExternal(original.id).archived, true)
-  assert.deepEqual((await value.call('GET', 'documents')).body.documents, [{ ...enabled.body, slides: false }])
+  assert.deepEqual((await value.call('GET', 'documents')).body.documents, [enabled.body])
   const stale = await value.call('PUT', base, save(original, 'Stale archive view', { archived: false, archiveRevision: 0 }))
   assert.equal(stale.status, 200); assert.equal(stale.body.archived, true); assert.equal(stale.body.archiveRevision, 1)
   const copy = await create(value, { ...native, id: randomUUID() })
@@ -368,6 +368,49 @@ test('single latest share is CAS-controlled, retry-safe, and revoked on deletion
   assert.equal((await value.call('POST', 'documents', { id: original.id, name: 'Resurrection', document: original.document, operationId: randomUUID() })).status, 410)
   assert.deepEqual((await value.call('GET', 'documents')).body, { documents: [] })
   assert.equal((await value.call('GET', `documents/${randomUUID()}`)).status, 404)
+})
+
+test('V9 revokes existing deck links before serving, never rewrites content, and keeps continuous links', async t => {
+  const before = await app(t)
+  const deck = await create(before, { ...document(), version: 8 }), continuous = await create(before, { ...document(), version: 8 })
+  const oldEnable = randomUUID(), old = (await shareMutation(before, deck.id, 0, 'enable', oldEnable)).body.share
+  const kept = (await shareMutation(before, continuous.id, 0, 'enable')).body
+  // Reconstruct a pre-V9 store: a deck with an existing link.
+  const storedDeck = { ...deck.document, page: { ...deck.document.page, slideHeight: 540 } }
+  const packed = before.store.pack(storedDeck), databasePath = before.store.databasePath
+  await before.close()
+  const db = new DatabaseSync(databasePath)
+  try {
+    db.prepare('UPDATE revisions SET body=? WHERE documentId=? AND revision=?').run(packed, deck.id, deck.revision)
+  } finally { db.close() }
+
+  const value = await app(t, { root: before.root })
+  assert.equal((await value.call('GET', `shared/${old.token}`)).status, 404)
+  const disabled = { revision: 2, share: null }
+  assert.deepEqual((await shareMutation(value, deck.id, 0, 'enable', oldEnable)).body, disabled)
+  assert.equal((await shareMutation(value, deck.id, 1, 'enable')).status, 409)
+  assert.equal((await shareMutation(value, deck.id, 2, 'enable')).status, 422)
+  assert.deepEqual(value.store.get(deck.id), { ...deck, document: storedDeck })
+  assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM revisions').get().n, 2)
+  assert.deepEqual(value.store.shares(continuous.id), kept)
+  assert.equal((await value.call('GET', `shared/${kept.share.token}`)).status, 200)
+
+  assert.equal((await value.call('PUT', `documents/${deck.id}`, save(deck, 'Reviewed continuous document'))).status, 200)
+  const fresh = (await shareMutation(value, deck.id, 2, 'enable')).body
+  assert.notEqual(fresh.share.token, old.token)
+  await value.close()
+  const next = await app(t, { root: before.root })
+  assert.deepEqual(next.store.shares(deck.id), fresh)
+  assert.equal((await next.call('GET', `shared/${fresh.share.token}`)).status, 200)
+  assert.equal((await next.call('GET', `shared/${old.token}`)).status, 404)
+
+  // An old client can still save its work; an existing link cannot expose it as a flattened deck.
+  const legacySave = save(continuous, '', { document: { ...storedDeck, id: continuous.id } })
+  assert.equal((await next.call('PUT', `documents/${continuous.id}`, legacySave)).status, 200)
+  assert.equal((await next.call('GET', `shared/${kept.share.token}`)).status, 404)
+  assert.deepEqual(next.store.shares(continuous.id), disabled)
+  assert.equal((await next.call('PUT', `documents/${continuous.id}`, legacySave)).status, 200)
+  assert.deepEqual(next.store.shares(continuous.id), disabled)
 })
 
 test('Notes round-trip through saves, validate as a notes array, affect retries, and stay out of public shares', async t => {

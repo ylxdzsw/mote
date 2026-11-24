@@ -1,15 +1,16 @@
-# Mote document formats V1–V8
+# Mote document formats V1–V9
 
 This is the normative specification for native Mote documents. `format` is
-exactly `"mote"`; `version` is the number `1`, `2`, `3`, `4`, `5`, `6`, `7`,
-or `8`.
+exactly `"mote"`; `version` is an integer from `1` to `9`.
 V1 is the original continuous-page format. V2 adds Slides; V3 adds optional
 table color pairs; V4 restricts saved theme font weights to Regular (400) or Bold (700).
 V5 adds optional permanent image/HTML markup without changing unmarked objects.
 V6 adds optional document-level `theme.justifyText`; omission means false.
 V7 adds optional document-level `theme.firstLineIndent`; omission or false
 means no first-line indent. V8 adds the semantic Separator paragraph class
-and its optional theme rule thickness.
+and its optional theme rule thickness. V9 is continuous only, uses an
+attribute-free inline `box` mark, and requires explicit `justifyText` and
+`firstLineIndent` booleans. Object decorations are unchanged.
 Unknown versions and unknown fields are rejected; there is no extension bag or
 implicit compatibility mode.
 
@@ -20,15 +21,14 @@ are cheap: a closed schema needs the bump so that older app builds and stale
 tabs reject newer documents clearly instead of dropping fields on save. V1 is the
 oldest supported version; V0 is permanently unsupported and has no converter.
 
-The single load boundary is `loadDocument(value)`. It reads `version`, applies
+The single load boundary is `loadDocument(value)`. It validates the stored version, applies
 the ordered migration steps from that version to the current one, and then
 validates the result with the closed validator of the current version. Every
 reader uses this path: editor, Files/import, public share, standalone HTML
-reimport, indexer, and server validation. No other code interprets an older
-shape. Steps are pure and ID-preserving. They preserve block, object, and
-rich-text IDs and all unrelated data; each performs only its explicitly
-documented conversion. A lossy rearrangement (such as Slides partitioning) is
-a confirmed user edit, not a migration.
+reimport, and indexing. `validateDocument` separately checks an unconverted
+stored revision or pinned snapshot against its own closed grammar. Steps are
+pure and preserve the IDs of all surviving blocks, objects, and rich text.
+The sole intentionally lossy migration is the removal of Slides in V9.
 
 Each step declares whether it is **breaking**. A step is non-breaking only if
 every valid old document and every valid old candidate remains valid under the
@@ -47,6 +47,7 @@ validation is breaking. A migration path is breaking if any of its steps is.
 | V5 → V6 | No | Sets `version: 6`; omitted `theme.justifyText` retains start alignment |
 | V6 → V7 | No | Sets `version: 7`; omitted `theme.firstLineIndent` retains no first-line indent |
 | V7 → V8 | No | Sets `version: 8`; older documents have no Separator paragraphs or Separator rule-thickness override |
+| V8 → V9 | Yes | Flattens Slides (below), converts every inline Box mark to `{type:'box'}`, and fills each absent `theme.justifyText` / `theme.firstLineIndent` with `false`. Explicit booleans and sparse styles are preserved. |
 
 For V3 → V4, the explicit weights are `theme.defaults.weight`, any
 `theme.paragraphs.*.weight`, and `theme.objects.table.weight` or
@@ -67,8 +68,9 @@ untouched. **From example** remains an explicit New File choice.
 Reservations are document-associated editing state, separate from native JSON.
 A non-breaking load path leaves them usable. A breaking path with active
 reservations asks the owner first: **Upgrade** releases those reservations through
-ordinary cloud document saving before migrating; **Decline** opens the stored
-version read-only. Proposals and old task artifacts remain recoverable; generation
+ordinary cloud document saving before migrating; **Decline** opens a read-only
+V9 preview while retaining the stored version and its reservations unchanged.
+Proposals and old task artifacts remain recoverable; generation
 is never retried automatically. Task tokens follow saved reservation state, not
 permanent revocation. Proposal submission uses the current stateless schema;
 Preview/Accept checks applicability to the actual document. Task transport
@@ -76,10 +78,8 @@ Preview/Accept checks applicability to the actual document. Task transport
 Segment proposal object-ID shorthand is expanded before native validation; it
 is never part of a native document or export.
 
-V1–V7 load as V8; V1 keeps Slides off. V1 → V2, V2 → V3, V4 → V5,
-V5 → V6, V6 → V7, and V7 → V8 are non-breaking; V3 → V4 is breaking. New
-documents, saves of opened documents, exports, and new task inputs use the
-current version. Current `mote-agent-v7` candidates use native V8 grammar;
+V1–V8 load as V9. New documents, saves of opened documents, exports, and
+new task inputs use the current version. Current `mote-agent-v7` candidates use native V9 grammar;
 the task transport version remains independent of native document versions.
 `validateDocument` still accepts every supported version, so pinned task
 snapshots and stored revisions stay readable as they are.
@@ -91,13 +91,13 @@ The exact top-level shape is:
 ```ts
 type MoteDocument = {
   format: 'mote'
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
   id: string
   language: 'en' | 'zh-Hans'
   page: {
     width: number                 // document pixels, > 0
     margins: Insets               // document pixels, all sides >= 0
-    slideHeight?: number          // V2+ only; positive finite document pixels
+    slideHeight?: number          // V2–V8 only; positive finite document pixels
   }
   theme: Theme
   content: MainDoc
@@ -117,18 +117,17 @@ is required. The optional `authoring` object, when present, requires `notes`;
 omitting `authoring` means there are no notes or document model override.
 Notes are user-owned plain-text scratchpads, not published page content.
 
-### Slides (V2+ only)
+### Legacy Slides (V2–V8 only)
 
-Presence of `page.slideHeight` activates Slides; omission means continuous
-layout, including in V2. The default height on enabling is 540px; any positive
-finite height is allowed. The first slide is implicit. Subsequent slides
+In V2–V8, `page.slideHeight` selects Slides; omission means continuous
+layout. Any positive finite height is valid. The first slide is implicit. Subsequent slides
 start at top-level `{type:'slideBreak',attrs:{id:string}}` atoms in the same
 flat `content` array. A marker belongs to the slide it starts. There is no
 separate slide ownership field or nested content container. Each slide has
 at least one content block; an empty slide uses an empty paragraph, never a
 leading/trailing marker or adjacent markers without intervening content.
 
-V1 rejects both `slideHeight` and `slideBreak`. V2 without `slideHeight` also
+V1 and V9 reject both `slideHeight` and `slideBreak`. V2–V8 without `slideHeight` also
 rejects markers. Each marker has only `type` and `attrs`, whose only key is a
 globally unique `id`. Markers cannot occur inside objects, captions, or tables.
 Paragraphs, Flow atoms and their owned captions remain whole compositions.
@@ -137,17 +136,21 @@ a marker ID means that subsequent slide's top; paragraph, spacer and Flow
 anchors belong to their containing slide. Marker-relative Float x is in page
 coordinates and y is nonnegative, just like document-top positioning.
 
-Enabling Slides partitions at Title/Heading paragraphs (not Subheading), and
-packs whole blocks to the requested height using measured bounds when
-available and estimates otherwise. A leading heading does not create a blank
-slide. A single oversized block is retained intact. Automatic partitioning
-happens only on enabling; later height edits preserve boundaries. Inserting
-a boundary or joining a slide with its predecessor preserves block/object
-IDs, Flow anchors, and captions. Empty newly inserted slides receive writable
-paragraphs. Float offsets are translated best-effort when their slide-top
-anchor changes; ordinary paragraph/Flow associations stay intact. Disabling
-Slides removes `slideHeight` and markers, concatenates content, and translates
-marker-anchored Floats into continuous coordinates. The document keeps its version (V2 or newer).
+V8 → V9 removes `slideHeight` and the boundary atoms. All other blocks and
+objects retain their order and IDs; no spacers or Separators replace markers.
+The old crops, repeated top/bottom margins, and fixed heights are not
+reproduced. Previously cropped content can become visible. Only Floats
+anchored to a marker are rebased: x stays the same, `anchorId` becomes null,
+and y is the nonnegative sum of the old y and the former slide's estimated
+origin on the continuous page. That origin is the continuous top of the first
+surviving block after the marker minus the larger of its Before spacing and
+the page's top margin. Measurement uses the legacy Slides-Off estimates for
+text wrapping, Flow bodies, captions, object margins, and collapsed spacing,
+never the DOM or a browser viewport. Floats already anchored to the document
+top, paragraph, spacer, or Flow atom keep their literal placement.
+
+Existing public links to decks are permanently revoked before the continuous
+interpretation can be served. Links to continuous documents are unaffected.
 
 A new document starts in Light mode with Primary hue 29°, Secondary hue 262°,
 mixed-script autospace enabled, justification off, and a 16px Sans default in
@@ -183,8 +186,8 @@ type Theme = {
     secondaryHue: number     // degrees, 0 <= hue < 360
   }
   autospace: boolean
-  justifyText?: boolean          // V6+; omission means false
-  firstLineIndent?: boolean      // V7+; omission or false means no indent
+  justifyText: boolean           // V9 required; optional in V6–V8
+  firstLineIndent: boolean       // V9 required; optional in V7–V8
   defaults: {
     family: Family
     size: number             // positive document pixels
@@ -221,8 +224,8 @@ type ParagraphStyles =
   }
 ```
 
-Theme objects have closed keys. V1–V5 reject `justifyText`; V6+ permits this
-optional boolean document-level field, whose omission means false. It has no
+Theme objects have closed keys. V1–V5 reject `justifyText`; in V6–V8,
+omission means false. V9 requires this document-level boolean. It has no
 per-class, per-paragraph, or inline override. When true, browser-native
 `text-align: justify` applies to native prose paragraphs in main text and Text
 objects in either Flow or Float placement, including headings, lists, and
@@ -233,8 +236,8 @@ automatic hyphenation depends on the document language and browser dictionaries.
 There is no language detection, inserted soft hyphens, or stored text rewrite.
 Separator paragraphs are not justified.
 
-V1–V6 reject `firstLineIndent`; V7 permits this optional document-level
-boolean, whose omission or false value means no indent. It is independent of
+V1–V6 reject `firstLineIndent`; V7–V8 allow omission (no indent).
+V9 requires this document-level boolean. It is independent of
 `justifyText` and has no class, paragraph, or inline override. When true, it
 uses `text-indent: 2ic` only for semantic Body paragraphs in main text and
 Text objects in either Flow or Float placement. Only the first formatted line
@@ -243,7 +246,7 @@ captions, tables, Code, formulas, and HTML widget contents are unaffected.
 The behavior is language-independent and does not rewrite content whitespace.
 Separator paragraphs are unaffected.
 
-V1–V7 reject the `separator` paragraph semantic and `lineThickness`. V8 permits
+V1–V7 reject the `separator` paragraph semantic and `lineThickness`. V8+ permits
 `lineThickness` only in `theme.paragraphs.separator`, alongside its ordinary
 sparse text-style overrides. It is a positive finite `{value,unit}` length
 using `px` or `em`; omission, including an omitted Separator style, resolves
@@ -298,11 +301,11 @@ colors, or page-background fields.
 ## Main content and rich-text grammar
 
 `content` is a nonempty `{type:'doc',content:[...]}`. Its top-level nodes are
-paragraphs, explicit spaces, and Flow atoms, plus slide boundaries in V2+ Slides:
+paragraphs, explicit spaces, and Flow atoms. Only legacy V2–V8 decks also permit boundary atoms:
 
 ```ts
 type MainDoc = { type: 'doc'; content: [MainBlock, ...MainBlock[]] }
-type MainBlock = MainParagraph | Spacer | FlowAtom | SlideBreak // last case: V2+ Slides only
+type MainBlock = MainParagraph | Spacer | FlowAtom // V2–V8 decks additionally permit SlideBreak
 type MainParagraph = {
   type: 'paragraph'
   attrs:
@@ -319,7 +322,7 @@ type Inline =
 type Mark =
   | { type: 'bold' }
   | { type: 'color'; attrs: { color: PaletteRef } }
-  | { type: 'decoration'; attrs: { decoration: 'box' } }
+  | { type: 'box' }                 // V9 only; see legacy form below
   | { type: 'link'; attrs: { href: string } }
 ```
 
@@ -356,20 +359,24 @@ is:
 [
   {"type":"bold"},
   {"type":"color","attrs":{"color":"secondary:soft"}},
-  {"type":"decoration","attrs":{"decoration":"box"}},
+  {"type":"box"},
   {"type":"link","attrs":{"href":"https://example.com/"}}
 ]
 ```
 
-Marks compose, but a mark type may occur at most once on a node. `bold` has no
-attributes; the other marks have exactly the shown attribute. Link `href` is a
+Marks compose, but a mark type may occur at most once on a node. `bold` and
+V9 `box` have no attributes (not even `attrs:{}`). V1–V8 instead use exactly
+`{"type":"decoration","attrs":{"decoration":"box"}}`. Migration replaces
+that mark in place on text and hard breaks in main text, Text objects, table
+cells, and owned captions; other marks and their order are unchanged. The
+object-level `text.decoration` field is **not** an inline mark. Link `href` is a
 credential-free absolute HTTP(S) URL with a host; controls, relative paths,
 `mailto:`, and `tel:` are invalid. Links inherit text color and are rendered
 underlined. There is no independent underline mark. No arbitrary inline fonts,
 sizes, colors, or unknown node/mark fields are allowed.
 
 Text-object content is a nonempty doc containing paragraphs only; it has the
-same semantic paragraph grammar as main text, including Separator in V8.
+same semantic paragraph grammar as main text, including Separator in V8+.
 Table content is a doc with
 exactly one table. Each row has the same number of cells, each cell contains
 exactly one paragraph, and rows/cells have no attributes. Cell paragraph attrs
@@ -434,8 +441,8 @@ V5 `markup.width`/`height` describe only its internal reference coordinate viewp
 Flow atom supplies its position in block order; numeric Flow x is an offset
 from the text-column left, and `'center'` centers within the column.
 
-Float `anchorId` is null (document/first-slide top) or a main paragraph, spacer,
-Flow atom, or V2+ Slides marker ID. For document-top, slide-top and ordinary paragraph/space anchors, x is in page
+Float `anchorId` is null (document top) or the ID of a main paragraph, spacer,
+or Flow atom. In legacy V2–V8 decks a slide marker ID is also valid. For document-top, slide-top and ordinary paragraph/space anchors, x is in page
 coordinates and y is a nonnegative offset from the anchor's measured top. A
 Float anchored to a Flow atom instead uses signed x and y offsets from its
 Flow owner's measured top-left. Floats may overlap other Floats and Flow
@@ -570,7 +577,7 @@ as PNG, JPEG, WebP, GIF, AVIF, or safe inert SVG, with at most 10 MiB decoded
 per image; PNG signatures are checked. Each Drawing or object markup allows at most 10,000 strokes,
 100,000 total points, 1,000 labels, and 4,096 characters per label.
 
-Native `.mote` files contain a V1, V2, V3, V4, V5, V6, V7, or V8 document and embedded
+Native `.mote` files contain a V1–V9 document and embedded
 assets; native saves preserve `authoring`. Public projection validates the
 document and returns a clone without `authoring`. Standalone HTML likewise omits `authoring` from its
 reimport payload. Unsupported or corrupt imports do not replace the open
@@ -584,14 +591,9 @@ Transient `geometry`, `anchorTops`, and `originTop` may accompany these
 payloads for placement/coordinate translation. They are not fields of
 `MoteDocument` or object `layout`. Main block/object/caption records inside
 these envelopes use the current native shapes above; current `mote-agent-v7`
-candidates use native V8 grammar. The transfer version is separate from the
+candidates use native V9 grammar. The transfer version is separate from the
 native document and task-transport versions.
 
-Slide-aware segment transfers use `version:2` with the same envelope fields,
-permitting V2 `slideBreak` atoms. Ordinary clipboard segments remain version 1;
-whole-slide clipboard uses its distinct `type:"slides"` envelope with
-`documentVersion:2|3|4|5|6|7|8` declaring its native object schema. AI V2 segments
-require a Slides document and retain internal boundaries in the reserved range.
-The leading boundary may be omitted; application preserves the original boundary
-IDs and remaps marker-anchored Floats. Empty candidates clear content without
-removing slides. These transfer versions do not change the task transport protocol.
+Historical slide-aware segment (`version:2`) and whole-slide (`type:"slides"`)
+envelopes are not V9 native documents or current inputs. Reservation interval
+target version 2 is independent of these retired transfer shapes.

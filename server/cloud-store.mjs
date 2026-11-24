@@ -15,6 +15,9 @@ function privacyRevision(value, label) { if (typeof value !== 'number' || !Numbe
 function shareRevision(value, label = 'baseRevision') { if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new HttpError(400, `${label} must be a non-negative safe integer`); return value }
 function name(value) { return text(value, 'name', 1024, true) }
 
+// V9 can expose formerly cropped content. A saved continuous page needs no revocation.
+const legacyDeck = "json_extract(body,'$.value.version') BETWEEN 2 AND 8 AND json_extract(body,'$.value.page.slideHeight') > 0"
+
 export class CloudStore {
   static async open(options = {}, env = process.env) {
     const paths = storagePaths(options, env)
@@ -74,6 +77,10 @@ export class CloudStore {
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS active_share ON shares(documentId) WHERE revokedAt IS NULL')
       db.prepare(`INSERT OR IGNORE INTO workspace_settings
         (id,revision,builtin,indexing,indexingEnabled) VALUES (1,0,'','',0)`).run()
+      // The active link itself is the checkpoint: once revoked it cannot match again.
+      const links = db.prepare(`SELECT d.id,d.shareRevision FROM shares s JOIN documents d ON d.id=s.documentId
+        JOIN revisions r ON r.documentId=d.id AND r.revision=d.revision WHERE s.mode='latest' AND s.revokedAt IS NULL AND ${legacyDeck}`).all()
+      for (const row of links) this.revokeLatestShare(row)
     })
   }
 
@@ -373,10 +380,8 @@ export class CloudStore {
     return this.db.prepare('SELECT runId,status,workerUnit,workerPid FROM document_indexes WHERE runId IS NOT NULL').all()
   }
   list() {
-    const rows = this.db.prepare(`SELECT ${META_COLUMNS},
-      (SELECT json_extract(body, '$.value.page.slideHeight') FROM revisions WHERE documentId=d.id AND revision=d.revision) AS slideHeight
-      FROM documents d WHERE deletedAt IS NULL ORDER BY updatedAt DESC,id`).all()
-    return { documents: rows.map(row => ({ ...metadata(row), slides: row.slideHeight > 0 })) }
+    const rows = this.db.prepare(`SELECT ${META_COLUMNS} FROM documents WHERE deletedAt IS NULL ORDER BY updatedAt DESC,id`).all()
+    return { documents: rows.map(metadata) }
   }
   get(id) { return this.envelope(this.row(id)) }
   privacyMeta(id) { return metadata(this.row(id)) }
@@ -433,6 +438,7 @@ export class CloudStore {
       this.db.prepare('INSERT INTO revisions(documentId,revision,createdAt,body) VALUES (?,?,?,?)').run(id, token, time, this.pack(document))
       this.db.prepare('UPDATE documents SET revision=?,updatedAt=? WHERE id=?').run(token, time, id)
       this.saveReservations(id, token, body.reservations === undefined ? this.reservations(id, row.revision) : body.reservations, document)
+      if (document.page.slideHeight !== undefined) this.revokeLatestShare(row)
       this.notify(id, 'document')
       return this.remember(id, 'put', body, retry.digest, this.get(id))
     })
@@ -496,6 +502,12 @@ export class CloudStore {
     })
   }
 
+  revokeLatestShare(row) {
+    if (this.db.prepare("UPDATE shares SET revokedAt=? WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").run(now(), row.id).changes) {
+      this.db.prepare('UPDATE documents SET shareRevision=? WHERE id=?').run(this.nextShareRevision(row), row.id)
+      this.notify(row.id, 'privacy')
+    }
+  }
   shareState(id) {
     const row = this.row(id)
     const share = this.db.prepare("SELECT id,token FROM shares WHERE documentId=? AND mode='latest' AND revokedAt IS NULL").get(id)
@@ -528,6 +540,7 @@ export class CloudStore {
       const time = now()
       if (previous) this.db.prepare('UPDATE shares SET revokedAt=? WHERE id=?').run(time, previous.id)
       if (body.action !== 'disable') {
+        if (this.db.prepare(`SELECT 1 FROM revisions WHERE documentId=? AND revision=? AND ${legacyDeck}`).get(id, document.revision)) throw new HttpError(422, 'Open the converted document in the current editor and save it before enabling sharing.')
         const share = { id: randomUUID(), token: randomBytes(32).toString('base64url') }
         this.db.prepare("INSERT INTO shares(id,documentId,token,mode,revision,createdAt) VALUES (?,?,?,'latest',NULL,?)").run(share.id, id, share.token, time)
       }

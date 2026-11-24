@@ -16,7 +16,7 @@ function document(id, text = 'initial content') {
   return {
     id, format: 'mote', version: DOCUMENT_VERSION, language: 'en', page: { width: 960, margins: { top: 48, right: 48, bottom: 48, left: 48 } },
     theme: {
-      appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true,
+      appearance: { mode: 'light', primaryHue: 145, secondaryHue: 260 }, autospace: true, justifyText: false, firstLineIndent: false,
       defaults: { family: 'sans', size: 16, color: 'gray1', weight: 400, lineHeight: { value: 1.5, unit: 'ratio' }, spaceBefore: { value: 0, unit: 'em' }, spaceAfter: { value: 1, unit: 'em' }, letterSpacing: { value: 0, unit: 'em' } },
       paragraphs: {}, objects: {}, flow: {},
     },

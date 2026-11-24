@@ -4,15 +4,12 @@ import { useHistory } from '../document/history'
 import { NumberField } from '../theme/ThemePanel'
 import type { PrivacyState } from '../cloud/WorkingCopy'
 import { ModelField } from './ModelField'
-import { setSlides } from '../document/slides'
-import type { SegmentContext } from '../ai/segments'
 
 export function DocumentSettings({ doc, onChange,
-  privacy, onPrivacyRetry, onPrivacyReconcile, layoutContext }: {
+  privacy, onPrivacyRetry, onPrivacyReconcile }: {
   doc: MoteDocument; onChange: (doc: MoteDocument) => void
   privacy: PrivacyState
   onPrivacyRetry: () => void; onPrivacyReconcile: () => void
-  layoutContext?: () => SegmentContext | undefined
 }) {
   const history = useHistory()
   const [linked, setLinked] = useState(doc.page.margins.left === doc.page.margins.right)
@@ -37,16 +34,6 @@ export function DocumentSettings({ doc, onChange,
         <div className="style-field"><div className="field-heading">Document width</div>
           <NumberField label="Document width" value={doc.page.width} min={Math.max(320, doc.page.margins.left + doc.page.margins.right + 120)} max={2400}
             onChange={width => onChange({ ...doc, page: { ...doc.page, width } })} /></div>
-        <div className="style-field"><div className="field-heading">Slides</div>
-          <select aria-label="Slides" value={doc.page.slideHeight === undefined ? 'off' : 'on'} onChange={event => {
-            history.boundary(); onChange(setSlides(doc, event.target.value === 'on', 540, layoutContext?.())); history.boundary()
-          }}><option value="off">Off</option><option value="on">On</option></select>
-        </div>
-        {doc.page.slideHeight !== undefined && <div className="style-field"><div className="field-heading">Slide height</div>
-          <NumberField label="Slide height" value={doc.page.slideHeight} min={Number.MIN_VALUE} step="any"
-            onChange={slideHeight => onChange({ ...doc, page: { ...doc.page, slideHeight } })} />
-        </div>}
-        <p className="hint">Changing layout may reposition content. Switching back does not restore the previous arrangement; use Undo.</p>
         <div className="style-field"><div className="field-heading">Text language</div>
           <select aria-label="Text language" value={doc.language ?? 'en'} onChange={event => {
             history.boundary(); onChange({ ...doc, language: event.target.value as DocumentLanguage })
@@ -76,8 +63,7 @@ export function DocumentSettings({ doc, onChange,
           }
         }} /> Link left and right</label>
         <details className="settings-help"><summary>Page layout details</summary>
-          <p>Continuous pages grow with their content. Slides expand for main flow while editing; reading and exports crop at the saved height. Overflowing Floats remain visible while editing.</p>
-          <p>Slide margins and flow restart independently. Titles and Headings start new slides when enabling Slides. At least 120px stays available for main text.</p>
+          <p>The page grows with its content. At least 120px stays available for main text.</p>
           <p>Text language applies to the document, not the interface; mixed English and Chinese are supported.</p>
           <p>Floating objects keep their positions. Narrowing the page can leave them outside its edges.</p>
         </details>

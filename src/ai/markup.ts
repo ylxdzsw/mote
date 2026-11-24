@@ -1,7 +1,5 @@
 import type { FloatingObject, MoteDocument } from '../document/model'
 import { objectAnchorId } from '../document/model'
-import { promoteSlideSelection } from '../document/slideClipboard'
-import { slideRanges } from '../document/slides'
 import { segmentBlockIds } from './segments'
 import { resolveSegmentRange, type SegmentContext } from './segments'
 import type { AITarget, Area, Reservation, SegmentTarget } from './types'
@@ -79,26 +77,11 @@ function resolveSegment(doc: MoteDocument, target: SegmentTarget, measurements: 
   const objects = selectedObjects(doc, target, ids)
   const extents = objectExtent(objects, measurements)
   if (extents.length !== objects.length) return undefined
-  const slideSelection = promoteSlideSelection(doc, range)
-  const slides = doc.page.slideHeight ? slideRanges(doc) : []
-  const slideTop = (index: number) => {
-    const slide = slides[index]
-    return slide?.id ? measurements.context?.anchors.find(anchor => anchor.id === slide.id)?.top ?? index * doc.page.slideHeight! : 0
-  }
-  const origin = { x: 0, y: slideSelection ? slideTop(slideSelection.first)
-    : blockPosition(doc, range.start.index, range.start.offset, measurements) }
+  const origin = { x: 0, y: blockPosition(doc, range.start.index, range.start.offset, measurements) }
   let start = origin.y, end = blockPosition(doc, range.end.index, range.end.offset, measurements)
   if (areas.length) {
     start = Math.min(start, ...areas.map(area => area.y))
     end = Math.max(end, ...areas.map(bottom))
-  }
-  if (slideSelection && doc.page.slideHeight) {
-    const first = slideTop(slideSelection.first), lastTop = slideTop(slideSelection.last)
-    const next = slides[slideSelection.last + 1]
-    const lastEnd = next ? slideTop(next.index)
-      : Math.max(lastTop + doc.page.slideHeight, end, ...extents.map(bottom))
-    start = Math.min(start, first)
-    end = Math.max(end, lastEnd)
   }
   const vertical = combineVertical(extents, start, end, ids.length ? 0 : 180)
   return { origin, frame: { x: 0, y: vertical.y, width: doc.page.width, height: vertical.height } }

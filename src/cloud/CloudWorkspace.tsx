@@ -5,7 +5,6 @@ import { initializeDocument } from '../document/initialize'
 import { DOCUMENT_VERSION, migrationBreaking } from '../../shared/document.mjs'
 import type { Reservation } from '../ai/types'
 import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
-import { setSlides } from '../document/slides'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
@@ -36,7 +35,7 @@ function SharedPage({ token }: { token: string }) {
   useEffect(() => {
     let active = true
     void sharedDocument(token).then(value => { if (active) { setLoaded(value); document.title = `${value.name} · Mote` } },
-      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1–V8 document.` : 'This shared document could not be opened.') })
+      error => { if (active) setError(error instanceof CloudError && error.status === 404 ? 'This sharing link is unavailable or has been revoked.' : error instanceof Error ? `${error.message}. Ask the owner for a supported V1–V${DOCUMENT_VERSION} document.` : 'This shared document could not be opened.') })
     return () => { active = false }
   }, [token])
   if (!loaded) return error ? <main className="loading"><h1>Can’t open shared document</h1><p role="alert">{error}</p></main> : null
@@ -69,9 +68,8 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   const [filesOpen, setFilesOpen] = useState(false)
   const [error, setError] = useState('')
   const [unopened, setUnopened] = useState<WorkingRecord>()
-  const [upgrade, setUpgrade] = useState<{ record: WorkingRecord; tasks: Reservation[]; busy?: boolean; error?: string }>()
+  const [upgrade, setUpgrade] = useState<{ record: WorkingRecord; document: MoteDocument; tasks: Reservation[]; busy?: boolean; error?: string }>()
   const [readOnly, setReadOnly] = useState<{ record: WorkingRecord; document: MoteDocument }>()
-  const [upgradeChoice, setUpgradeChoice] = useState<'upgrade' | 'decline'>()
   const [retry, setRetry] = useState(0)
   const [legacy, setLegacy] = useState<unknown>()
   const [recoveries, setRecoveries] = useState<WorkingRecord[]>([])
@@ -115,7 +113,6 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   useEffect(() => {
     let active = true
     setError(''); setUnopened(undefined); setUpgrade(undefined); setReadOnly(undefined); setCopy(undefined); setFilesOpen(false)
-    const choice = upgradeChoice; setUpgradeChoice(undefined)
     if (!id) return
     async function open() {
       try {
@@ -150,20 +147,19 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
         }
         const stored = local!.document
         try {
-          // A breaking upgrade of a document with unresolved AI tasks waits for the owner.
-          if (stored.version < DOCUMENT_VERSION && migrationBreaking(stored.version) && choice !== 'upgrade') {
-            const document = initializeDocument(stored, true)
-            if (choice === 'decline') { setReadOnly({ record: local!, document }); return }
+          const document = initializeDocument(stored)
+          // Preview can use the migrated value without upgrading the working copy.
+          if (stored.version < DOCUMENT_VERSION && migrationBreaking(stored.version)) {
             const tasks = local!.reservations.filter(task => !task.released)
             if (!active) return
-            if (tasks.length) { setUpgrade({ record: local!, tasks }); return }
+            if (tasks.length) { setUpgrade({ record: local!, document, tasks }); return }
           }
-          local!.document = initializeDocument(stored)
+          local!.document = document
           // Loading never writes to the cloud; the next ordinary save persists the upgrade.
           if (local!.document !== stored) local!.migratedFrom ??= stored
         } catch (error) {
           setUnopened(local)
-          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a supported V1–V8 document.`)
+          throw new Error(`${error instanceof Error ? error.message.replace(/[.\s]+$/, '') : 'Unsupported document format'}. Pending AI work and local data are retained. Download recovery below, or open a supported V1–V${DOCUMENT_VERSION} document.`)
         }
         if (!active) return
         await saveWorkingCopy(local!)
@@ -185,7 +181,7 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
   async function confirmUpgrade() {
     if (!upgrade) return
     setUpgrade({ ...upgrade, busy: true, error: '' })
-    try { await releaseTasks(upgrade.record, upgrade.tasks); setUpgradeChoice('upgrade'); setRetry(value => value + 1) }
+    try { await releaseTasks(upgrade.record, upgrade.tasks); setRetry(value => value + 1) }
     catch (error) { setUpgrade({ ...upgrade, busy: false, error: `${error instanceof Error ? error.message : 'Release failed'}. The upgrade has not continued. Local edits and release retry details are retained.` }) }
   }
 
@@ -207,10 +203,9 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     return true
   }
   async function newDocument(options: NewFileOptions) {
-    let document = initializeDocument(options.example ? createDocument(options) : createBlankDocument())
+    const document = initializeDocument(options.example ? createDocument(options) : createBlankDocument())
     document.theme.appearance.mode = options.mode
     document.language = options.language
-    if (!options.example && options.slideHeight !== undefined) document = setSlides(document, true, options.slideHeight)
     const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
     const retain = options.example || options.modified
     const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, reservations: [], dirty: retain, draft: true, updatedAt: now,
@@ -254,17 +249,16 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
 
   return <>
     {readOnly ? <ReaderPage initial={readOnly.document} notice={<div className="cloud-sync-actions" role="status">
-      <p>Read-only at V{readOnly.document.version}. Upgrading needs your confirmation because unresolved AI tasks would be released.</p>
+      <p>Read-only V{readOnly.document.version} preview. The stored V{readOnly.record.document.version} document and its reservations have not changed.</p>
       <button onClick={() => void downloadRecovery(readOnly.record)}>Download recovery</button>
       <button onClick={() => setRetry(value => value + 1)}>Review upgrade</button>
       <button onClick={() => setFilesOpen(true)}>Files</button>
     </div>} />
     : upgrade ? <main className="loading cloud-home"><h1>Upgrade document?</h1>
-      <p>This document is V{upgrade.record.document.version}. Upgrading to V{DOCUMENT_VERSION} releases {upgrade.tasks.length === 1 ? 'its unresolved AI task' : `its ${upgrade.tasks.length} unresolved AI tasks`} and
-        permanently revokes their agent access. Their inputs and candidates stay downloadable. Open read-only to keep them at the stored version.</p>
+      <p>This document is V{upgrade.record.document.version}. Upgrading to V{DOCUMENT_VERSION} releases {upgrade.tasks.length === 1 ? 'its unresolved AI task' : `its ${upgrade.tasks.length} unresolved AI tasks`}. Their inputs and candidates stay downloadable. A read-only preview leaves the document and its reservations unchanged.</p>
       {upgrade.error && <p role="alert">{upgrade.error}</p>}
       <button disabled={upgrade.busy} onClick={() => void confirmUpgrade()}>Upgrade and release</button>
-      <button disabled={upgrade.busy} onClick={() => { setUpgradeChoice('decline'); setRetry(value => value + 1) }}>Open read-only</button>
+      <button disabled={upgrade.busy} onClick={() => { setReadOnly(upgrade); setUpgrade(undefined) }}>Preview read-only</button>
       <button disabled={upgrade.busy} onClick={() => void downloadRecovery(upgrade.record)}>Download recovery</button>
     </main>
     : copy ? renderDocument(copy, () => { setFilesOpen(true); void refreshRecovery() }, next => void navigate(next)) : error ? <main className="loading cloud-home"><h1>Can’t open document</h1>

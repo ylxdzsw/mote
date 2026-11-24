@@ -34,7 +34,7 @@ import { PanelIcon } from './PanelIcon'
 import { useMedia } from './useMedia'
 import { isComposingKey } from '../editor/composition'
 import { isCaptionEditor } from '../editor/extensions'
-import { ContextHeading, InspectorHelp, ParagraphHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
+import { ContextHeading, ParagraphHelp, TableControls, TextInspector, TextToolsRow } from './Inspector'
 import './embeds.css'
 import { useAssistant } from '../ai/useAssistant'
 import { selectedCandidateVersion } from '../ai/candidates'
@@ -43,10 +43,8 @@ import type { Area, AITarget, AITask } from '../ai/types'
 import { containsTarget, overlaps, paragraphSelection } from '../ai/reservations'
 import { makeSegmentTarget } from '../ai/segments'
 import { recordSpaceEdit, type SegmentRange } from '../document/segment'
-import { promoteSlideSelection } from '../document/slideClipboard'
-import { objectSlideIndex, slideRanges } from '../document/slides'
 import { uiThemeVariables } from '../theme/ui'
-import { Launchpad } from './Launchpad'
+import { Launchpad, type LaunchpadTool } from './Launchpad'
 import { DocumentNotes } from './DocumentNotes'
 import { ReaderPage } from '../reader/ReaderPage'
 import { usePreview } from '../reader/usePreview'
@@ -141,8 +139,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const [launchpadPoint, setLaunchpadPoint] = useState<{ x: number; y: number } | null>(null)
   const [launchpadAnchor, setLaunchpadAnchor] = useState<{ x: number; y: number } | null>(null)
   const selectedObject = doc?.objects.find(object => object.id === selectedIds[0])
-  const selectedSlides = doc && selectedSegment.range ? promoteSlideSelection(doc, selectedSegment.range) : null
-  const selectedSlideOwner = doc?.page.slideHeight !== undefined && selectedObject ? objectSlideIndex(doc, selectedObject) : null
   const selectedObjectTask = selectedIds.length === 1 && selectedObject
     ? assistant.tasks.find(task => task.target.kind === 'object' && task.target.objectId === selectedObject.id)
     : undefined
@@ -216,7 +212,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     function saveShortcut(event: KeyboardEvent) {
       if (isComposingKey(event)) return
       if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's') {
-        event.preventDefault(); event.stopPropagation(); void copy.sync()
+        event.preventDefault(); event.stopPropagation(); void copy.save()
       }
     }
     window.addEventListener('keydown', saveShortcut, true)
@@ -321,15 +317,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
     setLaunchpadAnchor(null)
   }
 
-  function handleLaunchpadChoose(kind: string) {
+  function handleLaunchpadChoose(kind: LaunchpadTool) {
     setLaunchpadPoint(null)
     setLaunchpadAnchor(null)
-    setTool(null)
-    if (kind === 'image') { chooseImage(); return }
-    if (['text','code','drawing','ai','paragraph','table','formula','html','slideBreak'].includes(kind)) {
-      setTool(kind as CreationTool)
-      setSelectedIds([])
-    }
+    if (kind === 'image') { setTool(null); chooseImage(); return }
+    setTool(kind); setSelectedIds([])
   }
 
   function chooseImage(object?: FloatingObject) {
@@ -530,8 +522,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const semantic = selection?.semantic ?? 'body'
   const editingHelp = !showProperties ? null : selectedObject
     ? <ObjectEditingHelp key={selectedObject.id} object={selectedObject} count={selectedIds.length} captionSelected={captionSelected} reserved={!!selectedObjectTask} />
-    : tool ? null : selectedSlides ? <InspectorHelp title="Editing & shortcuts"><p>Copy or cut these slides, then paste after another slide or at a slide border. Delete removes the selected slides.</p></InspectorHelp>
-    : !sectionSelected && activeEditor ? <ParagraphHelp key={semantic} semantic={semantic} /> : null
+    : !tool && !sectionSelected && activeEditor ? <ParagraphHelp key={semantic} semantic={semantic} /> : null
 
   return <HistoryContext value={history}><div className="app" data-mode={doc.theme.appearance.mode} style={uiStyle}>
     <header className="app-header cloud-header">
@@ -540,7 +531,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
       </button>
       <div className={`save-status ${status}`} role="status">
         <button aria-label={`${statusText}. ${cloud.local === 'error' ? 'Retry local save' : connection.offline ? 'Retry connection' : 'Sync document'}`} title={`${statusText} · ${cloud.local === 'error' ? 'Click to retry local save' : connection.offline ? `${connection.reason} Click to retry connection` : 'Click to sync · Ctrl/⌘S'}`}
-          disabled={connection.checking || !connection.offline && (cloud.syncing || !!cloud.conflict || cloud.deleted)} onClick={() => cloud.local === 'error' ? copy.retryLocal() : connection.offline ? void retryConnection() : void copy.sync()}>
+          disabled={connection.checking || !connection.offline && (cloud.syncing || !!cloud.conflict || cloud.deleted)} onClick={() => cloud.local === 'error' ? copy.retryLocal() : connection.offline ? void retryConnection() : void copy.save()}>
           <span className="status-dot" aria-hidden="true" /><span className="save-message">{statusText}</span>
         </button>
       </div>
@@ -611,7 +602,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         </div>
         {creatingPrivate && <p className="settings-dialog-note" role="status">Private is awaiting the first cloud save. Sharing and external agents are blocked. Use the sync indicator to retry.</p>}
         <DocumentSettings doc={doc}
-          layoutContext={() => actions.current?.segmentContext()}
           onChange={setDoc} privacy={cloud.privacy}
           onPrivacyRetry={() => void copy.retryPrivacy()}
           onPrivacyReconcile={() => void copy.reconcilePrivacy()} />
@@ -632,12 +622,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
             recentColors={recentColors.colors} onColorApplied={recentColors.remember} />}
           <div className="side-panel-scroll" ref={panelScroll}>
             {showProperties && <div key={selectedObject?.id ?? (tool ? `tool-${tool}` : 'text')} className="selection-inspector" aria-label="Selection inspector">
-              {selectedObject ? <>{selectedSlideOwner !== null && <p className="hint">Slide {selectedSlideOwner + 1}{(() => {
-                const context = actions.current?.segmentContext(), box = context?.geometry[selectedObject.id]
-                const slide = slideRanges(doc)[selectedSlideOwner]
-                const top = slide.id ? context?.anchors.find(anchor => anchor.id === slide.id)?.top ?? 0 : 0
-                return box && (box.y < top || box.y + box.height > top + doc.page.slideHeight!) ? ' · Extends beyond slide' : ''
-              })()}</p>}<FloatingInspector object={selectedObject} captionSelected={captionSelected}
+              {selectedObject ? <FloatingInspector object={selectedObject} captionSelected={captionSelected}
                 captionMaxWidth={doc.page.width} onCaptionWidth={width => actions.current?.captionWidth(width)} onSelectOwner={() => actions.current?.selectOwner()} count={selectedIds.length} theme={doc.theme} defaultFontSize={doc.theme.defaults.size}
                 onCaption={() => actions.current?.caption()}
                 textStyle={activeEditor && activeEditor !== mainEditor && selection?.paragraph ? selection.semantic : undefined}
@@ -649,15 +634,10 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
                 onUpdateScreenshot={object => void screenshot.capture(object)} screenshotStatus={screenshot.status} screenshotOffline={connection.offline}
                 onReplaceImage={() => chooseImage(selectedObject)} onDrawingEdit={() => editDrawing(selectedObject.id)}
                 reserved={!!selectedObjectTask}
-                newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew} /></>
+                newAIObject={selectedObjectTask?.target.kind === 'object' && selectedObjectTask.target.isNew} />
               : tool ? <div className="context-inspector">
-                  <ContextHeading title={tool === 'slideBreak' ? 'Slide break' : tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'slideBreak' ? 'Click a boundary to start a new slide.' : tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag on the page to reserve one AI object.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
+                  <ContextHeading title={tool === 'ai' ? 'New AI area' : typeof tool === 'object' ? 'Image' : tool === 'text' ? 'Text box' : tool === 'html' ? 'HTML widget' : tool[0].toUpperCase() + tool.slice(1)} subtitle={tool === 'paragraph' ? 'Click a boundary to insert a paragraph.' : tool === 'ai' ? 'Click or drag on the page to reserve one AI object.' : 'Click to insert Flow · Alt-drag to create Float · Esc cancels'} />
                   <button onClick={() => setTool(null)}>Cancel placement <kbd>Esc</kbd></button>
-                </div>
-              : selectedSlides ? <div className="context-inspector">
-                  <ContextHeading title={selectedSlides.first === selectedSlides.last ? 'Slide' : `${selectedSlides.last - selectedSlides.first + 1} slides`}
-                    subtitle={selectedSlides.first === selectedSlides.last ? `Slide ${selectedSlides.first + 1}` : `Slides ${selectedSlides.first + 1}–${selectedSlides.last + 1}`} />
-                  {selectedSlides.first === selectedSlides.last && selectedSlides.first > 0 && <button onClick={() => actions.current?.joinSlide(selectedSlides.first)}>Join with previous slide</button>}
                 </div>
               : sectionSelected ? <div className="context-inspector"><ContextHeading title={target.blockIds.length || target.objectIds.length ? 'Document section' : 'New section'} /></div>
               : activeEditor ? <TextInspector semantic={semantic} listLevel={selection?.listLevel ?? 0} onTheme={openThemeClass} />
@@ -701,7 +681,6 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         onChange={markup => assistant.setMarkup(markupTask.id, markup)} onClose={closeMarkup} />,
       document.querySelector('.app')!)}
     {editable && <Launchpad
-      slides={doc.page.slideHeight !== undefined}
       point={launchpadPoint}
       anchor={launchpadAnchor}
       onChoose={handleLaunchpadChoose}

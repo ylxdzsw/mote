@@ -11,7 +11,7 @@ const { makeSegmentTarget } = await server.ssrLoadModule('/src/ai/segments.ts')
 const paragraph = id => ({ type: 'paragraph', attrs: { id, semantic: 'body' }, content: [] })
 const protocol = 'mote-agent-v7'
 
-test('copy-edit extraction preserves segment semantics, shorthand, partial spacers, Slides and empty boundaries', () => {
+test('copy-edit extraction preserves segment semantics, shorthand, partial spacers and empty boundaries', () => {
   const document = { ...createBlankDocument(), content: { type: 'doc', content: [
     paragraph('before'), { type: 'spacer', attrs: { id: 'space', height: 100 } },
     { type: 'flow', attrs: { id: 'flow', objectId: 'figure' } }, paragraph('after'),
@@ -24,7 +24,7 @@ test('copy-edit extraction preserves segment semantics, shorthand, partial space
   for (const [start, end] of [[{ index: 0, offset: 0 }, { index: 4, offset: 0 }],
     [{ index: 1, offset: 40 }, { index: 3, offset: 0 }], [{ index: 1, offset: 40 }, { index: 1, offset: 80 }],
     [{ index: 4, offset: 0 }, { index: 4, offset: 0 }]]) {
-    const range = { start, end }, original = copySegment(document, range, anchors, geometry, true)
+    const range = { start, end }, original = copySegment(document, range, anchors, geometry)
     const target = makeSegmentTarget(document, range, { x: 0, y: 0, width: 900, height: 400 })
     const task = { protocol, target, geometry: { geometry: original.geometry, anchorTops: original.anchorTops, originTop: original.originTop } }
     const before = structuredClone({ task, document })
@@ -36,11 +36,6 @@ test('copy-edit extraction preserves segment semantics, shorthand, partial space
     const shifted = { ...document, content: { type: 'doc', content: [paragraph('inserted'), ...document.content.content] } }
     assert.deepEqual(extractCandidate(task, shifted), { summary: 'Unchanged reserved content.', segment })
   }
-  const slides = { ...document, page: { ...document.page, slideHeight: 540 }, content: { type: 'doc', content: [paragraph('first'), { type: 'slideBreak', attrs: { id: 'slide' } }, paragraph('second')] }, objects: [] }
-  const range = { start: { index: 0, offset: 0 }, end: { index: 3, offset: 0 } }
-  const original = copySegment(slides, range, [], {}, true)
-  const task = { protocol, target: makeSegmentTarget(slides, range, { x: 0, y: 0, width: 900, height: 1080 }), geometry: { geometry: {}, anchorTops: original.anchorTops, originTop: 0 } }
-  assert.deepEqual(extractCandidate(task, slides).segment, original)
 })
 
 test('extraction copies individual objects and paragraphs and rejects missing targets and retired protocols', () => {

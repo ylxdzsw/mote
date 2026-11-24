@@ -432,7 +432,7 @@ const intervalDoc = { ...doc, content: { type: 'doc', content: [paragraph('a'), 
 function intervalTask(from: number, to: number, source = intervalDoc) {
   const target = makeSegmentTarget(source, { start: { index: 1, offset: from }, end: { index: 1, offset: to } }, { x: 0, y: from, width: 600, height: to - from })
   return { ...segmentTask(target, source.content.content!.filter(block => target.blockIds.includes(block.attrs?.id)), source.objects.filter(object => target.objectIds.includes(object.id))),
-    id: crypto.randomUUID(), workspaceRead: false, original: copySegment(source, target.range, [], {}, true) } as AITask
+    id: crypto.randomUUID(), workspaceRead: false, original: copySegment(source, target.range, [], {}) } as AITask
 }
 const intervalCandidate = (text: string) => ({ summary: text, segment: { version: 1, type: 'segment', content: [paragraph(`candidate-${text}`, text)], objects: [], geometry: {}, anchorTops: {}, originTop: 0 } })
 

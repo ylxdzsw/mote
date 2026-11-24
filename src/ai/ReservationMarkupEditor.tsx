@@ -59,7 +59,7 @@ export function ReservationMarkupEditor({ doc, reservation, onChange, onClose }:
   }, [measure])
 
   const base = reference ?? reservation.markup ?? { x: 0, y: 0, width: doc.page.width,
-    height: Math.max(180, doc.page.slideHeight ?? 0), strokes: [], labels: [] }
+    height: 180, strokes: [], labels: [] }
   const markup = reservation.markup ?? { ...base, strokes: [], labels: [] }
   const currentOrigin = geometry?.origin ?? { x: 0, y: 0 }
   const sheet = reader.current?.querySelector<HTMLElement>('.sheet')
@@ -76,7 +76,7 @@ export function ReservationMarkupEditor({ doc, reservation, onChange, onClose }:
         style={{ left: `calc(${-backgroundX}px * var(--drawing-editor-scale))`,
           top: `calc(${-backgroundY}px * var(--drawing-editor-scale))`, width: doc.page.width,
           transform: 'scale(var(--drawing-editor-scale))', transformOrigin: 'top left' }}>
-        <ReadDocument key={`${doc.id}:${documentVersion.current.key}`} initial={doc} staticWidgets expandSlides nativeScroll initialScale={1} onActions={onActions} />
+        <ReadDocument key={`${doc.id}:${documentVersion.current.key}`} initial={doc} staticWidgets nativeScroll initialScale={1} onActions={onActions} />
       </div> }}
     onChange={patch => {
       const next = { ...base, strokes: patch.strokes ?? markup.strokes, labels: patch.labels ?? markup.labels }

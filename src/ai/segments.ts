@@ -1,5 +1,5 @@
 import type { JSONContent } from '@tiptap/core'
-import { paragraph, patchObject, objectAnchorId, objectY, type MoteDocument } from '../document/model'
+import type { MoteDocument } from '../document/model'
 import { initializeDocument } from '../document/initialize'
 import { carrySegmentEdit, segmentEdit, parseSegment, replaceSegment, segmentObjectIds, type SegmentClipboard, type SegmentPoint, type SegmentRange, type Geometries } from '../document/segment'
 import type { AITarget, Area, Reservation, SegmentBookmark, SegmentCandidate, SegmentTarget } from './types'
@@ -154,39 +154,10 @@ export function expandSegmentCandidate(doc: MoteDocument, target: AITarget, payl
 export function applySegmentCandidate(doc: MoteDocument, target: SegmentTarget, payload: SegmentClipboard | null, context: SegmentContext): MoteDocument {
   const range = resolveSegmentRange(doc, target)
   if (!range) throw new Error('The reserved segment is no longer available.')
-  const selected = blocksOf(doc).slice(range.start.index, range.end.index)
-  const boundaries = selected.filter(block => block.type === 'slideBreak')
-  const leading = selected[0]?.type === 'slideBreak' ? selected[0] : null
   const checked = payload && parseSegment(JSON.stringify(payload))
-  if (checked?.version === 2 && doc.page.slideHeight === undefined) throw new Error('V2 segment candidates require a Slides document.')
-  let candidate = checked && (checked.content.length || checked.objects.length) ? checked : null
-  if (boundaries.length) {
-    if (!candidate) candidate = { version: 2, type: 'segment',
-      content: [...(leading ? [] : [paragraph('')]), ...boundaries.flatMap(block => [block, paragraph('')])],
-      objects: [], geometry: {}, anchorTops: {}, originTop: 0 }
-    else if (leading && candidate.content[0]?.type !== 'slideBreak') {
-      candidate.version = 2
-      candidate.content.unshift(leading)
-      candidate.anchorTops[leading.attrs!.id] = candidate.originTop
-      candidate.objects = candidate.objects.map(object => object.layout.placement.type === 'float' && objectAnchorId(object) === null
-        ? patchObject(object, { anchorId: leading.attrs!.id, y: Math.max(0, objectY(object) - candidate!.originTop) }) : object)
-    }
-  }
-  if ((candidate?.content.filter(block => block.type === 'slideBreak').length ?? 0) !== boundaries.length) {
-    throw new Error('Preserve every reserved slide boundary in the candidate. Use a V2 segment for multiple slides.')
-  }
+  const candidate = checked && (checked.content.length || checked.objects.length) ? checked : null
   const replaced = replaceSegment(doc, range, candidate, context.anchors, context.geometry)
-  let next = replaced
-  if (boundaries.length) {
-    const retained = new Set(blocksOf(doc).filter(block => block.type === 'slideBreak' && !boundaries.includes(block)).map(block => block.attrs!.id))
-    const inserted = blocksOf(next).filter(block => block.type === 'slideBreak' && !retained.has(block.attrs!.id))
-    const ids = new Map(inserted.map((block, index) => [block.attrs!.id, boundaries[index].attrs!.id]))
-    next = { ...next, content: { ...next.content, content: blocksOf(next).map(block => ids.has(block.attrs?.id)
-      ? { ...block, attrs: { ...block.attrs, id: ids.get(block.attrs!.id) } } : block) },
-    objects: next.objects.map(object => object.layout.placement.type === 'float' && ids.has(objectAnchorId(object))
-      ? patchObject(object, { anchorId: ids.get(objectAnchorId(object))! }) : object) }
-  }
-  return carrySegmentEdit(replaced, initializeDocument(structuredClone(next)))
+  return carrySegmentEdit(replaced, initializeDocument(structuredClone(replaced)))
 }
 
 export type { Geometries }
