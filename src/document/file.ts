@@ -86,7 +86,7 @@ function parseDocument(json: string): MoteDocument {
 
 export async function decodeDocument(file: File): Promise<MoteDocument> {
   if (/\.mote$/i.test(file.name)) return decodeMote(file)
-  if (!/\.html?$/i.test(file.name)) throw new MoteFileError('Choose a .mote file or a Mote-exported HTML file.')
+  if (!/\.html?$/i.test(file.name)) throw new MoteFileError('Choose a .mote file or a Mote HTML reader export.')
   if (file.size > maxDecompressedBytes) throw new MoteFileError('The HTML file is larger than the 128 MiB limit.')
 
   let html: string
@@ -98,7 +98,7 @@ export async function decodeDocument(file: File): Promise<MoteDocument> {
   const payloads = template.content.querySelectorAll('[id="mote-document"]')
   const payload = payloads[0]
   if (payloads.length !== 1 || payload?.tagName !== 'SCRIPT' || payload.getAttribute('type') !== 'application/json') {
-    throw new MoteFileError('This HTML file must contain exactly one embedded Mote document. Choose an HTML file exported by Mote.')
+    throw new MoteFileError('This HTML file must contain exactly one embedded Mote document. Choose a .mote file or an HTML reader export; Frozen HTML is for reading only.')
   }
   return parseDocument(payload.textContent ?? '')
 }

@@ -292,7 +292,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       {creating && <NewFileForm {...newFile} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
     </div>
     <div ref={list} className="files-scroll" hidden={creating}>
-      <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or Mote-exported HTML" onChange={event => {
+      <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or a Mote HTML reader export" onChange={event => {
         const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file)
       }} />
       {!action && renderFiles(ordinary, 'Documents')}
@@ -318,7 +318,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       </div>}
       {action === 'import' && <section className="cloud-confirm" aria-label="Import document">
         <h2>Import a document</h2>
-        <p className="cloud-hint">Choose a .mote file or Mote-exported HTML. It opens as a new document; existing documents stay unchanged.</p>
+        <p className="cloud-hint">Choose a .mote file or a Mote HTML reader export. It opens as a new document; existing documents stay unchanged.</p>
         <div className="cloud-actions">
           <button type="button" className="cloud-button" disabled={!!busy} onClick={finishAction}>Cancel</button>
           <button type="button" autoFocus className="cloud-button files-primary" disabled={!!busy} onClick={() => input.current!.click()}>Choose file…</button>

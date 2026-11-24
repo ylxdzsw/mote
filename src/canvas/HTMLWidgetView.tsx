@@ -3,8 +3,8 @@ import type { FloatingHTMLWidget } from '../document/model'
 import { MarkupView } from './DrawingView'
 import './embeds.css'
 
-function page(html: string) {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;width:100%;height:100%;background:transparent}</style><script>window.addEventListener('keydown',event=>{if(event.isTrusted&&!event.defaultPrevented&&event.key==='Escape')parent.postMessage({type:'mote-widget-escape'},'*')})</script></head>${html}`
+export function widgetPage(html: string) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;width:100%;height:100%;background:transparent}</style></head>${html}`
 }
 
 export function HTMLWidgetView({ note, editable, selected, run, staticOnly, restoreRevision }: {
@@ -22,7 +22,7 @@ export function HTMLWidgetView({ note, editable, selected, run, staticOnly, rest
   return <div className="html-widget" style={{ position: 'relative' }}>
     <img className={`widget-screenshot${staticOnly ? ' is-static' : ''}`} src={note.screenshot} alt={note.alt} draggable={false} />
     {!staticOnly && <div className="widget-live" data-widget-live="">
-      <iframe key={execution.run} title={note.alt || 'HTMLWidget'} sandbox="allow-scripts" srcDoc={page(execution.html)}
+      <iframe key={execution.run} title={note.alt || 'HTMLWidget'} sandbox="allow-scripts" srcDoc={widgetPage(execution.html)}
         tabIndex={interactive ? 0 : -1} inert={!interactive} style={{ pointerEvents: interactive ? 'auto' : 'none' }} />
     </div>}
     {note.markup && <MarkupView markup={note.markup} />}

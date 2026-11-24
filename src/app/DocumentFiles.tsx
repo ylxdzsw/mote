@@ -8,6 +8,7 @@ import './files.css'
 
 const formats = {
   png: { description: 'PNG image', mime: 'image/png' },
+  frozen: { description: 'Frozen HTML', mime: 'text/html' },
   html: { description: 'HTML reader', mime: 'text/html' },
   mote: { description: 'Mote document', mime: 'application/gzip' },
 }
@@ -42,15 +43,16 @@ export function DocumentFiles({ doc, name, onBusyChange }: { doc: MoteDocument; 
 
   async function exporting(format: keyof typeof formats) {
     if (invalidName) return
-    const name = `${basename}.${format}`
-    const preparing = `Preparing ${format === 'mote' ? '.mote document' : format.toUpperCase()}…`
+    const ext = format === 'frozen' ? 'html' : format
+    const name = `${basename}.${ext}`
+    const preparing = `Preparing ${format === 'mote' ? '.mote document' : format === 'frozen' ? 'frozen HTML' : format.toUpperCase()}…`
     updateBusy(saveWindow.showSaveFilePicker ? 'Choose where to save…' : preparing); setError(''); setResult('')
     try {
       let handle: FileSystemFileHandle | undefined
       try {
         // Invoke the picker in the click gesture, before imports or rendering consume activation.
         handle = await saveWindow.showSaveFilePicker?.({ suggestedName: name,
-          types: [{ description: formats[format].description, accept: { [formats[format].mime]: [`.${format}`] } }],
+          types: [{ description: formats[format].description, accept: { [formats[format].mime]: [`.${ext}`] } }],
         })
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') { setResult('Export canceled.'); return }
@@ -59,6 +61,7 @@ export function DocumentFiles({ doc, name, onBusyChange }: { doc: MoteDocument; 
       updateBusy(preparing)
       const snapshot = structuredClone(doc)
       const blob = format === 'mote' ? await encodeMote(snapshot)
+        : format === 'frozen' ? await (await import('../reader/frozen')).exportFrozenHtml(snapshot, basename)
         : format === 'html' ? await exportHtml(snapshot) : await exportPng(snapshot, pngScale)
       if (handle) {
         updateBusy('Saving file…')
@@ -93,6 +96,8 @@ export function DocumentFiles({ doc, name, onBusyChange }: { doc: MoteDocument; 
         </div>
         <button className="export-format" aria-label="Export HTML" disabled={!!busy || invalidName} onClick={() => void exporting('html')}
           title="Exports the page as a standalone browser reader that can be imported back into Mote. Internal notes are excluded, including from the embedded document. Widgets stay interactive; their online resources still need a connection. JavaScript is required to view the page."><span className="export-format-copy"><strong>HTML <small>.html</small></strong><span>Standalone reader · reimportable · excludes internal notes</span></span><PanelIcon name="export" /></button>
+        <button className="export-format" aria-label="Export frozen HTML" disabled={!!busy || invalidName} onClick={() => void exporting('frozen')}
+          title="Saves the rendered page without a Mote reader or internal notes. Only widgets run scripts. Use the HTML reader or .mote to reimport."><span className="export-format-copy"><strong>Frozen HTML <small>.html</small></strong><span>Selectable page · live widgets · not reimportable</span></span><PanelIcon name="export" /></button>
         <button className="export-format" aria-label="Export Mote document" disabled={!!busy || invalidName} onClick={() => void exporting('mote')}
           title="Exports the complete document and all internal notes as a compressed editable file. Import it into Mote to continue editing. Internal notes are included in any copy you share."><span className="export-format-copy"><strong>Mote document <small>.mote</small></strong><span>Editable document · includes internal notes</span></span><PanelIcon name="export" /></button>
       </div>
