@@ -2206,3 +2206,7 @@ Treat public sharing separately from schema compatibility. A migration that mate
 ## 2026-11-24 — Publish the rendered sheet separately from the HTML reader
 
 Frozen HTML is for recipients who need the document itself rather than the application that reconstructs it. Capture the settled shared reader at its authored width; preserve native browser text, SVG, math and isolated widgets instead of rasterizing or implementing another renderer. Baked wrap shapes trade exact cross-browser layout for a file with no reader runtime. Keep the reimportable reader a separate choice.
+
+## 2026-11-24 — Inline PNG resolution
+
+Keep the scale selector beside the PNG download action so format rows scan evenly. Changing scale updates the width preview without starting an export.

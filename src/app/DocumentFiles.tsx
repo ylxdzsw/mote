@@ -87,12 +87,11 @@ export function DocumentFiles({ doc, name, onBusyChange }: { doc: MoteDocument; 
         <div className="export-png" role="group" aria-label="PNG export">
           <button className="export-format" aria-label="Export PNG" disabled={!!busy || invalidName} onClick={() => void exporting('png')}
             title="Exports the page as a full-length image without internal notes. Widgets use their saved screenshots. Higher resolution sharpens text and vectors; image detail depends on the source. Very large pages may require 1× resolution."><span className="export-format-copy"><strong>PNG <small>.png</small></strong><span>Full-length image · {Math.ceil(doc.page.width * pngScale)}px wide</span></span><PanelIcon name="export" /></button>
-          <label className="export-resolution">Resolution
-            <select value={pngScale} disabled={!!busy} onChange={event => setPngScale(Number(event.currentTarget.value) as 1 | 2)}>
-              <option value={1}>1× · Original</option>
-              <option value={2}>2× · High resolution</option>
-            </select>
-          </label>
+          <select className="export-resolution" aria-label="PNG resolution" title="PNG resolution" value={pngScale} disabled={!!busy}
+            onChange={event => setPngScale(Number(event.currentTarget.value) as 1 | 2)}>
+            <option value={1}>1×</option>
+            <option value={2}>2×</option>
+          </select>
         </div>
         <button className="export-format" aria-label="Export HTML" disabled={!!busy || invalidName} onClick={() => void exporting('html')}
           title="Exports the page as a standalone browser reader that can be imported back into Mote. Internal notes are excluded, including from the embedded document. Widgets stay interactive; their online resources still need a connection. JavaScript is required to view the page."><span className="export-format-copy"><strong>HTML <small>.html</small></strong><span>Standalone reader · reimportable · excludes internal notes</span></span><PanelIcon name="export" /></button>
