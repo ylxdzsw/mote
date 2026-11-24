@@ -2192,3 +2192,7 @@ Pair “Slides” with the modified date so decks are easy to spot without compe
 ## 2026-11-23 — Keep reference material below actions
 
 Group selection shortcuts and Assistant privacy guidance at the end of the right panel so neither interrupts the path from properties to Reserve or task review. Independent disclosures need no shared visible heading.
+
+## 2026-11-23 — Distinguish text structure from authored vertical space
+
+Make formatting marks and spacer brackets independent browser-local editing guides: inspecting a composition need not put dots between its words. Paint text marks at native character ranges rather than inserting characters or wrapping spaces in spans, which can change shaping and rounding near a line boundary. A gutter bracket identifies an authored spacer without shading objects placed over it. Neither guide belongs to the document or its readers.

@@ -121,7 +121,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
   const smallScreen = useMedia('(max-width: 1050px)')
   const editable = assistant.loaded && !mobile
   const screenshot = useWidgetScreenshot(history, editable, assistant.lockedIds)
-  const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize'])
+  const { settings, update: updateSettings, saveError: settingsSaveError } = useViewSettings(['minimap', 'minimapSize', 'formattingMarks', 'verticalSpacers'])
   const [settingsDialog, setSettingsDialog] = useState<'settings' | 'theme' | null>(null)
   const settingsOpen = settingsDialog === 'settings'
   const themeOpen = settingsDialog === 'theme'
@@ -672,6 +672,7 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         </div>
       </aside>}
       <DocumentCanvas key={doc.id} doc={doc} editable={editable} editingLayout minimap={showMinimap} minimapSize={settings.minimapSize} zoomHost={zoomHost}
+        formattingMarks={settings.formattingMarks} verticalSpacers={settings.verticalSpacers}
         onInteraction={followCanvasSelection} onCaptionSelection={setSelectedCaptionId}
         onSegmentSelection={(range, taskId) => setSelectedSegment({ range, taskId })}
         lockedIds={assistant.lockedIds} onAICreate={createAIArea} onDeleteObjects={assistant.deleteObjects}

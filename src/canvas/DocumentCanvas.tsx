@@ -9,6 +9,7 @@ import { insertSlideBreak, joinSlide } from '../document/slides'
 import { copyFloating, floatingClipboardJSON, floatingCopyIds, floatingText, importFloating, parseFloating, FLOATING_MIME } from '../document/floatingClipboard'
 import { copyParagraphs, PARAGRAPH_MIME } from '../document/paragraphClipboard'
 import { TextEditor } from '../editor/TextEditor'
+import { ShowFormattingMarks, useFormattingMarks } from '../editor/formattingMarks'
 import { isComposingKey } from '../editor/composition'
 import { themeVariables } from '../theme/ThemePanel'
 import { pageColor } from '../../shared/palette.mjs'
@@ -61,6 +62,7 @@ const zoomPresets = [.25, .5, .75, 1, 1.25, 1.5, 2, 3]
 interface Props {
   doc: MoteDocument; editable: boolean; minimap: boolean; minimapSize: ViewSettings['minimapSize']; zoomHost: HTMLDivElement | null
   editingLayout?: boolean
+  formattingMarks?: boolean; verticalSpacers?: boolean
   selectedIds: string[]; onSelect: (ids: string[]) => void
   onCaptionSelection?: (id: string | null) => void
   onSegmentSelection?: (range: SegmentRange | null, taskId: string | null) => void
@@ -93,7 +95,7 @@ const emptyContent = (object: FloatingObject) => ('content' in object && object.
   || (object.kind === 'formula' && !object.latex.length)
   || (object.kind === 'code' && !object.source.length)
 
-export function DocumentCanvas({ doc, editable, editingLayout = editable, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
+export function DocumentCanvas({ doc, editable, editingLayout = editable, formattingMarks = false, verticalSpacers = false, minimap, minimapSize, zoomHost, selectedIds, onSelect, onCaptionSelection, onSegmentSelection, onInteraction, tool, onToolChange, onMainChange, onNoteChange, onFloatingChange, onActions, onActive, onMainReady, widgetRuns = {}, staticWidgets = false, expandSlides = false, presentation = false, nativeScroll = false, initialScale, onDropImages, lockedIds = new Set(), onAICreate, aiWidgetIds, aiReview, onDeleteObjects, onContextMenu, onDrawingEdit }: Props) {
   const history = useHistory()
   const canvasId = useId()
   const stage = useRef<HTMLDivElement>(null), sheet = useRef<HTMLDivElement>(null)
@@ -105,6 +107,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
   const { scale: canvasScale, automatic, zoomTo, reset } = useDocumentZoom(stage, sheet, doc.page.width, editingLayout, initialScale, nativeScroll || presenting.active)
   const readerScale = useReaderFit(stage, doc.page.width, nativeScroll)
   const scale = presenting.active ? presenting.scale : nativeScroll ? readerScale : canvasScale
+  useFormattingMarks(sheet, editable && formattingMarks, scale)
   const [previews, setPreviews] = useState<FloatingPreviews>({})
   const [creating, setCreating] = useState<FloatingObject | null>(null)
   const [insertionHint, setInsertionHint] = useState<{ position: Point; boundary?: { point: SegmentPoint; top: number } } | null>(null)
@@ -982,7 +985,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
       } as React.CSSProperties}>
       <div className={`sheet ${editingLayout ? 'is-editing' : 'is-reading'} ${selectedIds.length ? 'has-selected-note' : ''} ${editable && ((creationObject && insertionHint && !insertionHint.boundary) || creating || Object.keys(previews).some(id => doc.objects.find(object => object.id === id)?.layout.placement.type !== 'flow')) ? 'show-floating-grid' : ''} ${tool || imagePlacement.active ? 'has-creation-tool' : ''} ${active ? 'is-floating-dragging' : ''} ${spaces.hint ? 'can-resize-space' : ''} ${spaces.hint?.dragging ? 'is-space-dragging' : ''}`}
         ref={sheet} lang={doc.language ?? 'en'} data-mode={doc.theme.appearance.mode} data-floating-preview={active ? '' : undefined} data-ai-placement={tool === 'ai' ? '' : undefined}
-        onDoubleClickCapture={editReservationMarkup}
+        data-show-spacers={editable && verticalSpacers || undefined} onDoubleClickCapture={editReservationMarkup}
         onLoadCapture={event => { if (inserting.some(object => object.id === (event.target as Element).closest<HTMLElement>('[data-note-id]')?.dataset.noteId)) setInserting(current => [...current]) }}
         onDragOverCapture={event => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = editable ? 'copy' : 'none' } }}
         onDropCapture={event => {
@@ -991,6 +994,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
           if (editable) onDropImages?.([...event.dataTransfer.files], anchorPoint(boundedPoint(point(event)), anchors, slides))
         }}
         style={{ ...themeVariables(layoutDoc.theme, doc.language ?? 'en', doc.version), '--canvas-ui-layer': layoutDoc.objects.length + 1, '--margin-top': `${doc.page.margins.top}px`, '--margin-right': `${doc.page.margins.right}px`, '--margin-bottom': `${doc.page.margins.bottom}px`, '--margin-left': `${doc.page.margins.left}px`, width: doc.page.width, transform: `scale(${scale})${presenting.active ? ` translateY(${-presenting.index! * doc.page.slideHeight!}px)` : ''}`, minHeight } as React.CSSProperties}>
+        <ShowFormattingMarks value={editable && formattingMarks}>
         <div className="main-text">
           <TextEditor content={doc.content} editable={editable} spatial label="Main text" historyId="main" onChange={onMainChange} aiReview={canvasReview}
             onReady={editor => { setMainEditor(editor); onMainReady(editor) }} onActive={editor => { if (!drag.current) select([]); onActive(editor) }} />
@@ -1009,6 +1013,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, minima
           return renderObject(original)
         })}
 
+        </ShowFormattingMarks>
         {editable && canvasReview && <SegmentBorders doc={projection.document} ranges={projection.ranges} onSelect={selectAISegment} tasks={canvasReview.tasks} previews={projection.previews}
           owners={projection.owners} geometry={geometry} activeId={activeSegmentId} />}
         {editable && marquee && <div className="marquee-selection" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}

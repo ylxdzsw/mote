@@ -1,5 +1,5 @@
 import { canonicalEditorContent } from './canonical'
-import { useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react'
+import { useContext, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Selection, TextSelection } from '@tiptap/pm/state'
@@ -14,6 +14,7 @@ import type { AIReview } from '../ai/types'
 import { paragraphClipboard } from './paragraphClipboard'
 import type { MoteDocument } from '../document/model'
 import { atDocumentTail } from './documentTail'
+import { ShowFormattingMarks } from './formattingMarks'
 
 interface Props {
   content: JSONContent
@@ -31,6 +32,7 @@ interface Props {
 
 export function TextEditor({ content, editable, spatial = false, table = false, caption = false, label, historyId, onChange, onActive, onReady, aiReview }: Props) {
   const history = useHistory()
+  const showMarks = useContext(ShowFormattingMarks)
   const clipboardHistory = useRef(history)
   clipboardHistory.current = history
   const before = useRef<ReturnType<Selection['toJSON']>>(null)
@@ -144,5 +146,5 @@ export function TextEditor({ content, editable, spatial = false, table = false, 
   const segmentRanges = JSON.stringify(aiReview?.segmentRanges ?? [])
   useLayoutEffect(() => { editor.view.dispatch(editor.state.tr.setMeta('reservationsChanged', true)) }, [editor, reservations, aiReview?.tasks, segmentPreviews, segmentRanges, aiReview?.activeSegmentId, editable])
 
-  return <EditorContent className="text-content" editor={editor} />
+  return <><EditorContent className="text-content" editor={editor} />{showMarks && <span className="formatting-layer" aria-hidden="true" inert />}</>
 }

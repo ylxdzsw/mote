@@ -264,6 +264,9 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .text-content strong { font-weight: 700; }
 .text-content [data-spacer] { position: relative; margin: 0 calc(-1 * var(--margin-right)) calc(-1 * var(--space-overlap, 0px)) calc(-1 * var(--margin-left)); height: var(--spacer-preview-height, var(--spacer-height)); }
 .is-editing [data-spacer] { cursor: default; }
+.sheet.is-editing[data-show-spacers] [data-spacer]::before { content: ''; position: absolute; inset: 0 auto 0 clamp(2px, calc(var(--margin-left) - 14px), 12px); width: 5px; border: solid var(--ui-faint); border-width: 1px 0 1px 1px; pointer-events: none; }
+.formatting-layer { position: absolute; inset: 0; overflow: clip; color: var(--ui-faint); pointer-events: none; user-select: none; }
+.sheet.is-editing:has(.formatting-layer) [data-writing-placeholder] .paragraph-content::before { content: none; }
 .sheet.can-resize-space, .sheet.can-resize-space .main-text * { cursor: ns-resize; }
 .sheet.is-space-dragging, .sheet.is-space-dragging * { cursor: ns-resize !important; user-select: none; }
 .space-hint { position: absolute; left: 8px; pointer-events: none; color: var(--ui-accent); font-size: 12px; line-height: 18px; transform: translateY(-50%); }
@@ -452,6 +455,10 @@ html:has(.native-scroll.is-presenting) { overflow: hidden; }
 .settings-help p { margin: 6px 0; line-height: 1.5; }
 .browser-properties > label { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 12px; }
 .browser-properties > label > select { min-height: var(--ui-control-height); }
+.editing-guides { margin: 16px 0 0; padding: 0; border: 0; }
+.editing-guides legend { padding: 0; font-size: var(--ui-font-size); font-weight: 600; }
+.editing-guides label { display: flex; align-items: center; gap: 7px; }
+.editing-guides input { margin: 0; }
 .launchpad-tile svg { flex: none; width: 16px; height: 16px; }
 .number-field:focus-within { border-color: var(--ui-accent); }
 @media (max-width: 767px) {

@@ -3,12 +3,14 @@ import { useState } from 'react'
 export interface ViewSettings {
   minimap: 'auto' | 'show' | 'hide'
   minimapSize: 'proportional' | 'fit'
+  formattingMarks: boolean
+  verticalSpacers: boolean
   notesOpen: boolean
   notesHeight: number
 }
 
 const storageKey = 'mote-view-settings'
-const defaults: ViewSettings = { minimap: 'auto', minimapSize: 'proportional', notesOpen: false, notesHeight: 200 }
+const defaults: ViewSettings = { minimap: 'auto', minimapSize: 'proportional', formattingMarks: false, verticalSpacers: false, notesOpen: false, notesHeight: 200 }
 
 function readSettings(): ViewSettings {
   try {
@@ -16,6 +18,8 @@ function readSettings(): ViewSettings {
     return {
       minimap: ['auto', 'show', 'hide'].includes(saved.minimap) ? saved.minimap : defaults.minimap,
       minimapSize: ['proportional', 'fit'].includes(saved.minimapSize) ? saved.minimapSize : defaults.minimapSize,
+      formattingMarks: saved.formattingMarks === true,
+      verticalSpacers: saved.verticalSpacers === true,
       notesOpen: saved.notesOpen === true,
       notesHeight: typeof saved.notesHeight === 'number' && Number.isFinite(saved.notesHeight) ? Math.max(72, saved.notesHeight) : defaults.notesHeight,
     }
@@ -40,8 +44,8 @@ export function useViewSettings<K extends keyof ViewSettings>(keys: readonly K[]
 }
 
 export function GlobalSettings({ settings, onChange, saveError }: {
-  settings: Pick<ViewSettings, 'minimap' | 'minimapSize'>
-  onChange: (settings: Pick<ViewSettings, 'minimap' | 'minimapSize'>) => void
+  settings: Omit<ViewSettings, 'notesOpen' | 'notesHeight'>
+  onChange: (settings: Omit<ViewSettings, 'notesOpen' | 'notesHeight'>) => void
   saveError: boolean
 }) {
   return <section className="panel-section browser-properties">
@@ -65,6 +69,10 @@ export function GlobalSettings({ settings, onChange, saveError }: {
       ? 'Keeps page proportions; the miniature scrolls with the document.'
       : 'Shows the whole document, compressing long notes vertically.'}</p>
     <p className="hint">Automatic hides on small screens. Settings stay in this browser.</p>
+    <fieldset className="editing-guides"><legend>Editing guides</legend>
+      <label><input type="checkbox" checked={settings.formattingMarks} onChange={event => onChange({ ...settings, formattingMarks: event.target.checked })} />Show formatting marks</label>
+      <label><input type="checkbox" checked={settings.verticalSpacers} onChange={event => onChange({ ...settings, verticalSpacers: event.target.checked })} />Show vertical spacers</label>
+    </fieldset>
     {saveError && <p className="hint error" role="status">Couldn’t save these settings. They still apply until you reload.</p>}
   </section>
 }
