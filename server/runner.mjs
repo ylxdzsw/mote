@@ -286,7 +286,6 @@ export async function muRunner(context) {
     if (context.signal.aborted) throw new Error('aborted')
     await childWait(command, args, spawnOptions, value => {
       child = value
-      context.onWorkerStart?.(value.pid, unit)
       capture(value.stdout, stdout, 'stdout', context.emitTranscript)
       capture(value.stderr, stderr, 'stderr', context.emitTranscript)
     })

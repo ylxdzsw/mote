@@ -593,11 +593,11 @@ function DraftApp({ initial, copy, onFiles, onOpen }: CloudEditorProps & { initi
         <div className="settings-document-heading">
           <button className="document-privacy-toggle" aria-label="Private document" aria-pressed={cloud.record.meta.private}
             title={creatingPrivate ? 'Private will be confirmed when this file is saved to the cloud.' : cloud.record.meta.private
-              ? 'Private document. Click to allow sharing and external agents. Existing revoked links stay revoked.'
+              ? 'Private document. Click to allow sharing and external agents. Revoked Share links stay revoked.'
               : 'Not private. Click to block public sharing and external agents. The built-in agent remains available.'}
             disabled={creatingPrivate || cloud.privacy.busy || !!cloud.privacy.pending}
             onClick={() => void copy.setPrivate(!cloud.record.meta.private, () => window.confirm(
-              `Make "${cloud.record.meta.name}" private?\n\nThis will disable sharing and revoke the current link. Turning Private off will not restore it. External-agent access will also be revoked.`
+              `Make "${cloud.record.meta.name}" private?\n\nThis will revoke the current Share link permanently. External agents will be blocked while Private is on.`
             ))}><PanelIcon name={cloud.record.meta.private ? 'lock' : 'unlock'} /><span>Private</span></button>
         </div>
         {creatingPrivate && <p className="settings-dialog-note" role="status">Private is awaiting the first cloud save. Sharing and external agents are blocked. Use the sync indicator to retry.</p>}

@@ -90,7 +90,7 @@ const LOGGED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS
 function routeTemplate(requestUrl) {
   let pathname
   try { pathname = new URL(requestUrl, 'http://moted.local').pathname } catch { return 'unmatched' }
-  if (pathname === '/api/models' || pathname === '/api/settings' || pathname === '/api/indexing' || pathname === '/api/indexing/retry' || pathname === '/api/widgets/screenshot') return pathname
+  if (pathname === '/api/models' || pathname === '/api/settings' || pathname === '/api/widgets/screenshot') return pathname
   const segments = pathname.split('/').filter(Boolean)
   if (segments[0] === 'a' && segments.length >= 2) return segments.length === 2 ? '/a/:token' : '/a/:token/:resource'
   if (segments[0] === 'api' && segments[1] === 'agent' && segments.length >= 3) return segments.length === 3 ? '/api/agent/:token' : '/api/agent/:token/:resource'
@@ -409,8 +409,6 @@ export class TaskManager {
           objectIds: [...source.objectIds], area: area(source.area), ...(source.bookmarks ? { bookmarks: {
             start: bookmark(source.bookmarks.start), end: bookmark(source.bookmarks.end),
           } } : {}) }
-    const resources = { 'document.json': `${base}/document.json`,
-      ...(reservation.workspaceRead ? { 'workspace-index.md': `${base}/workspace-index.md`, 'workspace-document.json': `${base}/workspace-document.json` } : {}) }
     const value = {
       protocol: task.meta.protocol,
       taskId: task.id,
@@ -420,13 +418,12 @@ export class TaskManager {
       skill: scope ? path.join(this.sourcePath, 'public', 'skills', 'builtin', 'SKILL.md') : EXTERNAL_SKILL,
       helpers: scope ? this.helperDirectory() : 'https://mote.ylxdzsw.com/skills/helpers',
       schemaUrl: PROPOSAL_SCHEMA_URL,
-      resources,
+      resources: { 'document.json': `${base}/document.json` },
       documentContext: 'optional-latest',
       versions: `${base}/versions.json`,
       version: `${base}/versions/{versionId}.json`,
       submit: `${base}/submit`,
       ...(task.meta.selectedVersion ? { selectedVersion: task.meta.selectedVersion } : {}),
-      workspaceRead: reservation.workspaceRead,
       ...(reservation.expiresAt === undefined ? {} : { expiresAt: reservation.expiresAt }),
       ...(reservation.markup === undefined ? {} : { markup: structuredClone(reservation.markup) }),
       documentMeta: this.store.privacyMeta(task.meta.documentId),
@@ -452,7 +449,7 @@ export class TaskManager {
     try { reservation = this.store.reservation(task.id, task.meta.documentId) } catch {}
     const supported = this.supported(task)
     const value = { id: task.id, protocol: task.meta.protocol, status: supported ? task.meta.status : 'error', progress: task.meta.progress,
-      versions: task.meta.versions ?? [], workspaceRead: reservation?.workspaceRead ?? false, released: !this.isActive(task),
+      versions: task.meta.versions ?? [], released: !this.isActive(task),
       ...(reservation?.expiresAt === undefined ? {} : { expiresAt: reservation.expiresAt }) }
     if (supported && this.externalAllowed(task)) {
       const credential = this.store.credential(task.id)
@@ -472,7 +469,7 @@ export class TaskManager {
   }
 
   ownDocument(task) {
-    return this.store.documentAccess({ kind: 'builtin', id: task.meta.documentId, taskId: task.id })
+    return this.store.taskDocument(task.meta.documentId, task.id)
   }
 
   async prepareScope(dir) {
@@ -567,32 +564,20 @@ export class TaskManager {
       }
 
       if (request.method !== 'GET') throw new HttpError(404, 'not found')
-      let data, type = 'text/plain; charset=utf-8'
+      let data
       if (!resource) {
-        data = JSON.stringify(this.description(task, reservation, base, scope)); type = 'application/json; charset=utf-8'
-      }
-      else if (resource === 'workspace-index.md' || resource === 'workspace-document.json') {
-        if (!reservation.workspaceRead || !task.meta.documentId) throw new HttpError(404, 'workspace resource not found')
-        if (resource === 'workspace-index.md') {
-          data = this.store.workspaceIndex(task.meta.documentId); type = 'text/markdown; charset=utf-8'
-        } else {
-          const id = url.searchParams.get('id')
-          if (!UUID.test(id ?? '')) throw new HttpError(404, 'workspace resource not found')
-          const source = this.store.workspaceDocument(task.meta.documentId, id)
-          data = JSON.stringify({ ...source, sourceUrl: `${PROD_ORIGIN}/d/${source.id}` }); type = 'application/json; charset=utf-8'
-        }
-      }
-      else if (resource === 'document.json') {
-        data = JSON.stringify(this.ownDocument(task)); type = 'application/json; charset=utf-8'
+        data = this.description(task, reservation, base, scope)
+      } else if (resource === 'document.json') {
+        data = this.ownDocument(task)
       } else if (resource === 'versions.json') {
-        data = JSON.stringify(task.meta.versions ?? []); type = 'application/json; charset=utf-8'
+        data = task.meta.versions ?? []
       } else if (/^versions\/V[1-9]\d*\.json$/.test(resource)) {
         const version = task.meta.versions.find(version => version.id === resource.slice('versions/'.length, -'.json'.length))
         if (!version) throw new HttpError(404, 'version not found')
-        data = JSON.stringify(version); type = 'application/json; charset=utf-8'
+        data = version
       } else throw new HttpError(404, 'not found')
-      response.writeHead(200, { ...responseHeaders(undefined, this.env), 'content-type': type, 'content-security-policy': "default-src 'none'; sandbox" })
-      response.end(data)
+      response.writeHead(200, { ...responseHeaders(undefined, this.env), 'content-security-policy': "default-src 'none'; sandbox" })
+      response.end(JSON.stringify(data))
     } catch (error) {
       sendRequestError(request, response, error, undefined, this.env, requestId)
     }
@@ -651,7 +636,7 @@ export class TaskManager {
       const index = this.queue.findIndex(task => task.executions.size === 0)
       if (index < 0) return
       const [task] = this.queue.splice(index, 1)
-      this.active++; this.run(task).catch(() => {}).finally(() => { this.active--; this.schedule(); this.indexer?.wake() })
+      this.active++; this.run(task).catch(() => {}).finally(() => { this.active--; this.schedule() })
     }
   }
 
@@ -858,13 +843,10 @@ export class TaskManager {
 export async function createMotedServer(options = {}) {
   // SQLite is needed only when opening the service.
   const { CloudStore } = await import('./cloud-store.mjs')
-  const { DocumentIndexer } = await import('./indexer.mjs')
   const manager = new TaskManager(options)
   const store = await CloudStore.open(options, manager.env); manager.store = store
   store.documentEvents = manager.documentEvents
-  const indexer = new DocumentIndexer(manager, options.indexing)
-  manager.indexer = indexer
-  try { await manager.init(); await indexer.init() } catch (error) { await indexer.shutdown(); await manager.shutdown(); store.close(); throw error }
+  try { await manager.init() } catch (error) { await manager.shutdown(); store.close(); throw error }
   const screenshots = new WidgetScreenshots(manager.env)
   const streams = new Set()
   const trackStream = response => {
@@ -902,14 +884,7 @@ export async function createMotedServer(options = {}) {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
         if (!['GET', 'PUT'].includes(request.method)) throw new HttpError(404, 'not found')
         const settings = request.method === 'GET' ? store.settings() : store.putSettings(await readBody(request))
-        if (request.method === 'PUT') indexer.wake()
         send(response, 200, settings, origin, manager.env); return
-      }
-      if (url.pathname === '/api/indexing' || url.pathname === '/api/indexing/retry') {
-        if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
-        if (url.pathname === '/api/indexing' && request.method === 'GET') { send(response, 200, indexer.status(), origin, manager.env); return }
-        if (url.pathname === '/api/indexing/retry' && request.method === 'POST') { await indexer.retry(); send(response, 200, indexer.status(), origin, manager.env); return }
-        throw new HttpError(404, 'not found')
       }
       if (url.pathname === '/api/documents' || url.pathname.startsWith('/api/documents/') || url.pathname.startsWith('/api/shared/')) {
         if (request.method !== 'GET' && !allowedOrigin(manager.env, origin)) throw new HttpError(403, 'origin is not allowed')
@@ -927,7 +902,6 @@ export async function createMotedServer(options = {}) {
           ? await manager.documentMutation(url.pathname.split('/')[3], () => cloudApi(store, request, url.pathname, async () => privacyBody))
           : await cloudApi(store, request, url.pathname, readBody)
         if (request.method !== 'GET' && !archiveChange && url.pathname.startsWith('/api/documents/')) void manager.reconcileReservations(url.pathname.split('/')[3]).catch(() => {})
-        if (request.method !== 'GET' && !archiveChange) indexer.wake()
         send(response, result.status, result.body, origin, manager.env); return
       }
       if (url.pathname === '/api/ai' || url.pathname.startsWith('/api/ai/')) {
@@ -957,7 +931,7 @@ export async function createMotedServer(options = {}) {
     } catch (error) { sendRequestError(request, response, error, origin, manager.env, requestId) }
   })
   let closing
-  return { manager, store, indexer, screenshots, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { manager.closing = true; for (const response of streams) response.destroy(); await Promise.all([screenshots.shutdown(), indexer.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
+  return { manager, store, screenshots, server, async start() { const socket = options.socketPath ?? (manager.env.MOTED_SOCKET || (options.port !== undefined || manager.env.MOTED_FAKE_RUNNER === '1' ? null : '/run/moted/moted.sock')); if (socket) { await mkdirSafe(path.dirname(socket), 0o755); try { const stat = await fs.lstat(socket); if (!stat.isSocket()) throw new Error('configured socket path is not a socket'); await fs.unlink(socket) } catch (error) { if (error.code !== 'ENOENT') throw error } await new Promise((resolve, reject) => { server.once('error', reject); server.listen(socket, () => { server.removeListener('error', reject); resolve() }) }) } else { const host = options.host || manager.env.MOTED_HOST || '127.0.0.1'; const port = options.port ?? Number(manager.env.MOTED_PORT || 8787); await new Promise((resolve, reject) => { server.once('error', reject); server.listen(port, host, () => { server.removeListener('error', reject); resolve() }) }) } return server.address() }, close() { return closing ??= (async () => { manager.closing = true; for (const response of streams) response.destroy(); await Promise.all([screenshots.shutdown(), manager.shutdown()]); await new Promise(resolve => server.close(() => resolve())); store.close() })() } }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -11,7 +11,7 @@ after(() => server.close())
 const { useDocumentHistory } = await server.ssrLoadModule('/src/document/history.tsx')
 const { createBlankDocument } = await server.ssrLoadModule('/src/document/model.ts')
 const initial = createBlankDocument()
-const reserved: Reservation[] = [{ id: 'task', documentId: initial.id, original: [], workspaceRead: false,
+const reserved: Reservation[] = [{ id: 'task', documentId: initial.id, original: [],
   target: { kind: 'text', blockIds: [], selection: { from: 1, to: 1 }, insert: false, area: { x: 0, y: 0, width: 100, height: 40 } } }]
 const released: Reservation[] = []
 const changed = { ...initial, authoring: { notes: ['Accepted with prior notes'] } }

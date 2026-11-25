@@ -181,7 +181,8 @@ export function validateReservations(values, document) {
     if (!UUID.test(item.id ?? '') || ids.has(item.id)) throw new HttpError(400, 'reservation ID must be a unique UUID')
     ids.add(item.id)
     if (item.documentId !== document.id) throw new HttpError(400, 'reservation.documentId must match document')
-    if (typeof item.workspaceRead !== 'boolean') throw new HttpError(400, 'reservation.workspaceRead must be boolean')
+    // Old saved reservations and exact pending requests may still contain this inert field.
+    if (item.workspaceRead !== undefined && typeof item.workspaceRead !== 'boolean') throw new HttpError(400, 'reservation.workspaceRead must be boolean')
     if (item.released !== undefined && typeof item.released !== 'boolean') throw new HttpError(400, 'reservation.released must be boolean')
     if (item.markup !== undefined) {
       const markup = record(item.markup, 'reservation.markup')

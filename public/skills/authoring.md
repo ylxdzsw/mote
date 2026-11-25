@@ -53,11 +53,9 @@ Use segment `geometry`, `anchorTops`, and `originTop` in one absolute document-c
 
 For HTML, candidate geometry uses the object's body dimensions, excluding caption and margin extents. A segment HTML widget uses its authored body dimensions. Native image data is embedded in the object; HTML source is not executed during delivery.
 
-## Optional workspace retrieval
+## Task document context
 
-A v7 task may optionally read its own latest `document.json`; the Reservation's `workspaceRead` property controls only cross-document retrieval. Reading the own document is useful context, never a submission prerequisite or freshness requirement. Use other workspace documents only when `workspaceRead` is enabled. Download the permitted `workspace-index.md` to a local file and search it with focused terms instead of reading the whole catalog. Its stored descriptions may be stale discovery hints, not evidence, and reading the index does not force reindexing. Before citing, referring to, or reusing a source, fetch and read its latest native document through the same task-scoped API. Historical revision query parameters are ignored by current agent routes. Current privacy rules govern each read. A denied source is unavailable; do not try another route or use cached descriptions as a substitute.
-
-Use the non-secret `sourceUrl` for attribution when appropriate. Never place task bearer URLs or tokens in document content, candidate sources, screenshots, or citations. Workspace reads do not enlarge the reserved write target.
+A v7 task may optionally read its own latest `document.json`, not other workspace files. Reading the task document is useful context, never a submission prerequisite or a freshness requirement. Never place task bearer URLs or tokens in document content, candidate sources, screenshots, or citations.
 
 ## Make a useful proposal
 

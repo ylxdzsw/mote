@@ -432,7 +432,7 @@ const intervalDoc = { ...doc, content: { type: 'doc', content: [paragraph('a'), 
 function intervalTask(from: number, to: number, source = intervalDoc) {
   const target = makeSegmentTarget(source, { start: { index: 1, offset: from }, end: { index: 1, offset: to } }, { x: 0, y: from, width: 600, height: to - from })
   return { ...segmentTask(target, source.content.content!.filter(block => target.blockIds.includes(block.attrs?.id)), source.objects.filter(object => target.objectIds.includes(object.id))),
-    id: crypto.randomUUID(), workspaceRead: false, original: copySegment(source, target.range, [], {}) } as AITask
+    id: crypto.randomUUID(), original: copySegment(source, target.range, [], {}) } as AITask
 }
 const intervalCandidate = (text: string) => ({ summary: text, segment: { version: 1, type: 'segment', content: [paragraph(`candidate-${text}`, text)], objects: [], geometry: {}, anchorTops: {}, originTop: 0 } })
 
@@ -471,8 +471,8 @@ test('interval points own nothing, conflict only strictly inside slices, and sur
     assert.deepEqual(point.target.kind === 'segment' && point.target.objectIds, [])
     assert.equal(overlaps(slice.target, point.target, intervalDoc), at === 30)
     assert.equal(overlaps(point.target, slice.target, intervalDoc), at === 30)
-    const records = [slice, point].map(({ id, documentId, target, original, workspaceRead, segmentOriginalBlocks, segmentOriginalObjects }) =>
-      ({ id, documentId, target, original, workspaceRead, segmentOriginalBlocks, segmentOriginalObjects }))
+    const records = [slice, point].map(({ id, documentId, target, original, segmentOriginalBlocks, segmentOriginalObjects }) =>
+      ({ id, documentId, target, original, segmentOriginalBlocks, segmentOriginalObjects }))
     if (at === 30) assert.throws(() => validateReservations(records, intervalDoc), /overlap/)
     else {
       assert.doesNotThrow(() => validateReservations(records, intervalDoc))
@@ -488,8 +488,8 @@ test('interval points own nothing, conflict only strictly inside slices, and sur
   const endpoint = intervalTask(100, 100)
   const equivalent = { ...endpoint, id: crypto.randomUUID(), target: { ...endpoint.target,
     bookmarks: undefined, range: { start: { index: 1, offset: 100 }, end: { index: 2, offset: 0 } } } }
-  assert.throws(() => validateReservations([endpoint, equivalent].map(({ id, documentId, target, original, workspaceRead }) =>
-    ({ id, documentId, target, original, workspaceRead })), intervalDoc), /overlap/)
+  assert.throws(() => validateReservations([endpoint, equivalent].map(({ id, documentId, target, original }) =>
+    ({ id, documentId, target, original })), intervalDoc), /overlap/)
 })
 
 test('explicit outside splices and merges map slices and owned objects while rejecting edits through them', () => {

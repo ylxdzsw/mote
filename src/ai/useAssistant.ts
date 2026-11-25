@@ -204,13 +204,13 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
       segmentOriginalObjects = structuredClone(snapshot.objects.filter(object => objectIds.includes(object.id)))
     }
     const reservation: Reservation = { id: crypto.randomUUID(), documentId: snapshot.id, target, original,
-      documentVersion: snapshot.version, createdAt: Date.now(), workspaceRead: false,
+      documentVersion: snapshot.version, createdAt: Date.now(),
       ...(segmentOriginalBlocks && { segmentOriginalBlocks }), ...(segmentOriginalObjects && { segmentOriginalObjects }) }
     history.setState(snapshot, [...history.currentReservations(), reservation])
     openTask(reservation.id); setNotice('')
     return asTask(reservation)
   }
-  function setProperties(id: string, patch: Pick<Reservation, 'workspaceRead'> | Pick<Reservation, 'expiresAt'> | Pick<Reservation, 'markup'>) {
+  function setProperties(id: string, patch: Pick<Reservation, 'expiresAt' | 'markup'>) {
     const task = getTask(id)
     if (!writable || !task || task.released) return
     history.setReservations(history.currentReservations().map(item => item.id === id ? { ...item, ...patch } : item))
@@ -314,10 +314,9 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     externalBlocked: cloud?.externalBlocked ?? false,
     agentLink: (task: AITask) => task.protocol === 'mote-agent-v7' && !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
       ? new URL(access[task.id].externalPath!, window.location.origin).href : undefined,
-    setWorkspaceRead: (id: string, enabled: boolean) => setProperties(id, { workspaceRead: enabled }),
     setExpiration: (id: string, expiresAt?: number) => setProperties(id, { expiresAt }),
     setMarkup: (id: string, markup?: ReservationMarkup) => setProperties(id, { markup }),
-    permissionPending: (task: AITask) => !access[task.id] || access[task.id].workspaceRead !== task.workspaceRead || access[task.id].expiresAt !== task.expiresAt,
+    expirationPending: (task: AITask) => access[task.id]?.expiresAt !== task.expiresAt,
     previewFailed: (id: string, error: unknown) => update(id, previewFailure(error)),
     missingRemote: (id: string) => setStatusIssues(value => ({ ...value, [id]: 'Execution details are unavailable. Retained proposals can still be reviewed.' })),
     statusIssue: (id: string) => statusIssues[id], checkStatus,

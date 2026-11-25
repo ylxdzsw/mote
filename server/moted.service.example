@@ -45,7 +45,7 @@ WantedBy=multi-user.target
 # SQLite/WAL and backups are private and InaccessiblePaths in every worker.
 # Workers see only their own task bind mount inside an otherwise empty tasks dir.
 # Task candidates and Mu sessions persist until explicit task deletion (no TTL).
-# Gate /api/documents, /api/settings, /api/indexing, /api/widgets and /api/ai through the authenticated Unix-socket
+# Gate /api/documents, /api/settings, /api/widgets and /api/ai through the authenticated Unix-socket
 # Nginx boundary. Public routes: GET /api/shared/:token and narrowly scoped
 # /a/:token[/resource] (access_log off). Retired public /api/agent/ returns 404
 # without logging. The built-in /api/agent/ transport exists only on task sockets.

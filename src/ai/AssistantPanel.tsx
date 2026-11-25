@@ -36,9 +36,9 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
 
 export function AssistantHelp() {
   return <InspectorHelp title="Assistant & privacy">
-    <p>Reservations, task permissions, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
+    <p>Reservations, expiration changes, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
     <p>Built-in and external agents can work together. These tabs only change the controls shown; switching tabs does not stop work or change access. Proposals share one version list and never edit your document automatically.</p>
-    <p>The task link can read the latest saved document and, when allowed, non-Private workspace sources. Each request checks current access. Private blocks the public endpoint; the internal built-in socket still works. Downloaded content cannot be recalled.</p>
+    <p>Agents can read the latest saved version of this document, but not other workspace files. Private blocks external agents; the built-in agent still works on this document. Downloaded content cannot be recalled.</p>
     <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task and cached proposals; it never restarts generation.</p>
   </InspectorHelp>
 }
@@ -70,16 +70,12 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
             <button type="button" role="tab" aria-selected={!external} onClick={() => assistant.update(task.id, { executor: 'builtin' })}>Built-in</button>
             <button type="button" role="tab" aria-selected={external} onClick={() => assistant.update(task.id, { executor: 'external' })}>External</button>
           </div>
-          <label className="ai-workspace-read-toggle" title="Allow any agent using this task to search and read non-Private workspace documents. Changes take effect after ordinary document sync.">
-            <input type="checkbox" checked={task.workspaceRead} disabled={!!task.released} onChange={event => assistant.setWorkspaceRead(task.id, event.target.checked)} />
-            <span>Allow workspace reads</span>
-          </label>
           <details className="ai-info"><summary>Task access</summary>
             <label>Expires <input type="datetime-local" aria-label="Task expiration" value={expiry} disabled={!!task.released}
               onChange={event => assistant.setExpiration(task.id, event.target.value ? new Date(event.target.value).getTime() : undefined)} /></label>
             <p>Empty means no expiration. Access follows the saved task state; undo can restore the same link.</p>
           </details>
-          {!task.released && assistant.permissionPending(task) && <p className="ai-note" role="status">Access changes are pending document sync.</p>}
+          {!task.released && assistant.expirationPending(task) && <p className="ai-note" role="status">Expiration change is pending document sync.</p>}
         </div>
       </div>
       {!inactive && <section className="ai-spatial-instructions" aria-label="Spatial instructions">
@@ -133,7 +129,7 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
       {assistant.externalBlocked ? <p role="status">Public task access is unavailable while the document is Private or a privacy change is pending. Built-in access is separate.</p>
         : task.protocol !== 'mote-agent-v7' ? <p role="status">This task protocol is retained for recovery only. Create a new reservation for agent access.</p>
           : !link && !task.released ? <p role="status">The link becomes available after the reservation is saved. Check the document’s sync status if it remains unavailable.</p> : null}
-      <p className="ai-privacy">This link allows access to the latest saved document, not only the reserved area. Each request checks saved permissions and task lifetime. Built-in and external agents share the same proposal list. Switching tabs changes no access.</p>
+      <p className="ai-privacy">This link can read the entire saved document, not just the reserved area. It cannot read other workspace files. Built-in and external agents share the same proposal list.</p>
       {!versions.length && !task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
     </div> : task.protocol !== 'mote-agent-v7' ? <div className="ai-composer">
       {!task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}

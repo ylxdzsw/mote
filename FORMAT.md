@@ -24,7 +24,7 @@ oldest supported version; V0 is permanently unsupported and has no converter.
 The single load boundary is `loadDocument(value)`. It validates the stored version, applies
 the ordered migration steps from that version to the current one, and then
 validates the result with the closed validator of the current version. Every
-reader uses this path: editor, native import, public share, and indexing. `validateDocument` separately checks an unconverted
+reader uses this path: editor, native import, public share, and task document reads. `validateDocument` separately checks an unconverted
 stored revision or pinned snapshot against its own closed grammar. Steps are
 pure and preserve the IDs of all surviving blocks, objects, and rich text.
 The sole intentionally lossy migration is the removal of Slides in V9.

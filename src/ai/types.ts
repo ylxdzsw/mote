@@ -34,7 +34,6 @@ export interface RemoteTask {
   error?: string; expiresAt?: number
   versions?: TaskVersion[]
   selectedVersion?: string // Last request context, never the owner's review selection.
-  workspaceRead: boolean
   externalPath?: string
   released?: boolean
 }
@@ -45,7 +44,6 @@ export interface Reservation {
   documentId: string
   target: AITarget
   original: FloatingObject | JSONContent[] | SegmentClipboard
-  workspaceRead: boolean
   markup?: ReservationMarkup
   expiresAt?: number
   released?: boolean
@@ -77,7 +75,6 @@ export interface AITask extends Reservation {
   acceptance?: { workingCopyId: string; document: MoteDocument; versionId: string }
   cloudDocumentId?: string
   baseRevision?: string
-  workspaceReadRevision?: number
 }
 export interface AssistantCloud {
   draft?: boolean

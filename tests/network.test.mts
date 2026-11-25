@@ -4,7 +4,7 @@ import { connectionSnapshot, requestJSON, RequestError, retryConnection } from '
 
 test('invalid network replies pause requests until a validated read reconnects; writes are never replayed by the probe', async () => {
   const original = globalThis.fetch
-  const settings = { revision: 1, models: { builtin: '', indexing: '' }, indexingEnabled: false }
+  const settings = { revision: 1, models: { builtin: '' } }
   const calls: { path: string; method?: string }[] = []
   let reply = () => Promise.resolve(Response.json(settings))
   globalThis.fetch = async (path, options) => {

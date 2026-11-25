@@ -24,7 +24,7 @@ async function app(t, options = {}) {
   const root = options.root || await mkdtemp(path.join(os.tmpdir(), 'mote-cloud-test-'))
   if (!options.root) t.after(() => rm(root, { recursive: true, force: true }))
   const value = await createMotedServer({ ...options, stateDir: root, backupDir: path.join(root, 'backups'), port: 0, useSystemd: false, env: { MOTED_FAKE_RUNNER: '1', MOTED_DEV_ORIGIN: origin, MOTED_SHARED_MU_DIR: path.join(root, 'unused-config'), MOTED_MU_ENV_SOURCE: '', MOTED_FAKE_DELAY_MS: '0', ...options.env } })
-  if (!options.root && options.workspaceModel !== '') value.store.putSettings({ baseRevision: 0, models: { builtin: 'fake', indexing: '' } })
+  if (!options.root && options.workspaceModel !== '') value.store.putSettings({ baseRevision: 0, models: { builtin: 'fake' } })
   await value.start()
   t.after(() => value.close())
   value.root = root
@@ -46,21 +46,30 @@ test('workspace model defaults are provider-free, durable, validated and revisio
   const value = await app(t, { workspaceModel: '', runner: async () => { runs++ } })
   const original = await create(value)
   const initial = await value.call('GET', 'settings')
-  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false })
+  assert.deepEqual(initial.body, { revision: 0, models: { builtin: '' } })
   assert.equal(initial.headers.get('cache-control'), 'no-store')
-  const models = { builtin: 'provider/author:high', indexing: 'provider/indexer:low' }
+  const models = { builtin: 'provider/author:high' }
   assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models }, { origin: 'https://other.invalid' })).status, 403)
   assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { ...models, builtin: 'bad\nmodel' } })).status, 400)
-  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { ...models, indexing: 1 } })).status, 400)
-  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models })).status, 200)
-  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { builtin: '', indexing: '' } })).status, 409)
+  value.store.db.exec("UPDATE workspace_settings SET indexing='legacy-model',indexingEnabled=1; CREATE TABLE document_indexes (documentId TEXT PRIMARY KEY, description TEXT)")
+  value.store.db.prepare('INSERT INTO document_indexes VALUES (?,?)').run(original.id, 'Retained discovery data')
+  const saved = await value.call('PUT', 'settings', { baseRevision: 0, models: { ...models, indexing: '' }, indexingEnabled: false })
+  assert.equal(saved.status, 200)
+  assert.deepEqual(saved.body, { revision: 1, models })
+  for (const [method, url] of [['GET', 'indexing'], ['POST', 'indexing/retry']]) {
+    assert.equal((await value.call(method, url)).status, 404)
+  }
+  assert.equal((await value.call('PUT', 'settings', { baseRevision: 0, models: { builtin: '' } })).status, 409)
   assert.equal(await value.manager.resolveModel(), models.builtin)
   assert.deepEqual((await value.call('GET', `documents/${original.id}`)).body, original)
   assert.equal(runs, 0)
   await value.close()
   const restarted = await app(t, { root: value.root })
   assert.deepEqual((await restarted.call('GET', 'settings')).body.models, models)
-  assert.equal((await restarted.call('PUT', 'settings', { baseRevision: 1, models: { builtin: '', indexing: '' } })).status, 200)
+  assert.equal(restarted.store.db.prepare('SELECT description FROM document_indexes WHERE documentId=?').get(original.id).description, 'Retained discovery data')
+  const legacy = restarted.store.db.prepare('SELECT indexing,indexingEnabled FROM workspace_settings').get()
+  assert.equal(legacy.indexing, 'legacy-model'); assert.equal(legacy.indexingEnabled, 1)
+  assert.equal((await restarted.call('PUT', 'settings', { baseRevision: 1, models: { builtin: '' } })).status, 200)
   assert.equal(await restarted.manager.resolveModel(), '')
 })
 
@@ -100,7 +109,7 @@ test('model suggestions whitelist Mu catalog fields, preserve arbitrary settings
   value.manager.env.MOTED_SHARED_MU_DIR = shared
 
   assert.equal((await value.call('GET', 'settings')).status, 200)
-  const models = { builtin: 'not-in-catalog/custom:high', indexing: 'also-unknown' }
+  const models = { builtin: 'not-in-catalog/custom:high' }
   const saved = await value.call('PUT', 'settings', { baseRevision: 0, models }, { origin: PROD_ORIGIN })
   assert.equal(saved.status, 200)
   assert.deepEqual(saved.body.models, models)
@@ -199,16 +208,14 @@ test('private metadata defaults, persists, uses independent CAS/retries, and sur
   assert.equal((await restarted.call('GET', `${base}/privacy`)).body.privacyRevision, 2)
 })
 
-test('archive metadata is independent, durable, retry-safe, and leaves content, indexing and sharing alone', async t => {
+test('archive metadata is independent, durable, retry-safe, and leaves content and sharing alone', async t => {
   const value = await app(t), original = await create(value), base = `documents/${original.id}`
   assert.equal(original.archived, false); assert.equal(original.archiveRevision, 0)
   const share = (await shareMutation(value, original.id, 0, 'enable')).body
   const stream = await documentUpdates(value, original.id)
   t.after(stream.cancel)
-  const indexDocuments = value.store.indexDocuments()
-  let wakes = 0, reconciliations = 0
-  const wake = value.indexer.wake, reconcile = value.manager.reconcileReservations
-  value.indexer.wake = () => { wakes++ }
+  let reconciliations = 0
+  const reconcile = value.manager.reconcileReservations
   value.manager.reconcileReservations = async () => { reconciliations++ }
   const archive = { archived: true, baseArchiveRevision: 0, operationId: randomUUID() }
   assert.equal((await value.call('PUT', `${base}/archive`, archive, { origin: 'https://other.invalid' })).status, 403)
@@ -227,9 +234,8 @@ test('archive metadata is independent, durable, retry-safe, and leaves content, 
   assert.deepEqual((await value.call('PUT', `${base}/archive`, { ...archive, baseArchiveRevision: 1, operationId: randomUUID() })).body, enabled.body)
   await until(() => stream.messages.length === 2)
   assert.deepEqual(stream.messages, [{ kind: 'ready' }, { kind: 'document' }])
-  assert.equal(wakes, 0); assert.equal(reconciliations, 0)
-  value.indexer.wake = wake; value.manager.reconcileReservations = reconcile
-  assert.deepEqual(value.store.indexDocuments(), indexDocuments)
+  assert.equal(reconciliations, 0)
+  value.manager.reconcileReservations = reconcile
   assert.equal(value.store.db.prepare('SELECT count(*) AS n FROM revisions').get().n, 1)
   assert.deepEqual(value.store.get(original.id).document, native)
   assert.deepEqual(value.store.shares(original.id), share)
@@ -448,14 +454,17 @@ test('saves validate incoming documents, reads preserve unsupported data, and mu
   assert.equal((await value.call('PUT', `${base}/privacy`, { private: true, basePrivacyRevision: 0, operationId: randomUUID() }, { origin: 'https://mote.ylxdzsw.com.evil.test' })).status, 403)
   assert.equal((await value.call('PATCH', base, { name: 'Bad origin' }, { origin: '' })).status, 403)
   assert.equal((await value.call('DELETE', base, { baseRevision: original.revision }, { origin: 'null' })).status, 403)
+  const task = reservation(original.document)
+  const reserved = await value.call('PUT', base, { ...save(original, 'Reserved'), reservations: [task] })
+  assert.equal(reserved.status, 200)
   const link = (await shareMutation(value, original.id, 0, 'enable')).body.share
   const old = { version: 'V0', id: original.id, floating: [], notes: 'Retain original bytes' }
-  value.store.db.prepare('UPDATE revisions SET body=? WHERE revision=?').run(value.store.pack(old), original.revision)
+  value.store.db.prepare('UPDATE revisions SET body=? WHERE revision=?').run(value.store.pack(old), reserved.body.revision)
   assert.deepEqual((await value.call('GET', base)).body.document, old)
   assert.equal((await value.call('GET', `shared/${link.token}`)).status, 400)
-  assert.throws(() => value.store.workspaceDocument(original.id, original.id), { status: 400 })
+  assert.throws(() => value.store.taskDocument(original.id, task.id), { status: 400 })
   // Restore valid content for subsequent mutation tests
-  const restored = await value.call('PUT', base, save(original, 'Restored from V0'))
+  const restored = await value.call('PUT', base, save(reserved.body, 'Restored from V0'))
   assert.equal(restored.status, 200)
   assert.equal(MAX_BODY, 128 * 1024 * 1024)
 })
@@ -553,7 +562,7 @@ test('document streams deliver only committed scoped changes and end after delet
 
 
 
-const reservation = doc => ({ id: randomUUID(), documentId: doc.id, workspaceRead: false, original: doc.content.content,
+const reservation = doc => ({ id: randomUUID(), documentId: doc.id, original: doc.content.content,
   target: { kind: 'text', blockIds: ['block-1'], selection: { from: 1, to: 3 }, insert: false, area: { x: 48, y: 48, width: 200, height: 40 } } })
 
 test('reservations and content commit under one CAS, preserve omission, and roll back credentials on invalid saves', async t => {
@@ -563,14 +572,15 @@ test('reservations and content commit under one CAS, preserve omission, and roll
   assert.deepEqual(original.reservations, [item])
   assert.equal(value.manager.tasks.size, 0)
   const token = value.store.credential(item.id).token
-  const left = save(original, 'Left', { reservations: [{ ...item, workspaceRead: true }] })
+  const expiresAt = Date.now() + 60_000
+  const left = save(original, 'Left', { reservations: [{ ...item, expiresAt }] })
   const right = save(original, 'Right', { reservations: [{ ...item, released: true }] })
   const responses = await Promise.all([value.call('PUT', `documents/${doc.id}`, left), other.call('PUT', `documents/${doc.id}`, right)])
   assert.deepEqual(responses.map(item => item.status).sort(), [200, 409])
   let current = value.store.get(doc.id)
   const winner = responses.find(result => result.status === 200).body
   assert.deepEqual(current, winner)
-  assert.equal(current.reservations[0].workspaceRead, current.document.content.content[0].content[0].text === 'Left')
+  assert.equal(current.reservations[0].expiresAt, winner.document.content.content[0].content[0].text === 'Left' ? expiresAt : undefined)
   const omitted = await value.call('PUT', `documents/${doc.id}`, save(current, 'Non-editor save'))
   assert.equal(omitted.status, 200)
   assert.deepEqual(omitted.body.reservations, current.reservations)

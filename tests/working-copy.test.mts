@@ -47,7 +47,7 @@ globalThis.fetch = async (input, options) => {
   const path = String(input), pathname = new URL(path, 'http://moted.local').pathname
   const method = options?.method ?? 'GET', body = options?.body ? JSON.parse(String(options.body)) : undefined
   calls.push({ path, method, body })
-  if (pathname === '/api/settings') return Response.json({ revision: 0, models: { builtin: '', indexing: '' }, indexingEnabled: false })
+  if (pathname === '/api/settings') return Response.json({ revision: 0, models: { builtin: '' } })
   if (pathname.endsWith('/shares')) return Response.json({ share: null, revision: 0 })
   if (method === 'POST') {
     const stored = [...rows.values()].find(record => record.meta.id === body.id)
@@ -304,7 +304,7 @@ test('creation identity, privacy, and copy recovery', async t => {
 
 
 function reservation(record: WorkingRecord): Reservation {
-  return { id: crypto.randomUUID(), documentId: record.meta.id, workspaceRead: false, original: [],
+  return { id: crypto.randomUUID(), documentId: record.meta.id, original: [],
     target: { kind: 'text', blockIds: [record.document.content.content![0].attrs!.id], selection: { from: 1, to: 1 },
       insert: false, area: { x: 0, y: 0, width: 200, height: 40 } } }
 }
@@ -360,7 +360,7 @@ test('uncertain save replays both fields unchanged after reload before draining 
   const recovered = reload(record.key)
   assert.deepEqual(recovered.getSnapshot().record.reservations, released)
   recovered.update(record.document, record.reservations)
-  const newer = [{ ...record.reservations[0], title: 'During save', workspaceRead: true }]
+  const newer = [{ ...record.reservations[0], title: 'During save' }]
   duringSave = () => recovered.update(edited(record, 'Typed during save'), newer)
   assert.ok(await recovered.sync())
   const puts = calls.filter(call => call.method === 'PUT')
@@ -396,7 +396,7 @@ test('clean adoption brings reservations; dirty reservation edits resist remote 
   await copy.checkRemote()
   assert.deepEqual(copy.getSnapshot().record.reservations, remote.reservations)
   assert.deepEqual(copy.getSnapshot().record.document, remote.document)
-  const local = [{ ...remote.reservations[0], workspaceRead: true }]
+  const local = [{ ...remote.reservations[0], title: 'Local task' }]
   copy.update(copy.getSnapshot().record.document, local)
   cloud.set(record.meta.id, { ...remote, revision: '3', reservations: [] })
   await copy.checkRemote()
@@ -444,18 +444,19 @@ test('edits during acknowledgment persistence drain before ordinary sync finishe
   const record = savedRecord(), copy = new WorkingCopy(record)
   copy.update(edited(record, 'Accepted'), [{ ...record.reservations[0], released: true }])
   let changed = false
+  const expiresAt = Date.now() + 60_000
   const unsubscribe = copy.subscribe(() => {
     const state = copy.getSnapshot()
     if (!changed && state.record.meta.revision === '2' && state.local === 'saving') {
       changed = true
-      copy.update(state.record.document, [{ ...record.reservations[0], workspaceRead: true }])
+      copy.update(state.record.document, [{ ...record.reservations[0], expiresAt }])
     }
   })
   await copy.sync()
   unsubscribe()
   assert.equal(changed, true)
   assert.equal(copy.getSnapshot().record.dirty, false)
-  assert.equal(cloud.get(record.meta.id)?.reservations?.[0].workspaceRead, true)
+  assert.equal(cloud.get(record.meta.id)?.reservations?.[0].expiresAt, expiresAt)
   assert.equal(cloud.get(record.meta.id)?.reservations?.[0].released, undefined)
   assert.equal(calls.filter(call => call.method === 'PUT').length, 2)
 })

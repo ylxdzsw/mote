@@ -60,7 +60,7 @@ async function request<T>(url: string, method: string, body?: unknown): Promise<
       const id = url.split('/')[4]
       if (id && value.id !== id) return false
       return typeof value.protocol === 'string' && typeof value.id === 'string' && ['queued', 'running', 'ready', 'stopped', 'error', 'waiting'].includes(String(value.status))
-        && typeof value.progress === 'string' && typeof value.workspaceRead === 'boolean'
+        && typeof value.progress === 'string'
         && (value.protocol !== 'mote-agent-v7' || validVersionFields(value))
     })
   } catch (error) {

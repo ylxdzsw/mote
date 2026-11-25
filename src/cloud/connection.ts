@@ -63,8 +63,7 @@ export function retryConnection(): Promise<boolean> {
   publish({ checking: true })
   const generation = failures
   probe = requestJSON('/api/settings', 'GET', undefined, value => isRecord(value) && Number.isSafeInteger(value.revision)
-    && isRecord(value.models) && typeof value.models.builtin === 'string' && typeof value.models.indexing === 'string'
-    && typeof value.indexingEnabled === 'boolean', { probe: true })
+    && isRecord(value.models) && typeof value.models.builtin === 'string', { probe: true })
     .then(() => true, error => error instanceof RequestError && (error.status === 401 || error.status === 403))
     .then(reachable => {
       if (reachable && generation === failures) publish({ offline: false, reason: '', revision: state.revision + 1 })

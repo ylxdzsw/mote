@@ -28,25 +28,11 @@
 .cloud-management-panel .cloud-field input { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .cloud-management-panel > .cloud-field + .cloud-detail { margin: 0 0 8px; padding-left: calc((100% - 12px) / 3 + 12px); }
 .cloud-management-panel code { overflow-wrap: anywhere; }
-.cloud-check-field { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 6px; cursor: pointer; }
-.cloud-check-field input { flex: none; margin: 2px 0 0; accent-color: var(--ui-accent); }
-.cloud-check-field strong, .cloud-check-field small { display: block; }
-.cloud-check-field strong { color: var(--ui-ink); font-weight: 600; }
-.cloud-check-field small { margin-top: 2px; color: var(--ui-muted); font-size: var(--ui-label-size); line-height: 1.45; }
 .cloud-management-actions { margin: 10px 0 6px; }
 .cloud-management-actions button:last-child:not(:disabled) { border-color: var(--ui-accent); background: var(--ui-accent); color: var(--ui-on-accent); }
 .cloud-management-actions button:last-child:hover:not(:disabled) { background: var(--ui-accent-hover); }
 .cloud-management-conflict { margin: 8px 0 0; color: var(--ui-warning-text); font-weight: 500; }
 .cloud-management-signin { display: inline-block; margin-top: 6px; color: var(--ui-accent); }
-.cloud-indexing-status { margin-top: 12px; padding-top: 8px; border-top: 1px solid var(--ui-border); }
-.cloud-indexing-toggle { display: flex; width: 100%; justify-content: space-between; align-items: center; padding: 4px 0; border: 0; border-radius: 0; background: transparent; text-align: left; }
-.cloud-indexing-toggle:hover:not(:disabled) { background: transparent; color: var(--ui-accent); }
-.cloud-indexing-body { display: grid; gap: 7px; padding-top: 8px; }
-.cloud-indexing-counts { margin: 0; color: var(--ui-ink); font-size: var(--ui-label-size); line-height: 1.5; font-variant-numeric: tabular-nums; }
-.cloud-indexing-problems { display: grid; gap: 7px; margin: 0; padding-left: 18px; font-size: var(--ui-label-size); }
-.cloud-indexing-problems li { overflow-wrap: anywhere; }
-.cloud-indexing-problems span { color: var(--ui-muted); }
-.cloud-indexing-problems p { margin: 3px 0 0; color: var(--ui-error-text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .cloud-confirm { margin-top: 12px; padding: 10px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); }
 .cloud-confirm .cloud-field { margin-top: 0; }
 .cloud-danger { color: var(--ui-error-text); }

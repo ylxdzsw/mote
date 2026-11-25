@@ -2214,3 +2214,7 @@ Keep the scale selector beside the PNG download action so format rows scan evenl
 ## 2026-11-25 — One HTML publication format and one live reader
 
 Keep standalone HTML as a rendered publication, not as another native container. The settled sheet preserves selectable content and sandboxed widgets without an extra app bundle; `.mote` alone carries editable and recoverable documents. Retire the old HTML import as well. Preview and public Share go straight to the same live reader so browser-dependent layout still remeasures there. They differ only in source: Preview passes an unsynced local snapshot in browser memory, while Share retains its existing latest-saved and revocable access boundary.
+
+## 2026-11-25 — Assistant tasks read only their own document
+
+Retire background indexing and workspace retrieval together. A task needs the document that owns its reservation, not a workspace catalog and another permission switch. Owners can supply relevant context explicitly. Private stays a public-access guardrail: permanent Share revocation, temporary external-task blocking, and no change to owner-requested built-in access. Keep existing reservation saves and task tokens usable without converting native documents, and leave retired index data inert rather than cleaning production storage.

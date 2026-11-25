@@ -12,7 +12,7 @@ import { agentRequest, submitResult } from './submit.mjs'
 import { pathToFileURL } from 'node:url'
 import { validateProposalCandidate, validateDocument } from './validation.mjs'
 import { validateReservations } from './reservation-validation.mjs'
-const checkedReservation = ({ id, document, target }) => validateReservations([{ id, documentId: document.id, target, original: document.content.content, workspaceRead: false }], document)[0]
+const checkedReservation = ({ id, document, target }) => validateReservations([{ id, documentId: document.id, target, original: document.content.content }], document)[0]
 import { WidgetScreenshots, widgetInput, publicIPv4, publicAddress, resourceHost, resourceBroker } from './widget-screenshot.mjs'
 import { widgetHarness } from './widget-harness.mjs'
 import { runInNewContext } from 'node:vm'
@@ -80,7 +80,7 @@ async function app(options = {}) {
 }
 async function post(app, body, pathName = '/api/ai/tasks', origin = 'http://localhost:5173') {
   if (pathName === '/api/ai/tasks' && origin === 'http://localhost:5173') {
-    const reservation = { id: body.id, documentId: body.document.id, target: body.target, original: body.document.content.content, workspaceRead: false }
+    const reservation = { id: body.id, documentId: body.document.id, target: body.target, original: body.document.content.content }
     app.store.create({ id: body.document.id, name: 'Task fixture', document: body.document, reservations: [reservation], operationId: crypto.randomUUID() })
     await app.manager.ensure(body.id)
     pathName = `/api/ai/tasks/${body.id}/revise`
@@ -257,7 +257,7 @@ test('reservation spatial markup reuses native ObjectMarkup validation with sign
     strokes: [{ points: [[0, 0], [800, 1200]], color: 'gray1', width: 2 }],
     labels: [{ x: 12, y: 20, text: 'Review note', color: 'primary', size: 16 }],
   }
-  const reservation = { id, documentId: doc.id, target: request(id, doc).target, original: doc.content.content, workspaceRead: false, markup }
+  const reservation = { id, documentId: doc.id, target: request(id, doc).target, original: doc.content.content, markup }
   assert.deepEqual(validateReservations([reservation], doc)[0].markup, markup)
   for (const mutate of [
     value => { value.x = Infinity },
@@ -445,12 +445,12 @@ test('failed first turn can retry without a recorded session', async t => {
 
 test('workspace defaults apply only to new sessions and explicit document model wins', async t => {
   const value = await app(); t.after(() => value.close())
-  value.store.putSettings({ baseRevision: 0, models: { builtin: 'workspace/first', indexing: 'workspace/indexer' } })
+  value.store.putSettings({ baseRevision: 0, models: { builtin: 'workspace/first' } })
   const id = crypto.randomUUID()
   assert.equal((await post(value, request(id, document(), { model: undefined }))).status, 202)
   await waitReady(value, id)
   assert.equal(value.manager.tasks.get(id).meta.model, 'workspace/first')
-  value.store.putSettings({ baseRevision: 1, models: { builtin: 'workspace/second', indexing: '' } })
+  value.store.putSettings({ baseRevision: 1, models: { builtin: 'workspace/second' } })
   await post(value, { prompt: 'Continue', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)
   await waitReady(value, id)
   assert.equal(value.manager.tasks.get(id).meta.model, 'workspace/first')
@@ -458,7 +458,7 @@ test('workspace defaults apply only to new sessions and explicit document model 
   await post(value, request(explicit, document(), { model: 'document/override' }))
   await waitReady(value, explicit)
   assert.equal(value.manager.tasks.get(explicit).meta.model, 'document/override')
-  value.store.putSettings({ baseRevision: 2, models: { builtin: '', indexing: '' } })
+  value.store.putSettings({ baseRevision: 2, models: { builtin: '' } })
   assert.equal((await post(value, request(crypto.randomUUID(), document(), { model: undefined }))).status, 400)
   assert.equal((await post(value, { prompt: 'Continue without a workspace default', executorRevision: 0 }, `/api/ai/tasks/${id}/revise`)).status, 202)
   await waitReady(value, id)

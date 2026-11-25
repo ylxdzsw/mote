@@ -66,7 +66,7 @@ Keep document colors and UI colors conceptually separate. Authored marks and obj
 
 ## Reveal detail where it helps
 
-Keep frequent, decision-relevant controls visible. Move longer explanations and rare instructions into contextual help, without burying a state the user needs to act on. The compact Assistant keeps its local Built-in/External view tabs and task-owned workspace-read permission visible, with expiry and access details in context. The tabs are presentation only: they do not change authority or stop concurrent agents.
+Keep frequent, decision-relevant controls visible. Move longer explanations and rare instructions into contextual help, without burying a state the user needs to act on. The compact Assistant keeps its local Built-in/External view tabs visible, with expiry and access details in context. The tabs are presentation only: they do not change authority or stop concurrent agents.
 
 Use short labels and concrete verbs: “Add caption,” “Match object width,” “Save settings.” Avoid repeating the heading in a subtitle or giving every control a paragraph of explanation. Empty states should orient the next action. Errors should say what happened, what was retained, and what the user can do next. Technical details belong in recovery downloads or diagnostics unless they help a product decision.
 
