@@ -2210,3 +2210,7 @@ Frozen HTML is for recipients who need the document itself rather than the appli
 ## 2026-11-24 — Inline PNG resolution
 
 Keep the scale selector beside the PNG download action so format rows scan evenly. Changing scale updates the width preview without starting an export.
+
+## 2026-11-25 — One HTML publication format and one live reader
+
+Keep standalone HTML as a rendered publication, not as another native container. The settled sheet preserves selectable content and sandboxed widgets without an extra app bundle; `.mote` alone carries editable and recoverable documents. Retire the old HTML import as well. Preview and public Share go straight to the same live reader so browser-dependent layout still remeasures there. They differ only in source: Preview passes an unsynced local snapshot in browser memory, while Share retains its existing latest-saved and revocable access boundary.

@@ -44,7 +44,7 @@ This file holds durable invariants and the working agreement. Current behavior a
 - Colors come only from the 22 fixed palette slots and the saved Light/Dark mode and hues. No custom palettes or page backgrounds.
 - Notes (`authoring.notes`) are user-owned. Public shares, PNG, and HTML exclude them. Agents may read them as tentative context but never edit them.
 - Editing, reading, minimap, PNG, and standalone HTML share one rendering path; never add a separate approximate export renderer. Widgets run sandboxed, and PNG/minimap use saved screenshots.
-- User-facing readers use window scrolling and native browser zoom, with an initial width fit rather than continuous auto-fit. The editor and offscreen capture surfaces retain their controlled viewport. HTML prepares Code tokens and KaTeX HTML+MathML/errors together, excluding their parsers from the standalone reader while retaining shared displays and live geometry measurement. HTML reimport remains supported. Native browser printing hides reader navigation and uses browser pagination, not an export-specific layout engine.
+- User-facing readers use window scrolling and native browser zoom, with an initial width fit rather than continuous auto-fit. The editor and offscreen capture surfaces retain their controlled viewport. Preview and public Share use the same live reader; Preview receives only a local working-copy snapshot. HTML exports the settled authored-width page without a reader runtime or native payload. Import is `.mote`-only. Native browser printing hides reader navigation and uses browser pagination, not an export-specific layout engine.
 
 ### Interaction
 
@@ -75,7 +75,7 @@ Read **CLOUD.md → Document Private policy** before changing privacy, sharing, 
 Use Node.js 22.12+ and npm, and follow README → Fake-first development. Bind dev and preview to `127.0.0.1`. The fake backend runs on port 5174, and its `MOTED_DEV_ORIGIN` must match the exact browser origin. Use fresh temporary state/data directories, never production storage, and never expose fake services publicly.
 
 - `npm run check`: TypeScript.
-- `npm run build`: TypeScript plus app and standalone reader bundles.
+- `npm run build`: TypeScript plus app and agent-preview builds.
 - `npm run test:ai`: essential model, clipboard, migration, reservation, recovery, cloud, privacy, and indexing invariants without model calls.
 - For changed UI, run scoped Chromium checks: compact editing, fresh mobile reading, and affected reader/export paths. Test essential invariants only; there is no general regression suite.
 
@@ -91,4 +91,4 @@ Preserve `/var/lib/mote`, `/var/lib/mote-ai`, and `/var/backups/mote`. Never res
 
 ## Deferred scope
 
-Discuss these before implementing: PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1–V9 `.mote`, PNG, and standalone HTML export/reimport (Mote exports only).
+Discuss these before implementing: PPTX/PDF/Markdown or other interchange formats, editable sharing, individual accounts, collaborative merging, broader offline sync, and a native bundled binary. Direct user queries over the workspace index are also deferred. Current interchange is V1–V9 `.mote` import/export, plus PNG and standalone HTML export.

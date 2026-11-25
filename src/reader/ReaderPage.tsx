@@ -5,7 +5,7 @@ import { ReadDocument } from '../canvas/ReadDocument'
 import type { MoteDocument } from '../document/model'
 import { uiThemeVariables } from '../theme/ui'
 
-// Only the source differs: authenticated working copy, public share, or embedded HTML.
+// Only the source differs: authenticated working copy, local preview, or public share.
 export function ReaderPage({ initial, notice }: { initial: MoteDocument; notice?: ReactNode }) {
   const smallScreen = useMedia('(max-width: 1050px)')
   const published = useMemo(() => publishDocument(initial), [initial])

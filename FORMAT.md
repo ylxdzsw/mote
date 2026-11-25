@@ -24,8 +24,7 @@ oldest supported version; V0 is permanently unsupported and has no converter.
 The single load boundary is `loadDocument(value)`. It validates the stored version, applies
 the ordered migration steps from that version to the current one, and then
 validates the result with the closed validator of the current version. Every
-reader uses this path: editor, Files/import, public share, standalone HTML
-reimport, and indexing. `validateDocument` separately checks an unconverted
+reader uses this path: editor, native import, public share, and indexing. `validateDocument` separately checks an unconverted
 stored revision or pinned snapshot against its own closed grammar. Steps are
 pure and preserve the IDs of all surviving blocks, objects, and rich text.
 The sole intentionally lossy migration is the removal of Slides in V9.
@@ -58,7 +57,7 @@ fields; V1–V3 retain their 1–1000 range, including for pinned snapshots.
 
 Migration happens in memory. Loading never writes by itself. The next ordinary
 revision-checked save persists the upgraded document, and readers that cannot
-save (public shares, standalone HTML) migrate only their own snapshot. The
+save (such as public shares) migrate only their own snapshot. The
 pre-migration document remains recoverable until the upgraded save is
 cloud-acknowledged. A newer or unknown version, or malformed data, produces an
 actionable error and remains unchanged and recoverable. It is never replaced
@@ -166,8 +165,7 @@ existing theme still inherits Defaults. Loading does not apply creation presets.
 
 Privacy, sharing, cloud/task revisions, selection, zoom, and other view state
 are not document fields. Native saves preserve `authoring`. Public shared
-responses and standalone HTML exports omit `authoring` entirely; HTML import
-therefore has no authoring notes/model. Authorized AI inputs may include notes
+responses, local previews, and HTML exports omit `authoring` entirely. Authorized AI inputs may include notes
 as tentative, read-only context, but candidates cannot edit `authoring`.
 
 ## Theme
@@ -579,8 +577,8 @@ per image; PNG signatures are checked. Each Drawing or object markup allows at m
 
 Native `.mote` files contain a V1–V9 document and embedded
 assets; native saves preserve `authoring`. Public projection validates the
-document and returns a clone without `authoring`. Standalone HTML likewise omits `authoring` from its
-reimport payload. Unsupported or corrupt imports do not replace the open
+document and returns a clone without `authoring`. HTML exports contain only the
+rendered page and cannot be imported. Unsupported or corrupt imports do not replace the open
 document. Cloud loading and publication never reset unsupported content.
 
 Clipboard segment/object payloads are transfer envelopes, not saved documents.

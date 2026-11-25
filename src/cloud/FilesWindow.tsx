@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from 'react'
 import { PanelIcon } from '../app/PanelIcon'
 import type { MoteDocument } from '../document/model'
-import { decodeDocument } from '../document/file'
+import { decodeMote } from '../document/file'
 import { CloudError, cloudRequest, mergeDocumentMeta, normalizeDocumentMeta, type DocumentMeta } from './api'
 import { connectionSnapshot, retryConnection } from './connection'
 import { NewFileForm, type NewFileOptions } from './NewFileForm'
@@ -210,8 +210,8 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
 
   function importFile(file: File) {
     void run(async () => {
-      const document = await decodeDocument(file)
-      if (active.current) await onImport(document, file.name.replace(/\.(mote|html?)$/i, '').trim() || 'Untitled')
+      const document = await decodeMote(file)
+      if (active.current) await onImport(document, file.name.replace(/\.mote$/i, '').trim() || 'Untitled')
     })
   }
 
@@ -292,7 +292,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       {creating && <NewFileForm {...newFile} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
     </div>
     <div ref={list} className="files-scroll" hidden={creating}>
-      <input ref={input} type="file" accept=".mote,.html,.htm" hidden disabled={!!busy} aria-label="Import a Mote document or a Mote HTML reader export" onChange={event => {
+      <input ref={input} type="file" accept=".mote" hidden disabled={!!busy} aria-label="Import a Mote document" onChange={event => {
         const file = event.target.files?.[0]; event.target.value = ''; if (file) importFile(file)
       }} />
       {!action && renderFiles(ordinary, 'Documents')}
@@ -318,7 +318,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       </div>}
       {action === 'import' && <section className="cloud-confirm" aria-label="Import document">
         <h2>Import a document</h2>
-        <p className="cloud-hint">Choose a .mote file or a Mote HTML reader export. It opens as a new document; existing documents stay unchanged.</p>
+        <p className="cloud-hint">Choose a .mote file to open as a new document.</p>
         <div className="cloud-actions">
           <button type="button" className="cloud-button" disabled={!!busy} onClick={finishAction}>Cancel</button>
           <button type="button" autoFocus className="cloud-button files-primary" disabled={!!busy} onClick={() => input.current!.click()}>Choose file…</button>
