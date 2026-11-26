@@ -34,7 +34,8 @@ function cropped(drawing: FloatingDrawing, crop: Crop): FloatingDrawing {
 type Tool = 'pen' | 'eraser' | 'label'
 type Stroke = FloatingDrawing['strokes'][number]
 type Label = FloatingDrawing['labels'][number]
-type Gesture = { pointer: number; tool: 'pen' | 'eraser'; last: DrawingPoint; stroke: Stroke; pointBudget: number; erased: Set<number>; base: FloatingDrawing }
+type StrokeGesture = { pointer: number; tool: 'pen' | 'eraser'; last: DrawingPoint; stroke: Stroke; pointBudget: number; erased: Set<number>; base: FloatingDrawing }
+type LabelGesture = { pointer: number; tool: 'label'; index: number; start: DrawingPoint; screen: DrawingPoint; moved: boolean; base: FloatingDrawing }
 const widths = [1, 2, 3, 4, 6, 8, 12, 16, 24, 32]
 const limits = { strokes: 10000, points: 100000, labels: 1000, text: 4096 }
 const strokeLimitMessage = 'Stroke limit reached (10,000). Erase strokes to continue.'
@@ -55,7 +56,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
   const dialog = useRef<HTMLDialogElement>(null)
   const area = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLDivElement>(null)
-  const gesture = useRef<Gesture | null>(null)
+  const gesture = useRef<StrokeGesture | LabelGesture | null>(null)
   const labelInput = useRef<HTMLTextAreaElement>(null)
   const popoverBox = useRef<HTMLDivElement>(null)
   const popoverTrigger = useRef<HTMLButtonElement | null>(null)
@@ -212,15 +213,21 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
     return drawingPoint(event.clientX, event.clientY, canvas.current!.getBoundingClientRect(), drawing.layout.width, drawing.layout.height)
   }
 
-  function showGesture() {
-    const active = gesture.current!
+  function movedLabels(active: LabelGesture, event: PointerEvent<HTMLDivElement>) {
+    active.moved ||= Math.hypot(event.clientX - active.screen[0], event.clientY - active.screen[1]) >= 4
+    if (!active.moved) return null
+    const [x, y] = position(event)
+    const dx = x - active.start[0], dy = y - active.start[1]
+    return active.base.labels.map((label, i) => i === active.index ? { ...label, x: label.x + dx, y: label.y + dy } : label)
+  }
+
+  function showGesture(active: StrokeGesture) {
     setPreview({ ...active.base, strokes: active.tool === 'pen'
       ? [...active.base.strokes, { ...active.stroke, points: [...active.stroke.points] }]
       : active.base.strokes.filter((_, index) => !active.erased.has(index)) })
   }
 
-  function sample(point: DrawingPoint) {
-    const active = gesture.current!
+  function sample(active: StrokeGesture, point: DrawingPoint) {
     if (active.tool === 'pen') {
       if (Math.hypot(point[0] - active.last[0], point[1] - active.last[1]) < .25) return true
       if (active.stroke.points.length >= active.pointBudget) {
@@ -248,14 +255,16 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
     const point = position(event)
     if (tool === 'label') {
       // SVG text bounds include the actual font metrics, including non-Latin labels.
-      const texts = canvas.current!.querySelectorAll('svg text')
+      const texts = canvas.current!.querySelectorAll(':scope > svg text')
       const index = drawing.labels.findLastIndex((_, index) => {
         const bounds = texts[index].getBoundingClientRect()
         return event.clientX >= bounds.left - 6 && event.clientX <= bounds.right + 6 && event.clientY >= bounds.top - 6 && event.clientY <= bounds.bottom + 6
       })
-      editLabel(index < 0 ? null : index, index < 0
-        ? { x: point[0], y: point[1], text: '', color, size: 20 }
-        : drawing.labels[index])
+      if (index < 0) editLabel(null, { x: point[0], y: point[1], text: '', color, size: 20 })
+      else {
+        gesture.current = { pointer: event.pointerId, tool, index, start: point, screen: [event.clientX, event.clientY], moved: false, base: drawing }
+        canvas.current!.setPointerCapture(event.pointerId)
+      }
       return
     }
     const pointBudget = limits.points - drawing.strokes.reduce((count, stroke) => count + stroke.points.length, 0)
@@ -263,21 +272,34 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
     if (tool === 'pen' && pointBudget <= 0) { setLimitMessage(pointLimitMessage); return }
     gesture.current = { pointer: event.pointerId, tool, last: point, stroke: { points: [point], color, width: widths[widthIndex] }, pointBudget, erased: new Set(), base: drawing }
     canvas.current!.setPointerCapture(event.pointerId)
-    if (tool === 'eraser') sample(point)
-    showGesture()
+    if (tool === 'eraser') sample(gesture.current, point)
+    showGesture(gesture.current)
   }
 
   function movePointer(event: PointerEvent<HTMLDivElement>) {
-    if (gesture.current?.pointer !== event.pointerId) return
+    const active = gesture.current
+    if (!active || active.pointer !== event.pointerId) return
+    if (active.tool === 'label') {
+      const labels = movedLabels(active, event)
+      if (labels) setPreview({ ...active.base, labels })
+      return
+    }
     const samples = event.nativeEvent.getCoalescedEvents?.() ?? []
-    for (const sampleEvent of samples.length ? samples : [event]) if (!sample(position(sampleEvent))) break
-    showGesture()
+    for (const sampleEvent of samples.length ? samples : [event]) if (!sample(active, position(sampleEvent))) break
+    showGesture(active)
   }
 
   function endPointer(event: PointerEvent<HTMLDivElement>) {
     const active = gesture.current
     if (!active || active.pointer !== event.pointerId) return
-    sample(position(event))
+    if (active.tool === 'label') {
+      const labels = movedLabels(active, event), original = active.base.labels[active.index]
+      cancelGesture()
+      if (!labels) editLabel(active.index, original)
+      else if (labels[active.index].x !== original.x || labels[active.index].y !== original.y) commit({ labels })
+      return
+    }
+    sample(active, position(event))
     const strokes = active.tool === 'pen' ? [...active.base.strokes, active.stroke] : active.base.strokes.filter((_, index) => !active.erased.has(index))
     cancelGesture()
     if (active.tool === 'pen' || active.erased.size) commit({ strokes })
@@ -292,14 +314,15 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
     const key = event.key.toLowerCase()
     if (key === 'escape') {
       event.preventDefault()
-      if (popover) closePopover(true)
+      if (gesture.current?.tool === 'label') cancelGesture()
+      else if (popover) closePopover(true)
       else close(false)
     } else if ((event.ctrlKey || event.metaKey) && !event.altKey && (key === 'z' || key === 'y')) {
       if (!typing) { event.preventDefault(); travel(key === 'y' || event.shiftKey) }
     } else if (typing && key === 'enter' && !event.shiftKey && labelDraft) {
       event.preventDefault(); commitLabel()
     } else if (!typing && !event.ctrlKey && !event.metaKey && !event.altKey && !popover) {
-      if (key === 'enter' && target === canvas.current && tool === 'label') {
+      if (key === 'enter' && target === canvas.current && tool === 'label' && !gesture.current) {
         event.preventDefault(); editLabel(null, { x: drawing.layout.width / 2, y: drawing.layout.height / 2, text: '', color, size: 20 })
       }
     }
@@ -320,7 +343,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
       <div className={`drawing-editor-frame${crop ? ' is-cropping' : ''}`} style={{ width: shownSize.width * scale, height: shownSize.height * scale,
         // The area centers the frame; offset it so the edge opposite the dragged side stays put.
         translate: crop ? `${(crop.crop.right - crop.crop.left) * scale / 2}px ${(crop.crop.bottom - crop.crop.top) * scale / 2}px` : undefined }}>
-        <div ref={canvas} className={`drawing-editor-canvas is-${tool}`} style={{ '--drawing-editor-scale': Number.isFinite(scale) && scale > 0 ? scale : 1 } as CSSProperties}
+        <div ref={canvas} className={`drawing-editor-canvas is-${tool}${tool === 'label' && preview ? ' is-moving-label' : ''}`} style={{ '--drawing-editor-scale': Number.isFinite(scale) && scale > 0 ? scale : 1 } as CSSProperties}
           tabIndex={0} role="group" aria-label={lockedBackground ? 'Markup canvas' : 'Drawing canvas'}
           aria-describedby={`${id}-hint`}
           onPointerDown={startPointer} onPointerMove={movePointer} onPointerUp={endPointer}
@@ -350,7 +373,7 @@ export function DrawingEditor({ drawing, theme, maxWidth, signedY, lockedBackgro
       </div>}
     </div>
     <footer className="drawing-editor-footer">
-      <p id={`${id}-hint`} className="drawing-editor-hint" role="status">{limitMessage || <>{lockedBackground?.hint && `${lockedBackground.hint} · `}{crop ? 'Drag outward to extend or inward to crop. Content keeps its size.' : tool === 'pen' ? 'Draw with a mouse or pen.' : tool === 'eraser' ? 'Drag across a stroke to erase it.' : 'Click to add or edit a label. Enter adds a centered label.'}</>}</p>
+      <p id={`${id}-hint`} className="drawing-editor-hint" role="status">{limitMessage || <>{lockedBackground?.hint && `${lockedBackground.hint} · `}{crop ? 'Drag outward to extend or inward to crop. Content keeps its size.' : tool === 'pen' ? 'Draw with a mouse or pen.' : tool === 'eraser' ? 'Drag across a stroke to erase it.' : 'Click to add or edit a label. Drag a label to move it. Enter adds a centered label.'}</>}</p>
       <div className="drawing-tools" role="group" aria-label={lockedBackground ? 'Markup tools' : 'Drawing tools'}>
         {(['pen', 'eraser', 'label'] as const).map(value => <button key={value} className="drawing-tool" aria-label={value === 'pen' ? 'Pen' : value === 'eraser' ? 'Eraser' : 'Label'}
           title={`${value === 'pen' ? 'Pen' : value === 'eraser' ? 'Eraser' : 'Label'}`} aria-pressed={tool === value}

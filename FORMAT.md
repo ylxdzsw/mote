@@ -494,8 +494,8 @@ and `layout`.
   document-pixel width. `labels` is an array of `{x,y,text,color,size}` with
   finite positions relative to the same top-left, positive document-pixel
   size, and fixed palette color. `background` is `"gray6"` or `null`.
-  Resizing scales point/label positions but preserves stroke widths and label
-  font sizes.
+  An on-page object resize multiplies positions, stroke widths, and label sizes
+  by the same factor. Cropping or extending its bounds does not scale marks.
 * **Formula:** `latex` is the source string; the renderer is KaTeX. There is no
   saved height.
 * **Code:** `source` is exact plain text and `language` is a safe identifier

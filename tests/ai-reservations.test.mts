@@ -70,6 +70,14 @@ test('drawing reservations lock strokes and labels while figure projection retai
 const drawing: FloatingDrawing = { id: 'box', kind: 'drawing', layout: { width: 317, height: 179, placement: { type: 'float', anchorId: 'a', x: 12, y: 20 } }, background: null,
   strokes: [{ points: [[1.1, 2.2], [151.3, 174.4]], color: 'gray1', width: 2 }], labels: [{ x: 57.1, y: 63.2, text: 'A', color: 'gray1', size: 16 }] }
 
+test('on-page Drawing resize scales the entire sketch', () => {
+  const resized = patchFloating(drawing, { width: drawing.layout.width / 2 }) as FloatingDrawing
+  assert.equal(resized.layout.height, drawing.layout.height / 2)
+  assert.deepEqual(resized.strokes, [{ points: [[0.55, 1.1], [75.65, 87.2]], color: 'gray1', width: 1 }])
+  assert.deepEqual(resized.labels, [{ x: 28.55, y: 31.6, text: 'A', color: 'gray1', size: 8 }])
+  assert.deepEqual(patchFloating(resized, { width: drawing.layout.width }), drawing)
+})
+
 test('drawing candidate placement scales positions into target bounds while retaining pen and font sizes', () => {
   const candidate: FloatingDrawing = { ...drawing, layout: { width: 100, height: 50, placement: { type: 'float', anchorId: 'a', x: 999, y: 999 } },
     strokes: [{ points: [[25, 10], [100, 50]], color: 'gray3', width: 3 }], labels: [{ x: 50, y: 25, text: 'B', color: 'gray1', size: 18 }] }

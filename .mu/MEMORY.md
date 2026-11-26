@@ -2238,3 +2238,11 @@ A built-in task should be able to use the same global skills as the operator wit
 ## 2026-11-26 — Selecting before deleting a Flow from text
 
 A caret at a paragraph boundary expresses text-editing intent, not necessarily intent to remove a whole object and its caption. Hand focus to the normal canvas selection before crossing that boundary. A fresh deletion key then has the same meaning as after clicking the object; auto-repeat is not a second decision. Explicit range deletions need no extra step.
+
+## 2026-11-26 — Resize a Drawing as one figure
+
+A label that fits inside a drawn shape should still fit after resizing the figure on the page. Scale the existing label sizes and pen widths along with their positions. Crop and extend remain the way to change bounds without scaling marks. This changes an editing operation, not the units or rendering of stored drawings; fitting an Assistant proposal into reserved bounds remains separate.
+
+## 2026-11-26 — Move labels in the Drawing editor
+
+Keep placement and wording in the same Label tool: click to edit, drag from the grabbed point to move. A small screen-space threshold distinguishes the two at any zoom. Preview the move without writing history until release; Escape abandons it in place. The shared annotation editor uses the same gesture on its own marks, not the locked background.

@@ -309,7 +309,7 @@ export function permitsEditor(tasks: AITask[], historyId: string, before: JSONCo
 }
 
 export function currentPlacement(candidate: FloatingObject, original: FloatingObject): FloatingObject {
-  const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.layout.width, ...(original.layout.height !== undefined && { height: original.layout.height }) }) : candidate
+  const resized = candidate.kind === 'drawing' ? patchFloating(candidate, { width: original.layout.width, ...(original.layout.height !== undefined && { height: original.layout.height }) }, 'preserve') : candidate
   const result: FloatingObject = { ...resized, id: original.id, layout: { width: original.layout.width, placement: original.layout.placement, ...(original.layout.margins && { margins: { ...original.layout.margins } }),
     ...((resized.kind === 'drawing' || resized.kind === 'html') && { height: original.layout.height ?? resized.layout.height }) } } as FloatingObject
   if (supportsCaption(result)) {
