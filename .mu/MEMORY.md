@@ -2234,3 +2234,7 @@ Group annotation with the written request or external handoff: both instruct the
 ## 2026-11-26 — Built-in agent skills and DNS
 
 A built-in task should be able to use the same global skills as the operator without inheriting the operator’s instructions or journal. Keep skills in a separate read-only home, and keep task history in the existing task `.mu`. Skills such as image-gen use ordinary outbound APIs: expose the host resolver rather than the systemd control directory or a provider-specific network exception.
+
+## 2026-11-26 — Selecting before deleting a Flow from text
+
+A caret at a paragraph boundary expresses text-editing intent, not necessarily intent to remove a whole object and its caption. Hand focus to the normal canvas selection before crossing that boundary. A fresh deletion key then has the same meaning as after clicking the object; auto-repeat is not a second decision. Explicit range deletions need no extra step.

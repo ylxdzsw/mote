@@ -5,6 +5,7 @@ import Paragraph from '@tiptap/extension-paragraph'
 import Text from '@tiptap/extension-text'
 import UniqueID from '@tiptap/extension-unique-id'
 import { Gapcursor } from '@tiptap/extensions'
+import { TextSelection } from '@tiptap/pm/state'
 import { blockClasses } from '../document/model'
 import { CaptionBehavior, TableParagraph, tableExtensions } from './table'
 import { Spaces } from './spaces'
@@ -102,6 +103,24 @@ export const Flow = Node.create({
   group: 'block',
   atom: true,
   selectable: false,
+  addKeyboardShortcuts() {
+    const selectAdjacent = (backward: boolean) => {
+      const { selection, doc } = this.editor.state
+      const cursor = selection instanceof TextSelection && selection.$cursor
+      if (!this.editor.isEditable || !cursor || cursor.parentOffset !== (backward ? 0 : cursor.parent.content.size)) return false
+      // Forward Delete removes an empty paragraph itself, not its neighbor.
+      if (!backward && !cursor.parent.content.size) return false
+      const boundary = doc.resolve(backward ? cursor.before() : cursor.after())
+      const neighbor = backward ? boundary.nodeBefore : boundary.nodeAfter
+      if (neighbor?.type !== this.type) return false
+      const mount = this.editor.view.nodeDOM(backward ? boundary.pos - neighbor.nodeSize : boundary.pos) as HTMLElement
+      if (mount.hasAttribute('data-ai-segment')) return false
+      // Outer focus uses the canvas selection, not a second ProseMirror selection.
+      mount.querySelector<HTMLElement>('[data-note-id]')?.focus({ preventScroll: true })
+      return true
+    }
+    return { Backspace: () => selectAdjacent(true), Delete: () => selectAdjacent(false) }
+  },
   addAttributes() {
     return {
       objectId: {

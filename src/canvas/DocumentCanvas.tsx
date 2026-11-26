@@ -844,6 +844,7 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
   }) })
   function key(id: string, event: React.KeyboardEvent, captionSelected = false) {
     if (!editable || isComposingKey(event.nativeEvent)) return
+    if (event.repeat && event.currentTarget.hasAttribute('data-in-flow') && ['Backspace', 'Delete'].includes(event.key)) { event.preventDefault(); return }
     const task = segmentTask(id)
     if (task) {
       if (captionSelected) return
