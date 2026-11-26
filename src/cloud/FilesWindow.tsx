@@ -78,8 +78,9 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const [shareTarget, setShareTarget] = useState<DocumentMeta>()
   const searchedName = filter.trim()
   const query = searchedName.toLocaleLowerCase()
+  const timeKey = sort === 'created' ? 'createdAt' : 'updatedAt'
   const matching = documents.filter(item => item.name.toLocaleLowerCase().includes(query))
-    .sort((a, b) => (sort === 'modified' ? b.updatedAt - a.updatedAt : 0) || a.name.localeCompare(b.name))
+    .sort((a, b) => (b[timeKey] - a[timeKey]) || a.name.localeCompare(b.name))
   const ordinary = matching.filter(item => !item.archived), archived = matching.filter(item => item.archived)
   const visible = archiveOpen ? [...ordinary, ...archived] : ordinary
   const selected = documents.find(item => item.id === selectedId)
@@ -235,23 +236,27 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
 
   function renderFiles(items: DocumentMeta[], label: string) {
     return <ul className="files-list" aria-label={label}>
-      {items.map(item => <li key={item.id} data-file-id={item.id}>
-        <button type="button" className="cloud-file-choice" disabled={!!busy} onClick={() => openDocument(item.id)} onKeyDown={event => navigateFiles(event, visible.findIndex(row => row.id === item.id))}
-          title={`Open ${item.name} · Modified ${new Date(item.updatedAt).toLocaleString()}`}>
-          <span className="files-name-line"><span className="cloud-file-name">{item.name}</span>
-            {item.id === currentId && <span className="files-current">Current</span>}
-            {item.private && <span className="cloud-private-badge"><PanelIcon name="lock" />Private</span>}
-          </span>
-          <span className="files-row-meta"><time dateTime={new Date(item.updatedAt).toISOString()} aria-label={`Modified ${new Date(item.updatedAt).toLocaleString()}`}>{date(item.updatedAt)}</time></span>
-          {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
-        </button>
-        <FilesMenu label={`Actions for ${item.name}`} disabled={!!busy}>
-          <button type="button" role="menuitem" tabIndex={-1} onClick={() => setShareTarget(item)}>Share…</button>
-          <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setSelectedId(item.id); setName(item.name); setAction('rename') }}>Rename</button>
-          <button type="button" role="menuitem" tabIndex={-1} onClick={() => toggleArchive(item)}>{item.archived ? 'Unarchive' : 'Archive'}</button>
-          <button type="button" role="menuitem" tabIndex={-1} className="cloud-danger" onClick={() => { setSelectedId(item.id); setAction('delete') }}>Delete…</button>
-        </FilesMenu>
-      </li>)}
+      {items.map(item => {
+        const time = new Date(item[timeKey])
+        const timeLabel = `${sort === 'created' ? 'Created' : 'Modified'} ${time.toLocaleString()}`
+        return <li key={item.id} data-file-id={item.id}>
+          <button type="button" className="cloud-file-choice" disabled={!!busy} onClick={() => openDocument(item.id)} onKeyDown={event => navigateFiles(event, visible.findIndex(row => row.id === item.id))}
+            title={`Open ${item.name} · ${timeLabel}`}>
+            <span className="files-name-line"><span className="cloud-file-name">{item.name}</span>
+              {item.id === currentId && <span className="files-current">Current</span>}
+              {item.private && <span className="cloud-private-badge"><PanelIcon name="lock" />Private</span>}
+            </span>
+            <span className="files-row-meta"><time dateTime={time.toISOString()} aria-label={timeLabel}>{date(item[timeKey])}</time></span>
+            {pending[item.id] && <span className="cloud-pending">{pending[item.id]}</span>}
+          </button>
+          <FilesMenu label={`Actions for ${item.name}`} disabled={!!busy}>
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => setShareTarget(item)}>Share…</button>
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setSelectedId(item.id); setName(item.name); setAction('rename') }}>Rename</button>
+            <button type="button" role="menuitem" tabIndex={-1} onClick={() => toggleArchive(item)}>{item.archived ? 'Unarchive' : 'Archive'}</button>
+            <button type="button" role="menuitem" tabIndex={-1} className="cloud-danger" onClick={() => { setSelectedId(item.id); setAction('delete') }}>Delete…</button>
+          </FilesMenu>
+        </li>
+      })}
     </ul>
   }
 
@@ -275,7 +280,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       <div className="files-list-heading">
         <span>{ordinary.length} {ordinary.length === 1 ? 'document' : 'documents'}</span>
         <select aria-label="Sort documents" value={sort} disabled={!!action} onChange={event => setSort(event.target.value)}>
-          <option value="modified">Recently modified</option><option value="name">Name A–Z</option>
+          <option value="modified">Recently modified</option><option value="created">Recently created</option>
         </select>
       </div>
     </div>

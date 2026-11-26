@@ -2222,3 +2222,7 @@ Retire background indexing and workspace retrieval together. A task needs the do
 ## 2026-11-26 — New starts a blank document
 
 Keep Files → New as a single action: the form sets up a blank document, while Import opens an existing `.mote` file as a new working copy. Retire the bundled bilingual tour rather than maintaining a separate creation and save path for sample content. Previously created tours contain their own content and assets, so they need no migration.
+
+## 2026-11-26 — Files creation-time sorting
+
+Recently modified keeps work in progress easy to resume. Recently created replaces name sorting so an edit to an older file does not obscure newer files. Row dates follow the selected sort so the order is visible.
