@@ -5,7 +5,6 @@ export interface NewFileOptions {
   mode: 'light' | 'dark'
   language: 'en' | 'zh-Hans'
   private: boolean
-  example: boolean
   modified: boolean
 }
 
@@ -28,15 +27,14 @@ function rememberPreferences(preferences: Preferences) {
   try { localStorage.setItem(preferenceKey, JSON.stringify(preferences)) } catch { /* Preferences are optional. */ }
 }
 
-export function NewFileForm({ example, initialName, busy, onCreate, onCancel }: {
-  example: boolean
-  initialName?: string
+export function NewFileForm({ initialName, busy, onCreate, onCancel }: {
+  initialName: string
   busy: boolean
   onCreate: (options: NewFileOptions) => Promise<void>
   onCancel: () => void
 }) {
   const [preferences] = useState(readPreferences)
-  const [name, setName] = useState(initialName ?? (example ? 'Example' : ''))
+  const [name, setName] = useState(initialName)
   const [mode, setMode] = useState<Preferences['mode']>(preferences.mode)
   const [language, setLanguage] = useState<Preferences['language']>(preferences.language)
   const [isPrivate, setPrivate] = useState(false)
@@ -48,7 +46,7 @@ export function NewFileForm({ example, initialName, busy, onCreate, onCancel }: 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    const options: NewFileOptions = { name, mode, language, private: isPrivate, example, modified }
+    const options: NewFileOptions = { name, mode, language, private: isPrivate, modified }
     try { await onCreate(options) }
     catch { return }
     rememberPreferences({ mode, language })

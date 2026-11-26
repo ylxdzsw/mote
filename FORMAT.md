@@ -60,9 +60,8 @@ revision-checked save persists the upgraded document, and readers that cannot
 save (such as public shares) migrate only their own snapshot. The
 pre-migration document remains recoverable until the upgraded save is
 cloud-acknowledged. A newer or unknown version, or malformed data, produces an
-actionable error and remains unchanged and recoverable. It is never replaced
-with an example. A failed or unsupported import leaves the current document
-untouched. **From example** remains an explicit New File choice.
+actionable error and remains unchanged and recoverable. A failed or unsupported
+import leaves the current document untouched.
 
 Reservations are document-associated editing state, separate from native JSON.
 A non-breaking load path leaves them usable. A breaking path with active

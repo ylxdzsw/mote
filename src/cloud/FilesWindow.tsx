@@ -73,7 +73,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const [recoveryOpen, setRecoveryOpen] = useState(false)
   const [selectedId, setSelectedId] = useState(currentId ?? '')
   const [action, setAction] = useState<'rename' | 'delete' | 'import' | null>(null)
-  const [newFile, setNewFile] = useState<{ example: boolean; initialName?: string } | null>(null)
+  const [initialName, setInitialName] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [shareTarget, setShareTarget] = useState<DocumentMeta>()
   const searchedName = filter.trim()
@@ -84,7 +84,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
   const visible = archiveOpen ? [...ordinary, ...archived] : ordinary
   const selected = documents.find(item => item.id === selectedId)
   const mutating = busy === 'working'
-  const creating = newFile !== null
+  const creating = initialName !== null
 
   function focusFile(id: string, menu = false) {
     requestAnimationFrame(() => {
@@ -119,8 +119,8 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
 
   function cancelNewFile() {
     if (mutating || !creating) return
-    setNewFile(null)
-    const trigger = newFile.initialName ? searchNewTrigger : newTrigger
+    setInitialName(null)
+    const trigger = initialName ? searchNewTrigger : newTrigger
     requestAnimationFrame(() => trigger.current?.focus())
   }
 
@@ -204,10 +204,6 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
     if (!locked.current && active.current) onOpen(id)
   }
 
-  function newDocument(example = false, initialName?: string) {
-    setNewFile({ example, initialName })
-  }
-
   function importFile(file: File) {
     void run(async () => {
       const document = await decodeMote(file)
@@ -268,12 +264,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       <div className="cloud-actions">
         {!creating && <>
           <button ref={importTrigger} type="button" className="cloud-button files-quiet" disabled={!!busy || !!action} onClick={() => setAction('import')}>Import</button>
-          <div className="files-new">
-            <button ref={newTrigger} type="button" className="cloud-button" disabled={!!busy || !!action} onClick={() => newDocument()}><PanelIcon name="plus" />New</button>
-            <FilesMenu label="New document options" disabled={!!busy || !!action} icon="chevron">
-              <button type="button" role="menuitem" tabIndex={-1} onClick={() => newDocument(true)}>From example</button>
-            </FilesMenu>
-          </div>
+          <button ref={newTrigger} type="button" className="cloud-button files-primary" disabled={!!busy || !!action} onClick={() => setInitialName('')}><PanelIcon name="plus" />New</button>
         </>}
         {(creating || onClose) && <button type="button" className="cloud-button cloud-close" aria-label={creating ? 'Cancel new file' : 'Close files'} disabled={mutating} onClick={creating ? cancelNewFile : onClose}><PanelIcon name="close" /></button>}
       </div>
@@ -289,7 +280,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
       </div>
     </div>
     <div className="files-new-view" hidden={!creating}>
-      {creating && <NewFileForm {...newFile} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
+      {creating && <NewFileForm initialName={initialName} busy={!!busy} onCreate={runCreation} onCancel={cancelNewFile} />}
     </div>
     <div ref={list} className="files-scroll" hidden={creating}>
       <input ref={input} type="file" accept=".mote" hidden disabled={!!busy} aria-label="Import a Mote document" onChange={event => {
@@ -300,7 +291,7 @@ function FilesDialog({ onClose, onOpen, onNew, onImport, currentId, copy, pendin
         <p>{busy ? 'Loading documents…' : listFailed ? 'Files could not be loaded.' : query ? archived.length ? 'Matches are in Archived.' : 'No matching documents.'
           : documents.length ? 'No unarchived documents.' : 'Your documents start here.'}</p>
         {!busy && !listFailed && !archived.length && (searchedName
-          ? <button ref={searchNewTrigger} type="button" className="cloud-button" onClick={() => newDocument(false, searchedName)}>
+          ? <button ref={searchNewTrigger} type="button" className="cloud-button" onClick={() => setInitialName(searchedName)}>
             <PanelIcon name="plus" /><span title={searchedName}>New file “{searchedName}”…</span>
           </button>
           : <span>Create a document or import one to get started.</span>)}
@@ -393,7 +384,7 @@ function FilesDisclosure({ label, count, open, onToggle, disabled, warning, butt
   </section>
 }
 
-function FilesMenu({ label, disabled, icon = 'more', children }: { label: string; disabled: boolean; icon?: 'more' | 'chevron'; children: ReactNode }) {
+function FilesMenu({ label, disabled, children }: { label: string; disabled: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
@@ -419,7 +410,7 @@ function FilesMenu({ label, disabled, icon = 'more', children }: { label: string
   }, [open])
   return <div className="files-menu" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) close() }}>
     <button ref={trigger} type="button" className="cloud-button files-quiet" disabled={disabled} aria-label={label} title={label}
-      aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}><PanelIcon name={icon} /></button>
+      aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)}><PanelIcon name="more" /></button>
     {open && <div ref={menu} id={id} className="files-menu-panel" role="menu" aria-label={label} onClick={() => close(true)} onKeyDown={event => {
       if (event.key === 'Escape') { event.preventDefault(); close(true); return }
       if (event.key === 'Tab') { close(true); return }

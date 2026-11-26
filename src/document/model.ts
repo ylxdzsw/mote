@@ -2,7 +2,6 @@ import type { JSONContent } from '@tiptap/core'
 import type { SpaceMerge, SpaceShift } from '../editor/spaces'
 import { objectPagePosition, placementAtPoint, reconcileFlowContent, type FlowGeometryOptions } from './flow'
 import { defaultHue, defaultSecondaryHue } from '../theme/colors'
-import { createExampleDocument, type ExampleOptions } from './examples'
 import { DOCUMENT_VERSION } from '../../shared/document.mjs'
 
 export const blockClasses = ['title', 'heading', 'subheading', 'body', 'caption', 'list', 'separator'] as const
@@ -216,10 +215,6 @@ export function isPristineBlankDocument(document: MoteDocument, defaults = { mod
     && document.page.margins.left === 32 && document.page.margins.right === 32
     && document.theme.autospace !== false
     && JSON.stringify(document.theme) === JSON.stringify({ ...defaultTheme, appearance: { ...defaultTheme.appearance, mode: defaults.mode } })
-}
-
-export function createDocument(options: ExampleOptions = {}): MoteDocument<9> {
-  return createExampleDocument(options)
 }
 
 export function shiftSpaceObjects(objects: FloatingObject[], shift?: SpaceShift | null, content?: JSONContent): FloatingObject[] {

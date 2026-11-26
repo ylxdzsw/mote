@@ -4,7 +4,7 @@ import { validateDocument } from '../document/validate'
 import { initializeDocument } from '../document/initialize'
 import { DOCUMENT_VERSION, migrationBreaking } from '../../shared/document.mjs'
 import type { Reservation } from '../ai/types'
-import { createDocument, createBlankDocument, type MoteDocument } from '../document/model'
+import { createBlankDocument, type MoteDocument } from '../document/model'
 import { loadDraft } from '../document/storage'
 import { useMedia } from '../app/useMedia'
 import { uiThemeVariables } from '../theme/ui'
@@ -203,14 +203,13 @@ function PrivateWorkspace({ path, onPath, renderDocument }: {
     return true
   }
   async function newDocument(options: NewFileOptions) {
-    const document = initializeDocument(options.example ? createDocument(options) : createBlankDocument())
+    const document = initializeDocument(createBlankDocument())
     document.theme.appearance.mode = options.mode
     document.language = options.language
-    const session = await workingSession(), now = Date.now(), name = options.name.trim() || (options.example ? 'Example' : 'Untitled')
-    const retain = options.example || options.modified
-    const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, reservations: [], dirty: retain, draft: true, updatedAt: now,
+    const session = await workingSession(), now = Date.now(), name = options.name.trim() || 'Untitled'
+    const record: WorkingRecord = { key: `${session}:${document.id}`, session, document, reservations: [], dirty: options.modified, draft: true, updatedAt: now,
       draftDefaults: { mode: options.mode, language: options.language },
-      ...(retain ? { pendingCreate: { id: document.id, operationId: crypto.randomUUID(), name, document, reservations: [], private: options.private } } : {}),
+      ...(options.modified ? { pendingCreate: { id: document.id, operationId: crypto.randomUUID(), name, document, reservations: [], private: options.private } } : {}),
       meta: { id: document.id, name, revision: '', createdAt: now, updatedAt: now, private: false, privacyRevision: 0, archived: false, archiveRevision: 0 } }
     if (!await navigate(document.id, false, record)) throw new Error('The current document could not be left safely. Retry after saving its local changes.')
   }

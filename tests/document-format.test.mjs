@@ -6,7 +6,7 @@ import { validateDocument as validateServerDocument, validateProposalCandidate }
 
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
-const { createBlankDocument, createDocument, patchObject, supportsMarkup } = await server.ssrLoadModule('/src/document/model.ts')
+const { createBlankDocument, paragraph, captionContent, tableContent, patchObject, supportsMarkup } = await server.ssrLoadModule('/src/document/model.ts')
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
 const { currentPlacement } = await server.ssrLoadModule('/src/ai/reservations.ts')
 const { encodeMote, decodeMote } = await server.ssrLoadModule('/src/document/file.ts')
@@ -25,8 +25,28 @@ function withoutSeparator(document) {
   return document
 }
 
+function nativeFixture() {
+  const document = createBlankDocument()
+  const anchor = paragraph('Body')
+  document.content.content = [anchor, { type: 'flow', attrs: { id: 'image-block', objectId: 'image' } }]
+  const layout = () => ({ width: 160, placement: { type: 'float', anchorId: anchor.attrs.id, x: 8, y: 12 } })
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9uoAAAAASUVORK5CYII='
+  document.objects = [
+    { id: 'image', kind: 'image', layout: { width: 160, placement: { type: 'flow', x: 'center' } }, src: png, alt: 'Image',
+      caption: { width: 140, content: captionContent('Image caption') } },
+    { id: 'text', kind: 'text', layout: layout(), content: { type: 'doc', content: [paragraph('Text object')] } },
+    { id: 'table', kind: 'table', layout: layout(), content: tableContent([['A', 'B']]), caption: { content: captionContent('Table caption') } },
+    { id: 'drawing', kind: 'drawing', layout: { ...layout(), height: 80 }, strokes: [], labels: [], background: null },
+    { id: 'formula', kind: 'formula', layout: layout(), latex: 'x^2' },
+    { id: 'code', kind: 'code', layout: layout(), source: 'const value = 1', language: 'javascript' },
+    { id: 'html', kind: 'html', layout: { ...layout(), height: 80 }, html: '<p>Widget</p>',
+      screenshot: png, alt: 'Widget', caption: { width: 140, content: captionContent('Widget caption') } },
+  ]
+  return document
+}
+
 test('loading migrates V1 to V9 without mutating input or changing current weights', () => {
-  const current = withoutSeparator(createDocument()), v1 = legacyDocument(current, 1), before = structuredClone(v1)
+  const current = withoutSeparator(nativeFixture()), v1 = legacyDocument(current, 1), before = structuredClone(v1)
   assert.equal(migrationBreaking(1), true)
   const loaded = loadDocument(v1)
   assert.deepEqual(v1, before)
@@ -35,7 +55,7 @@ test('loading migrates V1 to V9 without mutating input or changing current weigh
 })
 
 test('V3 table color pairs round-trip while V2 migrates without recoloring', async () => {
-  const current = withoutSeparator(createDocument()), v2 = legacyDocument(current, 2), before = structuredClone(v2)
+  const current = withoutSeparator(nativeFixture()), v2 = legacyDocument(current, 2), before = structuredClone(v2)
   const document = loadDocument(v2), table = document.objects.find(object => object.kind === 'table')
   assert.deepEqual(document, current)
   assert.equal(migrationBreaking(2), true)
@@ -83,7 +103,7 @@ test('V4 restricts typography to regular/bold and migrates sparse legacy weights
 })
 
 test('V5 markup is closed, owner-bound, preserved by patches and candidates, and non-breaking', async () => {
-  const current = withoutSeparator(createDocument()), legacy = legacyDocument(current, 4), before = structuredClone(legacy)
+  const current = withoutSeparator(nativeFixture()), legacy = legacyDocument(current, 4), before = structuredClone(legacy)
   const document = loadDocument(legacy)
   assert.deepEqual(document, current)
   assert.deepEqual(legacy, before)
@@ -121,7 +141,7 @@ test('V5 markup is closed, owner-bound, preserved by patches and candidates, and
 })
 
 test('native documents have one strict browser/server contract and initialization never strips input', () => {
-  const document = createDocument(), before = structuredClone(document)
+  const document = nativeFixture(), before = structuredClone(document)
   assert.equal(loadDocument(document), document)
   initializeDocument(document)
   validateServerDocument(document)
@@ -140,7 +160,7 @@ test('native documents have one strict browser/server contract and initializatio
     d => { d.authoring = { notes: [], aiModel: 42 } },
     d => { d.objects[0].layout.width = 0 },
     d => { d.objects[0].layout.placement.anchorId = 'redundant' },
-    d => { d.objects[0].caption.content.content[0].attrs.id = d.content.content[0].attrs.id },
+    d => { d.objects.find(o => o.kind === 'image').caption.content.content[0].attrs.id = d.content.content[0].attrs.id },
     d => { d.objects.find(o => o.kind === 'table').content.content[0].attrs = { columns: [{ weight: 1, align: 'left' }] } },
   ]) {
     const value = structuredClone(document); edit(value)
@@ -172,7 +192,8 @@ test('Justify is version-gated, boolean, and survives native round-trip', async 
   assert.deepEqual(loadDocument(legacy), withoutSeparator(blank))
   assert.deepEqual(legacy, before)
 
-  const current = createDocument()
+  const current = createBlankDocument()
+  current.language = 'zh-Hans'
   current.theme.justifyText = true
   validateServerDocument(current)
   assert.deepEqual(await decodeMote(new File([await encodeMote(current)], 'justify.mote')), current)
@@ -192,7 +213,8 @@ test('V7 first-line indent is optional, boolean, version-gated, and preserved on
     assert.throws(() => validateServerDocument({ ...blank, theme: { ...blank.theme, firstLineIndent } }))
   }
   for (const firstLineIndent of [false, true]) {
-    const document = createDocument({ language: 'zh-Hans' })
+    const document = createBlankDocument()
+    document.language = 'zh-Hans'
     document.theme.firstLineIndent = firstLineIndent
     document.theme.justifyText = true
     validateServerDocument(document)
@@ -218,7 +240,7 @@ test('V8 separator is version-gated, main/text-only, and has a positive theme li
     { type: 'tableCell', content: [paragraph('table-separator', 'separator')] },
   ] }] }] }, 'table'))
 
-  const document = createDocument()
+  const document = createBlankDocument()
   assert.equal(document.version, DOCUMENT_VERSION)
   const mainParagraph = document.content.content.find(block => block.type === 'paragraph')
   mainParagraph.attrs.semantic = 'separator'
@@ -343,9 +365,11 @@ test('unsupported versions are rejected without conversion or mutation', () => {
   }
 })
 
-test('native V9 round-trips every example kind and publication omits all authoring data', async () => {
-  const document = createDocument()
+test('native V9 round-trips every object kind and publication omits all authoring data', async () => {
+  const document = nativeFixture()
   document.authoring = { notes: ['Unpublished plan', ''], aiModel: 'private-provider/model' }
+  assert.deepEqual([...new Set(document.objects.map(object => object.kind))].sort(), ['code', 'drawing', 'formula', 'html', 'image', 'table', 'text'])
+  validateServerDocument(document)
   const file = new File([await encodeMote(document)], 'document.mote')
   assert.deepEqual(await decodeMote(file), document)
   const published = publishDocument(document)

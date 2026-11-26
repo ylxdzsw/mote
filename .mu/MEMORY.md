@@ -2218,3 +2218,7 @@ Keep standalone HTML as a rendered publication, not as another native container.
 ## 2026-11-25 — Assistant tasks read only their own document
 
 Retire background indexing and workspace retrieval together. A task needs the document that owns its reservation, not a workspace catalog and another permission switch. Owners can supply relevant context explicitly. Private stays a public-access guardrail: permanent Share revocation, temporary external-task blocking, and no change to owner-requested built-in access. Keep existing reservation saves and task tokens usable without converting native documents, and leave retired index data inert rather than cleaning production storage.
+
+## 2026-11-26 — New starts a blank document
+
+Keep Files → New as a single action: the form sets up a blank document, while Import opens an existing `.mote` file as a new working copy. Retire the bundled bilingual tour rather than maintaining a separate creation and save path for sample content. Previously created tours contain their own content and assets, so they need no migration.

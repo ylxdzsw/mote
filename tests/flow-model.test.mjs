@@ -4,10 +4,10 @@ import { createServer } from 'vite'
 import { validateDocument as validateServerDocument } from '../shared/document.mjs'
 import { pageColor, contrastRatio } from '../shared/palette.mjs'
 
-// Vite loads the model's embedded example assets and the actual editor schema.
+// Vite loads the model helpers and the actual editor schema.
 const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true }, server: { middlewareMode: true, hmr: false }, appType: 'custom' })
 after(() => server.close())
-const { patchObject, objectAnchorId, objectX, objectY, px, em, defaultTheme, paragraph, captionContent, createBlankDocument, isPristineBlankDocument, createDocument, replaceMainContent, shiftSpaceObjects } = await server.ssrLoadModule('/src/document/model.ts')
+const { patchObject, objectAnchorId, objectX, objectY, px, em, defaultTheme, paragraph, captionContent, tableContent, createBlankDocument, isPristineBlankDocument, replaceMainContent, shiftSpaceObjects } = await server.ssrLoadModule('/src/document/model.ts')
 const { flowBlock, insertFlowObject, insertDocumentObjects, convertObjectPlacement, reconcileObjectDeletions, objectPagePosition } = await server.ssrLoadModule('/src/document/flow.ts')
 const { validateDocument } = await server.ssrLoadModule('/src/document/validate.ts')
 const { initializeDocument } = await server.ssrLoadModule('/src/document/initialize.ts')
@@ -61,7 +61,6 @@ test('only a default single empty body paragraph is a pristine blank document', 
     change(document)
     assert.equal(isPristineBlankDocument(document), false)
   }
-  assert.equal(isPristineBlankDocument(createDocument()), false)
   const defaults = { mode: 'dark', language: 'zh-Hans' }
   const remembered = { ...blank, language: defaults.language, theme: { ...blank.theme, appearance: { ...blank.theme.appearance, mode: defaults.mode } } }
   assert.equal(isPristineBlankDocument(remembered, defaults), true)
@@ -390,24 +389,6 @@ test('segment and paragraph clipboards retain target slots without transferring 
   }
 })
 
-test('both examples have native objects, owned captions, and the chosen language', () => {
-  for (const language of ['en', 'zh-Hans']) {
-    const example = createDocument({ language })
-    const objects = example.objects
-    assert.equal(example.language, language)
-    assert.equal(example.version, 9)
-    assert.equal(example.page.slideHeight, undefined)
-    assert.equal(example.content.content.filter(block => block.type === 'slideBreak').length, 0)
-    assert.deepEqual([...new Set(objects.map(object => object.kind))].sort(), ['code', 'drawing', 'formula', 'html', 'image', 'table', 'text'])
-    assert.equal(objects.filter(object => object.kind === 'image').every(object => !!object.caption), true)
-    assert.equal(objects.filter(object => object.kind === 'table').every(object => !!object.caption), true)
-    assert.equal(objects.filter(object => object.kind === 'html').every(object => !!object.caption), true)
-    assert.equal(objects.filter(object => object.caption).every(object => object.caption.content.type === 'doc'), true)
-    assert.equal(objects.filter(object => object.kind === 'drawing').every(object => !object.caption), true)
-    initializeDocument(example)
-  }
-})
-
 test('deleting an ordinary anchor converts page coordinates when its predecessor is Flow', () => {
   const source = doc()
   source.objects.push(patchObject({ ...annotation, id: 'tail' }, { anchorId: 'after', x: 450, y: 10 }))
@@ -428,8 +409,9 @@ test('editing main text preserves signed offsets on surviving Flow anchors', () 
 })
 
 test('V1 loading validates without rewriting input; unknown versions and fields stay unchanged', () => {
-  const source = createDocument(), before = JSON.stringify(source)
-  assert.equal(initializeDocument(source), source)
+  const source = doc(), before = JSON.stringify(source)
+  assert.equal(initializeDocument(source).version, 9)
+  assert.equal(source.version, 1)
   assert.equal(JSON.stringify(source), before)
   for (const invalid of [{ ...source, version: 'V0' }, { ...source, version: 10 }, { ...source, extra: true }]) {
     const raw = JSON.stringify(invalid)
@@ -439,7 +421,8 @@ test('V1 loading validates without rewriting input; unknown versions and fields 
 })
 
 test('editor output removes only schema defaults and retains stable paragraph IDs', () => {
-  const source = createDocument()
+  const source = doc()
+  source.objects.push({ id: 'table', kind: 'table', layout: { width: 220, placement: { type: 'float', anchorId: 'before', x: 0, y: 0 } }, content: tableContent([['A']]) })
   const serialized = getSchema(extensions(true)).nodeFromJSON(source.content).toJSON()
   assert.throws(() => validateDocument({ ...source, content: serialized }))
   const canonical = canonicalEditorContent(serialized)
