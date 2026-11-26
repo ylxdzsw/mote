@@ -82,12 +82,10 @@
 .ai-external-access { display: grid; gap: 8px; }
 .ai-external-buttons { gap: 5px; }
 .ai-external-buttons button { flex: 1 1 auto; }
-.ai-external-access .ai-privacy { margin: 0; }
 .ai-copy-notice, .ai-external-unavailable { margin: 0; color: var(--ui-muted); font-size: 12px; overflow-wrap: anywhere; }
 .ai-compose-actions { justify-content: flex-start; margin-top: 8px; }
 .ai-compose-actions .ai-quiet { margin-left: auto; }
 .ai-panel textarea { display: block; box-sizing: border-box; width: 100%; height: 84px; resize: vertical; min-height: 84px; max-height: 180px; border: 1px solid var(--ui-border); border-radius: var(--ui-control-radius); padding: 8px; color: inherit; background: var(--ui-surface); font: var(--ui-font-size)/1.5 var(--ui-font-family, system-ui, sans-serif); }
-.ai-privacy { margin: 8px 0 0; font-size: 11px; line-height: 1.5; color: var(--ui-muted); }
 .ai-panel summary { cursor: pointer; }
 .ai-panel summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; border-radius: 2px; }
 .ai-empty { padding: 12px var(--ui-panel-padding); color: var(--ui-muted); }

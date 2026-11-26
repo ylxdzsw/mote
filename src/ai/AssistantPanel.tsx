@@ -119,7 +119,6 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
       {assistant.externalBlocked ? <p role="status">Public task access is unavailable while the document is Private or a privacy change is pending. Built-in access is separate.</p>
         : task.protocol !== 'mote-agent-v7' ? <p role="status">This task protocol is retained for recovery only. Create a new reservation for agent access.</p>
           : !link && !task.released ? <p role="status">The link becomes available after the reservation is saved. Check the document’s sync status if it remains unavailable.</p> : null}
-      <p className="ai-privacy">This link can read the entire saved document, not just the reserved area. It cannot read other workspace files. Built-in and external agents share the same proposal list.</p>
       {!versions.length && !task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
     </div> : task.protocol !== 'mote-agent-v7' ? <div className="ai-composer">
       {annotations}
