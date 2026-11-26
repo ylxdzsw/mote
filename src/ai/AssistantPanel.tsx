@@ -36,7 +36,7 @@ export function AssistantPanel({ assistant, activeId, selection, onReserve, onLo
 
 export function AssistantHelp() {
   return <InspectorHelp title="Assistant & privacy">
-    <p>Reservations, expiration changes, Accept, and Discard are undoable document edits. They request an early debounced sync; cloud conflicts preserve your local changes. Agent access follows the last saved task state.</p>
+    <p>Agent access follows the saved reservation. Creating a reservation, editing its annotations, accepting a proposal, or discarding the reservation can all be undone.</p>
     <p>Built-in and external agents can work together. These tabs only change the controls shown; switching tabs does not stop work or change access. Proposals share one version list and never edit your document automatically.</p>
     <p>Agents can read the latest saved version of this document, but not other workspace files. Private blocks external agents; the built-in agent still works on this document. Downloaded content cannot be recalled.</p>
     <p>Accept replaces the reserved content and releases its reservation in one local undo step. Discard releases without changing content. Undo restores the same task and cached proposals; it never restarts generation.</p>
@@ -58,7 +58,11 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
     try { await navigator.clipboard.writeText(text); setCopyNotice(`${label} copied.`) }
     catch { setCopyNotice(`Could not copy ${label.toLowerCase()}. Check clipboard permissions and retry.`) }
   }
-  const expiry = task.expiresAt ? new Date(task.expiresAt - new Date(task.expiresAt).getTimezoneOffset() * 60_000).toISOString().slice(0, 16) : ''
+  const annotations = !inactive && <div className="ai-actions" role="group" aria-label="Spatial instructions">
+    <button type="button" className="ai-quiet" onClick={onAnnotate}><PanelIcon name="edit" />{task.markup ? 'Edit annotations…' : 'Annotate…'}</button>
+    {task.markup && <button type="button" className="ai-quiet" aria-label="Clear annotations" onClick={() => assistant.setMarkup(task.id, undefined)}>Clear</button>}
+  </div>
+  const thumbnail = !inactive && task.markup && <div className="ai-markup-thumbnail" style={{ aspectRatio: `${task.markup.width} / ${task.markup.height}` }}><MarkupView markup={task.markup} /></div>
   return <section className="ai-task" data-ai-task={task.id} aria-label={taskTitle(task)} hidden={!active}>
     <div className="ai-task-body">
       <div className="ai-task-header">
@@ -70,26 +74,11 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
             <button type="button" role="tab" aria-selected={!external} onClick={() => assistant.update(task.id, { executor: 'builtin' })}>Built-in</button>
             <button type="button" role="tab" aria-selected={external} onClick={() => assistant.update(task.id, { executor: 'external' })}>External</button>
           </div>
-          <details className="ai-info"><summary>Task access</summary>
-            <label>Expires <input type="datetime-local" aria-label="Task expiration" value={expiry} disabled={!!task.released}
-              onChange={event => assistant.setExpiration(task.id, event.target.value ? new Date(event.target.value).getTime() : undefined)} /></label>
-            <p>Empty means no expiration. Access follows the saved task state; undo can restore the same link.</p>
-          </details>
-          {!task.released && assistant.expirationPending(task) && <p className="ai-note" role="status">Expiration change is pending document sync.</p>}
         </div>
       </div>
-      {!inactive && <section className="ai-spatial-instructions" aria-label="Spatial instructions">
-        <h3>Spatial instructions</h3>
-        {task.markup && <div className="ai-markup-thumbnail" style={{ aspectRatio: `${task.markup.width} / ${task.markup.height}` }}><MarkupView markup={task.markup} /></div>}
-        <div className="ai-actions">
-          <button onClick={onAnnotate}>{task.markup ? 'Edit…' : 'Annotate…'}</button>
-          {task.markup && <button className="ai-quiet" onClick={() => assistant.setMarkup(task.id, undefined)}>Clear</button>}
-        </div>
-        <p>Saved with this reservation, not the document content.</p>
-      </section>}
       {inactive && <p className="ai-note" role="status">{inactive}</p>}
       {!external && (task.submitted || busy) && <div className={`ai-activity${expanded ? '' : ' is-collapsed'}`}>
-        <button className="ai-activity-toggle" aria-expanded={expanded} disabled={busy} onClick={() => setActivityCollapsed(!activityCollapsed)}><span>Activity</span><span aria-hidden="true">{expanded ? '⌃' : '⌄'}</span></button>
+        <button className="ai-activity-toggle" aria-expanded={expanded} disabled={busy} onClick={() => setActivityCollapsed(!activityCollapsed)}>Activity <PanelIcon name="chevron" /></button>
         <div className="ai-activity-body" hidden={!expanded}><Suspense fallback={<p className="ai-note">Loading activity…</p>}>
           <Transcript taskId={task.id} documentId={task.documentId} active={active && expanded} submitted={task.submitted} onMissing={() => assistant.missingRemote(task.id)} />
         </Suspense></div>
@@ -118,9 +107,10 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
           <button className="ai-quiet" onClick={() => assistant.discard(task.id)}>Discard</button>
         </div>}
       </section>}
-      <RecoveryDetails task={task} />
     </div>
     {external ? <div className="ai-composer ai-external-access">
+      {annotations}
+      {thumbnail}
       <div className="ai-actions ai-external-buttons">
         <button disabled={!instructions} onClick={() => instructions && void copy(instructions, 'Instructions')}>Copy instructions</button>
         <button disabled={!link} onClick={() => link && void copy(link, 'Link')}>Copy link</button>
@@ -132,11 +122,14 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
       <p className="ai-privacy">This link can read the entire saved document, not just the reserved area. It cannot read other workspace files. Built-in and external agents share the same proposal list.</p>
       {!versions.length && !task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
     </div> : task.protocol !== 'mote-agent-v7' ? <div className="ai-composer">
+      {annotations}
+      {thumbnail}
       {!task.released && <button onClick={() => assistant.discard(task.id)}>Discard reservation</button>}
     </div>
       : <form className="ai-composer" onSubmit={event => { event.preventDefault(); void assistant.start(task.id, prompt) }}>
       {!task.released && <>
-        <label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>
+        <div className="ai-request-heading"><label htmlFor={`ai-request-${task.id}`}>{task.submitted ? 'Follow-up' : 'Request'}</label>{annotations}</div>
+        {thumbnail}
         <textarea id={`ai-request-${task.id}`} aria-label="AI request" rows={3} value={prompt} placeholder="Describe the change or refer to any version…"
           onChange={event => assistant.update(task.id, { draftPrompt: event.target.value })} />
       </>}
@@ -147,16 +140,6 @@ function TaskView({ task, active, assistant, onLocate, onAnnotate }: { task: AIT
       </div>
     </form>}
   </section>
-}
-
-function downloadRecovery(value: unknown, name: string) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
-  const link = document.createElement('a'); link.href = url; link.download = name; link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-function RecoveryDetails({ task }: { task: AITask }) {
-  return <div className="ai-recovery-details"><button type="button" className="ai-quiet" title="Download the request, original snapshot, and result as JSON." onClick={() => downloadRecovery(task, `mote-ai-${task.id}.json`)}>Download task JSON</button></div>
 }
 
 function CloudStatus({ assistant }: { assistant: Assistant }) {

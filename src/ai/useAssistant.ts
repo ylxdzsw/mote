@@ -19,7 +19,7 @@ import { carrySegmentEdit, copySegment, type SegmentClipboard } from '../documen
 const candidateCache = new WeakMap<object, WeakMap<object, Map<string, { context?: SegmentContext; result: MoteDocument }>>>()
 
 function previewFailure(error: unknown) {
-  return { preview: false, error: `Preview unavailable. Your original content is unchanged and the candidate is retained. Try Preview again or download the task JSON for recovery. ${error instanceof Error ? error.message : String(error)}` }
+  return { preview: false, error: `Preview unavailable. Your original content is unchanged and the candidate is retained. ${error instanceof Error ? error.message : String(error)}` }
 }
 
 function memoizedCandidate(doc: MoteDocument, candidate: object, taskId: string, context: SegmentContext | undefined, create: () => MoteDocument) {
@@ -210,10 +210,10 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     openTask(reservation.id); setNotice('')
     return asTask(reservation)
   }
-  function setProperties(id: string, patch: Pick<Reservation, 'expiresAt' | 'markup'>) {
+  function setMarkup(id: string, markup?: ReservationMarkup) {
     const task = getTask(id)
     if (!writable || !task || task.released) return
-    history.setReservations(history.currentReservations().map(item => item.id === id ? { ...item, ...patch } : item))
+    history.setReservations(history.currentReservations().map(item => item.id === id ? { ...item, markup } : item))
   }
   const release = (ids: string[]) => history.currentReservations().filter(task => !ids.includes(task.id))
   function discard(id: string) {
@@ -314,9 +314,7 @@ export function useAssistant(history: ReturnType<typeof useDocumentHistory>, wri
     externalBlocked: cloud?.externalBlocked ?? false,
     agentLink: (task: AITask) => task.protocol === 'mote-agent-v7' && !cloud?.externalBlocked && !task.released && access[task.id]?.externalPath
       ? new URL(access[task.id].externalPath!, window.location.origin).href : undefined,
-    setExpiration: (id: string, expiresAt?: number) => setProperties(id, { expiresAt }),
-    setMarkup: (id: string, markup?: ReservationMarkup) => setProperties(id, { markup }),
-    expirationPending: (task: AITask) => access[task.id]?.expiresAt !== task.expiresAt,
+    setMarkup,
     previewFailed: (id: string, error: unknown) => update(id, previewFailure(error)),
     missingRemote: (id: string) => setStatusIssues(value => ({ ...value, [id]: 'Execution details are unavailable. Retained proposals can still be reviewed.' })),
     statusIssue: (id: string) => statusIssues[id], checkStatus,

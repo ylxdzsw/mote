@@ -2226,3 +2226,7 @@ Keep Files → New as a single action: the form sets up a blank document, while 
 ## 2026-11-26 — Files creation-time sorting
 
 Recently modified keeps work in progress easy to resume. Recently created replaces name sorting so an edit to an older file does not obscure newer files. Row dates follow the selected sort so the order is visible.
+
+## 2026-11-26 — Assistant instructions and task lifetime
+
+Group annotation with the written request or external handoff: both instruct the agent about the same reserved content. Give the activity transcript more reading room rather than dedicating sections to annotations, task export, or access settings. The saved reservation governs new task lifetimes; retain existing expiry and privacy checks rather than broadening access to old links. Working-copy recovery stays in Files.
