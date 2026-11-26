@@ -2230,3 +2230,7 @@ Recently modified keeps work in progress easy to resume. Recently created replac
 ## 2026-11-26 — Assistant instructions and task lifetime
 
 Group annotation with the written request or external handoff: both instruct the agent about the same reserved content. Give the activity transcript more reading room rather than dedicating sections to annotations, task export, or access settings. The saved reservation governs new task lifetimes; retain existing expiry and privacy checks rather than broadening access to old links. Working-copy recovery stays in Files.
+
+## 2026-11-26 — Built-in agent skills and DNS
+
+A built-in task should be able to use the same global skills as the operator without inheriting the operator’s instructions or journal. Keep skills in a separate read-only home, and keep task history in the existing task `.mu`. Skills such as image-gen use ordinary outbound APIs: expose the host resolver rather than the systemd control directory or a provider-specific network exception.

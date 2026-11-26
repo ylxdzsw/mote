@@ -155,6 +155,30 @@ export async function fakeRunner(context) {
   return { sessionId: context.sessionId || `fake-${context.taskId}` }
 }
 
+// HOME holds only a read-only global skill scope. The task cwd remains Mu's
+// project scope, including the same session store used before this split.
+async function prepareSkillHome(home, shared) {
+  const scope = path.join(home, '.mu')
+  await fs.rm(home, { recursive: true, force: true }) // only the derived copy under read-only input
+  await fs.mkdir(home, { mode: 0o755 }); await fs.chmod(home, 0o755)
+  await fs.mkdir(scope, { mode: 0o755 })
+  const sources = []
+  const entries = await fs.readdir(shared, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error })
+  for (const entry of entries) {
+    if (!/^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$/.test(entry.name) || ['AGENTS.md', 'config.jsonc', 'objects', 'sessions'].includes(entry.name)) continue
+    const file = path.join(shared, entry.name)
+    if (entry.isDirectory()) {
+      const skill = await fs.lstat(path.join(file, 'SKILL.md')).catch(error => { if (error.code !== 'ENOENT') throw error })
+      if (skill?.isFile()) sources.push(file)
+    } else if (entry.isFile() && /^(?:#![^\n]*\n)?---/.test(await fs.readFile(file, 'utf8'))) sources.push(file)
+  }
+  // Copy whole bundles for relative helpers. Never change host permissions or
+  // dereference bundle symlinks while copying as the supervisor.
+  if (sources.length) await childWait('cp', ['-RP', '--reflink=auto', '-t', scope, '--', ...sources], {})
+  await fs.writeFile(path.join(scope, 'config.jsonc'), '{}') // Mu must not bootstrap a writable global config
+  await childWait('chmod', ['-R', 'a+rX', scope], {})
+}
+
 async function prepareWorkerPaths(context) {
   if (!context.useSystemd) return
   const user = context.env.MOTED_WORKER_USER || 'mote-ai'
@@ -174,6 +198,9 @@ export function workerStorageProperties(context) {
   const quote = value => `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%')}"`
   const tasksDir = context.tasksDir || path.dirname(context.taskDir)
   return [
+    // Hide systemd control sockets without breaking resolver symlinks into /run/systemd.
+    'TemporaryFileSystem=/run/systemd:ro',
+    'BindReadOnlyPaths=/etc/resolv.conf',
     // Each worker sees only its own bind-mounted task, never sibling sessions.
     `TemporaryFileSystem=${quote(tasksDir)}:ro,mode=0711`,
     `InaccessiblePaths=${quote(context.dataDir || defaults.dataDir)} -${quote(context.backupDir || defaults.backupDir)} -/etc/nginx`,
@@ -235,7 +262,7 @@ export async function muRunner(context) {
   const environment = {
     PATH: context.env.PATH || '/usr/local/bin:/usr/bin:/bin',
     LANG: context.env.LANG || 'C.UTF-8',
-    HOME: context.taskDir,
+    HOME: path.join(context.inputDir, 'skill-home'),
     TMPDIR: '/tmp',
     XDG_CONFIG_HOME: path.join(context.taskDir, '.config'),
     XDG_CACHE_HOME: path.join(context.taskDir, '.cache'),
@@ -257,7 +284,7 @@ export async function muRunner(context) {
   if (context.useSystemd) {
     command = context.env.MOTED_SYSTEMD_RUN || 'systemd-run'
     const property = value => `--property=${value}`
-    args = ['--quiet', '--pipe', '--wait', '--collect', '--unit', unit, '--service-type=exec', property('KillMode=control-group'), property('RemainAfterExit=no'), property(`RuntimeMaxSec=${Math.ceil(context.timeoutMs / 1000)}`), property(`CPUQuota=${context.env.MOTED_CPU_QUOTA || '200%'}`), property(`MemoryMax=${context.env.MOTED_MEMORY_MAX || '2G'}`), property(`TasksMax=${context.env.MOTED_TASKS_MAX || '256'}`), property('NoNewPrivileges=yes'), property('CapabilityBoundingSet='), property('AmbientCapabilities='), property('ProtectSystem=strict'), property('ProtectHome=read-only'), property('PrivateTmp=yes'), property('PrivatePIDs=yes'), property('PrivateDevices=yes'), property('ProtectControlGroups=yes'), property('ProtectKernelTunables=yes'), property('ProtectKernelModules=yes'), property('ProtectHostname=yes'), property('RestrictSUIDSGID=yes'), property('LockPersonality=yes'), property(`BindReadOnlyPaths=${context.taskDir}`), property(`BindReadOnlyPaths=${context.sourcePath}`), property(`ReadOnlyPaths=${path.join(context.taskDir, 'input')}`), property(`ReadOnlyPaths=${context.promptPath}`), property('ReadOnlyPaths=/root/.mu'), property(`BindPaths=${path.join(context.taskDir, '.mu')}`), property(`BindPaths=${path.join(context.taskDir, 'tmp')}`), property(`BindPaths=${path.join(context.taskDir, '.config')}`), property(`BindPaths=${path.join(context.taskDir, '.cache')}`), property(`BindPaths=${path.join(context.taskDir, '.agent-browser')}`), property(`BindPaths=${context.outputDir}`), property(`ReadOnlyPaths=${path.join(context.taskDir, '.mu', 'config.jsonc')}`), property(`ReadOnlyPaths=${path.join(context.taskDir, '.mu', 'AGENTS.md')}`), property(`ReadOnlyPaths=-${path.join(context.taskDir, '.mu', '.env')}`), property('InaccessiblePaths=-/run/dbus -/run/systemd -/run/docker.sock -/var/run/docker.sock -/run/moted -/run/user -/root/.mu/.env'), property(`WorkingDirectory=${context.taskDir}`), `--uid=${context.env.MOTED_WORKER_USER || 'mote-ai'}`]
+    args = ['--quiet', '--pipe', '--wait', '--collect', '--unit', unit, '--service-type=exec', property('KillMode=control-group'), property('RemainAfterExit=no'), property(`RuntimeMaxSec=${Math.ceil(context.timeoutMs / 1000)}`), property(`CPUQuota=${context.env.MOTED_CPU_QUOTA || '200%'}`), property(`MemoryMax=${context.env.MOTED_MEMORY_MAX || '2G'}`), property(`TasksMax=${context.env.MOTED_TASKS_MAX || '256'}`), property('NoNewPrivileges=yes'), property('CapabilityBoundingSet='), property('AmbientCapabilities='), property('ProtectSystem=strict'), property('ProtectHome=read-only'), property('PrivateTmp=yes'), property('PrivatePIDs=yes'), property('PrivateDevices=yes'), property('ProtectControlGroups=yes'), property('ProtectKernelTunables=yes'), property('ProtectKernelModules=yes'), property('ProtectHostname=yes'), property('RestrictSUIDSGID=yes'), property('LockPersonality=yes'), property(`BindReadOnlyPaths=${context.taskDir}`), property(`BindReadOnlyPaths=${context.sourcePath}`), property(`ReadOnlyPaths=${path.join(context.taskDir, 'input')}`), property(`ReadOnlyPaths=${context.promptPath}`), property('ReadOnlyPaths=/root/.mu'), property(`BindPaths=${path.join(context.taskDir, '.mu')}`), property(`BindPaths=${path.join(context.taskDir, 'tmp')}`), property(`BindPaths=${path.join(context.taskDir, '.config')}`), property(`BindPaths=${path.join(context.taskDir, '.cache')}`), property(`BindPaths=${path.join(context.taskDir, '.agent-browser')}`), property(`BindPaths=${context.outputDir}`), property(`ReadOnlyPaths=${path.join(context.taskDir, '.mu', 'config.jsonc')}`), property(`ReadOnlyPaths=${path.join(context.taskDir, '.mu', 'AGENTS.md')}`), property(`ReadOnlyPaths=-${path.join(context.taskDir, '.mu', '.env')}`), property('InaccessiblePaths=-/run/dbus -/run/docker.sock -/var/run/docker.sock -/run/moted -/run/user -/root/.mu/.env'), property(`WorkingDirectory=${context.taskDir}`), `--uid=${context.env.MOTED_WORKER_USER || 'mote-ai'}`]
     args.push(...workerStorageProperties(context).map(property))
     for (const [key, value] of Object.entries(environment)) args.push(`--setenv=${key}=${value}`)
     args.push('--', mu, ...muArgs)
@@ -282,6 +309,8 @@ export async function muRunner(context) {
   let failure
   let closeBridges = async () => {}
   try {
+    await prepareSkillHome(environment.HOME, path.resolve(context.env.MOTED_SHARED_MU_DIR || '/root/.mu'))
+    if (context.signal.aborted) throw new Error('aborted')
     closeBridges = await providerBridges(context.taskDir)
     if (context.signal.aborted) throw new Error('aborted')
     await childWait(command, args, spawnOptions, value => {
@@ -295,6 +324,7 @@ export async function muRunner(context) {
     // The runner promise covers their death AND all shared provider/log cleanup.
     try { await stopWorker() } catch (error) { failure ??= error }
     try { await closeBridges() } catch (error) { failure ??= error }
+    await fs.rm(environment.HOME, { recursive: true, force: true }).catch(error => { failure ??= error })
     stdout.end(); stderr.end()
     await Promise.all([stdout.done, stderr.done])
     await trimLogs(path.join(context.taskDir, 'logs'), logTotalLimit, context.generation)

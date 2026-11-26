@@ -603,7 +603,7 @@ export class TaskManager {
     const scope = { generation, token: this.store.credential(task.id).token }
     const reservation = this.store.reservation(task.id, task.meta.documentId)
     const descriptor = this.description(task, reservation, context.agent.url, scope)
-    const promptText = `${JSON.stringify(descriptor, null, 2)}\n\n# Run-local execution details\nFull document copy: ${file} (revision ${context.documentRevision})\nOutput directory: ${output}\nAgent URL: ${context.agent.url}\nUnix socket: ${context.agent.socketPath}\nSubmission command: MOTED_AGENT_SOCKET='${context.agent.socketPath}' node '${path.join(descriptor.helpers, 'submit.mjs')}' '${context.agent.url}' '${output}'\n`
+    const promptText = `${JSON.stringify(descriptor, null, 2)}\n\n# Run-local execution details\nCurrent skills (including global skills added since this session began): mu status --json --include-skills. Read a requested skill at its listed path before using it.\nFull document copy: ${file} (revision ${context.documentRevision})\nOutput directory: ${output}\nAgent URL: ${context.agent.url}\nUnix socket: ${context.agent.socketPath}\nSubmission command: MOTED_AGENT_SOCKET='${context.agent.socketPath}' node '${path.join(descriptor.helpers, 'submit.mjs')}' '${context.agent.url}' '${output}'\n`
     await writeImmutable(path.join(run, 'prompt.md'), promptText)
     return { promptPath: path.join(run, 'prompt.md'), outputDir: output }
   }
