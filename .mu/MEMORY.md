@@ -2246,3 +2246,7 @@ A label that fits inside a drawn shape should still fit after resizing the figur
 ## 2026-11-26 — Move labels in the Drawing editor
 
 Keep placement and wording in the same Label tool: click to edit, drag from the grabbed point to move. A small screen-space threshold distinguishes the two at any zoom. Preview the move without writing history until release; Escape abandons it in place. The shared annotation editor uses the same gesture on its own marks, not the locked background.
+
+## 2026-11-27 — Editor Auto zoom favors actual size
+
+Snap a fit of 100–105% down to actual size, never up from below 100%, so Auto keeps its fit guarantees without capping larger views. Show the mode with its percentage, so choosing the fixed 100% preset is still a distinct action when Auto is already at that scale. Readers and captures retain their own scaling rules.

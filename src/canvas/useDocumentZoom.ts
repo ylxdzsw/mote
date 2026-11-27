@@ -1,6 +1,8 @@
 import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 
+const snapTolerance = .05
+
 interface Point { x: number; y: number }
 
 export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: RefObject<HTMLDivElement | null>, width: number, editingLayout: boolean, initialScale?: number, paused = false) {
@@ -27,7 +29,8 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     const availableHeight = Math.max(1, viewport.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom))
 
     // Keep at least 600 document pixels visible instead of overfilling wide, short screens.
-    const automatic = Math.min(3, availableWidth / width, availableHeight / 600)
+    const fit = Math.min(3, availableWidth / width, availableHeight / 600)
+    const automatic = editingLayout && fit >= 1 && fit <= 1 + snapTolerance ? 1 : fit
     if (zoom === null && automatic !== scale && !focal.current) {
       const rect = viewport.getBoundingClientRect()
       // Anchor the visible top, not the centre; leave the page top in place when it is visible.
@@ -58,7 +61,7 @@ export function useDocumentZoom(stage: RefObject<HTMLDivElement | null>, sheet: 
     wheelGesture.current = null
     if (snap) {
       const target = [1, autoScale].sort((a, b) => Math.abs(Math.log(next / a)) - Math.abs(Math.log(next / b)))
-        .find(value => next >= value * .95 && next <= value * 1.05)
+        .find(value => next >= value * (1 - snapTolerance) && next <= value * (1 + snapTolerance))
       if (target !== undefined) next = target
     }
     next = Math.max(minScale, Math.min(3, next))

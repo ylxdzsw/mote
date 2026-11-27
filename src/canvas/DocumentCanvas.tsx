@@ -920,9 +920,9 @@ export function DocumentCanvas({ doc, editable, editingLayout = editable, format
   }
 
   const zoomControl = <div className="zoom-level">
-    <select aria-label="Document zoom level" title={automatic ? 'Auto zoom' : 'Zoom'} value={String(scale)} onChange={event => event.target.value === 'auto' ? reset() : zoomTo(Number(event.target.value))}>
-      <option value="auto">Auto</option>
-      {!zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
+    <select aria-label="Document zoom level" value={automatic ? 'auto' : String(scale)} onChange={event => event.target.value === 'auto' ? reset() : zoomTo(Number(event.target.value))}>
+      <option value="auto">{automatic ? `Auto (${Math.round(scale * 100)}%)` : 'Auto'}</option>
+      {!automatic && !zoomPresets.includes(scale) && <option value={String(scale)} hidden>{Math.round(scale * 100)}%</option>}
       {zoomPresets.map(value => <option key={value} value={String(value)}>{value * 100}%</option>)}
     </select>
     <PanelIcon name="chevron" />
